@@ -474,7 +474,7 @@ async function manageAppsOnBoot(bootContext) {
     await openInstalledAppPorts();
     // Detached: the apps start without waiting on their UPnP mappings, which a
     // router slow to answer or refusing one would hold up.
-    portManager.restoreAppsPortsSupport();
+    portManager.declareInstalledAppsPorts();
     await reconcileAppsOnBoot();
   } finally {
     globalState.bootContainerStateSettled = true;

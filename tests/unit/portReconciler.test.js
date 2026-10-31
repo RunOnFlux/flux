@@ -431,11 +431,15 @@ describe('portReconciler tests', () => {
       sinon.assert.notCalled(createMappingStub);
     });
 
-    it('should no longer hold a port it failed to map', async () => {
+    it('should still want a port it failed to map, until its release', async () => {
       createMappingStub.onSecondCall().rejects(refusal(718, 'ConflictInMappingEntry'));
+      sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
 
       await portReconciler.want(123, 'Flux_App_web');
+      const wantedAfterRefusal = portReconciler.wanted.has(123);
+      await portReconciler.release(123, 'Flux_App_web');
 
+      expect(wantedAfterRefusal).to.equal(true);
       expect(portReconciler.wanted.has(123)).to.equal(false);
     });
 
@@ -605,7 +609,6 @@ describe('portReconciler tests', () => {
       portReconciler.wanted.clear();
       portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
-      portReconciler.releasedPorts.clear();
       portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
       portReconciler.pendingRemovals.clear();
       sinon.stub(serviceHelper, 'delay').resolves();
@@ -631,7 +634,7 @@ describe('portReconciler tests', () => {
       await portReconciler.release(777, 'Flux_App_web');
       createMappingStub.resetHistory();
 
-      const result = await portReconciler.keep(777, 'Flux_App_web');
+      const result = await portReconciler.keep(777);
 
       expect(result.released).to.equal(true);
       sinon.assert.notCalled(createMappingStub);
@@ -647,7 +650,7 @@ describe('portReconciler tests', () => {
       portReconciler.wantedMaps.delete(778);
       createMappingStub.resetHistory();
 
-      const result = await portReconciler.keep(778, 'Flux_App_web');
+      const result = await portReconciler.keep(778);
 
       expect(result.mapped).to.equal(true);
       sinon.assert.called(createMappingStub);
@@ -987,7 +990,6 @@ describe('portReconciler tests', () => {
       portReconciler.wanted.clear();
       portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
-      portReconciler.releasedPorts.clear();
       portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
       portReconciler.pendingRemovals.clear();
       upnpRouter.routerLeases.kept = null;
@@ -1025,7 +1027,7 @@ describe('portReconciler tests', () => {
       calls = [];
       const held = holdNext(createMappingStub, 'map');
 
-      const refreshing = portReconciler.keep(31000, 'Flux_App_web');
+      const refreshing = portReconciler.keep(31000);
       await settle();
       const releasing = portReconciler.release(31000, 'Flux_App_web');
       held.open();
@@ -1141,20 +1143,22 @@ describe('portReconciler tests', () => {
       expect(portReconciler.isWanted(31005)).to.equal(false);
     });
 
-    it('no longer wants a port nothing holds when its map is refused', async () => {
+    it('still wants a port an installation wants when its map is refused', async () => {
       createMappingStub.rejects(new natUpnp.UpnpError(728, 'NoPortMapsAvailable', 'AddPortMapping'));
       getMappingStub.resolves(null);
 
       await portReconciler.want(31006, 'Flux_App_web');
 
-      expect(portReconciler.isWanted(31006)).to.equal(false);
+      expect(portReconciler.isWanted(31006)).to.equal(true);
     });
 
     it('runs the turns a caller waits on before upkeep queued ahead of them', async () => {
+      // what an earlier map left wanted, for the refresh to renew
+      portReconciler.wanted.set(31008, { description: 'Flux_App_web', holder: null });
       const held = holdNext(createMappingStub, 'map');
       const first = portReconciler.want(31007, 'Flux_App_web', { protocols: ['TCP'] });
       await settle();
-      const upkeep = portReconciler.keep(31008, 'Flux_App_web', { protocols: ['TCP'] });
+      const upkeep = portReconciler.keep(31008, { protocols: ['TCP'] });
       const intent = portReconciler.want(31009, 'Flux_App_web', { protocols: ['TCP'] });
       held.open();
       await Promise.all([first, upkeep, intent]);
@@ -1164,6 +1168,7 @@ describe('portReconciler tests', () => {
 
     it('sends the router one request at a time, whoever asks', async () => {
       await portReconciler.want(31010, 'Flux_App_web');
+      portReconciler.wanted.set(31012, { description: 'Flux_App_web', holder: null });
       const held = holdNext(createMappingStub, 'map');
       calls = [];
       most = 0;
@@ -1171,7 +1176,7 @@ describe('portReconciler tests', () => {
       const asked = [
         portReconciler.want(31011, 'Flux_App_web'),
         portReconciler.release(31010, 'Flux_App_web'),
-        portReconciler.keep(31012, 'Flux_App_web'),
+        portReconciler.keep(31012),
         portReconciler.onRouter(() => natUpnp.Client.prototype.removeMapping({ public: 31013, protocol: 'TCP' })),
       ];
       await settle();
@@ -1206,7 +1211,6 @@ describe('portReconciler tests', () => {
       portReconciler.wanted.clear();
       portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
-      portReconciler.releasedPorts.clear();
       upnpRouter.routerLeases.kept = true;
       upnpRouter.routerLeases.renews = null;
       clock = sinon.useFakeTimers({ toFake: ['hrtime'] });
@@ -1226,7 +1230,7 @@ describe('portReconciler tests', () => {
       createMappingStub.resetHistory();
       clock.tick(CYCLE_MS - 1);
 
-      const result = await portReconciler.keep(31020, 'Flux_App_web');
+      const result = await portReconciler.keep(31020);
 
       expect(result.mapped).to.equal(true);
       expect(asked()).to.deep.equal([]);
@@ -1237,7 +1241,7 @@ describe('portReconciler tests', () => {
       createMappingStub.resetHistory();
       clock.tick(CYCLE_MS);
 
-      await portReconciler.keep(31021, 'Flux_App_web');
+      await portReconciler.keep(31021);
 
       expect(asked()).to.deep.equal(['TCP 0', 'UDP 0']);
     });
@@ -1249,7 +1253,7 @@ describe('portReconciler tests', () => {
       createMappingStub.resetHistory();
       upnpRouter.routerLeases.renews = true;
 
-      await portReconciler.keep(31022, 'Flux_App_web');
+      await portReconciler.keep(31022);
 
       expect(asked()).to.deep.equal([`TCP ${LONG_LEASE_S}`, `UDP ${LONG_LEASE_S}`]);
     });
@@ -1259,20 +1263,60 @@ describe('portReconciler tests', () => {
     it('renews at every refresh a port its last refresh mapped', async () => {
       await portReconciler.want(31023, 'Flux_App_web');
       clock.tick(CYCLE_MS);
-      await portReconciler.keep(31023, 'Flux_App_web');
+      await portReconciler.keep(31023);
       createMappingStub.resetHistory();
       clock.tick(CYCLE_MS - 1);
 
-      await portReconciler.keep(31023, 'Flux_App_web');
+      await portReconciler.keep(31023);
 
       expect(asked()).to.deep.equal(['TCP 0', 'UDP 0']);
+    });
+
+    it('keeps a port wanted when the router refuses it, and maps it again at the next refresh', async () => {
+      let refuse = true;
+      createMappingStub.callsFake(async () => {
+        if (refuse) {
+          refuse = false;
+          throw new natUpnp.UpnpError(501, 'ActionFailed', 'AddPortMapping');
+        }
+      });
+
+      const refused = await portReconciler.want(31025, 'Flux_App_web', { protocols: ['TCP'] });
+      createMappingStub.resetHistory();
+      const renewed = await portReconciler.keep(31025, { protocols: ['TCP'] });
+
+      expect(refused.mapped).to.equal(false);
+      expect(portReconciler.isWanted(31025)).to.equal(true);
+      expect(renewed.mapped).to.equal(true);
+      expect(asked()).to.deep.equal(['TCP 0']);
+      expect(createMappingStub.firstCall.args[0].description).to.equal('Flux_App_web');
+    });
+
+    it('renews nothing that was never wanted, or that only a test holds', async () => {
+      await portReconciler.want(31026, 'Flux_Test_App', { holder: {} });
+      createMappingStub.resetHistory();
+
+      const never = await portReconciler.keep(31027);
+      const tested = await portReconciler.keep(31026);
+
+      expect([never.released, tested.released]).to.deep.equal([true, true]);
+      expect(asked()).to.deep.equal([]);
+    });
+
+    it('lists as wanted app ports the ports installations want, and nothing a test holds or the node maps for itself', async () => {
+      await portReconciler.want(31028, 'Flux_App_web');
+      // a spawner's port test holds the app's port under the app's own description
+      await portReconciler.want(31029, 'Flux_App_attempt', { holder: {} });
+      await portReconciler.want(16127, 'Flux_Backend_API', { protocols: ['TCP'] });
+
+      expect(portReconciler.desiredAppPorts()).to.deep.equal([{ port: 31028, description: 'Flux_App_web' }]);
     });
 
     it('maps a port again over a protocol want did not map', async () => {
       await portReconciler.want(31024, 'Flux_App_web', { protocols: ['TCP'] });
       createMappingStub.resetHistory();
 
-      await portReconciler.keep(31024, 'Flux_App_web');
+      await portReconciler.keep(31024);
 
       expect(asked()).to.deep.equal(['TCP 0', 'UDP 0']);
     });

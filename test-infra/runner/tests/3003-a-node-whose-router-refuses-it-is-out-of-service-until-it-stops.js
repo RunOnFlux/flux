@@ -322,12 +322,16 @@ describe('a node whose router refuses it is out of service until it stops', func
     const releasedFrom = Date.now();
     const ofPortSince = (state) => state.requests.filter((r) => r.port === port && Date.parse(r.at) >= releasedFrom);
 
+    // A mapping made again ends the removal's retries, so the wait ends at the first add too.
     let state;
     await waitFor(async () => {
       state = await gateway();
-      return ofPortSince(state).filter((r) => r.action === 'DeletePortMapping').length >= 2;
+      const requests = ofPortSince(state);
+      return requests.some((r) => r.action === 'AddPortMapping')
+        || requests.filter((r) => r.action === 'DeletePortMapping').length >= 2;
     }, { timeout: RELEASED_WITHIN_MS, interval: 2000, label: 'the router asked again to remove the removed app\'s mapping' });
     expect(ofPortSince(state).filter((r) => r.action === 'AddPortMapping'), 'the removed app\'s port mapped again').to.deep.equal([]);
+    expect(ofPortSince(state).filter((r) => r.action === 'DeletePortMapping').length, 'the removal asked again').to.be.at.least(2);
 
     await setUpnpRefuseDeletes(nodeIp, 0);
     await waitFor(async () => !(await gateway()).mappings.some((m) => m.externalPort === port), {

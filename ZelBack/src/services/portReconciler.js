@@ -18,18 +18,18 @@ const {
 // settles, so what a turn reads of this module's state still holds when it
 // acts on it, and the router answers one request of this node at a time.
 
-// Ports wanted mapped to this node, by port: { description, holder }. A port
-// mapped here is in use - a test port mid-test, an app installing - whatever the
-// app table says so far. `holder` is the test holding the port, or null.
+// Ports wanted mapped to this node, by port: { description, holder }: what this
+// node's mappings should be. A port is wanted from its want or hold until its
+// release, a map the router refused included, so the refresh renews exactly what
+// is wanted (keep). A port wanted here is in use - a test port mid-test, an app
+// installing - whatever the app table says so far. `holder` is the test holding
+// the port, or null.
 const wanted = new Map();
 // The protocols of each port whose latest map here created the mapping or found
 // it already this node's, by port: what a release removes. A router refuses to
 // map a port another machine holds, so a mapping it took is this node's, and
 // one it refused never is.
 const mappedProtocols = new Map();
-// Ports released and not wanted since: the app holding one is removed or being
-// removed, and keep maps none of them again.
-const releasedPorts = new Set();
 // Ports want mapped, by port: { description, lease, atMs }, the lease the router
 // took and when. keep leaves one alone for a refresh cycle
 // (config.fluxapps.portRestoreIntervalMs) while its lease is still the one
@@ -51,6 +51,9 @@ const pendingRemovals = new Map();
 const intentTurns = [];
 const upkeepTurns = [];
 let laneRunning = false;
+
+// what an app's ports are described as (appInstaller.setupApplicationPorts)
+const APP_DESCRIPTION_PREFIX = 'Flux_App_';
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -171,9 +174,9 @@ async function removeHeldTestMappings(port) {
  * A port wanted with no holder - an installation's - is never asked of the
  * router for a holder: a test's add would put the test's description and lease
  * on the installation's mapping, so the test is answered not mapped and the
- * port stays the installation's. On a failure the port is no longer wanted unless a holder holds it, which keeps it
- * until its own release; a protocol the router took is still recorded, for a
- * release to remove.
+ * port stays the installation's. On a failure the port stays wanted, for the
+ * refresh to map again, until its release; a protocol the router took is still
+ * recorded, for a release to remove.
  * @param {number} port
  * @param {string} description
  * @param {{protocols: string[], counted: boolean, logged: boolean, holder: object|null, upkeep: boolean}} options
@@ -190,7 +193,6 @@ async function mapPort(port, description, {
     };
   }
   const heldFor = current && current.holder === null ? null : holder;
-  releasedPorts.delete(port);
   wanted.set(port, { description, holder: heldFor });
   wantedMaps.delete(port);
   if (!isTestMappingDescription(description)) await removeHeldTestMappings(port);
@@ -207,7 +209,6 @@ async function mapPort(port, description, {
   }
   if (!result.mapped) {
     if (logged) log.error(`UPnP - ${result.reason}`);
-    if (heldFor === null) wanted.delete(port);
     return result;
   }
   // leaseFor after the map: a router that refused the lease has the mapping
@@ -234,22 +235,22 @@ function mappedThisCycle(port, description, protocols) {
 }
 
 /**
- * The turn of keep: a released port is left alone, its pending removals with
- * it; a port want mapped this refresh cycle is left as it is (mappedThisCycle);
- * any other is mapped as want maps it.
+ * The turn of keep: a port no installation wants is left alone, its pending
+ * removals with it; a port want mapped this refresh cycle is left as it is
+ * (mappedThisCycle); any other is mapped again as it was wanted.
  * @param {number} port
- * @param {string} description
  * @param {string[]} protocols
  * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean, released?: boolean}>}
  */
-async function keepPort(port, description, protocols) {
-  if (releasedPorts.has(port)) {
+async function keepPort(port, protocols) {
+  const current = wanted.get(port);
+  if (!current || current.holder !== null) {
     return {
-      mapped: false, code: null, reason: `${port} released and not mapped since`, routerWide: false, released: true,
+      mapped: false, code: null, reason: `${port} not wanted by an installation`, routerWide: false, released: true,
     };
   }
-  if (mappedThisCycle(port, description, protocols)) return MAPPED;
-  return mapPort(port, description, {
+  if (mappedThisCycle(port, current.description, protocols)) return MAPPED;
+  return mapPort(port, current.description, {
     protocols, counted: true, logged: true, holder: null, upkeep: true,
   });
 }
@@ -304,7 +305,7 @@ function askPendingRemoval(pending) {
 
 /**
  * The turn of release. A port another holder has taken since is left to it.
- * Otherwise the port is released, and each protocol this node mapped is removed
+ * Otherwise the port is no longer wanted, and each protocol this node mapped is removed
  * on its own: a refusal of one leaves the other to go. A router removes a
  * mapping by its external port whoever it points at, so a protocol this node's
  * latest map did not take - one another machine holds - is never asked for. A
@@ -317,7 +318,6 @@ function askPendingRemoval(pending) {
 async function releasePort(port, description, holder) {
   const current = wanted.get(port);
   if (holder !== null && current && current.holder !== holder) return true;
-  releasedPorts.add(port);
   wanted.delete(port);
   wantedMaps.delete(port);
   const protocols = mappedProtocols.get(port) || new Set();
@@ -350,7 +350,6 @@ async function releasePort(port, description, holder) {
  * @param {object} holder
  */
 function holdPort(port, description, holder) {
-  releasedPorts.delete(port);
   wanted.set(port, { description, holder });
   dropPendingRemovals(port);
 }
@@ -377,16 +376,25 @@ function want(port, description, {
 }
 
 /**
- * Keeps a port mapped to this node, as upkeep: maps it as want does unless it
- * was released and not wanted since.
+ * Keeps a port an installation wants mapped to this node, as upkeep: maps it
+ * again with the description it was wanted with, unless nothing but a test
+ * wants it by its turn.
  * @param {number|string} port
- * @param {string} description
  * @param {{protocols?: string[]}} [options]
  * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean, released?: boolean}>}
- *   released, and nothing asked of the router, for a released port
+ *   released, and nothing asked of the router, for a port no installation wants
  */
-function keep(port, description, { protocols = ['TCP', 'UDP'] } = {}) {
-  return onRouter(() => keepPort(+port, description, protocols), { upkeep: true });
+function keep(port, { protocols = ['TCP', 'UDP'] } = {}) {
+  return onRouter(() => keepPort(+port, protocols), { upkeep: true });
+}
+
+/**
+ * The app ports installations want mapped now, as want was given them.
+ * @returns {Array<{port: number, description: string}>}
+ */
+function desiredAppPorts() {
+  return [...wanted].filter(([, entry]) => entry.holder === null && entry.description.startsWith(APP_DESCRIPTION_PREFIX))
+    .map(([port, entry]) => ({ port, description: entry.description }));
 }
 
 /**
@@ -454,7 +462,7 @@ module.exports = {
   removalPending,
   wanted,
   mappedProtocols,
-  releasedPorts,
+  desiredAppPorts,
   wantedMaps,
   pendingRemovals,
 };

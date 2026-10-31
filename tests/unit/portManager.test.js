@@ -590,30 +590,9 @@ describe('portManager tests', () => {
   });
 
   describe('restoreAppsPortsSupport tests', () => {
-    let db;
-    let database;
-
-    beforeEach(async () => {
-      await dbHelper.initiateDB();
-      db = dbHelper.databaseConnection();
-      database = db.db(config.database.appslocal.database);
-
-      const collection = config.database.appslocal.collections.appsInformation;
-      const testApps = [
-        {
-          name: 'App1',
-          version: 3,
-          ports: [30001],
-        },
-      ];
-
-      try {
-        await database.collection(collection).drop();
-      } catch (err) {
-        // Collection doesn't exist
-      }
-      await dbHelper.insertManyToDatabase(database, collection, testApps);
-
+    beforeEach(() => {
+      // what installations want mapped: App1's one port
+      sinon.stub(portReconciler, 'desiredAppPorts').returns([{ port: 30001, description: 'Flux_App_App1' }]);
       sinon.stub(upnpService, 'isUPNP').returns(false);
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
       sinon.stub(fluxNetworkHelper, 'allowPort').resolves(true);
@@ -633,12 +612,26 @@ describe('portManager tests', () => {
       sinon.assert.called(portReconciler.keep);
     });
 
-    it('should setup UPNP for app ports when active', async () => {
+    it('renews each port installations want, by its port, app by app', async () => {
+      portReconciler.desiredAppPorts.returns([
+        { port: 30001, description: 'Flux_App_App1' },
+        { port: 30003, description: 'Flux_App_App2' },
+        { port: 30002, description: 'Flux_App_App1' },
+      ]);
       upnpService.isUPNP.returns(true);
 
       await portManager.restoreAppsPortsSupport();
 
-      sinon.assert.called(portReconciler.keep);
+      expect(portReconciler.keep.getCalls().map((call) => call.args[0])).to.deep.equal([30001, 30002, 30003]);
+    });
+
+    it('renews nothing installations do not want, whatever the installed apps hold', async () => {
+      portReconciler.desiredAppPorts.returns([]);
+      upnpService.isUPNP.returns(true);
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.notCalled(portReconciler.keep);
     });
 
     it('should handle errors gracefully', async () => {
@@ -649,10 +642,10 @@ describe('portManager tests', () => {
       await portManager.restoreAppsPortsSupport();
     });
 
-    it('maps nothing of an app whose port was released and not mapped since, and counts no failure', async () => {
+    it('counts no failure of an app whose port no installation wants by its turn', async () => {
       upnpService.isUPNP.returns(true);
       portReconciler.keep.resolves({
-        mapped: false, code: null, reason: '30001 released and not mapped since', routerWide: false, released: true,
+        mapped: false, code: null, reason: '30001 not wanted by an installation', routerWide: false, released: true,
       });
 
       await portManager.restoreAppsPortsSupport();
@@ -715,9 +708,9 @@ describe('portManager tests', () => {
     });
 
     it('should pay the retry pause at most once per cycle across failing apps', async () => {
-      const collection = config.database.appslocal.collections.appsInformation;
-      await dbHelper.insertManyToDatabase(database, collection, [
-        { name: 'App2', version: 3, ports: [30002] },
+      portReconciler.desiredAppPorts.returns([
+        { port: 30001, description: 'Flux_App_App1' },
+        { port: 30002, description: 'Flux_App_App2' },
       ]);
       upnpService.isUPNP.returns(true);
       portReconciler.keep.resolves(REFUSED);
@@ -771,6 +764,40 @@ describe('portManager tests', () => {
       await portManager.restoreAppsPortsSupport();
 
       sinon.assert.calledTwice(portReconciler.keep);
+    });
+  });
+
+  describe('declareInstalledAppsPorts tests', () => {
+    let database;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      database = dbHelper.databaseConnection().db(config.database.appslocal.database);
+      const collection = config.database.appslocal.collections.appsInformation;
+      await database.collection(collection).drop().catch(() => {});
+      await dbHelper.insertManyToDatabase(database, collection, [
+        { name: 'App1', version: 3, ports: [30001] },
+        { name: 'App2', version: 3, ports: [30002] },
+      ]);
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(portReconciler, 'want').resolves(MAPPED);
+    });
+
+    it('wants every installed app\'s ports, described as the app\'s', async () => {
+      await portManager.declareInstalledAppsPorts();
+
+      expect(portReconciler.want.getCalls().map((call) => call.args).sort()).to.deep.equal([
+        [30001, 'Flux_App_App1'],
+        [30002, 'Flux_App_App2'],
+      ]);
+    });
+
+    it('wants nothing on a node that does not map through UPnP', async () => {
+      upnpService.isUPNP.returns(false);
+
+      await portManager.declareInstalledAppsPorts();
+
+      sinon.assert.notCalled(portReconciler.want);
     });
   });
 

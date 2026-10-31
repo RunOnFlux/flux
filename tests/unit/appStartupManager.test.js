@@ -49,7 +49,7 @@ describe('appStartupManager tests', () => {
 
     portManagerStub = {
       appsWithPorts: sinon.stub().resolves({ apps: [], unreadable: [] }),
-      restoreAppsPortsSupport: sinon.stub().resolves(),
+      declareInstalledAppsPorts: sinon.stub().resolves(),
     };
 
     registryManagerStub = {
@@ -997,14 +997,14 @@ describe('appStartupManager tests', () => {
     it('starts mapping the apps\' ports once their firewall ports are open, before the apps are reconciled', async () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      sinon.assert.calledOnceWithExactly(portManagerStub.restoreAppsPortsSupport);
+      sinon.assert.calledOnceWithExactly(portManagerStub.declareInstalledAppsPorts);
       const reconcileStart = logStub.info.getCalls().find((call) => /Starting boot reconciliation/.test(call.args[0]));
-      expect(fluxNetworkHelperStub.allowAppPorts.firstCall.calledBefore(portManagerStub.restoreAppsPortsSupport.firstCall), 'after the firewall').to.equal(true);
-      expect(portManagerStub.restoreAppsPortsSupport.firstCall.calledBefore(reconcileStart), 'before the reconcile').to.equal(true);
+      expect(fluxNetworkHelperStub.allowAppPorts.firstCall.calledBefore(portManagerStub.declareInstalledAppsPorts.firstCall), 'after the firewall').to.equal(true);
+      expect(portManagerStub.declareInstalledAppsPorts.firstCall.calledBefore(reconcileStart), 'before the reconcile').to.equal(true);
     });
 
     it('reconciles the apps without waiting for their mappings', async () => {
-      portManagerStub.restoreAppsPortsSupport.returns(new Promise(() => {}));
+      portManagerStub.declareInstalledAppsPorts.returns(new Promise(() => {}));
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
@@ -1019,7 +1019,7 @@ describe('appStartupManager tests', () => {
       fluxNetworkHelperStub.isNodeDos.returns(true);
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      sinon.assert.notCalled(portManagerStub.restoreAppsPortsSupport);
+      sinon.assert.notCalled(portManagerStub.declareInstalledAppsPorts);
     });
   });
 });

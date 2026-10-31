@@ -40,6 +40,8 @@ const UPNP_MAP_RETRY_DELAY_MS = 30 * 1000;
 const upnpMapFailures = new Map();
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
+// what an app's ports are described as (appInstaller.setupApplicationPorts)
+const APP_DESCRIPTION_PREFIX = 'Flux_App_';
 
 // The api port this FluxOS listens on, read once as apiServer reads it: a config
 // reload can name another without a restart.
@@ -277,15 +279,16 @@ async function restoreFluxPortsSupport() {
   }
 }
 
-// The pass of restoreAppsPortsSupport in progress, if one is: boot starts one
-// without waiting on it, and the refresh may come round while it runs.
+// The pass of restoreAppsPortsSupport in progress, if one is: a refresh may
+// come round while the last one still runs.
 let appsPortsRestore = null;
 
 /**
- * Restores applications' UPnP mappings. An app port's host firewall rule is
- * written at install and re-applied at boot (appStartupManager), and ufw keeps
- * it across restarts. A call while a pass is in progress joins that pass, so
- * the router is asked once and each app's failed cycle is counted once.
+ * Renews the UPnP mappings of the app ports installations want
+ * (portReconciler.desiredAppPorts), app by app. An app port's host firewall
+ * rule is written at install and re-applied at boot (appStartupManager), and
+ * ufw keeps it across restarts. A call while a pass is in progress joins that
+ * pass, so the router is asked once and each app's failed cycle is counted once.
  * @returns {Promise<void>}
  */
 function restoreAppsPortsSupport() {
@@ -301,7 +304,12 @@ function restoreAppsPortsSupport() {
  */
 async function restoreAppsPortsPass() {
   try {
-    const currentAppsPorts = await assignedPortsInstalledApps();
+    const appsPorts = new Map();
+    portReconciler.desiredAppPorts().forEach(({ port, description }) => {
+      const name = description.slice(APP_DESCRIPTION_PREFIX.length);
+      appsPorts.set(name, [...(appsPorts.get(name) || []), port]);
+    });
+    const currentAppsPorts = [...appsPorts].map(([name, ports]) => ({ name, ports }));
     const isUPNP = upnpService.isUPNP();
 
     // UPNP
@@ -315,13 +323,13 @@ async function restoreAppsPortsPass() {
       for (const application of currentAppsPorts) {
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.PORTS_REFRESH_BEFORE_APP, application.name);
-        // a port released and not wanted since is an app removed or being removed
+        // a port no installation wants by its turn is an app removed or being removed
         let failedPort = null;
         let released = false;
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          let result = await portReconciler.keep(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          let result = await portReconciler.keep(port);
           if (!result.mapped && !result.released) {
             if (!retryDelayElapsed) {
               // eslint-disable-next-line no-await-in-loop
@@ -329,7 +337,7 @@ async function restoreAppsPortsPass() {
               retryDelayElapsed = true;
             }
             // eslint-disable-next-line no-await-in-loop
-            result = await portReconciler.keep(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+            result = await portReconciler.keep(port);
           }
           if (result.released) {
             released = true;
@@ -437,6 +445,29 @@ async function refreshPortsInSlot() {
     }
   } catch (error) {
     log.error(`refreshPortsInSlot - ${error.message}`);
+  }
+}
+
+/**
+ * Wants every installed app's ports mapped, once at boot: what the refresh
+ * renews from then on (restoreAppsPortsSupport). An install wants its own
+ * ports, and a removal releases them.
+ * @returns {Promise<void>}
+ */
+async function declareInstalledAppsPorts() {
+  try {
+    if (!upnpService.isUPNP()) return;
+    const installedApps = await assignedPortsInstalledApps();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const application of installedApps) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of application.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await portReconciler.want(serviceHelper.ensureNumber(port), `${APP_DESCRIPTION_PREFIX}${application.name}`);
+      }
+    }
+  } catch (error) {
+    log.error(`declareInstalledAppsPorts - ${error.message}`);
   }
 }
 
@@ -1574,6 +1605,7 @@ module.exports = {
   restoreAppsPortsSupport,
   restorePortsSupport,
   refreshPortsInSlot,
+  declareInstalledAppsPorts,
   removeStaleUpnpMappings,
   getAllUsedPorts,
   portsInUse,
