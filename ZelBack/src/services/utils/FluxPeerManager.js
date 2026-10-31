@@ -660,6 +660,11 @@ class FluxPeerManager extends EventEmitter {
     }
   }
 
+  /** The connections whose link handshake has not settled. */
+  * handshakingValues() {
+    yield* this.#handshaking.values();
+  }
+
   * inboundValues() {
     for (const key of this.#inboundKeys) {
       const peer = this.#peers.get(key);
@@ -1970,11 +1975,15 @@ fluxEventBus.snapshot('peers', () => {
     alive: peer.isAlive,
     connectedAt: peer.connectedAt,
     authenticated: Boolean(peer.link?.authenticated),
+    handshaking: peer.handshaking,
   });
+  // A connection whose link handshake has not settled is held, by direction,
+  // though it has not joined the peer set.
+  const handshaking = [...peerManager.handshakingValues()];
   return {
     self: peerManager.getOwnSocketAddress(),
-    outbound: [...peerManager.outboundValues()].map(describe),
-    inbound: [...peerManager.inboundValues()].map(describe),
+    outbound: [...peerManager.outboundValues(), ...handshaking.filter((p) => p.direction === DIRECTION.OUTBOUND)].map(describe),
+    inbound: [...peerManager.inboundValues(), ...handshaking.filter((p) => p.direction === DIRECTION.INBOUND)].map(describe),
   };
 });
 

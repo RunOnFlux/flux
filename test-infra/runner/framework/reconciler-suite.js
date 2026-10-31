@@ -386,6 +386,18 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
     { timeout: 120000, interval: 2000, label: `>=${totalTarget} peers on each of ${nodes.length} nodes` },
   );
 
+  // Between two Arcane nodes a connection joins the peer set only once its link
+  // handshake settles, so a node can meet the total above with some of its
+  // connections still handshaking and short of the floor its door checks in one
+  // direction. Settled, every connection it holds is a peer.
+  await waitFor(
+    async () => {
+      const states = await Promise.all(nodes.map((n) => n.getTestState('peers')));
+      return states.every(({ outbound, inbound }) => ![...outbound, ...inbound].some((peer) => peer.handshaking));
+    },
+    { timeout: 60000, interval: 500, label: 'no connection on any node still handshaking' },
+  );
+
   // An Arcane node admits an app message only once it holds admissionQuorum
   // authenticated links on distinct IPs, which follows peering by a handshake per
   // link. Waited here so a suite registering an app straight after boot meets a
