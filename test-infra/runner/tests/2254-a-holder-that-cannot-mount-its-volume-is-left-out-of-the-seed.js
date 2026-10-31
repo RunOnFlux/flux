@@ -25,8 +25,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // nobody seeds until the volume mounts. A holder whose image is gone holds nothing:
 // it is left out, and the rest seed as they would without it.
 //
-// Every other holder is held before it measures until each broken holder has held its
-// folder out, so the decisions under test are made with the broken holders' answers.
+// Every holder is held before it measures; each broken holder is restarted with its
+// volume broken, and the others are let go once it has held its folder out, so the
+// decisions under test are made with the broken holders' answers.
 
 const subnet = getSubnetConfig();
 const APP_UID = 1000;
@@ -72,10 +73,13 @@ describe('a holder that cannot mount its volume is left out of the seed', functi
         });
         await pinColdStart(holders, folder);
         if (dataOn !== undefined) await pinHolding(dataOn, folder, DATA_BYTES);
-        const from = Object.fromEntries(deciders.map((i) => [i, client(i).getLastEventId()]));
-        await Promise.all(deciders.map((i) => client(i).holdCheckpoint(BEFORE_HOLDINGS, folder)));
+        // Every holder is held before it measures, the broken ones too: a broken holder
+        // decides nothing before its restart, so it cannot seed and start the app on the
+        // volume it is about to lose. Its hold ends with its FluxOS.
+        const from = Object.fromEntries(holders.map((i) => [i, client(i).getLastEventId()]));
+        await Promise.all(holders.map((i) => client(i).holdCheckpoint(BEFORE_HOLDINGS, folder)));
         await installOnNodes(env, app, holders);
-        await Promise.all(deciders.map((i) => client(i).waitForEvent(
+        await Promise.all(holders.map((i) => client(i).waitForEvent(
           'checkpoint:held',
           (d) => d.name === BEFORE_HOLDINGS && d.key === folder,
           300000,
