@@ -151,7 +151,11 @@ describe('admissionQuorum tests', () => {
       const { admission } = await startAdmit(mod);
       peerManager.authenticated.forEach((peer) => receipt(mod, peer, 'held'));
       await admission;
-      expect(deps.admitUnpaid.firstCall.args[1]).to.eql({ frame: JSON.parse(SIGNED), daemonHeight: 100 });
+      const [asked, { frame, daemonHeight }] = deps.admitUnpaid.firstCall.args;
+      expect(frame).to.eql(JSON.parse(SIGNED));
+      expect(daemonHeight).to.equal(100);
+      // unpaidAdmission takes the frame as the admitting node's only when it carries this very message
+      expect(asked).to.equal(frame.data);
     });
 
     it('should not count two links to one IP as two holders', async () => {
