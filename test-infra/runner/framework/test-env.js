@@ -28,7 +28,7 @@ import {
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import {
-  derivePeerThresholds, deriveReadinessThresholds, carriedPeers, ringArc, dialerCount,
+  derivePeerThresholds, deriveReadinessThresholds, deriveAdmissionQuorum, carriedPeers, ringArc, dialerCount,
 } from './peer-topology.js';
 import { pushImage, mirrorExecutorImage, executorImageReference } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
@@ -1856,6 +1856,8 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // The readiness thresholds keep production's share of the peers a node
         // carries, for the same reason - see peer-topology.js.
         ...deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps),
+        // And the admission quorum, for the same reason - see peer-topology.js.
+        admissionQuorum: deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, legacyNodes.length),
         // Travels as configuration, like every other override. It used to be an
         // env var the entrypoint sed into shared.js - but the merged config is
         // written by REQUIRING the per-node file, which spreads shared.js at
@@ -1912,7 +1914,17 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (nodeAppArmor()) builder.withAppArmorProfile(nodeAppArmor());
 
     nodeConfigs.push({
-      index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir, journalDir, imageTag,
+      index: i,
+      builder,
+      ip: nodeIp,
+      num: i + 1,
+      logCollector,
+      bootIdDir,
+      journalDir,
+      imageTag,
+      // Only an Arcane node authenticates links, and admits once it holds this many.
+      arcane: !isLegacy,
+      admissionQuorum: nodeConfig.fluxapps.admissionQuorum,
     });
   }
 

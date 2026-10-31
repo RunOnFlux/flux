@@ -154,6 +154,28 @@ export function deriveReadinessThresholds(nodeCount, stubCount, shared) {
   };
 }
 
+// Production's admissionQuorum (ZelBack/config/default.js); tests/unit/peerTopology.test.js
+// holds the two together.
+export const PRODUCTION_ADMISSION_QUORUM = 3;
+
+/**
+ * The admission quorum a fleet of this shape can meet. A node admits an unpaid
+ * app message only while it holds admissionQuorum authenticated links on distinct
+ * IPs, and only an Arcane node authenticates, so a node can count at most the
+ * peers it carries that are not legacy - a legacy node may sit in any arc, so
+ * every one is taken off. A fleet that carries production's quorum keeps it; a
+ * smaller one gets what it carries, and a node with no Arcane peer admits on its
+ * own. Injected as the fleet's config like the thresholds above; a suite TESTING
+ * the quorum sets its own and that wins.
+ * @param {number} nodeCount
+ * @param {number} stubCount
+ * @param {number} legacyCount
+ * @returns {number}
+ */
+export function deriveAdmissionQuorum(nodeCount, stubCount, legacyCount) {
+  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, carriedPeers(nodeCount, stubCount) - legacyCount));
+}
+
 /**
  * The peer total each node reaches once the ring has closed. Used for the boot
  * wait: it is the same demand expressed as a sum, which is robust even if a
