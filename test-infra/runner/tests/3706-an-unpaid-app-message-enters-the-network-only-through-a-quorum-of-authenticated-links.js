@@ -36,8 +36,11 @@ const ARCANE = [0, 1, 2, 3, 4, 5, 6];
 const REAL = [...ARCANE, LEGACY];
 // The middle of the ring: index 0's backward arc wraps onto the stubs.
 const ENTRY = 3;
-// The node whose key signs the origins the stubs carry.
-const ADMITTER = 5;
+// The nodes whose keys sign the origins the stubs carry: one each, so the two
+// relayed messages draw on separate operator allowances whatever order a node
+// hears them in.
+const PLAIN_ADMITTER = 5;
+const ARCANE_ADMITTER = 6;
 const QUORUM = 2;
 
 describe('an unpaid app message enters the network only through a quorum of authenticated links', function () {
@@ -65,11 +68,11 @@ describe('an unpaid app message enters the network only through a quorum of auth
 
   // A pending message as a relay carries it: the admitter's signature over it.
   let relayed = 0;
-  const relayedMessage = async () => {
+  const relayedMessage = async (admitter) => {
     relayed += 1;
     const app = await buildSeedableApp({ env, name: `e2equorumrelay${relayed}x${stamp}`, instances: 1 });
     const fields = { clientTag: freshClientTag(), clientTagHeight: await currentTagHeight() };
-    const origin = await admittingSignature(pendingMessage(app, fields), nodeKey(ADMITTER + 1));
+    const origin = await admittingSignature(pendingMessage(app, fields), nodeKey(admitter + 1));
     return pendingMessage(app, { ...fields, origin });
   };
 
@@ -151,8 +154,8 @@ describe('an unpaid app message enters the network only through a quorum of auth
   it('takes an unpaid message on an Arcane node only over an authenticated link', async function () {
     this.timeout(120000);
     const marks = REAL.map((i) => env.clients[i].getLastEventId());
-    const unauthenticated = await relayedMessage();
-    const authenticated = await relayedMessage();
+    const unauthenticated = await relayedMessage(PLAIN_ADMITTER);
+    const authenticated = await relayedMessage(ARCANE_ADMITTER);
 
     await plainStub.broadcast(unauthenticated);
     await arcaneStub.broadcast(authenticated);
