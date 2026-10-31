@@ -343,6 +343,8 @@ export function nodeClient(nodeNum) {
         'network:appmessage',
         // whether a node took an unpaid app message, and why not
         'appmessage:admission',
+        // whether peers on the admission quorum held a message this node proposed
+        'appmessage:quorum',
         'network:ipchanged',
         'network:sigterm',
         'shutdown:started',
