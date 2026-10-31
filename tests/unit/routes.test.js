@@ -3,7 +3,6 @@ const sinon = require('sinon');
 const routes = require('../../ZelBack/src/routes');
 const alwaysRespond = require('../../ZelBack/src/middlewares/alwaysRespond');
 const isLocal = require('../../ZelBack/src/middlewares/isLocal');
-const requireHttps = require('../../ZelBack/src/middlewares/requireHttps');
 const { refuseBannedCaller } = require('../../ZelBack/src/services/appSecurity/clientBans');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appController = require('../../ZelBack/src/services/appManagement/appController');
@@ -192,10 +191,6 @@ describe('routes tests', () => {
     it('should not mount alwaysRespond on read endpoints', () => {
       expect(routeFor('/apps/appstats').handlers).to.not.include(alwaysRespond);
       expect(routeFor('/apps/appmonitor').handlers).to.not.include(alwaysRespond);
-    });
-
-    it('should keep the arcane auth endpoints on https', () => {
-      expect(routeFor('/arcane/authchallenge').handlers).to.include(requireHttps);
     });
 
     it('should keep the backend folder local only', () => {

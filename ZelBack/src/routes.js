@@ -24,7 +24,7 @@ const {
   requirePolicyReady,
   requireRegistryReady,
 } = require('./services/utils/routeGuards');
-const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
+const { alwaysRespond, isLocal } = require('./middlewares');
 const { refuseBannedCaller } = require('./services/appSecurity/clientBans');
 
 // App modular services
@@ -61,7 +61,6 @@ const peerIdentityService = require('./services/peerIdentityService');
 const outboundPathService = require('./services/outboundPathService');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
-const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const uplinkService = require('./services/uplinkService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
@@ -391,9 +390,6 @@ module.exports = (app) => {
   app.get('/flux/outboundpath', rejectQueryParameters, asyncRoute((req, res) => {
     return outboundPathService.outboundPathAPI(req, res);
   }));
-
-  // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.get('/arcane/authchallenge', requireHttps, asyncRoute(arcaneAuthService.authChallengeHandler));
 
   // Apps routes - now directly calling modular services
   //
@@ -1086,9 +1082,6 @@ module.exports = (app) => {
   }));
 
   // POST PUBLIC methods route
-  // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.post('/arcane/configsync', requireHttps, asyncRoute(arcaneAuthService.configSyncHandler));
-
   app.post('/id/verifylogin', asyncRoute((req, res) => {
     return idService.verifyLogin(req, res);
   }));
