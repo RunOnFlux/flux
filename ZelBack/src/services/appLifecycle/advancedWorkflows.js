@@ -61,6 +61,7 @@ const folderStates = require('../appMonitoring/folderStates');
 const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
 const { AsyncLock } = require('../utils/asyncLock');
+const unpaidAdmission = require('../appMessaging/unpaidAdmission');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -3534,11 +3535,12 @@ function installationInProgressReset() {
  * @param {string} params.signature - Message signature
  * @param {string} params.type - Message type (fluxappupdate/zelappupdate)
  * @param {number} params.version - Message version
+ * @param {{remoteAddress?: string, headers?: object}} params.client - The request's socket peer and headers
  * @returns {Promise<string>} The message hash
  */
 async function updateAppGlobaly(params) {
   const {
-    appSpecification, timestamp, signature, type: messageType, version: typeVersion,
+    appSpecification, timestamp, signature, type: messageType, version: typeVersion, client,
   } = params;
 
   if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
@@ -3654,6 +3656,8 @@ async function updateAppGlobaly(params) {
   // placement-relevant - a renewal, a cancellation - is never refused.
   await placementFeasibility.checkPlacementFeasibility(appSpecFormatted, 'updateAppGlobaly', previousAppSpec);
 
+  const { clientTag, clientTagHeight } = await unpaidAdmission.tagSubmission(client, daemonHeight);
+
   if (isEnterprise) {
     appSpecFormatted.contacts = [];
     appSpecFormatted.compose = [];
@@ -3662,7 +3666,8 @@ async function updateAppGlobaly(params) {
   const message = cleanMessageType + cleanTypeVersion + JSON.stringify(appSpecFormatted) + cleanTimestamp + cleanSignature;
   const messageHASH = await generalService.messageHash(message);
 
-  const temporaryAppMessage = {
+  // As every node rebuilds it to check this node's signature on it.
+  const temporaryAppMessage = unpaidAdmission.admittedMessage({
     type: cleanMessageType,
     version: cleanTypeVersion,
     appSpecifications: appSpecFormatted,
@@ -3670,7 +3675,9 @@ async function updateAppGlobaly(params) {
     timestamp: cleanTimestamp,
     signature: cleanSignature,
     arcaneSender: isArcane,
-  };
+    clientTag,
+    clientTagHeight,
+  });
 
   // eslint-disable-next-line global-require
   const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
@@ -3729,6 +3736,7 @@ async function updateAppGlobalyApi(req, res) {
         signature: processedBody.signature,
         type: processedBody.type,
         version: processedBody.version,
+        client: { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
       });
 
       const responseHash = messageHelper.createDataMessage(hash);

@@ -6,6 +6,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
+const unpaidAdmission = require('./unpaidAdmission');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -77,6 +78,7 @@ async function getPreviousOwner(appName, currentOwner) {
  * @param {object} message - Message to store
  * @param {object} [options] - Options
  * @param {boolean} [options.furtherVerification=true] - Whether further verification is needed
+ * @param {object} [options.frame] - The frame the message arrived in, when it arrived alone
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
 async function storeAppTemporaryMessage(message, options = {}) {
@@ -138,6 +140,24 @@ async function storeAppTemporaryMessage(message, options = {}) {
     appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED, message.hash);
   }
 
+  // A paid message is taken whatever it carries; an unpaid one only within its
+  // sender's allowance, decided before the verification below.
+  let admission = { fields: {} };
+  if (!result) {
+    admission = await unpaidAdmission.admitUnpaid(message, { frame: options.frame, daemonHeight });
+    fluxEventBus.publish('appmessage:admission', {
+      hash: message.hash,
+      taken: !admission.refused,
+      reason: admission.refused ?? null,
+      clientTag: admission.fields?.clientTag ?? null,
+      originKey: admission.fields?.originKey ?? null,
+    });
+    if (admission.refused) {
+      log.warn(`storeAppTemporaryMessage - not taking ${message.hash}: ${admission.refused}`);
+      return false;
+    }
+  }
+
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
   if (furtherVerification) {
@@ -160,7 +180,9 @@ async function storeAppTemporaryMessage(message, options = {}) {
         // Registration doesn't exist yet - queue this update for later processing
         const appName = appSpecFormatted.name;
         log.info(`Queueing update for ${appName} - registration not yet stored`);
-        globalState.queuePendingUpdate(appName, message, block);
+        // Queued with its origin, which the replay verifies again.
+        const queued = admission.fields.origin ? { ...message, origin: admission.fields.origin } : message;
+        globalState.queuePendingUpdate(appName, queued, block);
         return false; // Don't rebroadcast - we'll process when registration arrives
       }
     }
@@ -225,6 +247,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
     receivedAt: new Date(receivedAt),
     expireAt: new Date(validTill),
     arcaneSender: message.arcaneSender,
+    ...admission.fields,
   };
   const value = newMessage;
 

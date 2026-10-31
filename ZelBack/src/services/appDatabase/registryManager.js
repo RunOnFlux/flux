@@ -17,6 +17,7 @@ const { withRegistryWrite } = require('./registryWriteLock');
 const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
 const signatureVerifier = require('../signatureVerifier');
+const unpaidAdmission = require('../appMessaging/unpaidAdmission');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -2247,6 +2248,11 @@ async function registerAppGlobalyApi(req, res) {
       // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
       await messageVerifier.verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
 
+      const { clientTag, clientTagHeight } = await unpaidAdmission.tagSubmission(
+        { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
+        daemonHeight,
+      );
+
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
         appSpecFormatted.compose = [];
@@ -2259,7 +2265,8 @@ async function registerAppGlobalyApi(req, res) {
       const messageHASH = await generalService.messageHash(message);
 
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-      const temporaryAppMessage = { // specification of temp message
+      // As every node rebuilds it to check this node's signature on it.
+      const temporaryAppMessage = unpaidAdmission.admittedMessage({
         type: messageType,
         version: typeVersion,
         appSpecifications: appSpecFormatted,
@@ -2267,7 +2274,9 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
         arcaneSender: isArcane,
-      };
+        clientTag,
+        clientTagHeight,
+      });
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing

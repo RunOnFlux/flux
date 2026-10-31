@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const fluxService = require('../../ZelBack/src/services/fluxService');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('messageStore tests', () => {
   let messageStore;
@@ -11,8 +12,13 @@ describe('messageStore tests', () => {
   let messageVerifierStub;
   let logStub;
   let configStub;
+  let unpaidAdmissionStub;
 
   beforeEach(() => {
+    unpaidAdmissionStub = {
+      admitUnpaid: sinon.stub().resolves({ fields: {} }),
+    };
+
     // Stubs
     checkAndDecryptStub = sinon.stub().resolves({});
     dbHelperStub = {
@@ -68,6 +74,7 @@ describe('messageStore tests', () => {
       '../dbHelper': dbHelperStub,
       '../serviceHelper': serviceHelperStub,
       './messageVerifier': messageVerifierStub,
+      './unpaidAdmission': unpaidAdmissionStub,
       '../../lib/log': logStub,
       '../daemonService/daemonServiceMiscRpcs': {
         isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
@@ -216,6 +223,110 @@ describe('messageStore tests', () => {
       }
     });
 
+    describe('unpaid admission', () => {
+      const pending = {
+        type: 'fluxappregister',
+        version: 1,
+        appSpecifications: { name: 'test' },
+        hash: 'hash123',
+        timestamp: Date.now(),
+        signature: 'sig123',
+      };
+
+      beforeEach(() => {
+        messageVerifierStub.checkAppMessageExistence.resolves(null);
+        messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+        messageVerifierStub.verifyAppHash = sinon.stub().resolves();
+        messageVerifierStub.verifyAppMessageSignature = sinon.stub().resolves();
+        messageVerifierStub.checkAndRequestApp = sinon.stub().resolves(true);
+        dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+        dbHelperStub.insertOneToDatabase.resolves();
+      });
+
+      it('asks about an unpaid message with the frame it arrived in, before verifying it', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        const frame = { version: 1, pubKey: '04aa', data: pending };
+
+        await messageStore.storeAppTemporaryMessage(pending, { frame });
+
+        sinon.assert.calledOnceWithExactly(unpaidAdmissionStub.admitUnpaid, pending, { frame, daemonHeight: 1000 });
+        expect(unpaidAdmissionStub.admitUnpaid.calledBefore(messageVerifierStub.verifyAppHash)).to.equal(true);
+      });
+
+      it('neither stores, relays nor verifies a message it refuses', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        unpaidAdmissionStub.admitUnpaid.resolves({ refused: 'its client already has 10 unpaid app messages pending' });
+
+        const result = await messageStore.storeAppTemporaryMessage(pending);
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+        sinon.assert.notCalled(messageVerifierStub.verifyAppHash);
+      });
+
+      it('stores the tag and origin beside the message it takes', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        const fields = {
+          clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin: { version: 1, timestamp: 1, pubKey: '04aa', signature: 'sig' }, originKey: '04aa',
+        };
+        unpaidAdmissionStub.admitUnpaid.resolves({ fields });
+
+        const result = await messageStore.storeAppTemporaryMessage(pending);
+
+        expect(result).to.equal(true);
+        expect(dbHelperStub.insertOneToDatabase.firstCall.args[2]).to.include(fields);
+      });
+
+      it('queues an update that arrives before its registration with its origin, for the replay to verify', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        const update = { ...pending, type: 'fluxappupdate' };
+        const origin = {
+          version: 1, timestamp: 1, pubKey: '04aa', signature: 'sig',
+        };
+        unpaidAdmissionStub.admitUnpaid.resolves({ fields: { clientTag: 'a'.repeat(64), origin } });
+        const queue = sinon.stub(globalState, 'queuePendingUpdate');
+        messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
+          config: configStub,
+          '../dbHelper': dbHelperStub,
+          '../serviceHelper': serviceHelperStub,
+          './messageVerifier': messageVerifierStub,
+          './unpaidAdmission': unpaidAdmissionStub,
+          '../../lib/log': logStub,
+          '../daemonService/daemonServiceMiscRpcs': {
+            isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
+          },
+          '../appDatabase/registryManager': {
+            getPreviousAppSpecifications: sinon.stub().resolves(null),
+          },
+          '../utils/appConstants': {
+            globalAppsMessages: 'appsMessages',
+            globalAppsTempMessages: 'appsTempMessages',
+            appsHashesCollection: 'appsHashes',
+          },
+          '../utils/appSpecHelpers': {
+            specificationFormatter: sinon.stub().returnsArg(0),
+          },
+        });
+
+        const result = await messageStore.storeAppTemporaryMessage(update);
+
+        expect(result).to.equal(false);
+        sinon.assert.calledOnceWithExactly(queue, 'test', { ...update, origin }, 1000);
+        sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+      });
+
+      it('takes a paid message without asking', async () => {
+        dbHelperStub.findOneInDatabase.resolves({
+          message: false, height: 990, txid: 'tx1', value: 1,
+        });
+
+        await messageStore.storeAppTemporaryMessage(pending);
+
+        sinon.assert.notCalled(unpaidAdmissionStub.admitUnpaid);
+        sinon.assert.calledOnce(dbHelperStub.insertOneToDatabase);
+      });
+    });
+
     describe('enterprise registration', () => {
       const enterpriseMessage = (change) => ({
         type: 'fluxappregister',
@@ -281,6 +392,7 @@ describe('messageStore tests', () => {
         '../dbHelper': dbHelperStub,
         '../serviceHelper': serviceHelperStub,
         './messageVerifier': messageVerifierStub,
+        './unpaidAdmission': unpaidAdmissionStub,
         '../../lib/log': logStub,
         '../daemonService/daemonServiceMiscRpcs': {
           isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
@@ -348,6 +460,7 @@ describe('messageStore tests', () => {
           '../dbHelper': dbHelperStub,
           '../serviceHelper': serviceHelperStub,
           './messageVerifier': messageVerifierStub,
+          './unpaidAdmission': unpaidAdmissionStub,
           '../../lib/log': logStub,
           '../daemonService/daemonServiceMiscRpcs': {
             isDaemonSynced: sinon.stub().returns({ data: { height: 3008000 } }),

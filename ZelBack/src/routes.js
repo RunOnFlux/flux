@@ -24,7 +24,8 @@ const {
   requirePolicyReady,
   requireRegistryReady,
 } = require('./services/utils/routeGuards');
-const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
+const { alwaysRespond, isLocal } = require('./middlewares');
+const { refuseBannedCaller } = require('./services/appSecurity/clientBans');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -60,7 +61,6 @@ const peerIdentityService = require('./services/peerIdentityService');
 const outboundPathService = require('./services/outboundPathService');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
-const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const uplinkService = require('./services/uplinkService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
@@ -391,9 +391,6 @@ module.exports = (app) => {
     return outboundPathService.outboundPathAPI(req, res);
   }));
 
-  // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.get('/arcane/authchallenge', requireHttps, asyncRoute(arcaneAuthService.authChallengeHandler));
-
   // Apps routes - now directly calling modular services
   //
   // Several names below say "apps" and mean something else. listrunningapps and
@@ -540,22 +537,22 @@ module.exports = (app) => {
   app.get('/apps/installingerrorslocations', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsInstallingErrorsLocations(req, res);
   }));
-  app.post('/apps/calculateprice', asyncRoute((req, res) => { // returns price in flux for both new registration of app and update of app
+  app.post('/apps/calculateprice', refuseBannedCaller, asyncRoute((req, res) => { // returns price in flux for both new registration of app and update of app
     return appSpecHelpers.getAppPrice(req, res);
   }));
-  app.post('/apps/calculatefiatandfluxprice', asyncRoute((req, res) => { // returns price in usd and flux for both new registration of app and update of app
+  app.post('/apps/calculatefiatandfluxprice', refuseBannedCaller, asyncRoute((req, res) => { // returns price in usd and flux for both new registration of app and update of app
     return appSpecHelpers.getAppFiatAndFluxPrice(req, res);
   }));
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), asyncRoute((req, res) => { // deprecated: whitelist retired, always returns []
     return generalService.whitelistedRepositories(req, res);
   }));
-  app.post('/apps/verifyappregistrationspecifications', asyncRoute((req, res) => { // returns formatted app specifications
+  app.post('/apps/verifyappregistrationspecifications', refuseBannedCaller, asyncRoute((req, res) => { // returns formatted app specifications
     return appValidator.verifyAppRegistrationParameters(req, res);
   }));
-  app.post('/apps/verifyappupdatespecifications', asyncRoute((req, res) => { // returns formatted app specifications
+  app.post('/apps/verifyappupdatespecifications', refuseBannedCaller, asyncRoute((req, res) => { // returns formatted app specifications
     return appValidator.verifyAppUpdateApi(req, res);
   }));
-  app.post('/apps/placementfeasibility', asyncRoute((req, res) => { // fault domains and per-domain instance share for a prospective spec
+  app.post('/apps/placementfeasibility', refuseBannedCaller, asyncRoute((req, res) => { // fault domains and per-domain instance share for a prospective spec
     return placementFeasibility.placementFeasibilityAPI(req, res);
   }));
   app.get('/apps/placementlocations', rejectQueryParameters, cache('30 seconds'), asyncRoute((req, res) => { // node, fault-domain and tier counts per continent/country
@@ -1032,7 +1029,7 @@ module.exports = (app) => {
   app.get('/apps/installapplocally/:appname?', requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return appInstaller.installAppLocally(req, res);
   }));
-  app.get('/apps/testappinstall/:appname?', requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
+  app.get('/apps/testappinstall/:appname?', refuseBannedCaller, requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return appInstaller.testAppInstall(req, res);
   }));
   app.get('/apps/createfluxnetwork', asyncRoute((req, res) => {
@@ -1085,9 +1082,6 @@ module.exports = (app) => {
   }));
 
   // POST PUBLIC methods route
-  // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.post('/arcane/configsync', requireHttps, asyncRoute(arcaneAuthService.configSyncHandler));
-
   app.post('/id/verifylogin', asyncRoute((req, res) => {
     return idService.verifyLogin(req, res);
   }));
@@ -1173,16 +1167,16 @@ module.exports = (app) => {
     return daemonServiceMiningRpcs.submitBlockPost(req, res);
   }));
 
-  app.post('/apps/checkdockerexistance', asyncRoute((req, res) => {
+  app.post('/apps/checkdockerexistance', refuseBannedCaller, asyncRoute((req, res) => {
     return imageManager.checkDockerAccessibility(req, res);
   }));
-  app.post('/apps/appregister', asyncRoute((req, res) => {
+  app.post('/apps/appregister', refuseBannedCaller, asyncRoute((req, res) => {
     return registryManager.registerAppGlobalyApi(req, res);
   }));
-  app.post('/apps/appupdate', asyncRoute((req, res) => {
+  app.post('/apps/appupdate', refuseBannedCaller, asyncRoute((req, res) => {
     return advancedWorkflows.updateAppGlobalyApi(req, res);
   }));
-  app.post('/apps/getpublickey', asyncRoute((req, res) => {
+  app.post('/apps/getpublickey', refuseBannedCaller, asyncRoute((req, res) => {
     return cryptographicKeys.getPublicKey(req, res);
   }));
 

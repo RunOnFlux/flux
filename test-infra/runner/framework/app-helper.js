@@ -121,13 +121,15 @@ function endpointForType(type) {
   return type === 'fluxappupdate' || type === 'zelappupdate' ? 'appupdate' : 'appregister';
 }
 
-export async function registerApp(nodeUrl, adminKeypair, spec, type = 'fluxappregister', { ownerKey } = {}) {
+// `headers` are sent with the submission: a suite whose node trusts the runner as
+// a balancer names the client it registers for with `x-forwarded-for`.
+export async function registerApp(nodeUrl, adminKeypair, spec, type = 'fluxappregister', { ownerKey, headers = {} } = {}) {
   const auth = await authenticate(nodeUrl, adminKeypair);
   const signed = await signAppSpec(spec, type, ownerKey);
 
   const res = await fetch(`${nodeUrl}/apps/${endpointForType(type)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain', zelidauth: auth.zelidauth },
+    headers: { ...headers, 'Content-Type': 'text/plain', zelidauth: auth.zelidauth },
     body: JSON.stringify(signed),
   });
   const data = await res.json();
