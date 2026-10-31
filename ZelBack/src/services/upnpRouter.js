@@ -1,3 +1,4 @@
+const { AsyncLocalStorage } = require('node:async_hooks');
 const { EventEmitter } = require('node:events');
 const config = require('config');
 const natUpnp = require('@runonflux/nat-upnp');
@@ -7,6 +8,21 @@ const upnpMappingRecord = require('./upnpMappingRecord');
 // A removal's answers that end a mapping's record besides success: no such
 // entry, and the router refusing to remove a mapping that is not this node's.
 const RECORD_ENDING_FAULTS = new Set([606, 714]);
+
+// The signal of the lane turn a call is made in (portReconciler.onRouter): every
+// request the client sends in that turn is aborted with it.
+const turnSignal = new AsyncLocalStorage();
+
+/**
+ * Runs `work` as part of the lane turn `signal` belongs to.
+ * @template T
+ * @param {AbortSignal} signal aborts once the turn is over
+ * @param {function(): T} work
+ * @returns {T}
+ */
+function inTurn(signal, work) {
+  return turnSignal.run(signal, work);
+}
 
 const portOf = (value) => (typeof value === 'object' && value !== null ? value.port : value);
 
@@ -42,9 +58,27 @@ class RecordingClient extends natUpnp.Client {
 // of discovering the router; the node's address is then config.upnp.nodeIp.
 // A discovered router is kept between calls, and found again when it stops
 // answering where it was.
-const client = config.upnp.gatewayUrl
+const recordingClient = config.upnp.gatewayUrl
   ? new RecordingClient({ url: config.upnp.gatewayUrl, localAddress: config.upnp.nodeIp || '127.0.0.1' })
   : new RecordingClient({ cacheGateway: true });
+
+// The router's client. A call made in a lane turn carries the turn's signal in
+// its options, so its requests are aborted when the turn is over, and a call
+// made after that is refused before anything is sent.
+const client = new Proxy(recordingClient, {
+  get(target, property) {
+    const value = Reflect.get(target, property);
+    if (typeof value !== 'function') return value;
+    return (options, ...rest) => {
+      const turn = turnSignal.getStore();
+      const takesOptions = options === undefined || (typeof options === 'object' && options !== null);
+      if (!turn || !takesOptions) return value.call(target, options, ...rest);
+      if (turn.aborted) return Promise.reject(turn.reason);
+      const signal = options?.signal ? AbortSignal.any([options.signal, turn]) : turn;
+      return value.call(target, { ...options, signal }, ...rest);
+    };
+  },
+});
 
 // Emits 'removalPending' when a removal becomes pending with none pending
 // before, 'removalsClear' when the last pending removal goes, and
@@ -301,6 +335,7 @@ function isTestMappingDescription(description) {
 
 module.exports = {
   client,
+  inTurn,
   routerEvents,
   routerLeases,
   routerRefusals,

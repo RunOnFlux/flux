@@ -3,6 +3,7 @@ const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
 const {
   client,
+  inTurn,
   routerEvents,
   MAPPED,
   leaseFor,
@@ -59,26 +60,46 @@ const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
 /**
  * Runs the waiting turns one at a time until none is left: a turn a caller
- * waits on before any upkeep that has not started.
+ * waits on before any upkeep that has not started. A turn still running after
+ * config.upnp.turnLimitMs is over: every request it has made or makes from then
+ * on is aborted (upnpRouter.inTurn), which it answers as a router that did not
+ * answer, and the next turn starts. Its caller is answered with whatever the
+ * turn settles with.
  * @returns {Promise<void>}
  */
 async function runLane() {
   laneRunning = true;
   while (intentTurns.length || upkeepTurns.length) {
     const turn = intentTurns.shift() ?? upkeepTurns.shift();
+    const over = new AbortController();
+    let timer;
+    // settles once the turn's requests are aborted and what that settles has run
+    const overrun = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        const error = new Error(`the router turn ran past ${config.upnp.turnLimitMs} ms`);
+        log.error(`portReconciler - ${error.message}: its requests are aborted and the next turn starts`);
+        over.abort(error);
+        setImmediate(resolve);
+      }, config.upnp.turnLimitMs);
+    });
+    let settled;
     try {
-      // eslint-disable-next-line no-await-in-loop
-      turn.resolve(await turn.work(client));
+      settled = Promise.resolve(inTurn(over.signal, () => turn.work(client)));
     } catch (error) {
-      turn.reject(error);
+      settled = Promise.reject(error);
     }
+    settled.then(turn.resolve, turn.reject);
+    // eslint-disable-next-line no-await-in-loop
+    await Promise.race([settled.catch(() => {}), overrun]);
+    clearTimeout(timer);
   }
   laneRunning = false;
 }
 
 /**
  * Runs `work` as a turn on the router, handing it the router's client: nothing
- * else of this node reaches the router until it settles. Upkeep waits behind
+ * else of this node reaches the router until it settles, or until
+ * config.upnp.turnLimitMs is over (runLane). Upkeep waits behind
  * every turn a caller waits on that has not started. `work` never waits on
  * another turn: that turn would wait on it.
  * @template T

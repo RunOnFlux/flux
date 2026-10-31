@@ -223,6 +223,7 @@ describe('upnpService tests', () => {
 
         sinon.assert.calledOnceWithExactly(createMappingStub, {
           public: 16130, private: 16130, ttl: TEST_LEASE_S, protocol: 'TCP', description: 'Flux_UPNP_Mapping_Test',
+          signal: sinon.match.instanceOf(AbortSignal),
         });
       });
 
@@ -309,7 +310,7 @@ describe('upnpService tests', () => {
 
       expect(await promise).to.equal(true);
       expect(heldAt).to.deep.equal({ create: true, readBack: true });
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 16130, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 16130, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
       expect(portReconciler.wanted.has(16130)).to.equal(false);
     });
 
@@ -403,7 +404,7 @@ describe('upnpService tests', () => {
 
       it('should remove the test mappings earlier runs left, and nothing else, then map once more', async () => {
         // the api port mapped here too: a test mapped on the retry is still checked and removed
-        natUpnp.Client.prototype.getMapping.withArgs({ public: 16127, protocol: 'TCP' }).resolves({
+        natUpnp.Client.prototype.getMapping.withArgs({ public: 16127, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) }).resolves({
           ...testMapping, public: { host: '', port: 16127 }, private: { host: '192.168.1.10', port: 16127 },
         });
 
@@ -539,7 +540,7 @@ describe('upnpService tests', () => {
 
           expect(result).to.equal(true);
           expect(upnpService.isUPNP()).to.equal(true);
-          sinon.assert.calledWithExactly(natUpnp.Client.prototype.getMapping, { public: 16127, protocol: 'TCP' });
+          sinon.assert.calledWithExactly(natUpnp.Client.prototype.getMapping, { public: 16127, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
           // the leased test mapping, and the same asked for once without a lease
           expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([TEST_LEASE_S, 0]);
           sinon.assert.notCalled(removeMappingStub);
@@ -616,7 +617,7 @@ describe('upnpService tests', () => {
       await clock.tickAsync(2_500);
 
       expect(await promise).to.equal(true);
-      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 16130, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 16130, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
       sinon.assert.notCalled(getMappingsStub);
     });
 
@@ -731,6 +732,7 @@ describe('upnpService tests', () => {
       sinon.assert.callCount(createMappingSpy, 5);
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 118, private: 118, ttl: 0, description: 'Flux_Fluxadm_SSH',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.notCalled(removeMappingStub);
     });
@@ -743,8 +745,8 @@ describe('upnpService tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.callCount(createMappingSpy, 4);
-      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 118, protocol: 'TCP' });
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 118, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
     });
 
     it('should know its own maintenance ssh mapping as a FRITZ!Box stores its description', async () => {
@@ -753,7 +755,7 @@ describe('upnpService tests', () => {
 
       await runSetup(123);
 
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
     });
 
     it('should remove nothing when the router holds no mapping of the maintenance ssh port', async () => {
@@ -775,7 +777,7 @@ describe('upnpService tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.callCount(createMappingSpy, 4);
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
     });
 
     [
@@ -836,15 +838,19 @@ describe('upnpService tests', () => {
       sinon.assert.callCount(createMappingSpy, 4);
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 123, private: 123, ttl: 0, protocol: 'TCP', description: 'Flux_Backend_API',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 124, private: 124, ttl: 0, protocol: 'TCP', description: 'Flux_Backend_API_SSL',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 122, private: 122, ttl: 0, protocol: 'TCP', description: 'Flux_Home_UI',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 125, private: 125, ttl: 0, protocol: 'TCP', description: 'Flux_Syncthing',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
     });
 
@@ -863,21 +869,25 @@ describe('upnpService tests', () => {
       sinon.assert.callCount(createMappingSpy, 4);
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16127, private: 16127, ttl: 0, protocol: 'TCP', description: 'Flux_Backend_API',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16128, private: 16128, ttl: 0, protocol: 'TCP', description: 'Flux_Backend_API_SSL',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16126, private: 16126, ttl: 0, protocol: 'TCP', description: 'Flux_Home_UI',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16129, private: 16129, ttl: 0, protocol: 'TCP', description: 'Flux_Syncthing',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
     });
 
     it('should take a core port the router refuses but already maps to this node as mapped', async () => {
       createMappingSpy.withArgs(sinon.match({ public: 124 })).rejects(new natUpnp.UpnpError(728, 'NoPortMapsAvailable', 'AddPortMapping'));
-      getMappingStub.withArgs({ public: 124, protocol: 'TCP' }).resolves(fluxadmMapping({
+      getMappingStub.withArgs({ public: 124, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) }).resolves(fluxadmMapping({
         public: { host: '', port: 124 }, private: { host: '192.168.1.10', port: 124 }, description: 'Flux_Backend_API_SSL', enabled: true,
       }));
 
@@ -1017,6 +1027,7 @@ describe('upnpService tests', () => {
       await clock.tickAsync(0);
       sinon.assert.calledOnceWithExactly(createMappingStub, {
         public: TEST_PORT, private: TEST_PORT, ttl: 60, protocol: 'TCP', description: 'Flux_UPNP_Mapping_Test',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       await clock.tickAsync(29_999);
       sinon.assert.calledOnce(createMappingStub);
@@ -1026,7 +1037,7 @@ describe('upnpService tests', () => {
       await clock.tickAsync(39_999);
       sinon.assert.notCalled(getMappingStub);
       await clock.tickAsync(1);
-      sinon.assert.calledOnceWithExactly(getMappingStub, { public: TEST_PORT, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(getMappingStub, { public: TEST_PORT, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
       await clock.tickAsync(5_000);
       expect(await promise).to.equal(true);
     });
@@ -1154,7 +1165,7 @@ describe('upnpService tests', () => {
 
       await run();
 
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: TEST_PORT, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: TEST_PORT, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
       expect(portReconciler.wanted.has(TEST_PORT)).to.equal(false);
     });
 
@@ -1472,8 +1483,12 @@ describe('upnpService tests', () => {
     });
 
     it('should give the listing its 60s of the 75s slot, and remove nothing when it does not finish', async () => {
-      routerHas([mapping(31000, 'Flux_App_a')]);
-      getMappingsStub.callsFake(unanswered);
+      routerHas(Array.from({ length: 200 }, (_, i) => mapping(31000 + i, 'Flux_App_a')));
+      // every entry answered 9 s after it is asked, inside the client's 10 s for a request
+      getMappingsStub.callsFake(({ signal }) => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve(table), 9_000);
+        signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+      }));
 
       let error;
       const passing = upnpService.removeStaleMappings(async () => [], BUDGET_MS).catch((err) => { error = err; });
@@ -1529,7 +1544,7 @@ describe('upnpService tests', () => {
         const removed = await upnpService.removeStaleMappings(async () => [16127], BUDGET_MS);
 
         expect(removed).to.equal(1);
-        sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 31000, protocol: 'UDP' });
+        sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 31000, protocol: 'UDP', signal: sinon.match.instanceOf(AbortSignal) });
         sinon.assert.notCalled(natUpnp.Client.prototype.getMappingAt);
       });
 
@@ -1541,7 +1556,7 @@ describe('upnpService tests', () => {
         const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
 
         expect(removed).to.equal(1);
-        sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 31000, protocol: 'TCP' });
+        sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 31000, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
       });
 
       it('leaves a recorded port wanted here when its turn comes', async () => {
@@ -1744,6 +1759,7 @@ describe('upnpService tests', () => {
         ttl: 0,
         protocol: 'TCP',
         description: 'Flux_manual_entry',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 1234,
@@ -1751,6 +1767,7 @@ describe('upnpService tests', () => {
         ttl: 0,
         protocol: 'UDP',
         description: 'Flux_manual_entry',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -1777,6 +1794,7 @@ describe('upnpService tests', () => {
         ttl: 0,
         protocol: 'TCP',
         description: 'Flux_manual_entry',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 1234,
@@ -1784,6 +1802,7 @@ describe('upnpService tests', () => {
         ttl: 0,
         protocol: 'UDP',
         description: 'Flux_manual_entry',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -1886,10 +1905,12 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(removeMappingSpy, {
         public: 1234,
         protocol: 'UDP',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(removeMappingSpy, {
         public: 1234,
         protocol: 'TCP',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -1914,10 +1935,12 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(removeMappingSpy, {
         public: 1234,
         protocol: 'TCP',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(removeMappingSpy, {
         public: 1234,
         protocol: 'UDP',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',

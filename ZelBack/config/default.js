@@ -159,6 +159,9 @@ module.exports = {
     // 10 s after it would have ended - before the renewed lease ends only while
     // half of this is longer than those 10 s.
     renewalTestLeaseS: 60,
+    // How long one turn on the router may run (portReconciler.onRouter): a turn
+    // is a few requests, each answered in milliseconds by nearly every router.
+    turnLimitMs: 60 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',

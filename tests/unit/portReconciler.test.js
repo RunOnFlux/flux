@@ -68,9 +68,11 @@ describe('portReconciler tests', () => {
       sinon.assert.calledTwice(createMappingStub);
       sinon.assert.calledWithExactly(createMappingStub.firstCall, {
         public: 123, private: 123, ttl: 0, protocol: 'TCP', description: 'some description',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingStub.secondCall, {
         public: 123, private: 123, ttl: 0, protocol: 'UDP', description: 'some description',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
     });
 
@@ -81,6 +83,7 @@ describe('portReconciler tests', () => {
       expect(result.mapped).to.equal(true);
       sinon.assert.calledOnceWithExactly(createMappingStub, {
         public: 123, private: 123, ttl: TEST_LEASE_S, protocol: 'TCP', description: 'Flux_Test_App',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       expect([...portReconciler.mappedProtocols.get(123)]).to.deep.equal(['TCP']);
     });
@@ -392,8 +395,8 @@ describe('portReconciler tests', () => {
 
       expect(result.mapped).to.equal(true);
       expect(upnpRouter.routerRefusals()).to.equal(before);
-      sinon.assert.calledWithExactly(getMappingStub.firstCall, { public: 123, protocol: 'TCP' });
-      sinon.assert.calledWithExactly(getMappingStub.secondCall, { public: 123, protocol: 'UDP' });
+      sinon.assert.calledWithExactly(getMappingStub.firstCall, { public: 123, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      sinon.assert.calledWithExactly(getMappingStub.secondCall, { public: 123, protocol: 'UDP', signal: sinon.match.instanceOf(AbortSignal) });
       sinon.assert.notCalled(logSpy);
     });
 
@@ -482,8 +485,8 @@ describe('portReconciler tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(getMappingStub);
-      sinon.assert.calledWithExactly(removeMappingStub.firstCall, { public: 123, protocol: 'TCP' });
-      sinon.assert.calledWithExactly(removeMappingStub.secondCall, { public: 123, protocol: 'UDP' });
+      sinon.assert.calledWithExactly(removeMappingStub.firstCall, { public: 123, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      sinon.assert.calledWithExactly(removeMappingStub.secondCall, { public: 123, protocol: 'UDP', signal: sinon.match.instanceOf(AbortSignal) });
       sinon.assert.notCalled(logSpy);
     });
 
@@ -544,7 +547,7 @@ describe('portReconciler tests', () => {
 
     it('should remove UDP when the router refuses to remove TCP, and report the port not removed', async () => {
       await portReconciler.want(123, 'Flux_Test_App');
-      removeMappingStub.withArgs({ public: 123, protocol: 'TCP' }).rejects(refusal(501, 'ActionFailed', 'DeletePortMapping'));
+      removeMappingStub.withArgs({ public: 123, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) }).rejects(refusal(501, 'ActionFailed', 'DeletePortMapping'));
 
       const result = await portReconciler.release(123);
 
@@ -1195,6 +1198,71 @@ describe('portReconciler tests', () => {
 
       expect(error.message).to.equal('refused');
       expect((await next).mapped).to.equal(true);
+    });
+
+    describe('a turn that runs past its limit', () => {
+      const { upnp: { turnLimitMs: TURN_LIMIT_MS } } = config;
+      const OVERRUN = `the router turn ran past ${TURN_LIMIT_MS} ms`;
+      let clock;
+
+      beforeEach(() => {
+        clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      });
+
+      afterEach(() => {
+        clock.restore();
+      });
+
+      it('starts the next turn at its limit, logged, and leaves its caller to what it settles with', async () => {
+        let answered = false;
+        portReconciler.onRouter(() => new Promise(() => {})).finally(() => { answered = true; });
+        const next = portReconciler.want(31015, 'Flux_App_web', { protocols: ['TCP'] });
+
+        await clock.tickAsync(TURN_LIMIT_MS - 1);
+        sinon.assert.notCalled(createMappingStub);
+        await clock.tickAsync(1);
+        await settle();
+
+        sinon.assert.calledWithMatch(log.error, OVERRUN);
+        sinon.assert.calledOnce(createMappingStub);
+        expect((await next).mapped).to.equal(true);
+        expect(answered).to.equal(false);
+      });
+
+      it('aborts the request it is waiting on, and answers its caller as a router that did not answer', async () => {
+        let signal;
+        createMappingStub.callsFake((options) => {
+          ({ signal } = options);
+          return new Promise((resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason));
+          });
+        });
+
+        const mapping = portReconciler.want(31016, 'Flux_App_web', { protocols: ['TCP'] });
+        await clock.tickAsync(TURN_LIMIT_MS);
+
+        expect(signal.aborted).to.equal(true);
+        const result = await mapping;
+        expect(result).to.include({ mapped: false, code: null, routerWide: true });
+        expect(result.reason).to.include(OVERRUN);
+      });
+
+      it('sends nothing it asks for after its limit', async () => {
+        const late = gate();
+        let lateAnswer;
+        const stuck = portReconciler.onRouter(async () => {
+          await late.opened;
+          lateAnswer = await upnpRouter.client.removeMapping({ public: 31017, protocol: 'TCP' }).catch((error) => error);
+        });
+        await clock.tickAsync(TURN_LIMIT_MS);
+        await settle();
+
+        late.open();
+        await stuck;
+
+        sinon.assert.notCalled(removeMappingStub);
+        expect(lateAnswer).to.have.property('message', OVERRUN);
+      });
     });
   });
 
