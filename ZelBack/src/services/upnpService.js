@@ -18,6 +18,7 @@ const {
   sameDescription,
   descriptionStartsWith,
   isTestMappingDescription,
+  mayStillBeThisNodes,
 } = require('./upnpRouter');
 const portReconciler = require('./portReconciler');
 const upnpMappingRecord = require('./upnpMappingRecord');
@@ -564,7 +565,9 @@ async function removeOwnMappings(select, budgetMs, what) {
  * Removes the mappings upnpMappingRecord holds that `select` picks and nothing
  * here holds, one removal per turn, each by its port and protocol. A position in
  * the router's table plays no part, so nothing another machine does to the table
- * hides one. The router's answer ends the record (upnpRouter's client): removed,
+ * hides one. A mapping that may no longer be this node's
+ * (upnpRouter.mayStillBeThisNodes) has its record ended and nothing sent: a
+ * removal by port takes whatever holds the port. The router's answer ends the record (upnpRouter's client): removed,
  * no such entry, or refused as not this node's, which a router in secure mode
  * answers for another machine's mapping. Any other answer keeps the record for
  * the next start.
@@ -582,6 +585,11 @@ async function removeRecordedMappings(heldPorts, select, what) {
     // eslint-disable-next-line no-await-in-loop
     const outcome = await portReconciler.onRouter(async (client) => {
       if (portReconciler.isWanted(record.port)) return 'held';
+      if (!await mayStillBeThisNodes(client, record.port, record.protocol, record)) {
+        await upnpMappingRecord.removed(record.port, record.protocol);
+        log.info(`UPnP - ${what} ${record.protocol} ${record.port} (${record.description}) may no longer be this node's on the router; its record is ended, nothing sent`);
+        return 'not this node\'s';
+      }
       try {
         await client.removeMapping({ public: record.port, protocol: record.protocol });
       } catch (error) {

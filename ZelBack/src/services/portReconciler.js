@@ -9,9 +9,10 @@ const {
   leaseFor,
   mapProtocol,
   removeProtocol,
-  routerMapsHere,
+  mayStillBeThisNodes,
   isTestMappingDescription,
 } = require('./upnpRouter');
+const upnpMappingRecord = require('./upnpMappingRecord');
 
 // The one owner of this node's UPnP mappings, and the only way to the router:
 // every request this node makes of it runs as a turn on one lane (onRouter),
@@ -291,21 +292,20 @@ function schedulePendingRemoval(pending) {
 }
 
 /**
- * The turn of a pending removal's retry. The router is asked first whether the
- * mapping is still this node's: one it no longer holds, or holds for something
- * else, ends the removal with nothing sent. A lookup it does not settle leaves
- * the mapping counted as this node's, and the removal is sent. A refusal
- * schedules the next ask.
+ * The turn of a pending removal's retry. A mapping that may no longer be this
+ * node's (upnpRouter.mayStillBeThisNodes, from the last add this node made of it)
+ * ends the removal and its record with nothing sent; any other is removed. A
+ * refusal schedules the next ask.
  * @param {object} pending
  * @returns {Promise<void>}
  */
 async function retryRemoval(pending) {
   const key = `${pending.port}/${pending.protocol}`;
   if (pendingRemovals.get(key) !== pending) return;
-  const held = await routerMapsHere(pending.port, pending.protocol);
-  if (held === false) {
+  if (!await mayStillBeThisNodes(client, pending.port, pending.protocol, upnpMappingRecord.lastAdd(pending.port, pending.protocol))) {
     deletePendingRemoval(key);
-    log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) no longer this node's on the router, nothing to remove`);
+    await upnpMappingRecord.removed(pending.port, pending.protocol);
+    log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) may no longer be this node's on the router, nothing sent`);
     return;
   }
   if (await removeProtocol(pending.port, pending.protocol)) {

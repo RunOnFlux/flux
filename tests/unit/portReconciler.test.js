@@ -17,6 +17,7 @@ describe('portReconciler tests', () => {
   // the record of this node's mappings, kept by the router's client on every add
   // and removal, is upnpMappingRecord's own to test
   beforeEach(() => {
+    upnpMappingRecord.lastAdds.clear();
     sinon.stub(upnpMappingRecord, 'mapping').resolves();
     sinon.stub(upnpMappingRecord, 'removed').resolves();
   });
@@ -901,6 +902,33 @@ describe('portReconciler tests', () => {
       await clock.tickAsync(FIRST_MS);
 
       expect(removals()).to.deep.equal(['123/TCP']);
+      expect(portReconciler.removalPending()).to.equal(false);
+    });
+
+    it('should end a removal and its record with nothing sent once the lease of the mapping\'s last add has run out', async () => {
+      await mapTcpOnly(123, 'Flux_App_web');
+      removeMappingStub.rejects(refused());
+      await portReconciler.release(123, 'Flux_App_web');
+      upnpMappingRecord.lastAdds.set('123/TCP', { at: new Date(Date.now() - 2100 * 1000), lease: 2100 });
+      upnpMappingRecord.removed.resetHistory();
+
+      await clock.tickAsync(FIRST_MS);
+
+      expect(lookups(), 'the router is asked nothing').to.deep.equal([]);
+      expect(removals(), 'no removal after the lease').to.deep.equal(['123/TCP']);
+      expect(portReconciler.removalPending()).to.equal(false);
+      sinon.assert.calledOnceWithExactly(upnpMappingRecord.removed, 123, 'TCP');
+    });
+
+    it('should send the removal when the router answers the lookup with an empty entry', async () => {
+      await mapTcpOnly(123, 'Flux_App_web');
+      removeMappingStub.onCall(0).rejects(refused());
+      await portReconciler.release(123, 'Flux_App_web');
+      getMappingStub.callsFake(async ({ public: port, protocol }) => entry(port, protocol, { private: { host: '', port: 0 }, local: false }));
+
+      await clock.tickAsync(FIRST_MS);
+
+      expect(removals()).to.deep.equal(['123/TCP', '123/TCP']);
       expect(portReconciler.removalPending()).to.equal(false);
     });
 

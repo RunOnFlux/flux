@@ -2,7 +2,7 @@ const { expect } = require('chai');
 const natUpnp = require('@runonflux/nat-upnp');
 const sinon = require('sinon');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
-const { client } = require('../../ZelBack/src/services/upnpRouter');
+const { client, mayStillBeThisNodes } = require('../../ZelBack/src/services/upnpRouter');
 
 describe('upnpRouter tests', () => {
   describe('the router client keeps the mapping record', () => {
@@ -24,7 +24,15 @@ describe('upnpRouter tests', () => {
       await client.createMapping({ public: 31000, private: 31000, protocol: 'UDP', description: 'Flux_App_web' });
 
       expect(order).to.deep.equal(['record 31000/UDP', 'add']);
-      sinon.assert.calledOnceWithExactly(upnpMappingRecord.mapping, 31000, 'UDP', 'Flux_App_web');
+      sinon.assert.calledOnceWithExactly(upnpMappingRecord.mapping, 31000, 'UDP', 'Flux_App_web', 0);
+    });
+
+    it('records the lease an add asks for', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+
+      await client.createMapping({ public: 31000, private: 31000, protocol: 'TCP', ttl: 2100, description: 'Flux_App_web' });
+
+      sinon.assert.calledOnceWithExactly(upnpMappingRecord.mapping, 31000, 'TCP', 'Flux_App_web', 2100);
     });
 
     it('records an add the router refuses, and leaves it for the start\'s cleanup', async () => {
@@ -74,6 +82,65 @@ describe('upnpRouter tests', () => {
 
       expect(error.message).to.equal('socket hang up');
       expect(order).to.deep.equal([]);
+    });
+  });
+  // Whether a mapping this node made may still be its own: its lease, then the
+  // router's answer, which can only end it.
+  describe('mayStillBeThisNodes', () => {
+    const NOW = Date.parse('2026-10-31T12:00:00Z');
+    const leased = (secondsAgo, lease = 2100) => ({ at: new Date(NOW - secondsAgo * 1000), lease });
+    const permanent = { at: new Date(NOW - 86400 * 1000), lease: 0 };
+    const answer = (host, local) => ({
+      public: { host: '', port: 31000 }, private: { host, port: 31000 }, protocol: 'tcp', enabled: true, description: 'Flux_App_web', ttl: 0, local,
+    });
+    let routerClient;
+    const ask = (added) => mayStillBeThisNodes(routerClient, 31000, 'TCP', added, NOW);
+
+    beforeEach(() => {
+      routerClient = { getMapping: sinon.stub() };
+    });
+
+    it('ends a leased mapping once its lease has run out, asking the router nothing', async () => {
+      expect(await ask(leased(2100))).to.equal(false);
+      sinon.assert.notCalled(routerClient.getMapping);
+    });
+
+    [
+      ['a leased mapping inside its lease', leased(2099)],
+      ['a permanent mapping', permanent],
+      ['a mapping with no add on record', null],
+    ].forEach(([what, added]) => {
+      it(`keeps ${what} the router maps to this node`, async () => {
+        routerClient.getMapping.resolves(answer('192.168.1.10', true));
+
+        expect(await ask(added)).to.equal(true);
+        sinon.assert.calledOnceWithExactly(routerClient.getMapping, { public: 31000, protocol: 'TCP' });
+      });
+
+      it(`ends ${what} the router maps to another machine`, async () => {
+        routerClient.getMapping.resolves(answer('192.168.1.20', false));
+
+        expect(await ask(added)).to.equal(false);
+      });
+
+      it(`ends ${what} the router holds no entry for`, async () => {
+        routerClient.getMapping.resolves(null);
+
+        expect(await ask(added)).to.equal(false);
+      });
+
+      it(`keeps ${what} the router answers with an empty entry`, async () => {
+        routerClient.getMapping.resolves(answer('', false));
+
+        expect(await ask(added)).to.equal(true);
+      });
+
+      it(`keeps ${what} the router answers with a fault or not at all`, async () => {
+        routerClient.getMapping.rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'GetSpecificPortMappingEntry'));
+        expect(await ask(added)).to.equal(true);
+        routerClient.getMapping.rejects(new Error('timeout of 10000ms exceeded'));
+        expect(await ask(added)).to.equal(true);
+      });
     });
   });
 });

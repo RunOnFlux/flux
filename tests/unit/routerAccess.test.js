@@ -13,7 +13,7 @@ const espree = require('espree');
 
 const ROOT = nodePath.join(__dirname, '../..');
 // what upnpRouter exports that sends a request to the router
-const ROUTER_CALLS = new Set(['client', 'mapProtocol', 'removeProtocol', 'routerMapsHere']);
+const ROUTER_CALLS = new Set(['client', 'mapProtocol', 'removeProtocol']);
 
 const sourceFiles = () => execFileSync('git', ['-C', ROOT, 'ls-files', 'ZelBack/src', 'apiServer.js'], { encoding: 'utf8' })
   .split('\n').filter((f) => f.endsWith('.js'));
@@ -93,7 +93,7 @@ describe('router access tests', () => {
 
   it('only portReconciler takes the router client or a call that uses it from upnpRouter', () => {
     expect(Object.fromEntries(calls)).to.deep.equal({
-      'ZelBack/src/services/portReconciler.js': ['client', 'mapProtocol', 'removeProtocol', 'routerMapsHere'],
+      'ZelBack/src/services/portReconciler.js': ['client', 'mapProtocol', 'removeProtocol'],
     });
   });
 

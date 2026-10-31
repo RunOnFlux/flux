@@ -33,7 +33,7 @@ const portOf = (value) => (typeof value === 'object' && value !== null ? value.p
  */
 class RecordingClient extends natUpnp.Client {
   async createMapping(options) {
-    await upnpMappingRecord.mapping(+portOf(options.public), options.protocol || 'TCP', options.description || '');
+    await upnpMappingRecord.mapping(+portOf(options.public), options.protocol || 'TCP', options.description || '', options.ttl || 0);
     return super.createMapping(options);
   }
 
@@ -287,19 +287,34 @@ async function removeProtocol(port, protocol) {
 }
 
 /**
- * Whether the router still maps one protocol of a port to this node.
+ * Whether a mapping this node made may still be its own on the router, from the
+ * last add it made of it and the router's answer for the port. A mapping with a
+ * lease is the router's to drop when the lease runs out: after that it may be
+ * another machine's, whatever the router answers. Otherwise the router is asked,
+ * and the answer can only end the mapping, never claim it: an entry it does not
+ * hold, or one it maps to another machine's address, is not this node's; an empty
+ * entry, a fault or no answer leaves it this node's - some routers answer every
+ * lookup with an empty entry. A lookup that wrongly ends a leased mapping leaves
+ * it until its lease runs out.
+ * @param {object} routerClient the client of the turn it is asked in
  * @param {number} port
  * @param {string} protocol 'TCP' or 'UDP'
- * @returns {Promise<boolean|null>} null when the router did not say: a lookup
- *   it answered with a fault, or did not answer
+ * @param {{at: Date|number, lease?: number}|null} added the last add this node
+ *   made of it; none is taken as a permanent mapping
+ * @param {number} [nowMs] the wall clock, in ms
+ * @returns {Promise<boolean>}
  */
-async function routerMapsHere(port, protocol) {
+async function mayStillBeThisNodes(routerClient, port, protocol, added, nowMs = Date.now()) {
+  const lease = added?.lease ?? 0;
+  if (lease > 0 && nowMs - new Date(added.at).getTime() >= lease * 1000) return false;
+  let mapping;
   try {
-    return mapsHere(await client.getMapping({ public: port, protocol }), port);
+    mapping = await routerClient.getMapping({ public: port, protocol });
   } catch (error) {
-    log.error(`UPnP - ${protocol} ${port} not looked up: ${error.message}`);
-    return null;
+    return true;
   }
+  if (mapping === null) return false;
+  return !(mapping.private.host && !mapping.local);
 }
 
 /**
@@ -344,7 +359,7 @@ module.exports = {
   leaseFor,
   mapProtocol,
   removeProtocol,
-  routerMapsHere,
+  mayStillBeThisNodes,
   sameDescription,
   descriptionStartsWith,
   isTestMappingDescription,

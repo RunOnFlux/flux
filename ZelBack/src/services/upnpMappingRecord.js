@@ -3,7 +3,8 @@ const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
 // Every UPnP mapping this node has asked its router for and not seen removed, one
-// document per `port/protocol`, in the node's local database. upnpRouter's client
+// document per `port/protocol`, in the node's local database, with when it was last
+// added and the lease it was asked with (0: permanent). upnpRouter's client
 // writes one before it sends the router an add, and deletes it once the router has
 // removed the mapping or answered that it holds none of this node's on that port.
 // A FluxOS that stops between a map and its removal finds the mapping here at its
@@ -21,6 +22,9 @@ const COMPLETE_ID = 'complete';
 // Writes made before the database was connected, by key: the document to write,
 // or null for a record ended.
 const unwritten = new Map();
+
+// The last add of each mapping this FluxOS made, by key: { at, lease }.
+const lastAdds = new Map();
 
 function collection() {
   const db = dbHelper.databaseConnection();
@@ -69,13 +73,15 @@ async function writeWaiting() {
  * @param {number} port
  * @param {string} protocol
  * @param {string} description
+ * @param {number} lease the lease asked for, in seconds; 0 for a permanent mapping
  * @returns {Promise<void>}
  */
-async function mapping(port, protocol, description) {
+async function mapping(port, protocol, description, lease) {
   const key = keyOf(port, protocol);
   const document = {
-    port, protocol: String(protocol).toUpperCase(), description, at: new Date(),
+    port, protocol: String(protocol).toUpperCase(), description, at: new Date(), lease,
   };
+  lastAdds.set(key, { at: document.at, lease });
   try {
     const records = collection();
     if (!records) {
@@ -97,6 +103,7 @@ async function mapping(port, protocol, description) {
  */
 async function removed(port, protocol) {
   const key = keyOf(port, protocol);
+  lastAdds.delete(key);
   try {
     const records = collection();
     if (!records) {
@@ -111,8 +118,18 @@ async function removed(port, protocol) {
 }
 
 /**
+ * The last add of a mapping this FluxOS made and has not seen removed.
+ * @param {number} port
+ * @param {string} protocol
+ * @returns {{at: Date, lease: number}|null}
+ */
+function lastAdd(port, protocol) {
+  return lastAdds.get(keyOf(port, protocol)) ?? null;
+}
+
+/**
  * Every recorded mapping.
- * @returns {Promise<Array<{port: number, protocol: string, description: string, at: Date}>>}
+ * @returns {Promise<Array<{port: number, protocol: string, description: string, at: Date, lease: number}>>}
  */
 async function all() {
   const records = collection();
@@ -143,6 +160,8 @@ async function markComplete() {
 
 module.exports = {
   unwritten,
+  lastAdds,
+  lastAdd,
   writeWaiting,
   mapping,
   removed,

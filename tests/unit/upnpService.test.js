@@ -1214,6 +1214,7 @@ describe('upnpService tests', () => {
     const LISTING_MS = 60 * 1000;
     let getMappingsStub;
     let removeMappingStub;
+    let getMappingStub;
     let clock;
     let table;
 
@@ -1250,6 +1251,8 @@ describe('upnpService tests', () => {
       table = [];
       getMappingsStub = stubTable().callsFake(async () => table);
       removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      // a recorded port the router still maps to this node
+      getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').callsFake(async ({ public: port }) => mapping(port, 'Flux_App_a'));
     });
 
     afterEach(() => {
@@ -1468,7 +1471,6 @@ describe('upnpService tests', () => {
 
     it('should remove a port once it is released, even if the router refused its removal', async () => {
       sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
-      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(mapping(31000, 'Flux_App_gone'));
       await portReconciler.want(31000, 'Flux_App_gone');
       removeMappingStub.onFirstCall().rejects(refused());
       await portReconciler.release(31000);
@@ -1557,6 +1559,42 @@ describe('upnpService tests', () => {
 
         expect(removed).to.equal(1);
         sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 31000, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      });
+
+      [
+        ['the lease of its last add has run out', () => ({ at: new Date(Date.now() - 2100 * 1000), lease: 2100 }), null, false],
+        ['it is permanent and the router maps the port to another machine', () => ({ lease: 0 }), () => mapping(31000, 'Flux_App_b', { local: false, private: { host: '192.168.1.11', port: 31000 } }), true],
+        ['it is permanent and the router holds no entry for it', () => ({ lease: 0 }), () => null, true],
+      ].forEach(([what, added, answer, asked]) => {
+        it(`ends a record with nothing sent when ${what}`, async () => {
+          upnpMappingRecord.all.resolves([{ ...recorded(31000, 'Flux_App_gone'), ...added() }]);
+          upnpMappingRecord.complete.resolves(true);
+          if (answer) getMappingStub.callsFake(async () => answer());
+
+          const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+          expect(removed).to.equal(0);
+          sinon.assert.notCalled(removeMappingStub);
+          sinon.assert.calledOnceWithExactly(upnpMappingRecord.removed, 31000, 'TCP');
+          expect(getMappingStub.called, 'the router asked').to.equal(asked);
+        });
+      });
+
+      [
+        ['inside the lease of its last add', () => ({ at: new Date(Date.now() - 2099 * 1000), lease: 2100 }), null],
+        ['permanent, when the router answers its lookup with an empty entry', () => ({ lease: 0 }), () => mapping(31000, '', { local: false, private: { host: '', port: 0 } })],
+        ['permanent, when the router answers its lookup with a fault', () => ({ lease: 0 }), () => { throw new natUpnp.UpnpError(501, 'ActionFailed', 'GetSpecificPortMappingEntry'); }],
+      ].forEach(([what, added, answer]) => {
+        it(`removes a recorded mapping ${what}`, async () => {
+          upnpMappingRecord.all.resolves([{ ...recorded(31000, 'Flux_App_gone'), ...added() }]);
+          upnpMappingRecord.complete.resolves(true);
+          if (answer) getMappingStub.callsFake(async () => answer());
+
+          const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+          expect(removed).to.equal(1);
+          sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 31000, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+        });
       });
 
       it('leaves a recorded port wanted here when its turn comes', async () => {

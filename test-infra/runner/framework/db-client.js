@@ -52,6 +52,26 @@ export function dbClient(nodeNum) {
       return { total, resolved, missing, notFound };
     },
 
+    // The node's record of the UPnP mappings it asked its router for: one document
+    // per `port/protocol`, written as upnpMappingRecord writes it, the record marked
+    // as covering the router so that the start's cleanup reads it alone.
+    async recordUpnpMappings(records) {
+      const col = (await db('local')).collection('upnpmappings');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const record of records) {
+        const protocol = String(record.protocol || 'TCP').toUpperCase();
+        // eslint-disable-next-line no-await-in-loop
+        await col.updateOne({ _id: `${record.port}/${protocol}` }, { $set: { ...record, protocol } }, { upsert: true });
+      }
+      await col.updateOne({ _id: 'complete' }, { $set: { at: new Date() } }, { upsert: true });
+    },
+
+    // One mapping's record, or null once it has ended.
+    async upnpMappingRecord(port, protocol = 'TCP') {
+      const col = (await db('local')).collection('upnpmappings');
+      return col.findOne({ _id: `${port}/${String(protocol).toUpperCase()}` });
+    },
+
     // The address the node last adopted as its own, and the one it moved from.
     async ownAddressRecord() {
       const localDb = await db('local');
