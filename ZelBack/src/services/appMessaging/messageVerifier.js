@@ -924,8 +924,9 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
                 for (let idx = 0; idx < pendingUpdates.length; idx += 1) {
                   const pendingUpdate = pendingUpdates[idx];
                   try {
+                    // It passed the authenticated-link rule when it was queued.
                     // eslint-disable-next-line no-await-in-loop
-                    await messageStore.storeAppTemporaryMessage(pendingUpdate.message);
+                    await messageStore.storeAppTemporaryMessage(pendingUpdate.message, { authenticated: true });
                     log.info(`Processed pending update ${idx + 1}/${pendingUpdates.length} for ${appName}`);
                   } catch (error) {
                     // If an update fails, stop processing and clear remaining updates

@@ -77,7 +77,9 @@ async function handleAppMessages(message, fromIP, port) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data, { frame: message });
+    const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data, {
+      frame: message, authenticated: arrivedAuthenticated(message),
+    });
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
       announceToPeers(message, `${fromIP}:${port}`);
@@ -127,6 +129,7 @@ async function handleAppProposal(msg, peer) {
   try {
     const stored = await messageStore.storeAppTemporaryMessage(envelope.data, {
       frame: envelope,
+      authenticated: true,
       beforeWrite: () => {
         held = true;
         return admissionQuorum.hold(appHash, peer);
@@ -213,7 +216,9 @@ async function handleTempSyncResponse(message, peerSocket) {
     let writeFailed = false;
     for (const msg of messages) {
       try {
-        const result = await messageStore.storeAppTemporaryMessage(msg, { furtherVerification: true });
+        const result = await messageStore.storeAppTemporaryMessage(msg, {
+          furtherVerification: true, authenticated: arrivedAuthenticated(message),
+        });
         if (result === true || result === false) stored += 1;
       } catch (err) {
         log.error(`Temp sync message failed: ${err.message}`);

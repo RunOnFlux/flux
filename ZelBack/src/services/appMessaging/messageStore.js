@@ -8,6 +8,8 @@ const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
 const unpaidAdmission = require('./unpaidAdmission');
 const { insertTemporaryMessage } = require('./temporaryMessageRecord');
+
+const isArcane = Boolean(process.env.FLUXOS_PATH);
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -80,6 +82,8 @@ async function getPreviousOwner(appName, currentOwner) {
  * @param {object} [options] - Options
  * @param {boolean} [options.furtherVerification=true] - Whether further verification is needed
  * @param {object} [options.frame] - The frame the message arrived in, when it arrived alone
+ * @param {boolean} [options.authenticated] - Whether it arrived over an authenticated Arcane
+ *   link; on an Arcane node an unpaid message is taken only when it did
  * @param {function(): Promise<boolean>} [options.beforeWrite] - Called once every check has
  *   passed, before the write; the message is written only when it answers true
  * @param {function(string): void} [options.onRefusal] - Told why a message that is not
@@ -149,7 +153,11 @@ async function storeAppTemporaryMessage(message, options = {}) {
   // sender's allowance, decided before the verification below.
   let admission = { fields: {} };
   if (!result) {
-    admission = await unpaidAdmission.admitUnpaid(message, { frame: options.frame, daemonHeight });
+    // Only an Arcane node can put an unpaid message into the network, and only
+    // over an authenticated link does one reach an Arcane node.
+    admission = isArcane && !options.authenticated
+      ? { refused: 'it did not arrive over an authenticated Arcane link' }
+      : await unpaidAdmission.admitUnpaid(message, { frame: options.frame, daemonHeight });
     fluxEventBus.publish('appmessage:admission', {
       hash: message.hash,
       taken: !admission.refused,
