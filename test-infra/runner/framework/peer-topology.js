@@ -161,19 +161,22 @@ export const PRODUCTION_ADMISSION_QUORUM = 3;
 /**
  * The admission quorum a fleet of this shape can meet. A node admits an unpaid
  * app message only while it holds admissionQuorum authenticated links on distinct
- * IPs, and only an Arcane node authenticates, so a node can count at most the
- * peers it carries that are not legacy - a legacy node may sit in any arc, so
- * every one is taken off. A fleet that carries production's quorum keeps it; a
- * smaller one gets what it carries, and a node with no Arcane peer admits on its
- * own. Injected as the fleet's config like the thresholds above; a suite TESTING
- * the quorum sets its own and that wins.
+ * IPs, and only an Arcane node authenticates, so the quorum is what the node that
+ * fares worst can count: its two arcs, less every slot in them that nothing
+ * answers on (a stub, a deferred node - as expectedPeerTotal counts them), less
+ * every legacy node, since one may sit in any arc. A fleet that carries
+ * production's quorum keeps it; a smaller one gets what it carries, and a node
+ * with no Arcane peer admits on its own. Injected as the fleet's config like the
+ * thresholds above; a suite TESTING the quorum sets its own and that wins.
  * @param {number} nodeCount
- * @param {number} stubCount
+ * @param {number} absentCount Stubs and deferred nodes.
  * @param {number} legacyCount
  * @returns {number}
  */
-export function deriveAdmissionQuorum(nodeCount, stubCount, legacyCount) {
-  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, carriedPeers(nodeCount, stubCount) - legacyCount));
+export function deriveAdmissionQuorum(nodeCount, absentCount, legacyCount) {
+  const dialers = dialerCount(nodeCount, absentCount);
+  const reachable = Math.max(0, Math.min(dialers - 1, (2 * ringArc(dialers)) - absentCount));
+  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - legacyCount));
 }
 
 /**
