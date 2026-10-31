@@ -2294,6 +2294,8 @@ async function registerAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
+      // Another node may admit it: the status lets a client or balancer move on.
+      if (error instanceof admissionQuorum.AdmissionUnavailableError) res.status(503);
       res.json(errorResponse);
     }
   });
