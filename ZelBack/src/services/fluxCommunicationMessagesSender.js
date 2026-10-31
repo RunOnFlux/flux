@@ -409,28 +409,6 @@ async function broadcastMessageFromUserPost(req, res) {
   });
 }
 
-// how long can this take?
-/**
- * To broadcast temporary app message.
- * @param {object} message Message.
- */
-async function broadcastTemporaryAppMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param appSpecifications object
-  * @param hash string - messageHash(type + version + JSON.stringify(appSpecifications) + timestamp + signature))
-  * @param timestamp number
-  * @param signature string
-  */
-  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
-  if (typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.appSpecifications !== 'object' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
-    throw new Error('Invalid Flux App message for storing');
-  }
-  // sign once, send to both directions
-  await broadcastMessageToAll(message);
-}
-
 async function respondWithTempMessages(peer, sinceTimestamp = 0) {
   try {
     // THE SAME INCOMPLETENESS, ON A DIFFERENT COLLECTION. A node still catching
@@ -593,7 +571,6 @@ module.exports = {
   broadcastMessageToAll,
   broadcastMessageFromUser,
   broadcastMessageFromUserPost,
-  broadcastTemporaryAppMessage,
   broadcastMessageToRandomOutgoing,
   broadcastMessageToRandomIncoming,
 };

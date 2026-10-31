@@ -19,6 +19,8 @@ const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunica
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const nodeConfirmationService = require('../../ZelBack/src/services/nodeConfirmationService');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
+const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
+const admissionQuorum = require('../../ZelBack/src/services/appMessaging/admissionQuorum');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
@@ -189,6 +191,154 @@ describe('fluxCommunication tests', () => {
       expect(disconnectAll.calledOnce).to.equal(true);
       expect(onReady.called).to.equal(false);
       expect(allowConnections.called).to.equal(false);
+    });
+  });
+
+  describe('handleAppProposal tests', () => {
+    const appHash = 'b'.repeat(64);
+    const envelope = {
+      version: 1,
+      timestamp: Date.now(),
+      pubKey: 'entryKey',
+      signature: 'frameSig',
+      data: {
+        type: 'fluxappregister', version: 1, hash: appHash, appSpecifications: { name: 'App' }, timestamp: 1, signature: 's',
+      },
+    };
+    let peer;
+    let broadcastHashStub;
+
+    const receipts = () => peer.sent.filter((m) => m.type === 'appreceipt').map(({ state, reason }) => (reason ? `${state}: ${reason}` : state));
+    const propose = (env = envelope) => fluxCommunication.handleAppProposal({ type: 'appproposal', envelope: { ...env, timestamp: Date.now() } }, peer);
+
+    beforeEach(() => {
+      peer = {
+        ip: '10.0.0.1', port: '16127', key: '10.0.0.1:16127', connectionId: 9001, sent: [],
+      };
+      peer.send = (frame) => { peer.sent.push(JSON.parse(frame)); return true; };
+      broadcastHashStub = sinon.stub(peerManager, 'broadcastHash');
+      sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').resolves(fluxCommunicationUtils.VerifyResult.OK);
+      sinon.stub(messageVerifier, 'checkAppMessageExistence').resolves(false);
+      sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').resolves(false);
+      cacheManager.announcementSeen.clear();
+    });
+
+    afterEach(() => {
+      admissionQuorum.resetState();
+      sinon.restore();
+    });
+
+    it('should hold a message that passes its checks, and write and relay it only on the commit', async () => {
+      let written = false;
+      sinon.stub(messageStore, 'storeAppTemporaryMessage').callsFake(async (message, options) => {
+        if (!(await options.beforeWrite())) return false;
+        written = true;
+        return true;
+      });
+
+      const handled = propose();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(receipts()).to.eql(['received', 'held']);
+      expect(written).to.equal(false);
+      sinon.assert.notCalled(broadcastHashStub);
+
+      admissionQuorum.onCommit(peer, { type: 'appcommit', hash: appHash });
+      await handled;
+
+      expect(written).to.equal(true);
+      sinon.assert.calledOnceWithExactly(broadcastHashStub, objectHash(envelope.data), peer.key);
+      expect(cacheManager.announcementSeen.has(objectHash(envelope.data))).to.equal(true);
+      expect(messageStore.storeAppTemporaryMessage.firstCall.args[1].frame.pubKey).to.equal('entryKey');
+    });
+
+    it('should refuse, with why, a message admission does not take', async () => {
+      sinon.stub(messageStore, 'storeAppTemporaryMessage').callsFake(async (message, options) => {
+        options.onRefusal('its client has no allowance left');
+        return false;
+      });
+
+      await propose();
+
+      expect(receipts()).to.eql(['received', 'refused: its client has no allowance left']);
+    });
+
+    it('should refuse, with why, a message a check throws on', async () => {
+      sinon.stub(messageStore, 'storeAppTemporaryMessage').rejects(new Error('Flux App App already registered'));
+
+      await propose();
+
+      expect(receipts()).to.eql(['received', 'refused: Flux App App already registered']);
+    });
+
+    it('should refuse an envelope that does not verify, before any check', async () => {
+      fluxCommunicationUtils.verifyFluxBroadcast.resolves(fluxCommunicationUtils.VerifyResult.BAD_SIGNATURE);
+      const store = sinon.stub(messageStore, 'storeAppTemporaryMessage');
+
+      await propose();
+
+      expect(receipts()).to.eql(['received', 'refused: its envelope does not verify: badSignature']);
+      sinon.assert.notCalled(store);
+    });
+
+    it('should refuse an envelope outside the broadcast window', async () => {
+      const store = sinon.stub(messageStore, 'storeAppTemporaryMessage');
+
+      await fluxCommunication.handleAppProposal({ type: 'appproposal', envelope: { ...envelope, timestamp: Date.now() - 600000 } }, peer);
+
+      expect(receipts()).to.eql(['received', 'refused: its envelope is outside the broadcast window']);
+      sinon.assert.notCalled(store);
+    });
+
+    it('should answer held for a message it already stores', async () => {
+      messageVerifier.checkAppTemporaryMessageExistence.resolves({ hash: appHash });
+      const store = sinon.stub(messageStore, 'storeAppTemporaryMessage');
+
+      await propose();
+
+      expect(receipts()).to.eql(['received', 'held']);
+      sinon.assert.notCalled(store);
+    });
+
+    it('should answer held for a message already pending from another node, and check it once', async () => {
+      sinon.stub(messageStore, 'storeAppTemporaryMessage').callsFake(async (message, options) => options.beforeWrite());
+      const first = propose();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      const firstPeer = peer;
+      peer = { ...firstPeer, connectionId: 9002, sent: [] };
+      peer.send = (frame) => { peer.sent.push(JSON.parse(frame)); return true; };
+
+      await propose();
+
+      expect(receipts()).to.eql(['received', 'held']);
+      sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
+      admissionQuorum.onCommit(peer, { type: 'appcommit', hash: appHash });
+      await first;
+    });
+
+    it('should not store a relayed copy of a message it holds pending', async () => {
+      let written = 0;
+      sinon.stub(messageStore, 'storeAppTemporaryMessage').callsFake(async (message, options) => {
+        if (options.beforeWrite && !(await options.beforeWrite())) return false;
+        written += 1;
+        return false;
+      });
+      const proposed = propose();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      const relayed = { ...envelope, timestamp: Date.now() };
+
+      await fluxCommunication.handleAppMessages(relayed, '10.0.0.2', '16127');
+      admissionQuorum.onCommit(peer, { type: 'appcommit', hash: appHash });
+      await proposed;
+
+      expect(written).to.equal(1);
+      sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
+    });
+
+    it('should ignore a proposal that is not an app message', async () => {
+      await propose({ ...envelope, data: { ...envelope.data, type: 'fluxapprunning' } });
+      await propose({ ...envelope, data: { ...envelope.data, hash: 'short' } });
+
+      expect(peer.sent).to.have.length(0);
     });
   });
 

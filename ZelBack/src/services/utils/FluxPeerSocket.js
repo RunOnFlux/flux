@@ -45,6 +45,10 @@ function arrivedAuthenticated(msgObj) {
   return typeof msgObj === 'object' && msgObj !== null && arrivedOverAuthenticatedLink.has(msgObj);
 }
 
+// The admission protocol (services/appMessaging/admissionQuorum.js), taken only
+// from a frame carrying a valid link MAC.
+const LINK_MESSAGE_TYPES = new Set(['appproposal', 'appreceipt', 'appcommit']);
+
 // `M<64 hex>|`: a link MAC over the rest of the frame.
 const LINK_MAC_PREFIX_LENGTH = 66;
 
@@ -529,6 +533,19 @@ class FluxPeerSocket {
       if (linkVerified && typeof msgObj === 'object' && msgObj !== null) arrivedOverAuthenticatedLink.add(msgObj);
 
       // Handle peer-level protocol messages (not broadcast)
+      if (LINK_MESSAGE_TYPES.has(msgObj.type)) {
+        // Only the other end of an authenticated link can send these.
+        if (linkVerified && manager.linkMessageDispatcher) {
+          setImmediate(() => {
+            try {
+              manager.linkMessageDispatcher(msgObj, this);
+            } catch (error) {
+              log.error(error);
+            }
+          });
+        }
+        return;
+      }
       if (msgObj.type === 'nak') {
         const reasonMap = { stale: peerCodec.NAK_REASON.STALE, duplicate: peerCodec.NAK_REASON.DUPLICATE, invalid: peerCodec.NAK_REASON.INVALID };
         this.onNakReceived(msgObj.hash, reasonMap[msgObj.reason] ?? msgObj.reason);

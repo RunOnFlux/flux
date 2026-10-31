@@ -686,6 +686,16 @@ module.exports = {
     linkHandshakeBackoffMs: 600000,
     nodeAuthCallsConcurrent: 2,
     nodeAuthCallsQueued: 32,
+    // Admitting an unpaid app message (services/appMessaging/admissionQuorum.js).
+    // A node admits one only while it holds admissionQuorum authenticated links on
+    // distinct IPs, and answers success only once peers on admissionQuorum distinct
+    // IPs hold it, within admissionTimeoutMs; nothing is committed after that. A
+    // peer holds a proposed message for admissionHoldMs awaiting the commit, and
+    // at most admissionHoldMax at once.
+    admissionQuorum: 3,
+    admissionTimeoutMs: 2000,
+    admissionHoldMs: 8000,
+    admissionHoldMax: 500,
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,

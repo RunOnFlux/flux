@@ -7,6 +7,7 @@ const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
 const unpaidAdmission = require('./unpaidAdmission');
+const { insertTemporaryMessage } = require('./temporaryMessageRecord');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -17,7 +18,6 @@ const { appRunningEntries } = require('../utils/appRunningEntries');
 const fluxEventBus = require('../utils/fluxEventBus');
 const {
   globalAppsMessages,
-  globalAppsTempMessages,
   globalAppsLocations,
   globalAppsInstallingLocations,
   globalAppsInstallingErrorsLocations,
@@ -80,6 +80,10 @@ async function getPreviousOwner(appName, currentOwner) {
  * @param {object} [options] - Options
  * @param {boolean} [options.furtherVerification=true] - Whether further verification is needed
  * @param {object} [options.frame] - The frame the message arrived in, when it arrived alone
+ * @param {function(): Promise<boolean>} [options.beforeWrite] - Called once every check has
+ *   passed, before the write; the message is written only when it answers true
+ * @param {function(string): void} [options.onRefusal] - Told why a message that is not
+ *   stored was refused by admission, or is queued behind its registration
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
 async function storeAppTemporaryMessage(message, options = {}) {
@@ -130,7 +134,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
       value: 1,
     },
   };
-  let database = db.db(config.database.daemon.database);
+  const database = db.db(config.database.daemon.database);
   const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height;
@@ -155,6 +159,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
     });
     if (admission.refused) {
       log.warn(`storeAppTemporaryMessage - not taking ${message.hash}: ${admission.refused}`);
+      options.onRefusal?.(admission.refused);
       return false;
     }
   }
@@ -184,6 +189,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
         // Queued with its origin, which the replay verifies again.
         const queued = admission.fields.origin ? { ...message, origin: admission.fields.origin } : message;
         globalState.queuePendingUpdate(appName, queued, block);
+        options.onRefusal?.(`the registration of ${appName} is not yet stored here`);
         return false; // Don't rebroadcast - we'll process when registration arrives
       }
     }
@@ -237,29 +243,20 @@ async function storeAppTemporaryMessage(message, options = {}) {
     }
   }
 
-  const receivedAt = Date.now();
-  const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
+  // A peer holding a proposed message (admissionQuorum) writes it only once the
+  // node that admitted it commits.
+  if (options.beforeWrite && !(await options.beforeWrite())) return false;
 
-  const newMessage = {
+  // message does not exist anywhere and is ok, store it
+  await insertTemporaryMessage({
     appSpecifications: appSpecFormatted,
     type: message.type, // shall be fluxappregister, fluxappupdate
     version: messageVersion,
     hash: message.hash,
     timestamp: messageTimestamp,
     signature: message.signature,
-    receivedAt: new Date(receivedAt),
-    expireAt: new Date(validTill),
     arcaneSender: message.arcaneSender,
-    ...admission.fields,
-  };
-  const value = newMessage;
-
-  database = db.db(config.database.appsglobal.database);
-  // message does not exist anywhere and is ok, store it
-  await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value).catch((error) => {
-    log.error(error);
-    throw error;
-  });
+  }, admission.fields);
   // it is stored and rebroadcasted
   if (isAppRequested) {
     if (result && result.txid && result.height) {

@@ -63,6 +63,7 @@ const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
 const { AsyncLock } = require('../utils/asyncLock');
 const unpaidAdmission = require('../appMessaging/unpaidAdmission');
+const admissionQuorum = require('../appMessaging/admissionQuorum');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -3658,8 +3659,6 @@ async function updateAppGlobaly(params) {
   // placement-relevant - a renewal, a cancellation - is never refused.
   await placementFeasibility.checkPlacementFeasibility(appSpecFormatted, 'updateAppGlobaly', previousAppSpec);
 
-  const { clientTag, clientTagHeight } = await unpaidAdmission.tagSubmission(client, daemonHeight);
-
   if (isEnterprise) {
     appSpecFormatted.contacts = [];
     appSpecFormatted.compose = [];
@@ -3667,6 +3666,12 @@ async function updateAppGlobaly(params) {
 
   const message = cleanMessageType + cleanTypeVersion + JSON.stringify(appSpecFormatted) + cleanTimestamp + cleanSignature;
   const messageHASH = await generalService.messageHash(message);
+
+  // A message the network already holds is answered with its hash, before the
+  // allowance counts it a second time.
+  if (await admissionQuorum.alreadyAdmitted(messageHASH)) return messageHASH;
+
+  const { clientTag, clientTagHeight } = await unpaidAdmission.tagSubmission(client, daemonHeight);
 
   // As every node rebuilds it to check this node's signature on it.
   const temporaryAppMessage = unpaidAdmission.admittedMessage({
@@ -3680,27 +3685,8 @@ async function updateAppGlobaly(params) {
     clientTag,
     clientTagHeight,
   });
-
-  // eslint-disable-next-line global-require
-  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-  await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-  await serviceHelper.delay(1200);
-  await appMessaging.requestAppMessage(messageHASH);
-  await serviceHelper.delay(1200);
-
-  let tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
-  for (let i = 0; i < 20; i += 1) {
-    if (!tempMessage) {
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
-      // eslint-disable-next-line no-await-in-loop
-      tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
-    }
-  }
-  if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-    return tempMessage.hash;
-  }
-  throw new Error('Unable to update application on the network. Try again later.');
+  await admissionQuorum.admit(temporaryAppMessage, { daemonHeight });
+  return messageHASH;
 }
 
 /**
@@ -3730,6 +3716,7 @@ async function updateAppGlobalyApi(req, res) {
       if (peerManager.inboundCount < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
       }
+      admissionQuorum.requireQuorum();
 
       const processedBody = serviceHelper.ensureObject(body);
       const hash = await updateAppGlobaly({
