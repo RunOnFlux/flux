@@ -220,6 +220,9 @@ export function nodeClient(nodeNum) {
         // of the outcomes it was. Without it a waiter can only time out, or read the
         // wording of the response stream.
         'app:installOutcome',
+        // an install, or its port test, waiting for the availability check to stop
+        // listening on its port
+        'ports:awaitingRelease',
         'image:pullStalled',
         'image:pullDownloading',
         'app:removed',
