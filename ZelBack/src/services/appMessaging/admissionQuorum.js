@@ -256,79 +256,119 @@ function onPeerGone(connectionId) {
     member.state = 'gone';
     decide(round);
   });
-  holds.forEach((pending) => pending.committers.delete(connectionId));
-}
-
-/**
- * Hold a proposed message this peer has checked, and answer `held`. Resolves
- * true when the node that proposed it commits, false when admissionHoldMs passes
- * first.
- * @param {string} hash
- * @param {object} peer The node that proposed it.
- * @returns {Promise<boolean>}
- */
-function hold(hash, peer) {
-  const { admissionHoldMs, admissionHoldMax } = config.fluxapps;
-  if (holds.size >= admissionHoldMax) {
-    sendReceipt(peer, hash, RECEIPT_STATE.REFUSED, 'this node holds as many pending proposals as it takes');
-    return Promise.resolve(false);
-  }
-  return new Promise((resolve) => {
-    const pending = { committers: new Set([peer.connectionId]), resolve };
-    pending.timer = setTimeout(() => {
-      holds.delete(hash);
-      resolve(false);
-    }, admissionHoldMs);
-    holds.set(hash, pending);
-    sendReceipt(peer, hash, RECEIPT_STATE.HELD);
+  holds.forEach((entry) => {
+    entry.committers.delete(connectionId);
+    // eslint-disable-next-line no-param-reassign
+    entry.proposers = entry.proposers.filter((proposer) => proposer.connectionId !== connectionId);
   });
 }
 
+// A proposal this peer is checking or holds, from its first proposer's arrival
+// until a commit writes it, a refusal ends it, or admissionHoldMs passes.
+function proposalAnswer(entry, state, reason) {
+  entry.proposers.forEach((proposer) => sendReceipt(proposer, entry.hash, state, reason));
+}
+
+function closeProposal(hash, entry, written) {
+  clearTimeout(entry.timer);
+  holds.delete(hash);
+  entry.resolve?.(written);
+}
+
 /**
- * When a message is already pending here, let a second node that proposes it
- * commit it too, and answer it `held`.
+ * A proposal arrived. The first for its hash opens the entry this peer answers
+ * every proposer of it from, and is the one whose checks run; a later one joins
+ * it, and is answered `held` at once when the checks have already passed.
  * @param {string} hash
- * @param {object} peer
- * @returns {boolean} Whether it was pending.
+ * @param {object} peer The proposer.
+ * @returns {boolean|null} True for the first, false for one that joined, null
+ *   when this peer holds as many proposals as it takes (it has answered refused).
  */
-function joinHold(hash, peer) {
-  const pending = holds.get(hash);
-  if (!pending) return false;
-  pending.committers.add(peer.connectionId);
-  sendReceipt(peer, hash, RECEIPT_STATE.HELD);
+function openProposal(hash, peer) {
+  const { admissionHoldMs, admissionHoldMax } = config.fluxapps;
+  const entry = holds.get(hash);
+  if (entry) {
+    entry.committers.add(peer.connectionId);
+    entry.proposers.push(peer);
+    if (entry.held) sendReceipt(peer, hash, RECEIPT_STATE.HELD);
+    return false;
+  }
+  if (holds.size >= admissionHoldMax) {
+    sendReceipt(peer, hash, RECEIPT_STATE.REFUSED, 'this node holds as many pending proposals as it takes');
+    return null;
+  }
+  const opened = {
+    hash, committers: new Set([peer.connectionId]), proposers: [peer], held: false, committed: false, resolve: null,
+  };
+  opened.timer = setTimeout(() => closeProposal(hash, opened, false), admissionHoldMs);
+  holds.set(hash, opened);
   return true;
 }
 
 /**
- * The commit of a message this peer holds pending, from a node that proposed it.
+ * The proposal's checks passed: answer every proposer `held`. Resolves true when
+ * one of them commits - at once if its commit arrived during the checks - and
+ * false when admissionHoldMs passes first.
+ * @param {string} hash
+ * @returns {Promise<boolean>}
+ */
+function hold(hash) {
+  const entry = holds.get(hash);
+  if (!entry) return Promise.resolve(false);
+  entry.held = true;
+  proposalAnswer(entry, RECEIPT_STATE.HELD);
+  if (entry.committed) {
+    closeProposal(hash, entry, true);
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => { entry.resolve = resolve; });
+}
+
+/**
+ * The proposal was refused, or the message is already held here: answer every
+ * proposer and close the entry.
+ * @param {string} hash
+ * @param {string} state RECEIPT_STATE.REFUSED or RECEIPT_STATE.HELD.
+ * @param {string} [reason]
+ */
+function answerProposal(hash, state, reason) {
+  const entry = holds.get(hash);
+  if (!entry) return;
+  proposalAnswer(entry, state, reason);
+  closeProposal(hash, entry, false);
+}
+
+function commitPending(hash, entry) {
+  if (entry.resolve) closeProposal(hash, entry, true);
+  else entry.committed = true;
+}
+
+/**
+ * The commit of a message this peer was proposed, from a node that proposed it.
+ * A commit that arrives while the checks still run is kept for when they pass.
  * @param {object} peer
  * @param {object} msg
  */
 function onCommit(peer, msg) {
-  const pending = holds.get(msg?.hash);
-  if (!pending || !pending.committers.has(peer.connectionId)) return;
-  clearTimeout(pending.timer);
-  holds.delete(msg.hash);
-  pending.resolve(true);
+  const entry = holds.get(msg?.hash);
+  if (!entry || !entry.committers.has(peer.connectionId)) return;
+  commitPending(msg.hash, entry);
 }
 
 /**
  * Whether a relayed copy of a message is already in hand here: this node is
- * admitting it and writes it at its commit, or holds it pending a commit. Only a
- * committed copy is relayed over an authenticated link, so such a relay commits
- * the pending copy.
+ * admitting it and writes it at its commit, or was proposed it. Only a committed
+ * copy is relayed over an authenticated link, so such a relay commits the
+ * proposal.
  * @param {string} hash
  * @param {boolean} authenticated Whether the relay arrived over an authenticated link.
  * @returns {boolean} True when the relay is not to be stored.
  */
 function takeRelay(hash, authenticated) {
   if (admitting.has(hash)) return true;
-  const pending = holds.get(hash);
-  if (!pending) return false;
-  if (!authenticated) return true;
-  clearTimeout(pending.timer);
-  holds.delete(hash);
-  pending.resolve(true);
+  const entry = holds.get(hash);
+  if (!entry) return false;
+  if (authenticated) commitPending(hash, entry);
   return true;
 }
 
@@ -339,11 +379,7 @@ function resetState() {
   rounds.forEach((round) => settle(round, { ok: false, reasons: [] }));
   rounds.clear();
   admitting.clear();
-  holds.forEach((pending) => {
-    clearTimeout(pending.timer);
-    pending.resolve(false);
-  });
-  holds.clear();
+  holds.forEach((entry, hash) => closeProposal(hash, entry, false));
 }
 
 module.exports = {
@@ -359,8 +395,9 @@ module.exports = {
   sendReceipt,
   onReceipt,
   onPeerGone,
+  openProposal,
   hold,
-  joinHold,
+  answerProposal,
   onCommit,
   takeRelay,
   resetState,

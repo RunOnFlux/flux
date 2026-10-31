@@ -324,97 +324,151 @@ describe('admissionQuorum tests', () => {
   });
 
   describe('a peer holding a proposal', () => {
-    it('should answer held, and write only on a commit from the node that proposed it', async () => {
+    const propose = (mod, peer) => mod.openProposal(HASH, peer);
+    const commit = (mod, peer) => mod.onCommit(peer, { type: 'appcommit', hash: HASH });
+
+    it('should answer held once its checks pass, and write only on a commit from the node that proposed it', async () => {
       const { mod } = load();
       const entry = makePeer('10.0.0.1');
       const stranger = makePeer('10.0.0.2');
+      expect(propose(mod, entry)).to.equal(true);
+      expect(receiptsTo(entry)).to.eql([]);
+
       let committed = null;
-      mod.hold(HASH, entry).then((result) => { committed = result; });
+      mod.hold(HASH).then((result) => { committed = result; });
       expect(receiptsTo(entry)).to.eql([{ type: 'appreceipt', hash: HASH, state: 'held' }]);
 
-      mod.onCommit(stranger, { type: 'appcommit', hash: HASH });
+      commit(mod, stranger);
       await flush();
       expect(committed).to.equal(null);
-      mod.onCommit(entry, { type: 'appcommit', hash: HASH });
+      commit(mod, entry);
       await flush();
       expect(committed).to.equal(true);
     });
 
-    it('should drop the pending copy when no commit comes within admissionHoldMs', async () => {
+    it('should keep a commit that arrives while its checks still run, and write as soon as they pass', async () => {
       const { mod } = load();
       const entry = makePeer('10.0.0.1');
-      const held = mod.hold(HASH, entry);
+      propose(mod, entry);
+
+      commit(mod, entry);
+
+      expect(await mod.hold(HASH)).to.equal(true);
+    });
+
+    it('should drop the proposal when no commit comes within admissionHoldMs', async () => {
+      const { mod } = load();
+      const entry = makePeer('10.0.0.1');
+      propose(mod, entry);
+      const held = mod.hold(HASH);
+
       clock.tick(config.fluxapps.admissionHoldMs);
+
       expect(await held).to.equal(false);
-      mod.onCommit(entry, { type: 'appcommit', hash: HASH });
-      expect(mod.joinHold(HASH, entry)).to.equal(false);
+      expect(propose(mod, entry)).to.equal(true);
+    });
+
+    it('should not write a proposal whose checks outlast admissionHoldMs', async () => {
+      const { mod } = load();
+      propose(mod, makePeer('10.0.0.1'));
+      clock.tick(config.fluxapps.admissionHoldMs);
+
+      expect(await mod.hold(HASH)).to.equal(false);
     });
 
     it('should hold for longer than the entry node may take to commit', () => {
       expect(config.fluxapps.admissionHoldMs).to.be.above(config.fluxapps.admissionTimeoutMs * 2);
     });
 
-    it('should let a second node that proposes the same message commit it', async () => {
+    it('should answer a second proposer from the first proposal\'s checks, and let it commit', async () => {
       const { mod } = load();
       const first = makePeer('10.0.0.1');
       const second = makePeer('10.0.0.2');
-      const held = mod.hold(HASH, first);
+      propose(mod, first);
 
-      expect(mod.joinHold(HASH, second)).to.equal(true);
+      expect(propose(mod, second)).to.equal(false);
+      expect(receiptsTo(second)).to.eql([]);
+      const held = mod.hold(HASH);
       expect(receiptsTo(second)).to.eql([{ type: 'appreceipt', hash: HASH, state: 'held' }]);
-      mod.onCommit(second, { type: 'appcommit', hash: HASH });
+      commit(mod, second);
 
       expect(await held).to.equal(true);
+    });
+
+    it('should answer held at once to a proposer that joins after the checks passed', () => {
+      const { mod } = load();
+      propose(mod, makePeer('10.0.0.1'));
+      mod.hold(HASH);
+      const late = makePeer('10.0.0.2');
+
+      expect(propose(mod, late)).to.equal(false);
+      expect(receiptsTo(late)).to.eql([{ type: 'appreceipt', hash: HASH, state: 'held' }]);
+    });
+
+    it('should answer every proposer a refusal, and close the proposal', () => {
+      const { mod } = load();
+      const first = makePeer('10.0.0.1');
+      const second = makePeer('10.0.0.2');
+      propose(mod, first);
+      propose(mod, second);
+
+      mod.answerProposal(HASH, 'refused', 'nope');
+
+      [first, second].forEach((peer) => expect(receiptsTo(peer)).to.eql([{
+        type: 'appreceipt', hash: HASH, state: 'refused', reason: 'nope',
+      }]));
+      expect(propose(mod, first)).to.equal(true);
     });
 
     it('should not take a commit from a proposer whose connection has closed', async () => {
       const { mod, peerManager } = load();
       const entry = makePeer('10.0.0.1');
-      const held = mod.hold(HASH, entry);
+      propose(mod, entry);
+      const held = mod.hold(HASH);
       peerManager.emit('peerDisconnected', entry.key, entry.connectionId);
-      mod.onCommit(entry, { type: 'appcommit', hash: HASH });
+      commit(mod, entry);
       clock.tick(config.fluxapps.admissionHoldMs);
       expect(await held).to.equal(false);
     });
 
-    it('should take a relay over an authenticated link as the commit of a pending copy', async () => {
+    it('should take a relay over an authenticated link as the commit of a proposal, checked or not', async () => {
       const { mod } = load();
-      const held = mod.hold(HASH, makePeer('10.0.0.1'));
+      propose(mod, makePeer('10.0.0.1'));
 
       expect(mod.takeRelay(HASH, true)).to.equal(true);
 
-      expect(await held).to.equal(true);
+      expect(await mod.hold(HASH)).to.equal(true);
       expect(mod.takeRelay(HASH, true)).to.equal(false);
     });
 
-    it('should drop a relay of a pending copy from an unauthenticated link, and keep waiting', async () => {
+    it('should drop a relay of a proposal from an unauthenticated link, and keep waiting for the commit', async () => {
       const { mod } = load();
       const entry = makePeer('10.0.0.1');
-      const held = mod.hold(HASH, entry);
+      propose(mod, entry);
+      const held = mod.hold(HASH);
 
       expect(mod.takeRelay(HASH, false)).to.equal(true);
-      // still pending: a second proposer can join it
-      expect(mod.joinHold(HASH, makePeer('10.0.0.2'))).to.equal(true);
-      mod.onCommit(entry, { type: 'appcommit', hash: HASH });
+      expect(propose(mod, makePeer('10.0.0.2'))).to.equal(false);
+      commit(mod, entry);
 
       expect(await held).to.equal(true);
     });
 
-    it('should take a relay of a message this node holds no copy of', () => {
+    it('should take a relay of a message this node was not proposed', () => {
       const { mod } = load();
       expect(mod.takeRelay(HASH, true)).to.equal(false);
       expect(mod.takeRelay(HASH, false)).to.equal(false);
     });
 
-    it('should refuse a proposal past admissionHoldMax pending', async () => {
+    it('should refuse a proposal past admissionHoldMax pending', () => {
       const { mod } = load();
       const entry = makePeer('10.0.0.1');
       for (let i = 0; i < config.fluxapps.admissionHoldMax; i += 1) {
-        mod.hold(i.toString(16).padStart(64, '0'), entry);
+        mod.openProposal(i.toString(16).padStart(64, '0'), entry);
       }
       const over = makePeer('10.0.0.2');
 
-      expect(await mod.hold(HASH, over)).to.equal(false);
+      expect(propose(mod, over)).to.equal(null);
       expect(receiptsTo(over)[0].state).to.equal('refused');
       mod.resetState();
     });

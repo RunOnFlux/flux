@@ -107,8 +107,10 @@ async function handleAppProposal(msg, peer) {
   if (!admissionQuorum.isMessageHash(appHash) || !APP_MESSAGE_TYPES.has(envelope.data.type)) return;
   const { RECEIPT_STATE } = admissionQuorum;
   admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.RECEIVED);
-  if (admissionQuorum.joinHold(appHash, peer)) return;
-  const refuse = (reason) => admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.REFUSED, reason);
+  // Only the first proposal of a message runs its checks; every proposer is
+  // answered from them.
+  if (!admissionQuorum.openProposal(appHash, peer)) return;
+  const refuse = (reason) => admissionQuorum.answerProposal(appHash, RECEIPT_STATE.REFUSED, reason);
 
   const verdict = await fluxCommunicationUtils.verifyFluxBroadcast(envelope);
   if (verdict !== fluxCommunicationUtils.VerifyResult.OK) {
@@ -120,7 +122,7 @@ async function handleAppProposal(msg, peer) {
     return;
   }
   if (await messageVerifier.checkAppMessageExistence(appHash) || await messageVerifier.checkAppTemporaryMessageExistence(appHash)) {
-    admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.HELD);
+    admissionQuorum.answerProposal(appHash, RECEIPT_STATE.HELD);
     return;
   }
 
@@ -132,7 +134,7 @@ async function handleAppProposal(msg, peer) {
       authenticated: true,
       beforeWrite: () => {
         held = true;
-        return admissionQuorum.hold(appHash, peer);
+        return admissionQuorum.hold(appHash);
       },
       onRefusal: (reason) => { refusal = reason; },
     });
