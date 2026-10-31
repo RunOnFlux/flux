@@ -120,6 +120,7 @@ function isLive(peer, link) {
 function fail(peer, link, reason) {
   if (link.authenticated || link.failed) return;
   link.failed = reason;
+  link.settle();
   if (BACKS_OFF.has(reason)) backOff(peer.ip, Date.now());
   log.warn(`arcaneLink - link with ${peer.key} not authenticated: ${reason}`);
   fluxEventBus.publish('peers:linkFailed', { ip: peer.ip, port: peer.port, reason });
@@ -136,6 +137,7 @@ function checkConfirm(peer, link) {
     return;
   }
   link.authenticated = true;
+  link.settle();
   log.info(`arcaneLink - link with ${peer.key} authenticated`);
   fluxEventBus.publish('peers:linkAuthenticated', { ip: peer.ip, port: peer.port });
 }
@@ -161,18 +163,17 @@ async function deriveKeys(peer, link) {
 }
 
 /**
- * Open the handshake on a newly connected peer. Nothing happens unless this
- * node is Arcane, knows its own address, and the peer advertises the
- * capability. The link exists from the moment the peer connects, so a nonce
- * that arrives while this node is still reading its own key waits for it.
- * @param {string} peerKey
+ * Open the handshake on a new connection. FluxPeerManager calls this before the
+ * connection joins the peer set, and joins it when the answer settles.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ * @returns {Promise<void>|null} Settles when the link authenticates or fails;
+ *   null when no handshake applies: this node is not Arcane, does not know its
+ *   own address, or the peer does not advertise the capability.
  */
-async function startLink(peerKey) {
-  if (!isArcane) return;
-  const peer = peerManager.get(peerKey);
-  if (!peer || peer.link || !peer.remoteCapabilities.has(CAPABILITY)) return;
+function startLink(peer) {
+  if (!isArcane || peer.link || !peer.remoteCapabilities.has(CAPABILITY)) return null;
   const ownAddress = peerManager.getOwnSocketAddress();
-  if (!ownAddress) return;
+  if (!ownAddress) return null;
   const link = {
     localNonce: crypto.randomBytes(32).toString('hex'),
     localIp: ownAddress.split(':')[0],
@@ -186,7 +187,9 @@ async function startLink(peerKey) {
     authenticated: false,
     failed: null,
     ready: null,
+    settle: null,
   };
+  const settled = new Promise((resolve) => { link.settle = resolve; });
   peer.link = link;
   link.ready = (async () => {
     link.localPubKey = await fluxNetworkHelper.getFluxNodePublicKey();
@@ -195,8 +198,8 @@ async function startLink(peerKey) {
       return;
     }
     await sendSignedMessage({ type: NONCE_TYPE, version: 1, nonce: link.localNonce }, peer);
-  })();
-  await link.ready;
+  })().catch((error) => log.error(error));
+  return settled;
 }
 
 /**

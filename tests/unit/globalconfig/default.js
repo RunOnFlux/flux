@@ -337,6 +337,7 @@ module.exports = {
     linkHandshakeBackoffMs: 600000,
     nodeAuthCallsConcurrent: 2,
     nodeAuthCallsQueued: 32,
+    linkHandshakeDeadlineMs: 10000,
     admissionQuorum: 3,
     admissionLinkTarget: 5,
     admissionTimeoutMs: 2000,
