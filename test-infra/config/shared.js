@@ -161,6 +161,10 @@ module.exports = {
     hashSyncPeersPerRound: 3,
     hashSyncEphemeralPeers: 3,
     hashSyncFallbackRecheckBlocks: 10,
+    // A peer that sends nothing for this long during a bulk fetch is abandoned. Production waits
+    // 120 s, which covers the first byte of the whole-log route; a harness peer builds that answer
+    // from a few thousand messages, and a suite waiting out a silent peer waits this long.
+    hashSyncBulkIdleMs: 20000,
     syncResponseThrottleMs: 10000,
     wsHandshakeTimeoutMs: 5000,
     discoveryConnectionDelayMs: 100,

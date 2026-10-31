@@ -415,6 +415,12 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappsmessages').find(query, { projection: { _id: 0 } }).toArray();
     },
 
+    // The collections of one of the node's databases, by the key `db` takes ('appsGlobal', ...).
+    async collectionNames(which) {
+      const database = await db(which);
+      return (await database.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
+    },
+
     async appHashRecords(query = {}) {
       const explorerDb = await db('explorer');
       return explorerDb.collection('zelappshashes').find(query, { projection: { _id: 0 } }).toArray();

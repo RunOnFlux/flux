@@ -112,6 +112,7 @@ module.exports = {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsMessagesStaging: 'zelappsmessagesstaging', // messages fetched from peers in bulk, held until this node has verified them
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsinstallinglocations', // stores install location of flux apps as documents containing name, ip, obtainedAt
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -772,6 +773,11 @@ module.exports = {
     hashSyncPeersPerRound: 3,
     hashSyncEphemeralPeers: 5,
     hashSyncFallbackRecheckBlocks: 100,
+    // a peer that sends nothing for this long during a bulk fetch is abandoned; it covers the wait for
+    // the first byte, which the whole-log route spends building its answer
+    hashSyncBulkIdleMs: 120000,
+    // apps whose messages a bulk hash sync verifies at once
+    hashSyncVerifyConcurrency: 4,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,

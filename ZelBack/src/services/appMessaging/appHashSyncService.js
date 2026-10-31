@@ -1,4 +1,3 @@
-const zlib = require('zlib');
 const { StringDecoder } = require('string_decoder');
 const config = require('config');
 const dbHelper = require('../dbHelper');
@@ -25,6 +24,9 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
 const { isBefore, messagesThatCount } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
+const { readMessageLog } = require('./permanentMessageLog');
+const { MessageStage } = require('./messageStage');
+const { forEachLimited } = require('../utils/forEachLimited');
 const { Privilege, authOf } = require('../utils/privileges');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
@@ -140,109 +142,278 @@ function createJsonArrayExtractor(onObject) {
 }
 
 const BULK_FETCH_BATCH_SIZE = 500;
+const BULK_FETCH_IDLE_MS = config.fluxapps.hashSyncBulkIdleMs ?? 120000;
+// Two runs of missing messages are asked for in one request when fewer than this many app
+// payments this node already holds lie between them.
+const RANGE_GAP_PAYMENTS = 2000;
+// Apps whose messages are verified at once. Each enterprise message is decrypted through
+// fluxbenchd, which serves about as many decrypts at once as the node has cores; a decrypt it
+// refuses leaves that message stored without its contents checked.
+const VERIFY_CONCURRENCY = config.fluxapps.hashSyncVerifyConcurrency ?? 4;
+// Enterprise apps whose latest decrypted spec a hash sync keeps.
+const DECRYPTED_SPECS_KEPT = 1000;
 
 /**
- * Streams a peer's permanent messages and stores the ones this node is missing.
- * @param {string} peerIp
- * @param {string|number} peerPort
- * @param {Map<string, {txid: string, height: number, value: number}>} missing this node's own
- *   payment record of each hash it is missing, keyed by hash
- * @param {Function} [onProgress]
+ * The latest decrypted spec of each enterprise app a hash sync has verified, so an update is
+ * checked against its predecessor without decrypting the predecessor again. One entry per app,
+ * at most DECRYPTED_SPECS_KEPT apps, the earliest stored dropped first. A spec not held here is
+ * decrypted.
  */
-async function bulkFetchStreamAndProcess(peerIp, peerPort, missing, onProgress) {
-  log.info(`syncMissingHashes - Checking explorer sync on ${peerIp}:${peerPort}`);
-  const syncResponse = await serviceHelper.axiosGet(
-    `http://${peerIp}:${peerPort}/explorer/issynced`,
-    { timeout: 5000 },
-  ).catch((error) => { log.error(error); return null; });
-  if (!syncResponse || !syncResponse.data || syncResponse.data.status !== 'success' || !syncResponse.data.data) {
-    return { processed: 0, skipped: 0, streamed: 0 };
+class LatestDecryptedSpecs {
+  #byApp = new Map();
+
+  /**
+   * @param {string} appName
+   * @param {string} hash the message whose decrypted spec is wanted
+   * @returns {object|null} the formatted decrypted spec, or null when this is not the app's latest
+   */
+  get(appName, hash) {
+    const latest = this.#byApp.get(appName);
+    return latest?.hash === hash ? latest.spec : null;
   }
 
-  log.info(`syncMissingHashes - Streaming permanent messages from ${peerIp}:${peerPort} (${missing.size} missing)`);
-  const response = await serviceHelper.axiosGet(
-    `http://${peerIp}:${peerPort}/apps/permanentmessages`,
-    { responseType: 'stream', timeout: 120000, headers: { 'Accept-Encoding': 'gzip' }, decompress: false },
-  ).catch((error) => { log.error(error); return null; });
-  if (!response || !response.data) {
-    return { processed: 0, skipped: 0, streamed: 0 };
+  /**
+   * @param {string} appName
+   * @param {string} hash the verified message
+   * @param {object} spec its formatted decrypted spec
+   */
+  set(appName, hash, spec) {
+    this.#byApp.delete(appName);
+    this.#byApp.set(appName, { hash, spec });
+    if (this.#byApp.size > DECRYPTED_SPECS_KEPT) this.#byApp.delete(this.#byApp.keys().next().value);
   }
+}
 
-  const isGzip = response.headers?.['content-encoding'] === 'gzip';
-  let dataStream = response.data;
-  if (isGzip) {
-    dataStream = response.data.pipe(zlib.createGunzip());
+/**
+ * The first index of a sorted array whose value is not below `value`.
+ * @param {number[]} sorted ascending
+ * @param {number} value
+ * @returns {number}
+ */
+function lowerBound(sorted, value) {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] < value) lo = mid + 1;
+    else hi = mid;
   }
+  return lo;
+}
 
-  let totalSeen = 0;
-  let totalProcessed = 0;
-  let totalSkipped = 0;
-  const batch = [];
-  let streamDone = false;
-  let stopped = false;
-  let signalBatch;
-  let waitForBatch = new Promise((r) => { signalBatch = r; });
+/**
+ * The block height ranges to ask peers for: every height holding a missing message, with two
+ * neighbouring runs joined when fewer than RANGE_GAP_PAYMENTS app payments lie strictly between
+ * them.
+ * @param {number[]} missingHeights ascending
+ * @param {number[]} paymentHeights ascending, the height of every app payment this node recorded
+ * @returns {{fromHeight: number, toHeight: number}[]}
+ */
+function planRanges(missingHeights, paymentHeights) {
+  const ranges = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const height of missingHeights) {
+    const last = ranges[ranges.length - 1];
+    const between = last ? lowerBound(paymentHeights, height) - lowerBound(paymentHeights, last.toHeight + 1) : 0;
+    if (last && between < RANGE_GAP_PAYMENTS) last.toHeight = height;
+    else ranges.push({ fromHeight: height, toHeight: height });
+  }
+  return ranges;
+}
 
-  const extractor = createJsonArrayExtractor((obj) => {
-    totalSeen += 1;
-    if (obj.hash && missing.has(obj.hash)) {
-      batch.push(obj);
-      if (batch.length >= BULK_FETCH_BATCH_SIZE) {
-        dataStream.pause();
-        signalBatch();
-      }
-    }
-  });
+/**
+ * Whether a peer's explorer has synced, so that its message log is whole.
+ * @param {{ip: string, port: string|number}} peer
+ * @returns {Promise<boolean>}
+ */
+async function peerExplorerSynced(peer) {
+  const response = await serviceHelper.axiosGet(`http://${peer.ip}:${peer.port}/explorer/issynced`, { timeout: 5000 })
+    .catch((error) => {
+      log.warn(`syncMissingHashes - explorer sync check on ${peer.key}: ${error.message}`);
+      return null;
+    });
+  return response?.data?.status === 'success' && response.data.data === true;
+}
 
-  const decoder = new StringDecoder('utf8');
-  dataStream.on('data', (chunk) => extractor.write(decoder.write(chunk)));
-  dataStream.on('end', () => { streamDone = true; signalBatch(); });
-  dataStream.on('close', () => { streamDone = true; signalBatch(); });
-  dataStream.on('error', (err) => {
-    if (!stopped) log.error(`syncMissingHashes - stream error from ${peerIp}:${peerPort}: ${err.message}`);
-    streamDone = true;
-    signalBatch();
-  });
-
+/**
+ * The body of a peer's streamed response, failing once the peer has sent nothing for
+ * BULK_FETCH_IDLE_MS. Only time spent waiting on the peer counts. The request's own timeout bounds
+ * the wait for the response's headers and ends with them.
+ * @param {{data: import('stream').Readable, request: import('http').ClientRequest}} response
+ * @param {{key: string}} peer
+ * @returns {AsyncGenerator<Buffer>}
+ */
+async function* bodyWithIdleLimit(response, peer) {
+  response.request.setTimeout(0);
+  const body = response.data;
+  function abandon() {
+    body.destroy(new Error(`no data from ${peer.key} for ${BULK_FETCH_IDLE_MS / 1000}s`));
+  }
+  let idle = setTimeout(abandon, BULK_FETCH_IDLE_MS);
   try {
-    while (!streamDone || batch.length >= BULK_FETCH_BATCH_SIZE) {
-      // eslint-disable-next-line no-await-in-loop
-      await waitForBatch;
-      if (batch.length === 0) break;
-
-      const currentBatch = batch.splice(0, BULK_FETCH_BATCH_SIZE);
-      // eslint-disable-next-line no-await-in-loop
-      const stats = await processMessages(currentBatch, missing, onProgress);
-      totalProcessed += stats.processed;
-      totalSkipped += stats.skipped;
-      for (const msg of currentBatch) missing.delete(msg.hash);
-
-      if (missing.size === 0) {
-        log.info(`syncMissingHashes - All missing hashes resolved after streaming ${totalSeen} messages`);
-        stopped = true;
-        break;
-      }
-
-      waitForBatch = new Promise((r) => { signalBatch = r; });
-      dataStream.resume();
-    }
-
-    if (batch.length > 0) {
-      const stats = await processMessages(batch, missing, onProgress);
-      totalProcessed += stats.processed;
-      totalSkipped += stats.skipped;
-      for (const msg of batch) missing.delete(msg.hash);
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const chunk of body) {
+      clearTimeout(idle);
+      yield chunk;
+      idle = setTimeout(abandon, BULK_FETCH_IDLE_MS);
     }
   } finally {
-    dataStream.destroy();
+    clearTimeout(idle);
+  }
+}
+
+/**
+ * Stages what a peer's log of one height range holds of the missing messages.
+ * @param {{ip: string, port: string|number}} peer
+ * @param {{fromHeight: number, toHeight: number}} range
+ * @param {MessageStage} stage
+ * @param {{received: number}} outcome counts each message the peer sent
+ */
+async function stageRangeFromPeer(peer, range, stage, outcome) {
+  const response = await serviceHelper.axiosGet(
+    `http://${peer.ip}:${peer.port}/apps/permanentmessagesbyheight`,
+    { params: range, responseType: 'stream', timeout: BULK_FETCH_IDLE_MS },
+  );
+  try {
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const message of readMessageLog(bodyWithIdleLimit(response, peer))) {
+      outcome.received += 1;
+      // eslint-disable-next-line no-await-in-loop
+      await stage.add(message);
+    }
+  } finally {
     response.data.destroy();
   }
+}
 
-  log.info(`syncMissingHashes - Streamed ${totalSeen} messages from ${peerIp}:${peerPort}: ${totalProcessed} processed, ${totalSkipped} skipped`);
-  fluxEventBus.publish('hashSync:bulkFetched', {
-    peer: `${peerIp}:${peerPort}`, streamed: totalSeen, processed: totalProcessed, skipped: totalSkipped,
-  });
-  return { processed: totalProcessed, skipped: totalSkipped, streamed: totalSeen };
+/**
+ * Stages what a peer's whole message log holds of the missing messages, from the route every
+ * version serves.
+ * @param {{ip: string, port: string|number}} peer
+ * @param {MessageStage} stage
+ * @param {{received: number}} outcome counts each message the peer sent
+ */
+async function stageWholeLogFromPeer(peer, stage, outcome) {
+  const response = await serviceHelper.axiosGet(
+    `http://${peer.ip}:${peer.port}/apps/permanentmessages`,
+    { responseType: 'stream', timeout: BULK_FETCH_IDLE_MS },
+  );
+  const received = [];
+  const extractor = createJsonArrayExtractor((message) => received.push(message));
+  const decoder = new StringDecoder('utf8');
+  try {
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const chunk of bodyWithIdleLimit(response, peer)) {
+      extractor.write(decoder.write(chunk));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const message of received.splice(0)) {
+        outcome.received += 1;
+        // eslint-disable-next-line no-await-in-loop
+        await stage.add(message);
+      }
+    }
+  } finally {
+    response.data.destroy();
+  }
+}
+
+/**
+ * Stages the missing messages from peers in turn. Each peer is asked for the height ranges of
+ * what is still unstaged, worked out from this node's own payment records; a peer that does not
+ * serve the log by height is asked for its whole log instead. A peer that fails part way keeps
+ * what it delivered, and the next peer is asked only for the rest.
+ * @param {{ip: string, port: string|number, key: string}[]} peers
+ * @param {MessageStage} stage
+ * @param {number[]} paymentHeights ascending
+ * @returns {Promise<{peer: string, route: string, ranges: number, received: number, staged: number, error?: string}[]>}
+ */
+async function stageFromPeers(peers, stage, paymentHeights) {
+  const fetched = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const peer of peers) {
+    const ranges = planRanges(stage.unstagedHeights(), paymentHeights);
+    if (ranges.length === 0) break;
+    // eslint-disable-next-line no-await-in-loop
+    if (!await peerExplorerSynced(peer)) continue;
+
+    const before = stage.size;
+    const startedAt = process.hrtime.bigint();
+    const outcome = {
+      peer: peer.key, route: 'byHeight', ranges: ranges.length, received: 0, staged: 0,
+    };
+    try {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const range of ranges) {
+        // eslint-disable-next-line no-await-in-loop
+        await stageRangeFromPeer(peer, range, stage, outcome);
+      }
+    } catch (error) {
+      if (error.response?.status === 404) {
+        outcome.route = 'wholeLog';
+        // eslint-disable-next-line no-await-in-loop
+        await stageWholeLogFromPeer(peer, stage, outcome).catch((wholeLogError) => { outcome.error = wholeLogError.message; });
+      } else {
+        outcome.error = error.message;
+      }
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await stage.flush();
+    outcome.staged = stage.size - before;
+    const seconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
+    log.info(`syncMissingHashes - Staged ${outcome.staged} of ${outcome.received} messages from ${peer.key} (${outcome.route}, ${ranges.length} ranges) in ${seconds.toFixed(1)}s`
+      + `${outcome.error ? `, then: ${outcome.error}` : ''}`);
+    fetched.push(outcome);
+  }
+  return fetched;
+}
+
+/**
+ * The height of every app payment this node recorded on chain, ascending.
+ * @returns {Promise<number[]>}
+ */
+async function appPaymentHeights() {
+  const db = dbHelper.databaseConnection();
+  const daemonDb = db.db(config.database.daemon.database);
+  const payments = await dbHelper.findInDatabase(daemonDb, appsHashesCollection, { notOnChain: { $ne: true } }, { projection: { _id: 0, height: 1 } });
+  return payments.map((payment) => payment.height).sort((a, b) => a - b);
+}
+
+/**
+ * Fetches the missing messages from peers, then verifies and stores them.
+ * @param {{ip: string, port: string|number, key: string}[]} peers
+ * @param {Map<string, {txid: string, height: number, value: number}>} missing this node's own
+ *   payment record of each hash it is missing, keyed by hash. Hashes verified here are removed.
+ * @param {Function} [onProgress]
+ * @returns {Promise<{processed: number, skipped: number}>}
+ */
+async function bulkFetch(peers, missing, onProgress) {
+  const stage = await MessageStage.open(missing);
+  try {
+    const fetched = await stageFromPeers(peers, stage, await appPaymentHeights());
+    log.info(`syncMissingHashes - Staged ${stage.size} of ${missing.size} missing messages, verifying`);
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.HASHSYNC_BEFORE_VERIFY);
+
+    let processed = 0;
+    let skipped = 0;
+    const decryptedSpecs = new LatestDecryptedSpecs();
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const batch of stage.batches(BULK_FETCH_BATCH_SIZE)) {
+      // eslint-disable-next-line no-await-in-loop
+      const stats = await processMessages(batch, missing, onProgress, decryptedSpecs);
+      processed += stats.processed;
+      skipped += stats.skipped;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const message of batch) missing.delete(message.hash);
+    }
+
+    log.info(`syncMissingHashes - Bulk fetch: ${processed} processed, ${skipped} skipped`);
+    fluxEventBus.publish('hashSync:bulkFetched', {
+      staged: fetched.reduce((sum, outcome) => sum + outcome.staged, 0), processed, skipped, peers: fetched,
+    });
+    return { processed, skipped };
+  } finally {
+    await stage.discard();
+  }
 }
 
 /**
@@ -270,8 +441,9 @@ function withOwnChainRecord(message, record) {
  * @param {Map<string, {txid: string, height: number, value: number}>} records this node's
  *   payment record of each hash, keyed by hash
  * @param {Function} [onProgress]
+ * @param {LatestDecryptedSpecs} [decryptedSpecs] the run's decrypted specs, read and added to
  */
-async function processMessages(messages, records, onProgress) {
+async function processMessages(messages, records, onProgress, decryptedSpecs = new LatestDecryptedSpecs()) {
   const db = dbHelper.databaseConnection();
   const appsGlobalDb = db.db(config.database.appsglobal.database);
   const daemonDb = db.db(config.database.daemon.database);
@@ -355,118 +527,133 @@ async function processMessages(messages, records, onProgress) {
       paymentFacts.positions,
     );
 
-    // 4. Verify each message and collect for batch insert
-    const permInserts = [];
-    let hashMarkOps = [];
-
+    // 4. Verify each app's messages in height order, VERIFY_CONCURRENCY apps at once. A message is
+    // checked only against its own app's earlier messages, and none is stored until all are checked.
+    const verified = new Map();
+    const messagesByApp = new Map();
     for (const appMessage of newMessages) {
-      try {
-        const specifications = appMessage.appSpecifications;
-        if (!specifications) continue;
+      const appName = serviceHelper.ensureString(appMessage.appSpecifications?.name);
+      if (!messagesByApp.has(appName)) messagesByApp.set(appName, []);
+      messagesByApp.get(appName).push(appMessage);
+    }
 
-        const appSpecFormatted = specificationFormatter(specifications);
-        const messageVersion = serviceHelper.ensureNumber(appMessage.version);
-        const messageTimestamp = serviceHelper.ensureNumber(appMessage.timestamp);
-        const height = serviceHelper.ensureNumber(appMessage.height);
-        const valueSat = serviceHelper.ensureNumber(appMessage.valueSat);
-        const isRegistration = appMessage.type === 'fluxappregister' || appMessage.type === 'zelappregister';
+    // eslint-disable-next-line no-inner-declarations
+    async function verifyAppMessages(appMessages) {
+      for (const appMessage of appMessages) {
+        try {
+          const specifications = appMessage.appSpecifications;
+          if (!specifications) continue;
 
-        await messageVerifier.verifyAppHash(appMessage);
+          const appSpecFormatted = specificationFormatter(specifications);
+          let appSpecDecrypted = null;
+          const messageVersion = serviceHelper.ensureNumber(appMessage.version);
+          const messageTimestamp = serviceHelper.ensureNumber(appMessage.timestamp);
+          const height = serviceHelper.ensureNumber(appMessage.height);
+          const valueSat = serviceHelper.ensureNumber(appMessage.valueSat);
+          const isRegistration = appMessage.type === 'fluxappregister' || appMessage.type === 'zelappregister';
 
-        if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-          try {
-            verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
-            const decrypted = await checkAndDecryptAppSpecs(
-              appSpecFormatted,
-              { daemonHeight: height, owner: appSpecFormatted.owner },
-            );
-            const appSpecDecrypted = specificationFormatter(decrypted);
-            await appValidator.verifyAppSpecifications(appSpecDecrypted, height);
-          } catch (err) {
-            log.warn(`processMessages enterprise decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
-          }
-        } else {
-          await appValidator.verifyAppSpecifications(appSpecFormatted, height);
-        }
+          await messageVerifier.verifyAppHash(appMessage);
 
-        const permMsg = {
-          type: appMessage.type,
-          version: messageVersion,
-          appSpecifications: appSpecFormatted,
-          hash: appMessage.hash,
-          timestamp: messageTimestamp,
-          signature: appMessage.signature,
-          txid: serviceHelper.ensureString(appMessage.txid),
-          height,
-          valueSat,
-        };
-
-        if (isRegistration) {
-          await messageVerifier.verifyAppMessageSignature(
-            appMessage.type, messageVersion, appSpecFormatted, messageTimestamp, appMessage.signature,
-          );
-        } else {
-          const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
-          const prevMsg = prevSpecsList ? findPrevSpec(countedBefore(prevSpecsList), height, messageTimestamp) : null;
-          if (!prevMsg) {
-            failed += 1;
-            continue;
-          }
-          const prevSpecs = prevMsg.appSpecifications;
-          let prevSpecsForVerification = prevSpecs;
-          if (prevSpecs.version >= 8 && prevSpecs.enterprise) {
+          if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
             try {
-              verifyAppNameAndOwner(prevSpecs.name, prevSpecs.owner);
+              verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
               const decrypted = await checkAndDecryptAppSpecs(
-                prevSpecs, { daemonHeight: prevMsg.height, owner: prevSpecs.owner },
+                appSpecFormatted,
+                { daemonHeight: height, owner: appSpecFormatted.owner },
               );
-              prevSpecsForVerification = specificationFormatter(decrypted);
+              const formattedDecrypted = specificationFormatter(decrypted);
+              await appValidator.verifyAppSpecifications(formattedDecrypted, height);
+              appSpecDecrypted = formattedDecrypted;
             } catch (err) {
-              log.warn(`processMessages prevSpec decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
+              log.warn(`processMessages enterprise decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
             }
+          } else {
+            await appValidator.verifyAppSpecifications(appSpecFormatted, height);
           }
-          try {
-            await messageVerifier.verifyAppMessageUpdateSignature(
-              appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
-              appMessage.signature, prevSpecsForVerification.owner, daemonHeight, prevSpecsForVerification,
+
+          const permMsg = {
+            type: appMessage.type,
+            version: messageVersion,
+            appSpecifications: appSpecFormatted,
+            hash: appMessage.hash,
+            timestamp: messageTimestamp,
+            signature: appMessage.signature,
+            txid: serviceHelper.ensureString(appMessage.txid),
+            height,
+            valueSat,
+          };
+
+          if (isRegistration) {
+            await messageVerifier.verifyAppMessageSignature(
+              appMessage.type, messageVersion, appSpecFormatted, messageTimestamp, appMessage.signature,
             );
-          } catch (sigError) {
-            // Before height 2000000, owner-change races were accepted by the
-            // network (re-verification not deployed until v8.10.0, well after
-            // the last known race at h=1880981).
-            if (height >= 2000000) throw sigError;
-            const oldOwner = prevOwnerMap.get(appSpecFormatted.name);
-            if (oldOwner && oldOwner !== prevSpecsForVerification.owner) {
+          } else {
+            const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
+            const prevMsg = prevSpecsList ? findPrevSpec(countedBefore(prevSpecsList), height, messageTimestamp) : null;
+            if (!prevMsg) {
+              failed += 1;
+              continue;
+            }
+            const prevSpecs = prevMsg.appSpecifications;
+            let prevSpecsForVerification = prevSpecs;
+            if (prevSpecs.version >= 8 && prevSpecs.enterprise) {
+              try {
+                verifyAppNameAndOwner(prevSpecs.name, prevSpecs.owner);
+                prevSpecsForVerification = decryptedSpecs.get(appSpecFormatted.name, prevMsg.hash)
+                  ?? specificationFormatter(await checkAndDecryptAppSpecs(
+                    prevSpecs, { daemonHeight: prevMsg.height, owner: prevSpecs.owner },
+                  ));
+              } catch (err) {
+                log.warn(`processMessages prevSpec decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
+              }
+            }
+            try {
               await messageVerifier.verifyAppMessageUpdateSignature(
                 appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
-                appMessage.signature, oldOwner, daemonHeight, prevSpecsForVerification,
+                appMessage.signature, prevSpecsForVerification.owner, daemonHeight, prevSpecsForVerification,
               );
-            } else {
-              throw sigError;
+            } catch (sigError) {
+              // Before height 2000000, owner-change races were accepted by the
+              // network (re-verification not deployed until v8.10.0, well after
+              // the last known race at h=1880981).
+              if (height >= 2000000) throw sigError;
+              const oldOwner = prevOwnerMap.get(appSpecFormatted.name);
+              if (oldOwner && oldOwner !== prevSpecsForVerification.owner) {
+                await messageVerifier.verifyAppMessageUpdateSignature(
+                  appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
+                  appMessage.signature, oldOwner, daemonHeight, prevSpecsForVerification,
+                );
+              } else {
+                throw sigError;
+              }
+            }
+            const currentOwner = prevSpecs.owner;
+            if (currentOwner && appSpecFormatted.owner !== currentOwner) {
+              prevOwnerMap.set(appSpecFormatted.name, currentOwner);
             }
           }
-          const currentOwner = prevSpecs.owner;
-          if (currentOwner && appSpecFormatted.owner !== currentOwner) {
-            prevOwnerMap.set(appSpecFormatted.name, currentOwner);
-          }
+
+          // Verified — add to batch and update map for subsequent messages
+          verified.set(appMessage.hash, permMsg);
+          if (appSpecDecrypted) decryptedSpecs.set(appSpecFormatted.name, appMessage.hash, appSpecDecrypted);
+          if (!prevSpecsMap.has(appSpecFormatted.name)) prevSpecsMap.set(appSpecFormatted.name, []);
+          // kept sorted, as findPrevSpec searches it: a gap filled late lands mid-list, not at its end
+          const prevList = prevSpecsMap.get(appSpecFormatted.name);
+          const at = prevList.indexOf(findPrevSpec(prevList, height, messageTimestamp)) + 1;
+          prevList.splice(at, 0, permMsg);
+
+        } catch (error) {
+          failed += 1;
+          if (failed <= 10) log.warn(`processMessages verify failed: ${appMessage.hash} - ${error.message}`);
         }
-
-        // Verified — add to batch and update map for subsequent messages
-        permInserts.push(permMsg);
-        if (!prevSpecsMap.has(appSpecFormatted.name)) prevSpecsMap.set(appSpecFormatted.name, []);
-        // kept sorted, as findPrevSpec searches it: a gap filled late lands mid-list, not at its end
-        const prevList = prevSpecsMap.get(appSpecFormatted.name);
-        const at = prevList.indexOf(findPrevSpec(prevList, height, messageTimestamp)) + 1;
-        prevList.splice(at, 0, permMsg);
-
-        hashMarkOps.push({
-          updateOne: { filter: { hash: appMessage.hash }, update: { $set: { message: true, messageNotFound: false } } },
-        });
-      } catch (error) {
-        failed += 1;
-        if (failed <= 10) log.warn(`processMessages verify failed: ${appMessage.hash} - ${error.message}`);
       }
     }
+    await forEachLimited([...messagesByApp.values()], VERIFY_CONCURRENCY, verifyAppMessages);
+
+    const permInserts = newMessages.filter((m) => verified.has(m.hash)).map((m) => verified.get(m.hash));
+    let hashMarkOps = permInserts.map((permMsg) => ({
+      updateOne: { filter: { hash: permMsg.hash }, update: { $set: { message: true, messageNotFound: false } } },
+    }));
 
     // 5. Batch insert permanent messages (ordered so insertedCount is deterministic on failure)
     let inserted = 0;
@@ -721,19 +908,15 @@ async function syncMissingHashes(options = {}) {
     if (missingHashes.length > 500) {
       const peers = pickRandomPeers(peerManager, maxConcurrentPeers, { excludeSources: ['deterministic'] });
       const peerKeys = peers.map((p) => p.key).join(', ');
-      log.info(`syncMissingHashes - ${missingHashes.length} missing, using streaming bulk fetch from ${peers.length} peers: ${peerKeys}`);
+      log.info(`syncMissingHashes - ${missingHashes.length} missing, using bulk fetch from ${peers.length} peers: ${peerKeys}`);
 
       // A hash paid more than once is placed by its first payment, as the scan records it first.
       const missing = new Map();
       for (const record of missingHashes) {
         if (!missing.has(record.hash)) missing.set(record.hash, record);
       }
-      for (const peer of peers) {
-        if (missing.size === 0) break;
-        // eslint-disable-next-line no-await-in-loop
-        const stats = await bulkFetchStreamAndProcess(peer.ip, peer.port, missing, onProgress);
-        resolved += stats.processed;
-      }
+      const stats = await bulkFetch(peers, missing, onProgress);
+      resolved += stats.processed;
 
       missingHashes = await getMissingHashes({ force, currentHeight });
     }
