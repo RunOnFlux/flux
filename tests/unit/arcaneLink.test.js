@@ -54,7 +54,6 @@ function makeNode({
     },
     './utils/peerState': {
       peerManager: {
-        get: (key) => node.peers.get(key),
         getOwnSocketAddress: () => `${node.ip}:16127`,
       },
     },
@@ -93,7 +92,8 @@ function connect(a, b, { aSeesIp = b.ip, bSeesIp = a.ip } = {}) {
 }
 
 async function handshake(a, b, peers) {
-  await Promise.all([a.mod.startLink(peers.aPeer.key), b.mod.startLink(peers.bPeer.key)]);
+  a.mod.startLink(peers.aPeer);
+  b.mod.startLink(peers.bPeer);
   await settle();
 }
 
@@ -106,7 +106,6 @@ describe('arcaneLink tests', () => {
     expect(benchmarkService.nodeAuthEncrypt).to.be.a('function');
     expect(fluxNetworkHelper.getFluxNodePublicKey).to.be.a('function');
     expect(messagesSender.sendSignedMessage).to.be.a('function');
-    expect(peerManager.get).to.be.a('function');
     expect(peerManager.getOwnSocketAddress).to.be.a('function');
   });
 
@@ -140,6 +139,30 @@ describe('arcaneLink tests', () => {
       expect(b.encryptCalls).to.equal(1);
     });
 
+    it('should settle the handshake when the link authenticates', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
+      const peers = connect(a, b);
+
+      const settled = a.mod.startLink(peers.aPeer);
+      b.mod.startLink(peers.bPeer);
+      await settled;
+
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
+    });
+
+    it('should settle the handshake when the link fails', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA', encrypt: async () => null });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
+      const peers = connect(a, b);
+
+      const settled = a.mod.startLink(peers.aPeer);
+      b.mod.startLink(peers.bPeer);
+      await settled;
+
+      expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.FLUXBENCH);
+    });
+
     it('should authenticate two nodes of one operator, which share a node key', async () => {
       const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyOp' });
       const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyOp' });
@@ -171,7 +194,8 @@ describe('arcaneLink tests', () => {
       const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
       const peers = connect(a, b);
 
-      await Promise.all([a.mod.startLink(peers.aPeer.key), b.mod.startLink(peers.bPeer.key)]);
+      a.mod.startLink(peers.aPeer);
+      b.mod.startLink(peers.bPeer);
       await settle();
       expect(peers.aPeer.link.peerConfirm).to.not.equal(null);
       expect(peers.aPeer.link.recvKey).to.equal(null);
@@ -213,7 +237,7 @@ describe('arcaneLink tests', () => {
       const peer = makePeer('10.0.0.1');
       legacy.peers.set(peer.key, peer);
 
-      await legacy.mod.startLink(peer.key);
+      expect(legacy.mod.startLink(peer)).to.equal(null);
 
       expect(peer.link).to.equal(null);
     });
@@ -223,8 +247,7 @@ describe('arcaneLink tests', () => {
       const peer = makePeer('10.0.0.9', []);
       a.peers.set(peer.key, peer);
 
-      await a.mod.startLink(peer.key);
-
+      expect(a.mod.startLink(peer)).to.equal(null);
       expect(peer.link).to.equal(null);
     });
   });
@@ -250,7 +273,7 @@ describe('arcaneLink tests', () => {
       // The relay reflects every frame straight back.
       a.routes.set(peer, dispatchTo(a, peer));
 
-      await a.mod.startLink(peer.key);
+      a.mod.startLink(peer);
       await settle();
 
       expect(peer.link.failed).to.equal(a.mod.FAILURE.REFLECTED);
@@ -285,7 +308,7 @@ describe('arcaneLink tests', () => {
       const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
       const peer = makePeer('10.0.0.9');
       a.peers.set(peer.key, peer);
-      await a.mod.startLink(peer.key);
+      a.mod.startLink(peer);
 
       await a.mod.handleNonce({ pubKey: 'keyL', data: { type: a.mod.NONCE_TYPE, nonce: 'not-hex' } }, peer);
 
@@ -374,8 +397,8 @@ describe('arcaneLink tests', () => {
         const b = makeNode({ ip: `10.1.0.${i + 1}`, pubKey: `key${i}` });
         const peers = connect(a, b);
         links.push(peers);
-        a.mod.startLink(peers.aPeer.key);
-        b.mod.startLink(peers.bPeer.key);
+        a.mod.startLink(peers.aPeer);
+        b.mod.startLink(peers.bPeer);
       }
       await settle();
 
@@ -397,7 +420,8 @@ describe('arcaneLink tests', () => {
       const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA', encrypt: async (text) => { await gate; return arcaneEncrypt(text); } });
       const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
       const peers = connect(a, b);
-      await Promise.all([a.mod.startLink(peers.aPeer.key), b.mod.startLink(peers.bPeer.key)]);
+      a.mod.startLink(peers.aPeer);
+      b.mod.startLink(peers.bPeer);
       await settle();
 
       peers.aPeer.isAlive = false;

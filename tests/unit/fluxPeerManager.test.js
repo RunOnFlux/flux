@@ -1,4 +1,5 @@
 const chai = require('chai');
+const config = require('config');
 const sinon = require('sinon');
 const EventEmitter = require('events');
 const WebSocket = require('ws');
@@ -1084,6 +1085,150 @@ describe('FluxPeerManager tests', () => {
       ]);
       expect(opened).to.deep.equal([{ key: '10.0.0.1:16127', connectionId: second.connectionId }]);
       expect([...manager.allValues()].length, 'a replacement changed the peer count').to.equal(1);
+    });
+  });
+
+  describe('a connection whose link handshakes before it joins', () => {
+    const KEY = '10.0.0.1:16127';
+    let settle;
+
+    beforeEach(() => {
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      manager.linkHandshake = () => new Promise((resolve) => { settle = resolve; });
+    });
+
+    const addHandshaking = (ip = '10.0.0.1') => manager.add(createMockWs(ip), ip, '16127', { source: PEER_SOURCE.RANDOM });
+    const frame = (type) => JSON.stringify({ version: 1, data: { type } });
+    const flush = async () => {
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(setImmediate);
+      }
+    };
+
+    it('should join at once when no handshake applies', () => {
+      manager.linkHandshake = () => null;
+      const connected = sinon.spy();
+      manager.on('peerConnected', connected);
+
+      addHandshaking();
+
+      expect(manager.has(KEY)).to.equal(true);
+      sinon.assert.calledOnce(connected);
+    });
+
+    it('should neither count nor announce a connection whose handshake has not settled, and hold it as the connection to its key', () => {
+      const connected = sinon.spy();
+      manager.on('peerConnected', connected);
+
+      const peer = addHandshaking();
+
+      expect(manager.has(KEY)).to.equal(false);
+      expect(manager.outboundCount).to.equal(0);
+      expect(manager.getNumberOfPeers()).to.equal(0);
+      expect(manager.connectionTo(KEY)).to.equal(peer);
+      expect(manager.isPending(KEY)).to.equal(true);
+      sinon.assert.notCalled(connected);
+    });
+
+    it('should join it, announced once, when its handshake settles', async () => {
+      const connected = sinon.spy();
+      manager.on('peerConnected', connected);
+      const peer = addHandshaking();
+
+      settle();
+      await flush();
+
+      expect(manager.get(KEY)).to.equal(peer);
+      expect(peer.handshaking).to.equal(false);
+      expect(manager.outboundCount).to.equal(1);
+      sinon.assert.calledOnceWithExactly(connected, KEY, peer.connectionId);
+    });
+
+    it('should join it unauthenticated at linkHandshakeDeadlineMs when the handshake never settles', () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const peer = addHandshaking();
+
+      clock.tick(config.fluxapps.linkHandshakeDeadlineMs - 1);
+      expect(manager.has(KEY)).to.equal(false);
+      clock.tick(1);
+
+      expect(manager.get(KEY)).to.equal(peer);
+      clock.restore();
+    });
+
+    it('should handle the handshake\'s own frames at once and hand the rest over, in order, once it joins', async () => {
+      const peer = addHandshaking();
+
+      peer.ws.onmessage({ data: frame('fluxapprunning') });
+      peer.ws.onmessage({ data: frame('fluxlinknonce') });
+      peer.ws.onmessage({ data: `T${Date.now()}|${frame('fluxlinkconfirm')}` });
+      peer.ws.onmessage({ data: frame('fluxipchanged') });
+      await flush();
+      expect(manager.messageDispatcher.getCalls().map((c) => c.args[0].data.type)).to.eql(['fluxlinknonce', 'fluxlinkconfirm']);
+
+      settle();
+      await flush();
+
+      expect(manager.messageDispatcher.getCalls().map((c) => c.args[0].data.type)).to.eql(['fluxlinknonce', 'fluxlinkconfirm', 'fluxapprunning', 'fluxipchanged']);
+    });
+
+    it('should hold binary frames until it joins', async () => {
+      const handled = sinon.stub(manager, 'handleBinaryMessage');
+      const peer = addHandshaking();
+
+      peer.ws.onmessage({ data: Buffer.from([1, 2, 3]) });
+      expect(handled.called).to.equal(false);
+      settle();
+      await flush();
+
+      sinon.assert.calledOnce(handled);
+    });
+
+    it('should close a connection that sends more than it may before its handshake settles', () => {
+      const peer = addHandshaking();
+      for (let i = 0; i < 256; i += 1) peer.ws.onmessage({ data: frame('fluxapprunning') });
+      sinon.assert.notCalled(peer.ws.close);
+
+      peer.ws.onmessage({ data: frame('fluxapprunning') });
+
+      sinon.assert.calledOnce(peer.ws.close);
+    });
+
+    it('should forget a connection that closes before its handshake settles, with no disconnect and no reconnect', async () => {
+      const disconnected = sinon.spy();
+      manager.on('peerDisconnected', disconnected);
+      const peer = addHandshaking();
+
+      peer.ws.onclose({ code: 1006 });
+      settle();
+      await flush();
+
+      expect(manager.connectionTo(KEY)).to.equal(undefined);
+      expect(manager.isPending(KEY)).to.equal(false);
+      expect(manager.getReconnectQueue().size).to.equal(0);
+      sinon.assert.notCalled(disconnected);
+    });
+
+    it('should close a handshaking connection that a new one to its key replaces', () => {
+      const first = addHandshaking();
+
+      const second = addHandshaking();
+
+      sinon.assert.calledOnce(first.ws.close);
+      expect(manager.connectionTo(KEY)).to.equal(second);
+    });
+
+    it('should refuse an inbound connection to a key whose handshake is still running', () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      manager.add(createMockWs('31.200.1.10'), '31.200.1.10', '16127', { source: PEER_SOURCE.INBOUND });
+      const ws = createMockWs('31.200.1.10');
+
+      manager.validateAndAddInbound(ws, '16127', createMockReq('31.200.1.10'));
+      clock.tick(1000);
+
+      sinon.assert.calledWith(ws.close, CLOSE_CODES.DUPLICATE_PEER);
+      clock.restore();
     });
   });
 

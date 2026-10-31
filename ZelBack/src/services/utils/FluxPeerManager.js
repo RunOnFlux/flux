@@ -57,6 +57,13 @@ class FluxPeerManager extends EventEmitter {
   #awaitingVerdict = new Map();
   /** @type {Set<string>} keys of outbound connections currently being established */
   #pendingConnections = new Set();
+  /**
+   * Connections whose Arcane link handshake has not settled, by key. Not peers
+   * yet: not counted, not broadcast to, no peerConnected. Each is still the
+   * connection to its key for every duplicate decision.
+   * @type {Map<string, FluxPeerSocket>}
+   */
+  #handshaking = new Map();
   /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
   #reconnectCounts = new Map();
   /** @type {number} peer count threshold for app sync readiness */
@@ -149,6 +156,14 @@ class FluxPeerManager extends EventEmitter {
     this.linkMessageDispatcher = null;
 
     /**
+     * Starts a connection's Arcane link handshake - set by fluxCommunication.js.
+     * Answers a promise that settles when the link authenticates or fails, or
+     * null when no handshake applies and the connection joins at once.
+     * @type {function(FluxPeerSocket): (Promise<void>|null)|null}
+     */
+    this.linkHandshake = null;
+
+    /**
      * Number of flux nodes in the network — set by fluxDiscovery.
      * @type {number}
      */
@@ -200,7 +215,82 @@ class FluxPeerManager extends EventEmitter {
     if (typeof options.remoteFluxUptime === 'number' && !Number.isNaN(options.remoteFluxUptime)) {
       peer.remoteFluxUptime = options.remoteFluxUptime;
     }
-    if (existing || options.source === PEER_SOURCE.RECONNECT) {
+    const handshaking = this.#handshaking.get(key);
+    if (handshaking) this.#dropHandshaking(handshaking, CLOSE_CODES.DUPLICATE_PEER, 'replaced');
+
+    // Between two Arcane nodes a connection joins once its link handshake has
+    // settled, so nothing that acts on a peer joining sees a link whose trust is
+    // not yet known. A failed or timed-out handshake joins it unauthenticated.
+    const settled = this.linkHandshake?.(peer) ?? null;
+    if (!settled) return this.#register(peer, Boolean(existing), options.source);
+    peer.handshaking = true;
+    this.#handshaking.set(key, peer);
+    const deadline = setTimeout(() => this.#settleHandshake(peer, Boolean(existing), options.source), config.fluxapps.linkHandshakeDeadlineMs);
+    settled.catch((error) => log.error(error)).finally(() => {
+      clearTimeout(deadline);
+      this.#settleHandshake(peer, Boolean(existing), options.source);
+    });
+    return peer;
+  }
+
+  /**
+   * A handshaking connection's link has settled, or its deadline passed: it joins.
+   * @param {FluxPeerSocket} peer
+   * @param {boolean} replaced Whether it replaced a connection to its key.
+   * @param {string} [source]
+   * @private
+   */
+  #settleHandshake(peer, replaced, source) {
+    if (this.#handshaking.get(peer.key) !== peer) return;
+    this.#handshaking.delete(peer.key);
+    peer.handshaking = false;
+    this.#register(peer, replaced, source);
+    peer.flushQueuedFrames();
+  }
+
+  /**
+   * Close a handshaking connection that never joined: nothing to untrack, no
+   * event, no reconnect.
+   * @param {FluxPeerSocket} peer
+   * @param {number} code
+   * @param {string} reason
+   * @private
+   */
+  #dropHandshaking(peer, code, reason) {
+    this.#handshaking.delete(peer.key);
+    peer.detachHandlers();
+    try { peer.ws.close(code, reason); } catch (_e) { /* noop */ }
+  }
+
+  /**
+   * A handshaking connection closed before it joined.
+   * @param {FluxPeerSocket} peer
+   */
+  removeHandshaking(peer) {
+    if (this.#handshaking.get(peer.key) === peer) this.#handshaking.delete(peer.key);
+  }
+
+  /**
+   * The connection held to a key, joined or still handshaking - what every
+   * duplicate decision weighs a new connection against.
+   * @param {string} key
+   * @returns {FluxPeerSocket|undefined}
+   */
+  connectionTo(key) {
+    return this.#peers.get(key) ?? this.#handshaking.get(key);
+  }
+
+  /**
+   * Join a connection to the peer set.
+   * @param {FluxPeerSocket} peer
+   * @param {boolean} replaced Whether it replaced a connection to its key.
+   * @param {string} [source]
+   * @returns {FluxPeerSocket}
+   * @private
+   */
+  #register(peer, replaced, source) {
+    const { key, ip, port } = peer;
+    if (replaced || source === PEER_SOURCE.RECONNECT) {
       this.#reconnectCounts.set(key, (this.#reconnectCounts.get(key) || 0) + 1);
     }
     const { direction } = peer;
@@ -228,9 +318,10 @@ class FluxPeerManager extends EventEmitter {
       source: peer.source,
     });
     // Peer exchange: send our full list to new peer, notify others about the addition.
-    // Sent at once, as the connection's first frame: a peer that dialed this one
-    // as a reconnect takes it as this node's word that it kept the dial
-    // (#awaitReconnectVerdict).
+    // A peer that dialed this one as a reconnect takes this node's first frame on
+    // the connection as its word that it kept the dial (#awaitReconnectVerdict):
+    // this one when the connection joins at once, the link nonce when it
+    // handshakes first.
     this.sendPeerExchange(peer);
     const dirSet = peer.direction === DIRECTION.OUTBOUND ? this.#pendingAdds.outbound : this.#pendingAdds.inbound;
     dirSet.add(peer.key);
@@ -1003,7 +1094,7 @@ class FluxPeerManager extends EventEmitter {
    * @param {string} key - ip:port
    * @returns {boolean}
    */
-  isPending(key) { return this.#pendingConnections.has(key); }
+  isPending(key) { return this.#pendingConnections.has(key) || this.#handshaking.has(key); }
 
   // --- Broadcast ---
 
@@ -1241,8 +1332,8 @@ class FluxPeerManager extends EventEmitter {
       }
 
       const key = `${ipv4Peer}:${port}`;
-      if (this.has(key)) {
-        const existing = this.get(key);
+      const existing = this.connectionTo(key);
+      if (existing) {
         if (existing && !existing.isAlive) {
           log.info(`Replacing stale inbound connection ${key}`);
           this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
@@ -1841,6 +1932,7 @@ class FluxPeerManager extends EventEmitter {
    * Clear all peers — for testing only.
    */
   reset() {
+    this.#handshaking.forEach((peer) => this.#dropHandshaking(peer, CLOSE_CODES.DUPLICATE_PEER, 'reset'));
     this.#peers.clear();
     this.#inboundKeys.clear();
     this.#outboundKeys.clear();

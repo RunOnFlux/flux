@@ -686,6 +686,9 @@ module.exports = {
     linkHandshakeBackoffMs: 600000,
     nodeAuthCallsConcurrent: 2,
     nodeAuthCallsQueued: 32,
+    // A connection between two Arcane nodes joins the peer set when its link
+    // handshake settles, or unauthenticated at this deadline.
+    linkHandshakeDeadlineMs: 10000,
     // Admitting an unpaid app message (services/appMessaging/admissionQuorum.js).
     // A node admits one only while it holds admissionQuorum authenticated links on
     // distinct IPs, and answers success only once peers on admissionQuorum distinct

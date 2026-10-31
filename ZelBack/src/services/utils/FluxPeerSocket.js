@@ -45,6 +45,9 @@ function arrivedAuthenticated(msgObj) {
   return typeof msgObj === 'object' && msgObj !== null && arrivedOverAuthenticatedLink.has(msgObj);
 }
 
+// The most frames a connection takes while its link handshake runs.
+const HANDSHAKE_QUEUE_MAX = 256;
+
 // The admission protocol (services/appMessaging/admissionQuorum.js), taken only
 // from a frame carrying a valid link MAC.
 const LINK_MESSAGE_TYPES = new Set(['appproposal', 'appreceipt', 'appcommit']);
@@ -118,6 +121,9 @@ class FluxPeerSocket {
    */
   static #nextConnectionId = 1;
 
+  /** Frames that arrived while the link handshake ran, waiting for the connection to join. */
+  #queuedFrames = [];
+
   /**
    * @param {WebSocket} ws - raw WebSocket
    * @param {string} ip
@@ -179,6 +185,9 @@ class FluxPeerSocket {
     // This connection's Arcane link handshake (services/arcaneLink.js): null
     // until it opens, and never carried to another connection.
     this.link = null;
+    // Whether this connection's link handshake is still running: it has not
+    // joined the peer set yet (FluxPeerManager.add).
+    this.handshaking = false;
     this.remoteClockOffsetMs = null;
     this.remoteVersion = null;
     this.remoteFluxUptime = null;
@@ -452,7 +461,9 @@ class FluxPeerSocket {
 
     ws.onclose = (evt) => {
       log.info(`${this.direction === DIRECTION.INBOUND ? 'Incoming' : 'Outgoing'} connection ${this.direction === DIRECTION.INBOUND ? 'from' : 'to'} ${this.key} closed with code ${evt.code}`);
-      if (this.source === PEER_SOURCE.EPHEMERAL) {
+      if (this.handshaking) {
+        manager.removeHandshaking(this);
+      } else if (this.source === PEER_SOURCE.EPHEMERAL) {
         manager.removeEphemeral(this.key);
       } else {
         manager.remove(this.key, evt.code);
@@ -474,97 +485,144 @@ class FluxPeerSocket {
       const rateOK = rateLimit.lruRateLimit(`${this.ip}:${this.port}`, 120);
       if (!rateOK) return;
 
-      // Binary frame — handle before the string pipeline
-      if (Buffer.isBuffer(evt.data)) {
-        this.messagesReceived += 1;
-        this.bytesReceived += evt.data.length;
-        manager.handleBinaryMessage(this, evt.data);
-        return;
-      }
-
-      this.messagesReceived += 1;
-      this.bytesReceived += Buffer.byteLength(evt.data, 'utf8');
-
-      // Strip transmission timestamp prefix if present (T{timestamp}|{json})
-      // Adjust for clock skew using exchanged NTP offsets:
-      //   rawDelay = localTime - remoteTime
-      //   skew = localOffset - remoteOffset (positive = our clock is ahead)
-      //   adjustedDelay = rawDelay - skew
-      let rawData = evt.data;
-      let linkVerified = false;
-      if (typeof rawData === 'string' && rawData[0] === 'M') {
-        rawData = this.#openLinkFrame(rawData);
-        if (rawData === null) {
-          log.warn(`Dropping a frame from ${this.direction} peer ${this.key}: its link MAC does not verify`);
+      // Until the link handshake settles only its own two messages are handled;
+      // everything else waits on the socket, in order, for the connection to join.
+      if (this.handshaking && !this.#isHandshakeFrame(evt.data)) {
+        if (this.#queuedFrames.length >= HANDSHAKE_QUEUE_MAX) {
+          log.warn(`Closing ${this.direction} connection ${this.key}: ${HANDSHAKE_QUEUE_MAX} frames arrived before its link handshake settled`);
+          this.close(this.closeCodes.invalidMsg, 'too many frames before the link settled');
           return;
         }
-        linkVerified = true;
-      }
-      if (typeof rawData === 'string' && rawData.length > 2 && rawData[0] === 'T') {
-        const pipeIdx = rawData.indexOf('|');
-        if (pipeIdx > 1 && pipeIdx < 16) { // timestamp is 13-14 digits
-          const tsStr = rawData.substring(1, pipeIdx);
-          const ts = Number(tsStr);
-          if (ts > 0) {
-            let delay = Date.now() - ts;
-            const localOffset = getFluxNetworkHelper().getLocalClockOffsetMs();
-            if (localOffset !== null && this.remoteClockOffsetMs !== null) {
-              delay -= (localOffset - this.remoteClockOffsetMs);
-            }
-            this.lastTransmissionDelay = delay;
-            rawData = rawData.substring(pipeIdx + 1);
-          }
-        }
-      }
-
-      const msgObj = serviceHelper.ensureObject(rawData);
-      if (linkVerified && typeof msgObj === 'object' && msgObj !== null) arrivedOverAuthenticatedLink.add(msgObj);
-
-      // Handle peer-level protocol messages (not broadcast)
-      if (LINK_MESSAGE_TYPES.has(msgObj.type)) {
-        // Only the other end of an authenticated link can send these.
-        if (linkVerified && manager.linkMessageDispatcher) {
-          setImmediate(() => {
-            try {
-              manager.linkMessageDispatcher(msgObj, this);
-            } catch (error) {
-              log.error(error);
-            }
-          });
-        }
+        this.#queuedFrames.push(evt);
         return;
       }
-      if (msgObj.type === 'nak') {
-        const reasonMap = { stale: peerCodec.NAK_REASON.STALE, duplicate: peerCodec.NAK_REASON.DUPLICATE, invalid: peerCodec.NAK_REASON.INVALID };
-        this.onNakReceived(msgObj.hash, reasonMap[msgObj.reason] ?? msgObj.reason);
-        return;
-      }
-      if (msgObj.type === 'peerExchange') {
-        if (this.remoteCapabilities.has('peerExchange')) {
-          manager.handlePeerExchange(this, msgObj.outbound || [], msgObj.inbound || []);
-        }
-        return;
-      }
-      if (msgObj.type === 'peerUpdate') {
-        if (this.remoteCapabilities.has('peerExchange')) {
-          manager.handlePeerUpdate(this, msgObj.addOutbound || [], msgObj.addInbound || [], msgObj.rm || []);
-        }
-        return;
-      }
-
-      // Around the gossip pipeline: these keep their arrival order.
-      if (isOrdered(msgObj.data?.type)) {
-        if (manager.syncResponseDispatcher && manager.isSyncResponseWanted(this)) {
-          setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
-          return;
-        }
-      }
-
-      // Dispatch to the manager's message handler (gossip pipeline)
-      if (manager.messageDispatcher) {
-        setImmediate(() => manager.messageDispatcher(msgObj, this).catch((e) => log.error(e)));
-      }
+      this.#handleFrame(evt);
     };
+  }
+
+  /**
+   * Whether a frame is one of the link handshake's own: a nonce or a confirm,
+   * which are sent before the link can MAC anything.
+   * @param {string|Buffer} data
+   * @returns {boolean}
+   */
+  #isHandshakeFrame(data) {
+    if (typeof data !== 'string') return false;
+    const pipe = data[0] === 'T' ? data.indexOf('|') : -1;
+    try {
+      const type = JSON.parse(pipe > 0 ? data.substring(pipe + 1) : data)?.data?.type;
+      return type === linkCrypto.NONCE_TYPE || type === linkCrypto.CONFIRM_TYPE;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Handle the frames that arrived while the link handshake ran, once the
+   * connection has joined.
+   */
+  flushQueuedFrames() {
+    const queued = this.#queuedFrames;
+    this.#queuedFrames = [];
+    queued.forEach((evt) => this.#handleFrame(evt));
+  }
+
+  /**
+   * One frame, as received.
+   * @param {{data: string|Buffer}} evt
+   */
+  #handleFrame(evt) {
+    const { manager } = this;
+    // Binary frame — handle before the string pipeline
+    if (Buffer.isBuffer(evt.data)) {
+      this.messagesReceived += 1;
+      this.bytesReceived += evt.data.length;
+      manager.handleBinaryMessage(this, evt.data);
+      return;
+    }
+
+    this.messagesReceived += 1;
+    this.bytesReceived += Buffer.byteLength(evt.data, 'utf8');
+
+    // Strip transmission timestamp prefix if present (T{timestamp}|{json})
+    // Adjust for clock skew using exchanged NTP offsets:
+    //   rawDelay = localTime - remoteTime
+    //   skew = localOffset - remoteOffset (positive = our clock is ahead)
+    //   adjustedDelay = rawDelay - skew
+    let rawData = evt.data;
+    let linkVerified = false;
+    if (typeof rawData === 'string' && rawData[0] === 'M') {
+      rawData = this.#openLinkFrame(rawData);
+      if (rawData === null) {
+        log.warn(`Dropping a frame from ${this.direction} peer ${this.key}: its link MAC does not verify`);
+        return;
+      }
+      linkVerified = true;
+    }
+    if (typeof rawData === 'string' && rawData.length > 2 && rawData[0] === 'T') {
+      const pipeIdx = rawData.indexOf('|');
+      if (pipeIdx > 1 && pipeIdx < 16) { // timestamp is 13-14 digits
+        const tsStr = rawData.substring(1, pipeIdx);
+        const ts = Number(tsStr);
+        if (ts > 0) {
+          let delay = Date.now() - ts;
+          const localOffset = getFluxNetworkHelper().getLocalClockOffsetMs();
+          if (localOffset !== null && this.remoteClockOffsetMs !== null) {
+            delay -= (localOffset - this.remoteClockOffsetMs);
+          }
+          this.lastTransmissionDelay = delay;
+          rawData = rawData.substring(pipeIdx + 1);
+        }
+      }
+    }
+
+    const msgObj = serviceHelper.ensureObject(rawData);
+    if (linkVerified && typeof msgObj === 'object' && msgObj !== null) arrivedOverAuthenticatedLink.add(msgObj);
+
+    // Handle peer-level protocol messages (not broadcast)
+    if (LINK_MESSAGE_TYPES.has(msgObj.type)) {
+      // Only the other end of an authenticated link can send these.
+      if (linkVerified && manager.linkMessageDispatcher) {
+        setImmediate(() => {
+          try {
+            manager.linkMessageDispatcher(msgObj, this);
+          } catch (error) {
+            log.error(error);
+          }
+        });
+      }
+      return;
+    }
+    if (msgObj.type === 'nak') {
+      const reasonMap = { stale: peerCodec.NAK_REASON.STALE, duplicate: peerCodec.NAK_REASON.DUPLICATE, invalid: peerCodec.NAK_REASON.INVALID };
+      this.onNakReceived(msgObj.hash, reasonMap[msgObj.reason] ?? msgObj.reason);
+      return;
+    }
+    if (msgObj.type === 'peerExchange') {
+      if (this.remoteCapabilities.has('peerExchange')) {
+        manager.handlePeerExchange(this, msgObj.outbound || [], msgObj.inbound || []);
+      }
+      return;
+    }
+    if (msgObj.type === 'peerUpdate') {
+      if (this.remoteCapabilities.has('peerExchange')) {
+        manager.handlePeerUpdate(this, msgObj.addOutbound || [], msgObj.addInbound || [], msgObj.rm || []);
+      }
+      return;
+    }
+
+    // Around the gossip pipeline: these keep their arrival order.
+    if (isOrdered(msgObj.data?.type)) {
+      if (manager.syncResponseDispatcher && manager.isSyncResponseWanted(this)) {
+        setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
+        return;
+      }
+    }
+
+    // Dispatch to the manager's message handler (gossip pipeline)
+    if (manager.messageDispatcher) {
+      setImmediate(() => manager.messageDispatcher(msgObj, this).catch((e) => log.error(e)));
+    }
   }
 }
 

@@ -1275,7 +1275,8 @@ register('fluxpolicy', (msg, peer) => policyStore.offerBundle(
 // The Arcane link handshake: point to point, both directions, never relayed.
 register(arcaneLink.NONCE_TYPE, (msg, peer) => arcaneLink.handleNonce(msg, peer).catch((error) => log.error(error)), ROUTE.GOSSIP, INTENT.VARIES);
 register(arcaneLink.CONFIRM_TYPE, (msg, peer) => arcaneLink.handleConfirm(msg, peer), ROUTE.GOSSIP, INTENT.VARIES);
-peerManager.on('peerConnected', (key) => arcaneLink.startLink(key).catch((error) => log.error(error)));
+// A connection between two Arcane nodes joins the peer set once this settles.
+peerManager.linkHandshake = (peer) => arcaneLink.startLink(peer);
 
 // Answers to a sync this node asked for, which is why they are ordered.
 register('fluxapptempsync', handleTempSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
@@ -1535,7 +1536,7 @@ function onOutboundOpen() {
   const meta = wsMetadata.get(this);
   if (!meta) return;
   const key = `${meta.ip}:${meta.port}`;
-  const existing = peerManager.get(key);
+  const existing = peerManager.connectionTo(key);
   // A connection to this peer is already held: a live one in the same
   // direction stays, and when both ends dialed at once the pair keeps the
   // connection dialed by the lower address (peerManager.resolveCrossing), the

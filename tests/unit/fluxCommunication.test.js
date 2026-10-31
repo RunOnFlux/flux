@@ -1555,6 +1555,25 @@ describe('fluxCommunication tests', () => {
       expect(peerManager.inboundCount).to.equal(1);
     });
 
+    it('a dial opening into a held connection whose link is still handshaking closes itself while this node cannot order the pair', async () => {
+      const dialAccepted = nextServerSocket();
+      const dial = fluxCommunication.initiateAndHandleConnection(key, PEER_SOURCE.DETERMINISTIC);
+      const { linkHandshake } = peerManager;
+      peerManager.linkHandshake = () => new Promise(() => {});
+      peerManager.add(held, '127.0.0.1', port, { source: PEER_SOURCE.INBOUND });
+      peerManager.linkHandshake = linkHandshake;
+      const original = peerManager.connectionTo(key);
+      expect(peerManager.get(key), 'the held connection has not joined').to.equal(undefined);
+
+      await dial;
+      const dialSocket = await dialAccepted;
+      await waitFor(() => dialSocket.readyState === WebSocket.CLOSED || peerManager.outboundCount > 0, 5000);
+
+      expect(peerManager.connectionTo(key)).to.equal(original);
+      expect(dialSocket.readyState, 'the dial that met the handshaking connection is closed').to.equal(WebSocket.CLOSED);
+      expect(peerManager.outboundCount).to.equal(0);
+    });
+
     it('a dial opening into a live held inbound replaces it when this node has the lower address', async () => {
       peerManager.setOwnSocketAddress('1.1.1.1:16127');
       const resolve = sinon.spy(peerManager, 'resolveCrossing');
