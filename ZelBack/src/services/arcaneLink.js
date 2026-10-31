@@ -32,13 +32,11 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { peerManager } = require('./utils/peerState');
 const { sendSignedMessage } = require('./fluxCommunicationMessagesSender');
+const linkCrypto = require('./utils/linkCrypto');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
-const CAPABILITY = 'arcaneLink';
-const NONCE_TYPE = 'fluxlinknonce';
-const CONFIRM_TYPE = 'fluxlinkconfirm';
-const HEX_32_BYTES = /^[0-9a-f]{64}$/;
+const { CAPABILITY, NONCE_TYPE, CONFIRM_TYPE } = linkCrypto;
 
 const FAILURE = Object.freeze({
   // The peer's nonce is this node's own: a reflected handshake.
@@ -65,10 +63,6 @@ const handshakesByIp = new Map();
 
 let nodeAuthCallsInFlight = 0;
 const nodeAuthCallQueue = [];
-
-function hmac(key, text) {
-  return crypto.createHmac('sha256', key).update(text).digest();
-}
 
 /**
  * Whether a handshake with a peer at `ip` may cost a fluxbench call now, and
@@ -119,23 +113,6 @@ async function withNodeAuthSlot(call) {
   }
 }
 
-/**
- * The text both ends encrypt. Each list is sorted, so both derive one value.
- * Hashed, so fluxbench encrypts a fixed 64 characters.
- * @param {object} link
- * @returns {string}
- */
-function transcript(link) {
-  const sorted = (a, b) => [a, b].sort().join(',');
-  const text = [
-    NONCE_TYPE, 1,
-    sorted(link.localNonce, link.peerNonce),
-    sorted(link.localPubKey, link.peerPubKey),
-    sorted(link.localIp, link.peerIp),
-  ].join('|');
-  return crypto.createHash('sha256').update(text).digest('hex');
-}
-
 function isLive(peer, link) {
   return peer.link === link && peer.isAlive;
 }
@@ -154,9 +131,7 @@ function checkConfirm(peer, link) {
     fail(peer, link, FAILURE.KEY_CHANGED);
     return;
   }
-  const expected = hmac(link.recvKey, CONFIRM_TYPE);
-  const given = typeof mac === 'string' && HEX_32_BYTES.test(mac) ? Buffer.from(mac, 'hex') : null;
-  if (!given || !crypto.timingSafeEqual(given, expected)) {
+  if (!linkCrypto.confirmVerifies(link.recvKey, mac)) {
     fail(peer, link, FAILURE.CONFIRM);
     return;
   }
@@ -170,7 +145,7 @@ async function deriveKeys(peer, link) {
     fail(peer, link, FAILURE.BUDGET);
     return;
   }
-  const { ran, result: secret } = await withNodeAuthSlot(() => benchmarkService.nodeAuthEncrypt(transcript(link)));
+  const { ran, result: secret } = await withNodeAuthSlot(() => benchmarkService.nodeAuthEncrypt(linkCrypto.transcript(link)));
   if (!isLive(peer, link)) return;
   if (!ran) {
     fail(peer, link, FAILURE.BUSY);
@@ -180,11 +155,8 @@ async function deriveKeys(peer, link) {
     fail(peer, link, FAILURE.FLUXBENCH);
     return;
   }
-  // One key per direction, named by the sender's nonce, so nothing sent on the
-  // link verifies when it is sent back.
-  link.sendKey = hmac(secret, `send|${link.localNonce}`);
-  link.recvKey = hmac(secret, `send|${link.peerNonce}`);
-  await sendSignedMessage({ type: CONFIRM_TYPE, version: 1, mac: hmac(link.sendKey, CONFIRM_TYPE).toString('hex') }, peer);
+  Object.assign(link, linkCrypto.directionKeys(secret, link.localNonce, link.peerNonce));
+  await sendSignedMessage({ type: CONFIRM_TYPE, version: 1, mac: linkCrypto.confirmMac(link.sendKey) }, peer);
   if (link.peerConfirm) checkConfirm(peer, link);
 }
 
@@ -238,7 +210,7 @@ async function handleNonce(msg, peer) {
   const nonce = msg.data?.nonce;
   link.peerNonce = typeof nonce === 'string' ? nonce : '';
   link.peerPubKey = msg.pubKey;
-  if (!HEX_32_BYTES.test(link.peerNonce)) {
+  if (!linkCrypto.isHex32(link.peerNonce)) {
     fail(peer, link, FAILURE.MALFORMED);
     return;
   }

@@ -1,4 +1,3 @@
-const crypto = require('node:crypto');
 const config = require('config');
 const { performance } = require('perf_hooks');
 const WebSocket = require('ws');
@@ -8,6 +7,7 @@ const { version: FLUX_VERSION } = require('../../../../package.json');
 const peerCodec = require('./peerCodec');
 const rateLimit = require('./rateLimit');
 const { isOrdered } = require('./messageRoutes');
+const linkCrypto = require('./linkCrypto');
 
 let _fluxNetworkHelper;
 function getFluxNetworkHelper() {
@@ -48,13 +48,6 @@ function arrivedAuthenticated(msgObj) {
 // The admission protocol (services/appMessaging/admissionQuorum.js), taken only
 // from a frame carrying a valid link MAC.
 const LINK_MESSAGE_TYPES = new Set(['appproposal', 'appreceipt', 'appcommit']);
-
-// `M<64 hex>|`: a link MAC over the rest of the frame.
-const LINK_MAC_PREFIX_LENGTH = 66;
-
-function linkMac(key, text) {
-  return crypto.createHmac('sha256', key).update(text).digest('hex');
-}
 
 // These number the PEER sockets. The browser routes on the same server carry
 // their own meanings for the same numbers - the payment relay answers a
@@ -323,7 +316,7 @@ class FluxPeerSocket {
     if (typeof data !== 'string') return data;
     const timed = this.remoteCapabilities.has('transmissionTimestamps') ? `T${Date.now()}|${data}` : data;
     if (!this.link?.authenticated) return timed;
-    return `M${linkMac(this.link.sendKey, timed)}|${timed}`;
+    return linkCrypto.sealFrame(this.link.sendKey, timed);
   }
 
   /**
@@ -340,12 +333,7 @@ class FluxPeerSocket {
   #openLinkFrame(raw) {
     const { link } = this;
     if (!link?.recvKey || link.failed) return null;
-    if (raw.length < LINK_MAC_PREFIX_LENGTH || raw[LINK_MAC_PREFIX_LENGTH - 1] !== '|') return null;
-    const mac = raw.substring(1, LINK_MAC_PREFIX_LENGTH - 1);
-    if (!/^[0-9a-f]{64}$/.test(mac)) return null;
-    const rest = raw.substring(LINK_MAC_PREFIX_LENGTH);
-    const expected = linkMac(link.recvKey, rest);
-    return crypto.timingSafeEqual(Buffer.from(mac, 'hex'), Buffer.from(expected, 'hex')) ? rest : null;
+    return linkCrypto.openFrame(link.recvKey, raw);
   }
 
   /**
@@ -598,7 +586,7 @@ const FLUX_CAPABILITIES = Object.freeze([
   // This build authenticates links between Arcane nodes (services/arcaneLink.js).
   // Only an Arcane node claims it: a legacy node's fluxbench cannot derive the
   // link secret.
-  ...(process.env.FLUXOS_PATH ? ['arcaneLink'] : []),
+  ...(process.env.FLUXOS_PATH ? [linkCrypto.CAPABILITY] : []),
 ]);
 
 module.exports = {

@@ -13,6 +13,7 @@ const fluxRpc = require('./utils/fluxRpc');
 const dbHelper = require('./dbHelper');
 const { Privilege, authOf } = require('./utils/privileges');
 const { isValidAppNameAndOwner } = require('./utils/appIdentity');
+const linkCrypto = require('./utils/linkCrypto');
 
 // eslint-disable-next-line no-unused-vars
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -342,17 +343,13 @@ async function encryptMessage(message) {
  *
  * Called with executeCall, not executeAppCall: the identity is not an app name
  * and owner (ARCANEOS_SYSTEM carries an underscore, ARCANEOS_NODE_AUTH is not an
- * address). The result never leaves this node. `blockHeight` does not change the
- * output.
+ * address). The result never leaves this node.
  * @param {string} text
  * @returns {Promise<string|null>} The base64 ciphertext, or null when fluxbench
  *   refused or did not answer.
  */
 async function nodeAuthEncrypt(text) {
-  const payload = JSON.stringify({
-    fluxID: 'ARCANEOS_NODE_AUTH', appName: 'ARCANEOS_SYSTEM', message: text, blockHeight: 0,
-  });
-  const response = await executeCall('encryptmessage', [payload]);
+  const response = await executeCall('encryptmessage', [linkCrypto.nodeAuthRequest(text)]);
   if (response.status !== 'success') return null;
   let result = response.data;
   if (typeof result === 'string') {
