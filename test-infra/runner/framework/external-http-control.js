@@ -246,6 +246,18 @@ export async function setUpnpLookupFault(ip, code) {
 }
 
 /**
+ * Set the fault a node's gateway answers every GetGenericPortMappingEntry with from now on: a
+ * router that will not list its table (401, 602 and 606 are the faults that say so). Keeps its
+ * table and the requests it has seen; each such answer carries `refused: <code>`.
+ * @param {string} ip
+ * @param {number|null} code - null answers as the spec says
+ */
+export async function setUpnpListFault(ip, code) {
+  const res = await post(`/upnp-gateway/${ip}/list-fault`, { code });
+  if (!res.ok) throw new Error(`setUpnpListFault: ${JSON.stringify(res)}`);
+}
+
+/**
  * Set the fault a node's gateway answers every removal with from now on, while still carrying
  * it out, and the same fault for a removal of an entry it does not hold, where the spec says
  * 714. Keeps its table and the requests it has seen; each such answer carries `refused: <code>`.
@@ -259,18 +271,75 @@ export async function setUpnpDeleteFault(ip, code) {
 
 /**
  * Set how many mappings a node's gateway holds from now on, keeping its table and the requests
- * it has seen. A new mapping past it is refused with 728, carried as `refused: 728` in its state.
+ * it has seen. A new mapping past it is refused with `fault`, carried as `refused: <fault>` in
+ * its state.
  * @param {string} ip
  * @param {number|null} capacity - null for no limit
+ * @param {object} [opts]
+ * @param {number} [opts.fault] - 728 NoPortMapsAvailable when absent
  */
-export async function setUpnpCapacity(ip, capacity) {
-  const res = await post(`/upnp-gateway/${ip}/capacity`, { capacity });
+export async function setUpnpCapacity(ip, capacity, { fault = null } = {}) {
+  const res = await post(`/upnp-gateway/${ip}/capacity`, { capacity, fault });
   if (!res.ok) throw new Error(`setUpnpCapacity: ${JSON.stringify(res)}`);
 }
 
 /**
+ * Set how a node's gateway treats a mapping asked for with a lease from now on, keeping its
+ * table and the requests it has seen. A refused one carries `refused: <fault>` in its state.
+ * @param {string} ip
+ * @param {object} [opts]
+ * @param {number|null} [opts.fault] - the fault it refuses a leased mapping with; 725 is a
+ *   router that keeps permanent mappings only. Null takes it.
+ * @param {boolean} [opts.drops] - take a leased mapping and hold it as permanent
+ * @param {boolean} [opts.keepsHeld] - answer an add of a held entry and leave the entry as it
+ *   is: its lease is not restarted or changed
+ * @param {boolean} [opts.staticLeases] - show every entry's lease as it was asked for, never
+ *   counting down
+ * @param {number|null} [opts.minimumLease] - hold a shorter lease for this many seconds
+ * @param {number|null} [opts.permanentAs] - hold a mapping asked for with no lease for this
+ *   many seconds
+ * @param {number|null} [opts.refreshFault] - the fault it refuses an add of a held entry with
+ */
+export async function setUpnpLeases(ip, {
+  fault = null, drops = false, keepsHeld = false, staticLeases = false,
+  minimumLease = null, permanentAs = null, refreshFault = null,
+} = {}) {
+  const res = await post(`/upnp-gateway/${ip}/leases`, {
+    fault, drops, keepsHeld, staticLeases, minimumLease, permanentAs, refreshFault,
+  });
+  if (!res.ok) throw new Error(`setUpnpLeases: ${JSON.stringify(res)}`);
+}
+
+/**
+ * Set whether a node's gateway answers a lookup of any port with an empty entry from now on,
+ * whatever it holds, keeping its table and the requests it has seen.
+ * @param {string} ip
+ * @param {boolean} on
+ */
+export async function setUpnpEmptyLookups(ip, on) {
+  const res = await post(`/upnp-gateway/${ip}/empty-lookups`, { on });
+  if (!res.ok) throw new Error(`setUpnpEmptyLookups: ${JSON.stringify(res)}`);
+}
+
+/**
+ * Set how long a node's gateway takes to answer a mapping it has taken from now on: the
+ * mapping is in its table at once, and the answer comes `ms` later. Keeps its table and the
+ * requests it has seen; each such request carries `answeredAfterMs` in its state.
+ * @param {string} ip
+ * @param {object} opts
+ * @param {number|null} opts.ms - null answers at once
+ * @param {string} [opts.description] - only mappings with this description; every one when absent
+ */
+export async function setUpnpSlowAdds(ip, { ms, description = null }) {
+  const res = await post(`/upnp-gateway/${ip}/slow-adds`, { ms, description });
+  if (!res.ok) throw new Error(`setUpnpSlowAdds: ${JSON.stringify(res)}`);
+}
+
+/**
  * The gateway a node is behind: its port mappings and the actions the node sent it, each with
- * the external port, protocol and description it named (null for one it names none of).
+ * the external port, protocol and description it named (null for one it names none of), and
+ * the lease an AddPortMapping asked for. A mapping with a lease carries `expiresAt` (epoch
+ * ms), and goes from the table once it has passed.
  * @param {string} ip
  * @returns {Promise<{externalIp: string|null, mappings: object[], requests: object[]}|null>}
  */

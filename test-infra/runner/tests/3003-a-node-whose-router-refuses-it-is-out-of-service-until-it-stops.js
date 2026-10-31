@@ -24,7 +24,7 @@ const subnet = getSubnetConfig();
 
 // A node behind UPnP whose router refuses it - to remove a mapping, or to make
 // one - is out of service until the router stops. Its availability check waits
-// ten minutes after a passing test and five in DOS, so only UPnP reaching it
+// ten minutes after a passing test and two in DOS, so only UPnP reaching it
 // can start a pass sooner than that.
 //
 // An app's removal the router refuses starts the next pass at once; each pass
@@ -42,15 +42,21 @@ const subnet = getSubnetConfig();
 
 const NODE = 0;
 const PASSED_WAIT_MS = 10 * 60 * 1000;
-const DOS_WAIT_MS = 5 * 60 * 1000;
+const DOS_WAIT_MS = 2 * 60 * 1000;
+// the wait after a pass that counted toward the DOS
+const ERROR_WAIT_MS = 1000;
+// production's: node health takes the node out of service at an apps DOS state of 100
+const DOS_THRESHOLD = 100;
 const APPS_PORT_CHECK = {
   timeoutsMs: {
-    default: PASSED_WAIT_MS, error: 5000, failure: 1000, dos: DOS_WAIT_MS, appError: 5000,
+    default: PASSED_WAIT_MS, error: ERROR_WAIT_MS, failure: 1000, dos: DOS_WAIT_MS, appError: 5000,
   },
-  thresholds: { dos: 100, portsHighEdge: 3, portsLowEdge: 1 },
+  thresholds: { dos: DOS_THRESHOLD, portsHighEdge: 3, portsLowEdge: 1 },
 };
-// 25 counted passes, 5 s apart, reach the threshold of 100
-const DOS_WITHIN_MS = 4 * 60 * 1000;
+// each counted pass adds 4 (availabilityChecker.countPortFailure)
+const PASSES_TO_DOS = DOS_THRESHOLD / 4;
+// the counted passes' waits, and as long again for the passes themselves
+const DOS_WITHIN_MS = 2 * PASSES_TO_DOS * ERROR_WAIT_MS;
 // the harness's longest removal retry (8 s) and one pass
 const RELEASED_WITHIN_MS = 90 * 1000;
 if (DOS_WITHIN_MS >= PASSED_WAIT_MS || RELEASED_WITHIN_MS >= DOS_WAIT_MS) {
@@ -195,14 +201,17 @@ describe('a node whose router refuses it is out of service until it stops', func
     const app = await buildApp(name);
     const [port] = app.spec.compose[0].ports;
     await seedSpawnerApp(env, app, [NODE]);
+    const refusedSince = (requests) => requests.filter((r) => r.action === 'AddPortMapping' && r.refused === 728 && Date.parse(r.at) >= fullFrom);
+    // the install reaches the router before the check counts anything
+    await waitFor(async () => refusedSince((await gateway()).requests).some((r) => r.port === port), {
+      timeout: 240000, interval: 2000, label: 'the router refused the app\'s mapping',
+    });
 
     await waitFor(async () => (await dosOf(node)).dosMessage === UPNP_DOS, {
       timeout: DOS_WITHIN_MS, interval: 2000, label: 'the node out of service for its full router',
     });
 
-    const { requests } = await gateway();
-    const refused = requests.filter((r) => r.action === 'AddPortMapping' && r.refused === 728 && Date.parse(r.at) >= fullFrom);
-    expect(refused.some((r) => r.port === port), 'canary: the router refused the app\'s mapping').to.equal(true);
+    const refused = refusedSince((await gateway()).requests);
     expect(refused.some((r) => r.description === 'Flux_Test_App'), 'the check\'s own test mapping refused too').to.equal(true);
   });
 
@@ -236,13 +245,13 @@ describe('a node whose router refuses it is out of service until it stops', func
     await res.text();
     await waitForAppRemoved(node, name, 120000);
 
-    // a pending removal would count every 5 s pass and reach the DOS inside this window
+    // a pending removal would count every pass and reach the DOS inside this window
     const watchedUntil = Date.now() + DOS_WITHIN_MS;
     while (Date.now() < watchedUntil) {
       // eslint-disable-next-line no-await-in-loop
       expect((await dosOf(node)).dosMessage ?? null, 'never out of service').to.not.equal(UPNP_DOS);
       // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve) => { setTimeout(resolve, 5000); });
+      await new Promise((resolve) => { setTimeout(resolve, ERROR_WAIT_MS); });
     }
     await setUpnpDeleteFault(nodeIp, null);
 
@@ -290,5 +299,52 @@ describe('a node whose router refuses it is out of service until it stops', func
     await setUpnpLookupFault(nodeIp, null);
     state = await gateway();
     expect(state.mappings.some((m) => m.externalPort === port), 'the mapping removed').to.equal(false);
+  });
+
+  // The port refresh reads the installed apps, then maps each one's ports. It is held
+  // at the app after its read, the app is removed while the router refuses the
+  // removal of its mapping, and the refresh is let go: the removed app's port is
+  // not mapped again, and its removal is still asked until the router carries it out.
+  it('maps no port of an app removed while a refresh was on its way to it, and keeps asking the router to remove it', async function () {
+    this.timeout(RELEASED_WITHIN_MS + 600000);
+    const BEFORE_APP = 'portsRefresh:beforeApp';
+    const name = `e2eupnprefresh${Date.now()}`;
+    const app = await buildApp(name);
+    const [port] = app.spec.compose[0].ports;
+    const mark = node.getLastEventId();
+    await seedSpawnerApp(env, app, [NODE]);
+    await waitForAppInstalled(node, name, 240000, { afterId: mark });
+    expect((await gateway()).mappings.some((m) => m.externalPort === port), 'the app\'s port mapped').to.equal(true);
+
+    const holdFrom = node.getLastEventId();
+    await node.holdCheckpoint(BEFORE_APP, name);
+    try {
+      await node.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_APP && d.key === name, 180000, { afterId: holdFrom });
+      await setUpnpRefuseDeletes(nodeIp, Infinity);
+      const auth = await authenticate(node.url, fluxTeamKey());
+      const res = await fetch(`${node.url}/apps/appremove/${name}`, { headers: { zelidauth: auth.zelidauth } });
+      await res.text();
+      await waitForAppRemoved(node, name, 120000);
+    } finally {
+      await node.releaseCheckpoint(BEFORE_APP, name);
+    }
+    const releasedFrom = Date.now();
+    const ofPortSince = (state) => state.requests.filter((r) => r.port === port && Date.parse(r.at) >= releasedFrom);
+
+    // A mapping made again ends the removal's retries, so the wait ends at the first add too.
+    let state;
+    await waitFor(async () => {
+      state = await gateway();
+      const requests = ofPortSince(state);
+      return requests.some((r) => r.action === 'AddPortMapping')
+        || requests.filter((r) => r.action === 'DeletePortMapping').length >= 2;
+    }, { timeout: RELEASED_WITHIN_MS, interval: 2000, label: 'the router asked again to remove the removed app\'s mapping' });
+    expect(ofPortSince(state).filter((r) => r.action === 'AddPortMapping'), 'the removed app\'s port mapped again').to.deep.equal([]);
+    expect(ofPortSince(state).filter((r) => r.action === 'DeletePortMapping').length, 'the removal asked again').to.be.at.least(2);
+
+    await setUpnpRefuseDeletes(nodeIp, 0);
+    await waitFor(async () => !(await gateway()).mappings.some((m) => m.externalPort === port), {
+      timeout: RELEASED_WITHIN_MS, interval: 2000, label: 'the router removed the mapping once it would',
+    });
   });
 });

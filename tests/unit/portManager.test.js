@@ -5,6 +5,7 @@ const axios = require('axios');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 const upnpService = require('../../ZelBack/src/services/upnpService');
+const portReconciler = require('../../ZelBack/src/services/portReconciler');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -19,7 +20,7 @@ const appQueryService = require('../../ZelBack/src/services/appQuery/appQuerySer
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
-// what upnpService.mapUpnpPort answers for a port mapped, and for one the router refused
+// what portReconciler.want and keep answer for a port mapped, and for one the router refused
 const MAPPED = {
   mapped: true, code: null, reason: null, routerWide: false,
 };
@@ -589,34 +590,13 @@ describe('portManager tests', () => {
   });
 
   describe('restoreAppsPortsSupport tests', () => {
-    let db;
-    let database;
-
-    beforeEach(async () => {
-      await dbHelper.initiateDB();
-      db = dbHelper.databaseConnection();
-      database = db.db(config.database.appslocal.database);
-
-      const collection = config.database.appslocal.collections.appsInformation;
-      const testApps = [
-        {
-          name: 'App1',
-          version: 3,
-          ports: [30001],
-        },
-      ];
-
-      try {
-        await database.collection(collection).drop();
-      } catch (err) {
-        // Collection doesn't exist
-      }
-      await dbHelper.insertManyToDatabase(database, collection, testApps);
-
+    beforeEach(() => {
+      // what installations want mapped: App1's one port
+      sinon.stub(portReconciler, 'desiredAppPorts').returns([{ port: 30001, description: 'Flux_App_App1' }]);
       sinon.stub(upnpService, 'isUPNP').returns(false);
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
       sinon.stub(fluxNetworkHelper, 'allowPort').resolves(true);
-      sinon.stub(upnpService, 'mapUpnpPort').resolves(MAPPED);
+      sinon.stub(portReconciler, 'keep').resolves(MAPPED);
       sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       portManager.upnpMapFailures.clear();
@@ -629,23 +609,50 @@ describe('portManager tests', () => {
       await portManager.restoreAppsPortsSupport();
 
       sinon.assert.notCalled(fluxNetworkHelper.allowPort);
-      sinon.assert.called(upnpService.mapUpnpPort);
+      sinon.assert.called(portReconciler.keep);
     });
 
-    it('should setup UPNP for app ports when active', async () => {
+    it('renews each port installations want, by its port, app by app', async () => {
+      portReconciler.desiredAppPorts.returns([
+        { port: 30001, description: 'Flux_App_App1' },
+        { port: 30003, description: 'Flux_App_App2' },
+        { port: 30002, description: 'Flux_App_App1' },
+      ]);
       upnpService.isUPNP.returns(true);
 
       await portManager.restoreAppsPortsSupport();
 
-      sinon.assert.called(upnpService.mapUpnpPort);
+      expect(portReconciler.keep.getCalls().map((call) => call.args[0])).to.deep.equal([30001, 30002, 30003]);
+    });
+
+    it('renews nothing installations do not want, whatever the installed apps hold', async () => {
+      portReconciler.desiredAppPorts.returns([]);
+      upnpService.isUPNP.returns(true);
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.notCalled(portReconciler.keep);
     });
 
     it('should handle errors gracefully', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.rejects(new Error('UPnP error'));
+      portReconciler.keep.rejects(new Error('UPnP error'));
 
       // Should not throw
       await portManager.restoreAppsPortsSupport();
+    });
+
+    it('counts no failure of an app whose port no installation wants by its turn', async () => {
+      upnpService.isUPNP.returns(true);
+      portReconciler.keep.resolves({
+        mapped: false, code: null, reason: '30001 not wanted by an installation', routerWide: false, released: true,
+      });
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.calledOnce(portReconciler.keep);
+      sinon.assert.notCalled(serviceHelper.delay);
+      expect(portManager.upnpMapFailures.has('App1')).to.equal(false);
     });
 
     it('should NOT remove an app on a single UPNP mapping failure', async () => {
@@ -653,7 +660,7 @@ describe('portManager tests', () => {
       // removeAppLocally(force, sendMessage) - a transient router blip nuked
       // a running app and broadcast its removal to the network
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(REFUSED);
+      portReconciler.keep.resolves(REFUSED);
 
       await portManager.restoreAppsPortsSupport();
 
@@ -663,8 +670,8 @@ describe('portManager tests', () => {
 
     it('should retry a failed port within the cycle and record no failure on recovery', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.onFirstCall().resolves(REFUSED);
-      upnpService.mapUpnpPort.resolves(MAPPED);
+      portReconciler.keep.onFirstCall().resolves(REFUSED);
+      portReconciler.keep.resolves(MAPPED);
 
       await portManager.restoreAppsPortsSupport();
 
@@ -674,7 +681,7 @@ describe('portManager tests', () => {
 
     it('should not remove before the sustained window even after enough failing cycles', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(REFUSED);
+      portReconciler.keep.resolves(REFUSED);
 
       await portManager.restoreAppsPortsSupport();
       await portManager.restoreAppsPortsSupport();
@@ -687,7 +694,7 @@ describe('portManager tests', () => {
 
     it('should remove and broadcast only after sustained failure (cycles AND window)', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(REFUSED);
+      portReconciler.keep.resolves(REFUSED);
       const nowMonotonicMs = Number(process.hrtime.bigint() / 1000000n);
       portManager.upnpMapFailures.set('App1', {
         cycles: 2,
@@ -701,34 +708,148 @@ describe('portManager tests', () => {
     });
 
     it('should pay the retry pause at most once per cycle across failing apps', async () => {
-      const collection = config.database.appslocal.collections.appsInformation;
-      await dbHelper.insertManyToDatabase(database, collection, [
-        { name: 'App2', version: 3, ports: [30002] },
+      portReconciler.desiredAppPorts.returns([
+        { port: 30001, description: 'Flux_App_App1' },
+        { port: 30002, description: 'Flux_App_App2' },
       ]);
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(REFUSED);
+      portReconciler.keep.resolves(REFUSED);
 
       await portManager.restoreAppsPortsSupport();
 
       // both apps still get their retry attempt and their strike, but the
       // recovery pause is shared - not stacked per app
       sinon.assert.calledOnce(serviceHelper.delay);
-      expect(upnpService.mapUpnpPort.callCount).to.equal(4);
+      expect(portReconciler.keep.callCount).to.equal(4);
       expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
       expect(portManager.upnpMapFailures.get('App2').cycles).to.equal(1);
     });
 
     it('should clear the failure tracker once mapping succeeds again', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(REFUSED);
+      portReconciler.keep.resolves(REFUSED);
       await portManager.restoreAppsPortsSupport();
       expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
 
-      upnpService.mapUpnpPort.resolves(MAPPED);
+      portReconciler.keep.resolves(MAPPED);
       await portManager.restoreAppsPortsSupport();
 
       expect(portManager.upnpMapFailures.has('App1')).to.be.false;
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    // boot starts a pass without waiting on it, and the refresh may come round
+    // while it runs
+    it('should join a pass in progress, so the router is asked once', async () => {
+      upnpService.isUPNP.returns(true);
+      let answer;
+      const asked = new Promise((resolveAsked) => {
+        portReconciler.keep.callsFake(() => new Promise((resolve) => { answer = resolve; resolveAsked(); }));
+      });
+
+      const first = portManager.restoreAppsPortsSupport();
+      await asked;
+      const second = portManager.restoreAppsPortsSupport();
+      answer(MAPPED);
+      await Promise.all([first, second]);
+
+      sinon.assert.calledOnce(portReconciler.keep);
+      expect(second).to.equal(first);
+    });
+
+    it('should run a new pass once the one in progress has ended', async () => {
+      upnpService.isUPNP.returns(true);
+
+      await portManager.restoreAppsPortsSupport();
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.calledTwice(portReconciler.keep);
+    });
+  });
+
+  describe('declareInstalledAppsPorts tests', () => {
+    let database;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      database = dbHelper.databaseConnection().db(config.database.appslocal.database);
+      const collection = config.database.appslocal.collections.appsInformation;
+      await database.collection(collection).drop().catch(() => {});
+      await dbHelper.insertManyToDatabase(database, collection, [
+        { name: 'App1', version: 3, ports: [30001] },
+        { name: 'App2', version: 3, ports: [30002] },
+      ]);
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(portReconciler, 'want').resolves(MAPPED);
+    });
+
+    it('wants every installed app\'s ports, described as the app\'s', async () => {
+      await portManager.declareInstalledAppsPorts();
+
+      expect(portReconciler.want.getCalls().map((call) => call.args).sort()).to.deep.equal([
+        [30001, 'Flux_App_App1'],
+        [30002, 'Flux_App_App2'],
+      ]);
+    });
+
+    it('wants nothing on a node that does not map through UPnP', async () => {
+      upnpService.isUPNP.returns(false);
+
+      await portManager.declareInstalledAppsPorts();
+
+      sinon.assert.notCalled(portReconciler.want);
+    });
+  });
+
+  describe('refreshPortsInSlot tests', () => {
+    let shuttingDown;
+    let delays;
+
+    beforeEach(() => {
+      shuttingDown = false;
+      delays = [];
+      sinon.stub(globalState, 'waitForBootContainerStateSettled').resolves();
+      sinon.stub(globalState, 'shutdownInProgress').get(() => shuttingDown);
+      sinon.stub(upnpService, 'msUntilRefreshSlot').returns(42000);
+      sinon.stub(upnpService, 'isUPNP').returns(false);
+      // one pass of the node's own ports reads the firewall once
+      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
+      // shuts down at the third wait, so the test ends after two passes
+      sinon.stub(serviceHelper, 'delay').callsFake(async (ms) => {
+        delays.push(ms);
+        if (delays.length === 3) shuttingDown = true;
+      });
+    });
+
+    it('should wait for the boot gate, then for the slot of the api port it listens on, then refresh', async () => {
+      await portManager.refreshPortsInSlot();
+
+      sinon.assert.callOrder(globalState.waitForBootContainerStateSettled, upnpService.msUntilRefreshSlot, serviceHelper.delay, fluxNetworkHelper.isFirewallActive);
+      // the suite's config listens on 16127
+      sinon.assert.alwaysCalledWithExactly(upnpService.msUntilRefreshSlot, 16127, config.fluxapps.portRestoreIntervalMs);
+    });
+
+    it('should refresh once in each cycle until shutdown', async () => {
+      await portManager.refreshPortsInSlot();
+
+      expect(delays).to.deep.equal([42000, 42000, 42000]);
+      sinon.assert.calledTwice(fluxNetworkHelper.isFirewallActive);
+    });
+
+    it('should wait a whole cycle after a pass that ended at its slot\'s very start', async () => {
+      upnpService.msUntilRefreshSlot.returns(0);
+
+      await portManager.refreshPortsInSlot();
+
+      expect(delays).to.deep.equal([0, config.fluxapps.portRestoreIntervalMs, config.fluxapps.portRestoreIntervalMs]);
+    });
+
+    it('should not refresh when shutdown begins during its wait', async () => {
+      serviceHelper.delay.callsFake(async () => { shuttingDown = true; });
+
+      await portManager.refreshPortsInSlot();
+
+      sinon.assert.notCalled(fluxNetworkHelper.isFirewallActive);
     });
   });
 
@@ -1260,7 +1381,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
   // One attempt per drawn peer: the observer is drawn first, so the attempt
   // index advances there and the answer is looked up against it.
-  const withPeers = (answers, peers = PEERS) => {
+  const withPeers = (answers, peers = PEERS, options = undefined) => {
     let attempt = -1;
 
     sinon.stub(networkStateService, 'getRandomExternalObserver').callsFake(async () => {
@@ -1275,7 +1396,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
       return answer;
     });
 
-    return portManager.checkInstallingAppPortAvailable([port], 'web');
+    return portManager.checkInstallingAppPortAvailable([port], 'web', options);
   };
 
   // The bug: a verdict and "nobody has decided" were the same value, so a last
@@ -1383,8 +1504,8 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
   it('asks no peer, and removes what the router kept, when the router refuses the port under test', async () => {
     upnpService.isUPNP.returns(true);
-    sinon.stub(upnpService, 'mapUpnpPort').resolves(REFUSED);
-    const removeMapping = sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
+    sinon.stub(portReconciler, 'want').resolves(REFUSED);
+    const removeMapping = sinon.stub(portReconciler, 'release').resolves(true);
 
     const result = await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
 
@@ -1395,12 +1516,12 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
   it('maps the port under test under the application\'s own description, the one it installs under', async () => {
     upnpService.isUPNP.returns(true);
-    const mapUpnpPort = sinon.stub(upnpService, 'mapUpnpPort').resolves(REFUSED);
-    sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
+    const want = sinon.stub(portReconciler, 'want').resolves(REFUSED);
+    sinon.stub(portReconciler, 'release').resolves(true);
 
     await withPeers([UNREACHABLE]);
 
-    sinon.assert.calledOnceWithExactly(mapUpnpPort, port, 'Flux_App_web');
+    sinon.assert.calledOnceWithExactly(want, port, 'Flux_App_web', { holder: null });
   });
 
   // What a peer that probes UDP answers. `udp` is the port's UDP reply: our
@@ -1424,6 +1545,41 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     expect(result).to.deep.equal({ ok: true, reason: 'proven', port: null });
     sinon.assert.calledOnce(axios.post);
+  });
+
+  it('keeps the mapping of a port it proves for the installation, held for the attempt it was given', async () => {
+    upnpService.isUPNP.returns(true);
+    const holder = {};
+    const want = sinon.stub(portReconciler, 'want').resolves(MAPPED);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+
+    const result = await withPeers([answering('ours')], PEERS, { holder });
+
+    expect(result.ok).to.equal(true);
+    sinon.assert.calledOnceWithExactly(want, port, 'Flux_App_web', { holder });
+    sinon.assert.notCalled(release);
+  });
+
+  it('releases the mapping of a port it proves when it is given no attempt to keep it for', async () => {
+    upnpService.isUPNP.returns(true);
+    sinon.stub(portReconciler, 'want').resolves(MAPPED);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+
+    await withPeers([answering('ours')]);
+
+    sinon.assert.calledOnceWithExactly(release, port, 'Flux_App_web', { holder: null });
+  });
+
+  it('releases, for the attempt it was given, the mapping of a port it refuses', async () => {
+    upnpService.isUPNP.returns(true);
+    const holder = {};
+    sinon.stub(portReconciler, 'want').resolves(MAPPED);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+
+    const result = await withPeers([answering(null), answering(null), UNREACHABLE, UNREACHABLE, UNREACHABLE], PEERS, { holder });
+
+    expect(result.ok).to.equal(false);
+    sinon.assert.calledOnceWithExactly(release, port, 'Flux_App_web', { holder });
   });
 
   it('asks the peer to probe UDP, and opens a UDP test server on every port', async () => {
@@ -1610,6 +1766,34 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     expect(result).to.deep.equal({ ok: false, reason: 'error' });
     sinon.assert.calledOnce(udpServers[0].close);
+  });
+});
+
+describe('releaseTestedPorts', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('releases each tested port under the application\'s own description, for the attempt that held it', async () => {
+    sinon.stub(upnpService, 'isUPNP').returns(true);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+    const holder = {};
+
+    await portManager.releaseTestedPorts([31000, 31001], 'web', holder);
+
+    expect(release.args).to.deep.equal([
+      [31000, 'Flux_App_web', { holder }],
+      [31001, 'Flux_App_web', { holder }],
+    ]);
+  });
+
+  it('asks nothing of a node without UPnP', async () => {
+    sinon.stub(upnpService, 'isUPNP').returns(false);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+
+    await portManager.releaseTestedPorts([31000], 'web', {});
+
+    sinon.assert.notCalled(release);
   });
 });
 

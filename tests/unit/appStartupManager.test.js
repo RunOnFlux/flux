@@ -49,6 +49,7 @@ describe('appStartupManager tests', () => {
 
     portManagerStub = {
       appsWithPorts: sinon.stub().resolves({ apps: [], unreadable: [] }),
+      declareInstalledAppsPorts: sinon.stub().resolves(),
     };
 
     registryManagerStub = {
@@ -981,6 +982,44 @@ describe('appStartupManager tests', () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPorts);
+    });
+  });
+
+  describe('mapping installed apps\' ports at boot', () => {
+    const KEEP = { machineRebooted: false, downtimeMs: 1000, cleanShutdown: true };
+
+    beforeEach(() => {
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves([{ name: 'web' }]);
+      portManagerStub.appsWithPorts.resolves({ apps: [{ name: 'web', ports: [31000] }], unreadable: [] });
+    });
+
+    it('starts mapping the apps\' ports once their firewall ports are open, before the apps are reconciled', async () => {
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledOnceWithExactly(portManagerStub.declareInstalledAppsPorts);
+      const reconcileStart = logStub.info.getCalls().find((call) => /Starting boot reconciliation/.test(call.args[0]));
+      expect(fluxNetworkHelperStub.allowAppPorts.firstCall.calledBefore(portManagerStub.declareInstalledAppsPorts.firstCall), 'after the firewall').to.equal(true);
+      expect(portManagerStub.declareInstalledAppsPorts.firstCall.calledBefore(reconcileStart), 'before the reconcile').to.equal(true);
+    });
+
+    it('reconciles the apps without waiting for their mappings', async () => {
+      portManagerStub.declareInstalledAppsPorts.returns(new Promise(() => {}));
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'reconciled').to.equal(true);
+      expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+    });
+
+    it('maps nothing when the apps are all being removed', async () => {
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'web' }] });
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+
+      fluxNetworkHelperStub.isNodeDos.returns(true);
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.notCalled(portManagerStub.declareInstalledAppsPorts);
     });
   });
 });

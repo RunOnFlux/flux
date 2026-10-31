@@ -7,6 +7,7 @@ const generalService = require('../generalService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const upnpService = require('../upnpService');
+const portReconciler = require('../portReconciler');
 const networkStateService = require('../networkStateService');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
@@ -44,8 +45,8 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
   }
 
   if (!skipUpnp) {
-    await upnpService
-      .removeMapUpnpPort(testingPort, 'Flux_Test_App')
+    await portReconciler
+      .release(testingPort, 'Flux_Test_App', { holder: options.holder })
       .catch((e) => log.error(e));
   }
 
@@ -231,6 +232,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
   const isUpnp = upnpService.isUPNP();
   let routerRefused = false;
+  // This pass's test holds its port on the router as a test: a port an install
+  // maps meanwhile stays the install's, and the test's release leaves it.
+  const holder = {};
   // One secret for this pass, published by both test servers and never sent to
   // the peer: only our own test servers can produce it.
   const portTestToken = crypto.randomBytes(16).toString('hex');
@@ -347,7 +351,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     // A router that has yet to remove a mapping of this node fails the check,
     // and is given no test mapping until it has.
-    if (isUpnp && upnpService.removalPending()) {
+    if (isUpnp && portReconciler.removalPending()) {
       log.info('checkMyAppsAvailability - the router has yet to remove a mapping of this node; no test mapping until it has');
       countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
       await waitForNextPass(dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
@@ -355,7 +359,8 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       return;
     }
 
-    if (appPorts.includes(dosState.testingPort)) {
+    // installed apps, and what this node maps on its router now - an app mid-install among them
+    if (appPorts.includes(dosState.testingPort) || portReconciler.isWanted(dosState.testingPort)) {
       log.info(`checkMyAppsAvailability - Skipped checking ${dosState.testingPort} - in use`);
       setNextPort();
       await waitForNextPass(timeouts.failure);
@@ -448,7 +453,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     if (isUpnp) {
       // A router refusing either protocol's mapping for a reason of its own is
       // a router fault, counted as one.
-      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()) });
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.AVAILABILITY_BEFORE_TEST_MAPPING, String(dosState.testingPort));
+      const upnpMapResult = await portReconciler.want(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()), holder });
+      fluxEventBus.publish('availability:testMapping', { port: dosState.testingPort, mapped: upnpMapResult.mapped, reason: upnpMapResult.reason });
       routerRefused = routerRefusedSinceLastPass(dosState);
       if (routerRefused) countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
       if (!upnpMapResult.mapped) {
@@ -459,6 +466,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
           skipHttpServer: !httpListening,
           udpTestServer,
           protocols,
+          holder,
         });
         const upnpDelay = dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error;
         await waitForNextPass(upnpDelay);
@@ -514,6 +522,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       skipHttpServer: !httpListening,
       udpTestServer,
       protocols,
+      holder,
     });
 
     if (!resMyAppAvailability) {
@@ -661,7 +670,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     // soon; a refusal during this pass gave no wake, the check not waiting.
     const routerFaulting = routerRefused
       || upnpService.routerRefusals() > dosState.routerRefusalsSeen
-      || upnpService.removalPending();
+      || portReconciler.removalPending();
     if (isUpnp && routerFaulting) {
       waitMs = Math.min(waitMs, dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
     }
@@ -673,7 +682,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     await waitForNextPass(waitMs);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
   } catch (error) {
-    await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, { skipUpnp: !isUpnp, udpTestServer, protocols: passProtocols(isUpnp, dosState) });
+    await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
+      skipUpnp: !isUpnp, udpTestServer, protocols: passProtocols(isUpnp, dosState), holder,
+    });
     log.error(`checkMyAppsAvailability - Error: ${error}`);
     await waitForNextPass(timeouts.appError);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));

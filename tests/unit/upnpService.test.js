@@ -6,9 +6,12 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 const log = require('../../ZelBack/src/lib/log');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const portReconciler = require('../../ZelBack/src/services/portReconciler');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
 const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
+const { upnp: { testMappingLeaseS: TEST_LEASE_S } } = require('config');
 
 const ufwRun = (args) => sinon.match({ runAsRoot: true, params: [ufw.UFW_HELPER, '--wait', '30', '--command', JSON.stringify(args)] });
 // The ufw commands each batch handed to the helper.
@@ -17,6 +20,16 @@ const batches = (stub) => stub.getCalls()
   .map((call) => ({ commands: JSON.parse(call.args[1].params[call.args[1].params.indexOf('--rules') + 1]), options: call.args[1] }));
 
 const { expect } = chai;
+
+// The router's table, read an entry at a time: `rows` answers the whole table
+// (resolves, rejects, callsFake as a listing would) and getMappingAt hands out
+// its entries by index, null past the end.
+function stubTable() {
+  const rows = sinon.stub().resolves([]);
+  sinon.stub(natUpnp.Client.prototype, 'getMappingAt')
+    .callsFake(async (options) => (await rows(options))[options.index] ?? null);
+  return rows;
+}
 
 const config = {
   apiport: '5550',
@@ -53,17 +66,43 @@ class RecordingClient extends natUpnp.Client {
   }
 }
 proxyquire(
-  '../../ZelBack/src/services/upnpService',
-  { config, './fluxadmPort': fluxadmPortStub, '@runonflux/nat-upnp': { ...natUpnp, Client: RecordingClient } },
+  '../../ZelBack/src/services/upnpRouter',
+  { '@runonflux/nat-upnp': { ...natUpnp, Client: RecordingClient } },
 );
 
 const GATEWAY_URL = 'http://192.168.1.1:5000/rootDesc.xml';
 const upnpServiceAtGatewayUrl = proxyquire(
   '../../ZelBack/src/services/upnpService',
-  { config: { ...config, upnp: { gatewayUrl: GATEWAY_URL, nodeIp: '192.168.1.10' } }, './fluxadmPort': fluxadmPortStub },
+  {
+    config,
+    './fluxadmPort': fluxadmPortStub,
+    './portReconciler': proxyquire(
+      '../../ZelBack/src/services/portReconciler',
+      {
+        './upnpRouter': proxyquire(
+          '../../ZelBack/src/services/upnpRouter',
+          { config: { upnp: { gatewayUrl: GATEWAY_URL, nodeIp: '192.168.1.10' } } },
+        ),
+      },
+    ),
+  },
 );
 
 describe('upnpService tests', () => {
+  // the record of this node's mappings: empty, and not yet covering the router's
+  // table, unless a test says otherwise
+  beforeEach(() => {
+    sinon.stub(upnpMappingRecord, 'all').resolves([]);
+    sinon.stub(upnpMappingRecord, 'complete').resolves(false);
+    sinon.stub(upnpMappingRecord, 'markComplete').resolves();
+    sinon.stub(upnpMappingRecord, 'mapping').resolves();
+    sinon.stub(upnpMappingRecord, 'removed').resolves();
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
   describe('client tests', () => {
     it('should keep the router it discovers between calls', () => {
       expect(clientOptions).to.deep.equal([{ cacheGateway: true }]);
@@ -162,6 +201,82 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(logSpy);
     });
 
+    // The test mapping is made with a lease and read back: the router keeps the
+    // lease, or shows the mapping as permanent - having refused the lease, or
+    // dropped it without a word.
+    describe('the lease of its test mapping', () => {
+      let createMappingStub;
+      const readBack = (ttl) => sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves({ ...testMapping, ttl });
+
+      beforeEach(() => {
+        sinon.stub(serviceHelper, 'delay').resolves();
+        sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
+        sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
+        createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+        sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      });
+
+      it('should make its test mapping with a lease', async () => {
+        readBack(598);
+
+        await upnpService.verifyUPNPsupport();
+
+        sinon.assert.calledOnceWithExactly(createMappingStub, {
+          public: 16130, private: 16130, ttl: TEST_LEASE_S, protocol: 'TCP', description: 'Flux_UPNP_Mapping_Test',
+          signal: sinon.match.instanceOf(AbortSignal),
+        });
+      });
+
+      it('should know the router keeps a lease when the mapping reads back with one', async () => {
+        readBack(598);
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        expect(upnpService.routerLeases.kept).to.equal(true);
+      });
+
+      it('should know the router drops a lease when the mapping reads back permanent', async () => {
+        readBack(0);
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        expect(upnpService.routerLeases.kept).to.equal(false);
+      });
+
+      it('should verify, and know the router refuses a lease, when it maps the test only without one', async () => {
+        createMappingStub.onFirstCall().rejects(new natUpnp.UpnpError(402, 'InvalidArgs', 'AddPortMapping'));
+        readBack(0);
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([TEST_LEASE_S, 0]);
+        expect(upnpService.routerLeases.kept).to.equal(false);
+      });
+
+      it('should ask the router again on every check, whatever an earlier one found', async () => {
+        readBack(0);
+        await upnpService.verifyUPNPsupport();
+        natUpnp.Client.prototype.getMapping.resolves({ ...testMapping, ttl: 598 });
+        createMappingStub.resetHistory();
+
+        await upnpService.verifyUPNPsupport();
+
+        expect(createMappingStub.firstCall.args[0].ttl).to.equal(TEST_LEASE_S);
+        expect(upnpService.routerLeases.kept).to.equal(true);
+      });
+
+      it('should forget whether the router renews a lease on every check, so it is learned again', async () => {
+        readBack(598);
+        upnpService.routerLeases.renews = true;
+        const { generation } = upnpService.routerLeases;
+
+        await upnpService.verifyUPNPsupport();
+
+        expect(upnpService.routerLeases.renews).to.equal(null);
+        expect(upnpService.routerLeases.generation).to.equal(generation + 1);
+      });
+    });
+
     it('should not wait for a turn when the router has room for the test mapping', async () => {
       const delayStub = sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
@@ -169,7 +284,7 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
       sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
-      const getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      const getMappingsStub = stubTable();
 
       expect(await upnpService.verifyUPNPsupport(16177)).to.equal(true);
 
@@ -178,12 +293,13 @@ describe('upnpService tests', () => {
     });
 
     it('should hold the test port from the time it is mapped until it is read back, so a cleanup pass cannot take it mid-test', async () => {
-      upnpService.mappedHere.clear();
+      portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       const heldAt = {};
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
       sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
-      sinon.stub(natUpnp.Client.prototype, 'createMapping').callsFake(async () => { heldAt.create = upnpService.mappedHere.has(16130); });
-      sinon.stub(natUpnp.Client.prototype, 'getMapping').callsFake(async () => { heldAt.readBack = upnpService.mappedHere.has(16130); return testMapping; });
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').callsFake(async () => { heldAt.create = portReconciler.wanted.has(16130); });
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').callsFake(async () => { heldAt.readBack = portReconciler.wanted.has(16130); return testMapping; });
       const removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
 
       const clock = sinon.useFakeTimers();
@@ -194,8 +310,8 @@ describe('upnpService tests', () => {
 
       expect(await promise).to.equal(true);
       expect(heldAt).to.deep.equal({ create: true, readBack: true });
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 16130, protocol: 'TCP' });
-      expect(upnpService.mappedHere.has(16130)).to.equal(false);
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 16130, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      expect(portReconciler.wanted.has(16130)).to.equal(false);
     });
 
     it('should log a proper error if getPublicIp throws', async () => {
@@ -265,7 +381,8 @@ describe('upnpService tests', () => {
       const tableFull = () => new natUpnp.UpnpError(728, 'NoPortMapsAvailable', 'AddPortMapping');
 
       beforeEach(() => {
-        upnpService.mappedHere.clear();
+        portReconciler.wanted.clear();
+        portReconciler.wantedMaps.clear();
         sinon.stub(serviceHelper, 'delay').resolves();
         sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves('1.2.3.4');
         sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
@@ -274,7 +391,7 @@ describe('upnpService tests', () => {
         createMappingStub.resolves();
         // the lookup after the refusal finds no entry; the one after the mapping finds it
         sinon.stub(natUpnp.Client.prototype, 'getMapping').onFirstCall().resolves(null).resolves(testMapping);
-        getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([
+        getMappingsStub = stubTable().resolves([
           listed(31000, 'Flux_Test_App'),
           listed(31001, 'Flux_Prelaunch_App_31001'),
           listed(31002, 'Flux_App_web'),
@@ -287,17 +404,31 @@ describe('upnpService tests', () => {
 
       it('should remove the test mappings earlier runs left, and nothing else, then map once more', async () => {
         // the api port mapped here too: a test mapped on the retry is still checked and removed
-        natUpnp.Client.prototype.getMapping.withArgs({ public: 16127, protocol: 'TCP' }).resolves({
+        natUpnp.Client.prototype.getMapping.withArgs({ public: 16127, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) }).resolves({
           ...testMapping, public: { host: '', port: 16127 }, private: { host: '192.168.1.10', port: 16127 },
         });
 
         const result = await upnpService.verifyUPNPsupport();
 
         expect(result).to.equal(true);
-        sinon.assert.calledOnceWithExactly(getMappingsStub, { local: true, signal: sinon.match.instanceOf(AbortSignal) });
+        sinon.assert.calledWith(natUpnp.Client.prototype.getMappingAt, { index: 0, signal: sinon.match.instanceOf(AbortSignal) });
         const removedPorts = removeMappingStub.getCalls().map((call) => call.args[0].public.port ?? call.args[0].public);
         expect(removedPorts).to.deep.equal([31000, 31001, 16130]);
         sinon.assert.calledTwice(createMappingStub);
+      });
+
+      it('should remove the test mappings the record holds by their port, and list nothing, once the record is complete', async () => {
+        upnpMappingRecord.complete.resolves(true);
+        upnpMappingRecord.all.resolves([
+          { port: 31000, protocol: 'TCP', description: 'Flux_Test_App' },
+          { port: 31002, protocol: 'TCP', description: 'Flux_App_web' },
+        ]);
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        sinon.assert.notCalled(getMappingsStub);
+        const removedPorts = removeMappingStub.getCalls().map((call) => call.args[0].public.port ?? call.args[0].public);
+        expect(removedPorts.filter((port) => port !== 16130)).to.deep.equal([31000]);
       });
 
       it('should count no refusal of its own test mapping toward the router\'s refusals', async () => {
@@ -369,13 +500,21 @@ describe('upnpService tests', () => {
       });
 
       it('should remove the left-overs, and map once more, when the router refuses with a generic 501 Action Failed', async () => {
+        // a full table refuses the leased mapping and the one asked for without a lease alike
         createMappingStub.onFirstCall().rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'AddPortMapping'));
+        createMappingStub.onSecondCall().rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'AddPortMapping'));
 
         const result = await upnpService.verifyUPNPsupport();
 
         expect(result).to.equal(true);
-        sinon.assert.calledOnce(getMappingsStub);
-        sinon.assert.calledTwice(createMappingStub);
+        sinon.assert.called(getMappingsStub);
+        expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([TEST_LEASE_S, 0, TEST_LEASE_S]);
+      });
+
+      it('should not ask for a mapping without a lease when the table is full', async () => {
+        await upnpService.verifyUPNPsupport();
+
+        expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([TEST_LEASE_S, TEST_LEASE_S]);
       });
 
       describe('and holds nothing of this node\'s to remove', () => {
@@ -401,10 +540,11 @@ describe('upnpService tests', () => {
 
           expect(result).to.equal(true);
           expect(upnpService.isUPNP()).to.equal(true);
-          sinon.assert.calledWithExactly(natUpnp.Client.prototype.getMapping, { public: 16127, protocol: 'TCP' });
-          sinon.assert.calledOnce(createMappingStub);
+          sinon.assert.calledWithExactly(natUpnp.Client.prototype.getMapping, { public: 16127, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+          // the leased test mapping, and the same asked for once without a lease
+          expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([TEST_LEASE_S, 0]);
           sinon.assert.notCalled(removeMappingStub);
-          expect(upnpService.mappedHere.has(16130)).to.equal(false);
+          expect(portReconciler.wanted.has(16130)).to.equal(false);
         });
 
         [
@@ -469,7 +609,7 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
       sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves(true);
       const getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
-      const getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      const getMappingsStub = stubTable();
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves(true);
 
       const clock = sinon.useFakeTimers();
@@ -477,7 +617,7 @@ describe('upnpService tests', () => {
       await clock.tickAsync(2_500);
 
       expect(await promise).to.equal(true);
-      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 16130, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 16130, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
       sinon.assert.notCalled(getMappingsStub);
     });
 
@@ -517,8 +657,8 @@ describe('upnpService tests', () => {
     });
 
     it('should verify when the router refuses to remove the test mapping, and leave its removal pending', async () => {
-      upnpService.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
-      upnpService.pendingRemovals.clear();
+      portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
+      portReconciler.pendingRemovals.clear();
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
       sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
       sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
@@ -533,10 +673,10 @@ describe('upnpService tests', () => {
       const result = await promise;
 
       expect(result).to.equal(true);
-      expect([...upnpService.pendingRemovals.keys()]).to.deep.equal(['16130/TCP']);
-      expect(upnpService.removalPending()).to.equal(true);
-      upnpService.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
-      upnpService.pendingRemovals.clear();
+      expect([...portReconciler.pendingRemovals.keys()]).to.deep.equal(['16130/TCP']);
+      expect(portReconciler.removalPending()).to.equal(true);
+      portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
+      portReconciler.pendingRemovals.clear();
     });
   });
 
@@ -592,6 +732,7 @@ describe('upnpService tests', () => {
       sinon.assert.callCount(createMappingSpy, 5);
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 118, private: 118, ttl: 0, description: 'Flux_Fluxadm_SSH',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.notCalled(removeMappingStub);
     });
@@ -604,8 +745,8 @@ describe('upnpService tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.callCount(createMappingSpy, 4);
-      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 118, protocol: 'TCP' });
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 118, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
     });
 
     it('should know its own maintenance ssh mapping as a FRITZ!Box stores its description', async () => {
@@ -614,7 +755,7 @@ describe('upnpService tests', () => {
 
       await runSetup(123);
 
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
     });
 
     it('should remove nothing when the router holds no mapping of the maintenance ssh port', async () => {
@@ -636,7 +777,7 @@ describe('upnpService tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.callCount(createMappingSpy, 4);
-      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
     });
 
     [
@@ -697,15 +838,19 @@ describe('upnpService tests', () => {
       sinon.assert.callCount(createMappingSpy, 4);
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 123, private: 123, ttl: 0, protocol: 'TCP', description: 'Flux_Backend_API',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 124, private: 124, ttl: 0, protocol: 'TCP', description: 'Flux_Backend_API_SSL',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 122, private: 122, ttl: 0, protocol: 'TCP', description: 'Flux_Home_UI',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 125, private: 125, ttl: 0, protocol: 'TCP', description: 'Flux_Syncthing',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
     });
 
@@ -724,21 +869,25 @@ describe('upnpService tests', () => {
       sinon.assert.callCount(createMappingSpy, 4);
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16127, private: 16127, ttl: 0, protocol: 'TCP', description: 'Flux_Backend_API',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16128, private: 16128, ttl: 0, protocol: 'TCP', description: 'Flux_Backend_API_SSL',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16126, private: 16126, ttl: 0, protocol: 'TCP', description: 'Flux_Home_UI',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 16129, private: 16129, ttl: 0, protocol: 'TCP', description: 'Flux_Syncthing',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
     });
 
     it('should take a core port the router refuses but already maps to this node as mapped', async () => {
       createMappingSpy.withArgs(sinon.match({ public: 124 })).rejects(new natUpnp.UpnpError(728, 'NoPortMapsAvailable', 'AddPortMapping'));
-      getMappingStub.withArgs({ public: 124, protocol: 'TCP' }).resolves(fluxadmMapping({
+      getMappingStub.withArgs({ public: 124, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) }).resolves(fluxadmMapping({
         public: { host: '', port: 124 }, private: { host: '192.168.1.10', port: 124 }, description: 'Flux_Backend_API_SSL', enabled: true,
       }));
 
@@ -773,694 +922,6 @@ describe('upnpService tests', () => {
     });
   });
 
-  describe('mapUpnpPort tests', () => {
-    let logSpy;
-    let createMappingStub;
-    let getMappingStub;
-
-    const refusal = (code, description) => new natUpnp.UpnpError(code, description, 'AddPortMapping');
-    // the router's entry for port 123, to this node unless overridden
-    const entry = (overrides = {}) => ({
-      public: { host: '', port: 123 },
-      private: { host: '192.168.1.10', port: 123 },
-      protocol: 'udp',
-      enabled: true,
-      description: 'Flux_App_web',
-      ttl: 0,
-      local: true,
-      ...overrides,
-    });
-
-    beforeEach(() => {
-      upnpService.mappedHere.clear();
-      logSpy = sinon.spy(log, 'error');
-      sinon.stub(serviceHelper, 'delay').resolves();
-      createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
-      getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should map TCP and then UDP, port for port, with no lease', async () => {
-      const result = await upnpService.mapUpnpPort(123, 'some description');
-
-      expect(result).to.deep.equal({
-        mapped: true, code: null, reason: null, routerWide: false,
-      });
-      sinon.assert.notCalled(logSpy);
-      sinon.assert.calledTwice(createMappingStub);
-      sinon.assert.calledWithExactly(createMappingStub.firstCall, {
-        public: 123, private: 123, ttl: 0, protocol: 'TCP', description: 'some description',
-      });
-      sinon.assert.calledWithExactly(createMappingStub.secondCall, {
-        public: 123, private: 123, ttl: 0, protocol: 'UDP', description: 'some description',
-      });
-    });
-
-    it('should map only the protocols it is given', async () => {
-      upnpService.mappedProtocols.clear();
-      const result = await upnpService.mapUpnpPort(123, 'Flux_Test_App', { protocols: ['TCP'] });
-
-      expect(result.mapped).to.equal(true);
-      sinon.assert.calledOnceWithExactly(createMappingStub, {
-        public: 123, private: 123, ttl: 0, protocol: 'TCP', description: 'Flux_Test_App',
-      });
-      expect([...upnpService.mappedProtocols.get(123)]).to.deep.equal(['TCP']);
-    });
-
-    it('should signal each refusal it counts as the router\'s, and no other', async () => {
-      const onRefused = sinon.spy();
-      upnpService.routerEvents.on('mappingRefused', onRefused);
-      try {
-        createMappingStub.rejects(refusal(718, 'ConflictInMappingEntry'));
-        getMappingStub.resolves(entry({ private: { host: '192.168.1.20', port: 123 }, local: false }));
-        await upnpService.mapUpnpPort(123, 'Flux_App_web');
-        sinon.assert.notCalled(onRefused);
-
-        createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable'));
-        getMappingStub.resolves(null);
-        await upnpService.mapUpnpPort(124, 'Flux_App_web');
-        await upnpService.mapUpnpPort(125, 'Flux_App_web');
-        sinon.assert.calledTwice(onRefused);
-      } finally {
-        upnpService.routerEvents.off('mappingRefused', onRefused);
-      }
-    });
-
-    it('should not ask for UDP when TCP is refused', async () => {
-      createMappingStub.rejects(refusal(718, 'ConflictInMappingEntry'));
-
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(result.mapped).to.equal(false);
-      sinon.assert.calledOnce(createMappingStub);
-    });
-
-    it('should give a port another machine holds as the port\'s refusal, not the router\'s', async () => {
-      createMappingStub.onSecondCall().rejects(refusal(718, 'ConflictInMappingEntry'));
-      getMappingStub.resolves(entry({ local: false, private: { host: '192.168.1.11', port: 123 } }));
-      const before = upnpService.routerRefusals();
-
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(result).to.deep.equal({
-        mapped: false,
-        code: 718,
-        reason: 'UDP 123 not mapped: UPnP error 718: ConflictInMappingEntry (action: AddPortMapping)',
-        routerWide: false,
-      });
-      expect(upnpService.routerRefusals()).to.equal(before);
-      sinon.assert.calledOnceWithExactly(logSpy, `UPnP - ${result.reason}`);
-    });
-
-    it('should count a full table as the router\'s refusal', async () => {
-      createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable'));
-      const before = upnpService.routerRefusals();
-
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(result).to.include({ mapped: false, code: 728, routerWide: true });
-      expect(upnpService.routerRefusals()).to.equal(before + 1);
-    });
-
-    it('should count a router that does not answer as the router\'s refusal, and not ask it again', async () => {
-      createMappingStub.rejects(new Error('timeout of 10000ms exceeded'));
-      const before = upnpService.routerRefusals();
-
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(result).to.deep.equal({
-        mapped: false, code: null, reason: 'TCP 123 not mapped: timeout of 10000ms exceeded', routerWide: true,
-      });
-      expect(upnpService.routerRefusals()).to.equal(before + 1);
-      sinon.assert.notCalled(getMappingStub);
-    });
-
-    [
-      [501, 'ActionFailed'],
-      [606, 'ActionNotAuthorized'],
-    ].forEach(([code, description]) => {
-      it(`should count a ${code} ${description} as the router's refusal`, async () => {
-        createMappingStub.rejects(refusal(code, description));
-        const before = upnpService.routerRefusals();
-
-        const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-        expect(result).to.include({ mapped: false, code, routerWide: true });
-        expect(upnpService.routerRefusals()).to.equal(before + 1);
-      });
-    });
-
-    [
-      [402, 'InvalidArgs'],
-      [716, 'WildCardNotPermittedInExtPort'],
-      [718, 'ConflictInMappingEntry'],
-      [724, 'SamePortValuesRequired'],
-      [725, 'OnlyPermanentLeasesSupported'],
-      [726, 'RemoteHostOnlySupportsWildcard'],
-      [727, 'ExternalPortOnlySupportsWildcard'],
-      [729, 'ConflictWithOtherMechanisms'],
-    ].forEach(([code, description]) => {
-      it(`should give a ${code} ${description} as the port's refusal, not the router's`, async () => {
-        createMappingStub.rejects(refusal(code, description));
-        const before = upnpService.routerRefusals();
-
-        const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-        expect(result).to.include({ mapped: false, code, routerWide: false });
-        expect(upnpService.routerRefusals()).to.equal(before);
-      });
-    });
-
-    [
-      [501, 'ActionFailed'],
-      [606, 'ActionNotAuthorized'],
-    ].forEach(([code, description]) => {
-      it(`should give a ${code} for a port another machine holds as the port's refusal, not the router's`, async () => {
-        createMappingStub.rejects(refusal(code, description));
-        getMappingStub.resolves(entry({ local: false, private: { host: '192.168.1.11', port: 123 } }));
-        const before = upnpService.routerRefusals();
-
-        const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-        expect(result).to.include({ mapped: false, code, routerWide: false });
-        expect(upnpService.routerRefusals()).to.equal(before);
-      });
-    });
-
-    it('should give a 501 for a port this node holds otherwise as the port\'s refusal, not the router\'s', async () => {
-      createMappingStub.rejects(refusal(501, 'ActionFailed'));
-      getMappingStub.resolves(entry({ private: { host: '192.168.1.10', port: 124 } }));
-      const before = upnpService.routerRefusals();
-
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(result).to.include({ mapped: false, code: 501, routerWide: false });
-      expect(upnpService.routerRefusals()).to.equal(before);
-    });
-
-    it('should count a 728 as the router\'s refusal even for a port another machine holds', async () => {
-      createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable'));
-      getMappingStub.resolves(entry({ local: false, private: { host: '192.168.1.11', port: 123 } }));
-      const before = upnpService.routerRefusals();
-
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(result).to.include({ mapped: false, code: 728, routerWide: true });
-      expect(upnpService.routerRefusals()).to.equal(before + 1);
-    });
-
-    it('should take a refusal as mapped when the router already maps the port to this node', async () => {
-      createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable'));
-      getMappingStub.callsFake(async ({ protocol }) => entry({ protocol: protocol.toLowerCase() }));
-      const before = upnpService.routerRefusals();
-
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(result.mapped).to.equal(true);
-      expect(upnpService.routerRefusals()).to.equal(before);
-      sinon.assert.calledWithExactly(getMappingStub.firstCall, { public: 123, protocol: 'TCP' });
-      sinon.assert.calledWithExactly(getMappingStub.secondCall, { public: 123, protocol: 'UDP' });
-      sinon.assert.notCalled(logSpy);
-    });
-
-    [
-      ['to another port of this node', { private: { host: '192.168.1.10', port: 124 } }],
-      ['disabled', { enabled: false }],
-      ['where this node cannot tell whose it is', { local: null }],
-    ].forEach(([what, overrides]) => {
-      it(`should keep the refusal when the router's entry is ${what}`, async () => {
-        createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable'));
-        getMappingStub.resolves(entry(overrides));
-
-        const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-        expect(result).to.include({ mapped: false, code: 728 });
-      });
-    });
-
-    it('should keep the refusal when the router cannot be asked for its entry', async () => {
-      createMappingStub.rejects(refusal(718, 'ConflictInMappingEntry'));
-      getMappingStub.rejects(new Error('socket hang up'));
-
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(result).to.include({ mapped: false, code: 718 });
-    });
-
-    it('should ask the router nothing for what is not a port, and count nothing', async () => {
-      const before = upnpService.routerRefusals();
-
-      const result = await upnpService.mapUpnpPort(Number.NaN, 'Flux_App_web');
-
-      expect(result).to.include({ mapped: false, code: null, routerWide: false });
-      expect(upnpService.routerRefusals()).to.equal(before);
-      sinon.assert.notCalled(createMappingStub);
-    });
-
-    it('should no longer hold a port it failed to map', async () => {
-      createMappingStub.onSecondCall().rejects(refusal(718, 'ConflictInMappingEntry'));
-
-      await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(upnpService.mappedHere.has(123)).to.equal(false);
-    });
-
-    it('should hold a port it mapped', async () => {
-      await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      expect(upnpService.mappedHere.has(123)).to.equal(true);
-    });
-  });
-
-  describe('removeMapUpnpPort tests', () => {
-    let logSpy;
-    let createMappingStub;
-    let getMappingStub;
-    let removeMappingStub;
-
-    const refusal = (code, description, action) => new natUpnp.UpnpError(code, description, action);
-    const removedProtocols = () => removeMappingStub.getCalls().map((call) => call.args[0].protocol);
-
-    beforeEach(() => {
-      upnpService.mappedHere.clear();
-      upnpService.mappedProtocols.clear();
-      logSpy = sinon.spy(log, 'error');
-      sinon.stub(serviceHelper, 'delay').resolves();
-      createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
-      getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
-      removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should remove both protocols this node mapped, without asking the router whose they are', async () => {
-      await upnpService.mapUpnpPort(123, 'Flux_Test_App');
-      getMappingStub.resetHistory();
-
-      const result = await upnpService.removeMapUpnpPort(123);
-
-      expect(result).to.equal(true);
-      sinon.assert.notCalled(getMappingStub);
-      sinon.assert.calledWithExactly(removeMappingStub.firstCall, { public: 123, protocol: 'TCP' });
-      sinon.assert.calledWithExactly(removeMappingStub.secondCall, { public: 123, protocol: 'UDP' });
-      sinon.assert.notCalled(logSpy);
-    });
-
-    it('should remove the TCP half of a port whose UDP the router refused', async () => {
-      createMappingStub.onSecondCall().rejects(refusal(718, 'ConflictInMappingEntry', 'AddPortMapping'));
-      await upnpService.mapUpnpPort(123, 'Flux_Test_App');
-
-      await upnpService.removeMapUpnpPort(123);
-
-      expect(removedProtocols()).to.deep.equal(['TCP']);
-    });
-
-    it('should ask the router to remove nothing of a port it refused to map here', async () => {
-      createMappingStub.rejects(refusal(718, 'ConflictInMappingEntry', 'AddPortMapping'));
-      await upnpService.mapUpnpPort(123, 'Flux_Test_App');
-
-      const result = await upnpService.removeMapUpnpPort(123);
-
-      expect(result).to.equal(true);
-      sinon.assert.notCalled(removeMappingStub);
-    });
-
-    it('should ask the router to remove nothing of a port this node never mapped', async () => {
-      const result = await upnpService.removeMapUpnpPort(123);
-
-      expect(result).to.equal(true);
-      sinon.assert.notCalled(removeMappingStub);
-    });
-
-    it('should forget a protocol whose latest map the router refused', async () => {
-      await upnpService.mapUpnpPort(123, 'Flux_App_web');
-      createMappingStub.rejects(refusal(718, 'ConflictInMappingEntry', 'AddPortMapping'));
-      await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      await upnpService.removeMapUpnpPort(123);
-
-      // TCP was refused; UDP, not asked again, stays as the first map left it
-      expect(removedProtocols()).to.deep.equal(['UDP']);
-    });
-
-    it('should count a refusal the router has the port mapped here for as mapped here', async () => {
-      createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable', 'AddPortMapping'));
-      getMappingStub.callsFake(async ({ protocol }) => ({
-        public: { host: '', port: 123 },
-        private: { host: '192.168.1.10', port: 123 },
-        protocol: protocol.toLowerCase(),
-        enabled: true,
-        description: 'Flux_App_web',
-        ttl: 0,
-        local: true,
-      }));
-      await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-      await upnpService.removeMapUpnpPort(123);
-
-      expect(removedProtocols()).to.deep.equal(['TCP', 'UDP']);
-    });
-
-    it('should remove UDP when the router refuses to remove TCP, and report the port not removed', async () => {
-      await upnpService.mapUpnpPort(123, 'Flux_Test_App');
-      removeMappingStub.withArgs({ public: 123, protocol: 'TCP' }).rejects(refusal(501, 'ActionFailed', 'DeletePortMapping'));
-
-      const result = await upnpService.removeMapUpnpPort(123);
-
-      expect(result).to.equal(false);
-      expect(removedProtocols()).to.deep.equal(['TCP', 'UDP']);
-      sinon.assert.calledOnceWithExactly(logSpy, 'UPnP - TCP 123 not unmapped: UPnP error 501: ActionFailed (action: DeletePortMapping)');
-    });
-
-    it('should take a removal the router has no entry for as removed', async () => {
-      await upnpService.mapUpnpPort(123, 'Flux_Test_App');
-      removeMappingStub.rejects(refusal(714, 'NoSuchEntryInArray', 'DeletePortMapping'));
-
-      const result = await upnpService.removeMapUpnpPort(123);
-
-      expect(result).to.equal(true);
-      sinon.assert.notCalled(logSpy);
-    });
-
-    it('should ask a second removal of the same port for nothing', async () => {
-      await upnpService.mapUpnpPort(123, 'Flux_Test_App');
-      await upnpService.removeMapUpnpPort(123);
-      removeMappingStub.resetHistory();
-
-      await upnpService.removeMapUpnpPort(123);
-
-      sinon.assert.notCalled(removeMappingStub);
-    });
-  });
-
-  describe('pending removal tests', () => {
-    const FIRST_MS = 30 * 1000;
-    const MAX_MS = 60 * 1000;
-    let clock;
-    let createMappingStub;
-    let getMappingStub;
-    let removeMappingStub;
-
-    const refused = () => new natUpnp.UpnpError(501, 'ActionFailed', 'DeletePortMapping');
-    // the router's entry for a port, to this node unless overridden
-    const entry = (port, protocol, overrides = {}) => ({
-      public: { host: '', port },
-      private: { host: '192.168.1.10', port },
-      protocol: protocol.toLowerCase(),
-      enabled: true,
-      description: 'Flux_App_web',
-      ttl: 0,
-      local: true,
-      ...overrides,
-    });
-    const lookups = () => getMappingStub.getCalls().map((call) => `${call.args[0].public}/${call.args[0].protocol}`);
-    const removals = () => removeMappingStub.getCalls().map((call) => `${call.args[0].public}/${call.args[0].protocol}`);
-    // a test port mapped TCP only: its UDP refused, held by another machine
-    const mapTcpOnly = async (port, description) => {
-      createMappingStub.withArgs(sinon.match({ public: port, protocol: 'UDP' })).rejects(new natUpnp.UpnpError(718, 'ConflictInMappingEntry', 'AddPortMapping'));
-      getMappingStub.withArgs(sinon.match({ public: port, protocol: 'UDP' }))
-        .resolves(entry(port, 'UDP', { private: { host: '192.168.1.11', port }, local: false }));
-      await upnpService.mapUpnpPort(port, description);
-      getMappingStub.resetHistory();
-    };
-
-    beforeEach(() => {
-      upnpService.mappedHere.clear();
-      upnpService.mappedProtocols.clear();
-      upnpService.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
-      upnpService.pendingRemovals.clear();
-      sinon.stub(serviceHelper, 'delay').resolves();
-      sinon.stub(log, 'error');
-      sinon.stub(log, 'info');
-      createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
-      getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping')
-        .callsFake(async ({ public: port, protocol }) => entry(port, protocol));
-      removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
-      clock = sinon.useFakeTimers();
-    });
-
-    afterEach(() => {
-      upnpService.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
-      upnpService.pendingRemovals.clear();
-      clock.restore();
-      sinon.restore();
-    });
-
-    it('should ask the router again for a removal it refused, waiting longer each time, until it goes', async () => {
-      await mapTcpOnly(123, 'Flux_Test_App');
-      removeMappingStub.onCall(0).rejects(refused());
-      removeMappingStub.onCall(1).rejects(refused());
-      removeMappingStub.onCall(2).rejects(refused());
-
-      expect(await upnpService.removeMapUpnpPort(123, 'Flux_Test_App')).to.equal(false);
-      expect(removals()).to.deep.equal(['123/TCP']);
-
-      await clock.tickAsync(FIRST_MS - 1);
-      expect(removals().length, 'nothing before the first wait').to.equal(1);
-      await clock.tickAsync(1);
-      expect(removals().length, 'asked again after the first wait').to.equal(2);
-      await clock.tickAsync(MAX_MS - 1);
-      expect(removals().length, 'the wait doubles').to.equal(2);
-      await clock.tickAsync(1);
-      expect(removals().length).to.equal(3);
-      await clock.tickAsync(MAX_MS);
-      expect(removals().length, 'removed on the fourth ask, the wait capped').to.equal(4);
-      expect(upnpService.pendingRemovals.size).to.equal(0);
-
-      await clock.tickAsync(MAX_MS * 2);
-      expect(removals().length, 'nothing once removed').to.equal(4);
-    });
-
-    it('should never give up, and wait no longer than the cap between asks', async () => {
-      await mapTcpOnly(123, 'Flux_Test_App');
-      removeMappingStub.rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_Test_App');
-
-      // 30s, then 1m each
-      await clock.tickAsync(FIRST_MS);
-      expect(removals().length).to.equal(2);
-      await clock.tickAsync(MAX_MS - 1);
-      expect(removals().length).to.equal(2);
-      await clock.tickAsync(1);
-      expect(removals().length).to.equal(3);
-      await clock.tickAsync(MAX_MS * 10);
-      expect(removals().length, 'still asking').to.equal(13);
-      expect(upnpService.pendingRemovals.has('123/TCP')).to.equal(true);
-    });
-
-    it('should take a router that holds no such entry as removed', async () => {
-      await mapTcpOnly(123, 'Flux_Test_App');
-      removeMappingStub.onCall(0).rejects(refused());
-      removeMappingStub.onCall(1).rejects(new natUpnp.UpnpError(714, 'NoSuchEntryInArray', 'DeletePortMapping'));
-      await upnpService.removeMapUpnpPort(123, 'Flux_Test_App');
-
-      await clock.tickAsync(FIRST_MS);
-      expect(upnpService.pendingRemovals.size).to.equal(0);
-      await clock.tickAsync(MAX_MS);
-      expect(removals().length).to.equal(2);
-    });
-
-    it('should drop a pending removal of a port this node maps again', async () => {
-      await mapTcpOnly(123, 'Flux_Test_App');
-      removeMappingStub.onCall(0).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_Test_App');
-
-      await upnpService.mapUpnpPort(123, 'Flux_App_web');
-      await clock.tickAsync(MAX_MS);
-
-      expect(removals()).to.deep.equal(['123/TCP']);
-      expect(upnpService.pendingRemovals.size).to.equal(0);
-    });
-
-    it('should ask for pending removals one at a time', async () => {
-      await mapTcpOnly(123, 'Flux_Test_App');
-      await mapTcpOnly(124, 'Flux_Test_App');
-      removeMappingStub.onCall(0).rejects(refused());
-      removeMappingStub.onCall(1).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_Test_App');
-      await upnpService.removeMapUpnpPort(124, 'Flux_Test_App');
-      let inFlight = 0;
-      let most = 0;
-      removeMappingStub.callsFake(async () => {
-        inFlight += 1;
-        most = Math.max(most, inFlight);
-        await new Promise((resolve) => { setTimeout(resolve, 1000); });
-        inFlight -= 1;
-      });
-
-      await clock.tickAsync(FIRST_MS + 5000);
-
-      expect(removals().slice(2).sort()).to.deep.equal(['123/TCP', '124/TCP']);
-      expect(most, 'never two at once').to.equal(1);
-    });
-
-    it('should keep asking for both protocols of a port when the router refuses to remove either', async () => {
-      await upnpService.mapUpnpPort(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
-      removeMappingStub.onCall(1).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-
-      expect([...upnpService.pendingRemovals.keys()].sort()).to.deep.equal(['123/TCP', '123/UDP']);
-      await clock.tickAsync(FIRST_MS);
-      expect(removals().slice(2).sort()).to.deep.equal(['123/TCP', '123/UDP']);
-      expect(upnpService.pendingRemovals.size).to.equal(0);
-    });
-
-    it('should keep a pending removal when the port is removed again with nothing mapped since', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-
-      expect(await upnpService.removeMapUpnpPort(123, 'Flux_App_web')).to.equal(true);
-      await clock.tickAsync(FIRST_MS);
-
-      expect(removals()).to.deep.equal(['123/TCP', '123/TCP']);
-      expect(upnpService.pendingRemovals.size).to.equal(0);
-    });
-
-    it('should say a removal is pending until the router has removed it, whatever the mapping', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      expect(upnpService.removalPending()).to.equal(true);
-
-      await clock.tickAsync(FIRST_MS);
-      expect(upnpService.removalPending(), 'removed on the next ask').to.equal(false);
-    });
-
-    it('should say pending when the first removal is refused, and clear when the last goes', async () => {
-      const events = [];
-      const onPending = () => events.push('pending');
-      const onClear = () => events.push('clear');
-      upnpService.routerEvents.on('removalPending', onPending);
-      upnpService.routerEvents.on('removalsClear', onClear);
-      try {
-        await mapTcpOnly(123, 'Flux_App_web');
-        await mapTcpOnly(124, 'Flux_Test_App');
-        removeMappingStub.onCall(0).rejects(refused());
-        removeMappingStub.onCall(1).rejects(refused());
-        removeMappingStub.onCall(2).rejects(refused());
-        await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-        await upnpService.removeMapUpnpPort(124, 'Flux_Test_App');
-        expect(events, 'once, for the first').to.deep.equal(['pending']);
-
-        await clock.tickAsync(FIRST_MS);
-        expect(events, 'one still pending').to.deep.equal(['pending']);
-        await clock.tickAsync(MAX_MS);
-        expect(events).to.deep.equal(['pending', 'clear']);
-      } finally {
-        upnpService.routerEvents.off('removalPending', onPending);
-        upnpService.routerEvents.off('removalsClear', onClear);
-      }
-    });
-
-    it('should clear when the port of the last pending removal is mapped again', async () => {
-      const onClear = sinon.spy();
-      upnpService.routerEvents.on('removalsClear', onClear);
-      try {
-        await mapTcpOnly(123, 'Flux_App_web');
-        removeMappingStub.onCall(0).rejects(refused());
-        await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-
-        await upnpService.mapUpnpPort(123, 'Flux_App_web');
-
-        sinon.assert.calledOnce(onClear);
-        expect(upnpService.removalPending()).to.equal(false);
-      } finally {
-        upnpService.routerEvents.off('removalsClear', onClear);
-      }
-    });
-  
-    it('should look the entry up before each ask, and remove it only while it is this node\'s', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      expect(lookups(), 'the first removal asks nothing first').to.deep.equal([]);
-
-      await clock.tickAsync(FIRST_MS);
-
-      expect(lookups()).to.deep.equal(['123/TCP']);
-      expect(removals()).to.deep.equal(['123/TCP', '123/TCP']);
-      expect(upnpService.pendingRemovals.size).to.equal(0);
-    });
-
-    it('should end a removal with nothing sent when the router no longer holds the entry, whatever it answers to a removal', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      getMappingStub.resolves(null);
-
-      await clock.tickAsync(FIRST_MS);
-
-      expect(removals(), 'no removal after the lookup').to.deep.equal(['123/TCP']);
-      expect(upnpService.removalPending()).to.equal(false);
-      await clock.tickAsync(MAX_MS * 5);
-      expect(lookups(), 'asked nothing more').to.have.length(1);
-    });
-
-    it('should end a removal with nothing sent when the router holds the port for something else', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      getMappingStub.callsFake(async ({ public: port, protocol }) => entry(port, protocol, { private: { host: '192.168.1.11', port }, local: false }));
-
-      await clock.tickAsync(FIRST_MS);
-
-      expect(removals()).to.deep.equal(['123/TCP']);
-      expect(upnpService.removalPending()).to.equal(false);
-    });
-
-    it('should send the removal when the router answers the lookup with a fault, and keep it pending while the removal is refused', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      getMappingStub.rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'GetSpecificPortMappingEntry'));
-
-      await clock.tickAsync(FIRST_MS);
-
-      expect(removals(), 'a lookup it did not settle leaves the mapping counted as this node\'s').to.deep.equal(['123/TCP', '123/TCP']);
-      expect(upnpService.removalPending()).to.equal(true);
-
-      removeMappingStub.resolves();
-      await clock.tickAsync(MAX_MS);
-      expect(removals()).to.have.length(3);
-      expect(upnpService.removalPending(), 'ended once the router removed it').to.equal(false);
-    });
-
-    it('should end a removal whose lookup the router answers with a fault once it answers the removal with no such entry', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
-      removeMappingStub.onCall(1).rejects(new natUpnp.UpnpError(714, 'NoSuchEntryInArray', 'DeletePortMapping'));
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      getMappingStub.rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'GetSpecificPortMappingEntry'));
-
-      await clock.tickAsync(FIRST_MS);
-
-      expect(removals()).to.deep.equal(['123/TCP', '123/TCP']);
-      expect(upnpService.removalPending()).to.equal(false);
-    });
-
-    it('should send the removal while the router does not answer the lookup, and keep it pending while the removal is refused', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      getMappingStub.rejects(new Error('timeout of 10000ms exceeded'));
-
-      await clock.tickAsync(FIRST_MS);
-      expect(removals()).to.deep.equal(['123/TCP', '123/TCP']);
-      expect(upnpService.removalPending()).to.equal(true);
-
-      removeMappingStub.resolves();
-      await clock.tickAsync(MAX_MS);
-      expect(upnpService.removalPending(), 'ended once the router removed it').to.equal(false);
-    });
-  });
-
   describe('msUntilCleanupSlot tests', () => {
     const at = (cycleOffsetMs) => 1_800_000_000_000 - (1_800_000_000_000 % (10 * 60 * 1000)) + cycleOffsetMs;
 
@@ -1477,6 +938,274 @@ describe('upnpService tests', () => {
       expect(upnpService.msUntilCleanupSlot(16127, at(0))).to.equal(150 * 1000);
       expect(upnpService.msUntilCleanupSlot(16127, at(150 * 1000))).to.equal(0);
       expect(upnpService.msUntilCleanupSlot(16127, at(151 * 1000))).to.equal(599 * 1000);
+    });
+  });
+
+  describe('msUntilRefreshSlot tests', () => {
+    const CYCLE_MS = 10 * 60 * 1000;
+    const at = (cycleOffsetMs, cycleMs = CYCLE_MS) => 1_800_000_000_000 - (1_800_000_000_000 % cycleMs) + cycleOffsetMs;
+    const STANDARD_PORTS = [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197];
+
+    it('should give each standard api port a slot of its own', () => {
+      const slots = STANDARD_PORTS.map((apiport) => upnpService.msUntilRefreshSlot(apiport, CYCLE_MS, at(0)));
+
+      expect(new Set(slots).size).to.equal(8);
+      slots.forEach((ms) => expect(ms % upnpService.CLEANUP_SLOT_MS).to.equal(0));
+    });
+
+    it('should hold a slot half a cycle from the node\'s cleanup slot', () => {
+      // from the top of a cycle, each wait is where the slot starts in it
+      STANDARD_PORTS.forEach((apiport) => {
+        const cleanupStart = upnpService.msUntilCleanupSlot(apiport, at(0));
+        const refreshStart = upnpService.msUntilRefreshSlot(apiport, CYCLE_MS, at(0));
+        expect((refreshStart - cleanupStart + CYCLE_MS) % CYCLE_MS, `api port ${apiport}`).to.equal(CYCLE_MS / 2);
+      });
+    });
+
+    it('should wait for the next start of the node\'s slot, never a slot already under way', () => {
+      // 16127 cleans in the third slot (150 s) and refreshes in the seventh, 450 s into each cycle
+      expect(upnpService.msUntilRefreshSlot(16127, CYCLE_MS, at(0))).to.equal(450 * 1000);
+      expect(upnpService.msUntilRefreshSlot(16127, CYCLE_MS, at(450 * 1000))).to.equal(0);
+      expect(upnpService.msUntilRefreshSlot(16127, CYCLE_MS, at(451 * 1000))).to.equal(599 * 1000);
+    });
+
+    it('should lay its eight slots across whatever cycle it is given', () => {
+      // the harness's 30 s cycle: slots of 3.75 s, 16127 in the seventh
+      expect(upnpService.msUntilRefreshSlot(16127, 30_000, at(0, 30_000))).to.equal(22_500);
+      expect(upnpService.msUntilRefreshSlot(16127, 30_000, at(22_501, 30_000))).to.equal(29_999);
+    });
+  });
+
+  // Whether adding a held mapping again restarts its lease, learned from a
+  // mapping that outlives its first lease only if it does.
+  describe('learnLeaseRenewal tests', () => {
+    const APIPORT = 16127;
+    const TEST_PORT = APIPORT + 3;
+    let createMappingStub;
+    let getMappingStub;
+    let removeMappingStub;
+    let clock;
+    const held = (ttl) => ({
+      public: { host: '', port: TEST_PORT },
+      private: { host: '192.168.1.10', port: TEST_PORT },
+      protocol: 'tcp',
+      enabled: true,
+      description: 'Flux_UPNP_Mapping_Test',
+      ttl,
+      local: true,
+    });
+    // runs the test to its end on the fake clock: 70 s, and the removal's pause
+    const run = async () => {
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(75_000);
+      return promise;
+    };
+
+    beforeEach(() => {
+      portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
+      portReconciler.mappedProtocols.clear();
+      upnpService.routerLeases.kept = true;
+      upnpService.routerLeases.renews = null;
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'error');
+      createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+      getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(held(58));
+      removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      clock = sinon.useFakeTimers();
+    });
+
+    afterEach(() => {
+      portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
+      portReconciler.pendingRemovals.clear();
+      clock.restore();
+      sinon.restore();
+    });
+
+    it('should map the test port with a 60 s lease, add it again at 30 s, and look it up at 70 s', async () => {
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(0);
+      sinon.assert.calledOnceWithExactly(createMappingStub, {
+        public: TEST_PORT, private: TEST_PORT, ttl: 60, protocol: 'TCP', description: 'Flux_UPNP_Mapping_Test',
+        signal: sinon.match.instanceOf(AbortSignal),
+      });
+      await clock.tickAsync(29_999);
+      sinon.assert.calledOnce(createMappingStub);
+      await clock.tickAsync(1);
+      sinon.assert.calledTwice(createMappingStub);
+      expect(createMappingStub.secondCall.args).to.deep.equal(createMappingStub.firstCall.args);
+      await clock.tickAsync(39_999);
+      sinon.assert.notCalled(getMappingStub);
+      await clock.tickAsync(1);
+      sinon.assert.calledOnceWithExactly(getMappingStub, { public: TEST_PORT, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      await clock.tickAsync(5_000);
+      expect(await promise).to.equal(true);
+    });
+
+    it('should know the router renews when the mapping is still this node\'s, with a lease no longer than asked', async () => {
+      expect(await run()).to.equal(true);
+      expect(upnpService.routerLeases.renews).to.equal(true);
+    });
+
+    it('should know the router renews when it shows the asked lease without counting down', async () => {
+      getMappingStub.resolves(held(60));
+
+      expect(await run()).to.equal(true);
+    });
+
+    [
+      ['the mapping is gone', () => null],
+      ['the mapping is another machine\'s', () => ({ ...held(58), private: { host: '192.168.1.20', port: TEST_PORT }, local: false })],
+      ['the mapping is disabled', () => ({ ...held(58), enabled: false })],
+      ['it shows the mapping as permanent', () => held(0)],
+      ['it shows a lease longer than asked, a minimum it enforces', () => held(840)],
+    ].forEach(([what, answer]) => {
+      it(`should know the router does not renew when ${what}`, async () => {
+        getMappingStub.resolves(answer());
+
+        expect(await run()).to.equal(false);
+        expect(upnpService.routerLeases.renews).to.equal(false);
+      });
+    });
+
+    it('should know the router does not renew when it does not answer the lookup', async () => {
+      getMappingStub.rejects(new Error('timeout of 10000ms exceeded'));
+
+      expect(await run()).to.equal(false);
+    });
+
+    it('should know the router does not renew when it refuses the refresh', async () => {
+      createMappingStub.onSecondCall().rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'AddPortMapping'));
+
+      expect(await run()).to.equal(false);
+      sinon.assert.notCalled(getMappingStub);
+    });
+
+    // a request the router answers `ms` from now
+    const answeredIn = (ms, answer) => () => new Promise((resolve) => { setTimeout(() => resolve(answer), ms); });
+
+    it('should run the test again when the router answers its lookup after the renewed lease could have ended', async () => {
+      // sent at 70 s, answered at 90 s: the add sent at 30 s leased the mapping to 90 s at the earliest
+      getMappingStub.onFirstCall().callsFake(answeredIn(20_000, null));
+      getMappingStub.onSecondCall().resolves(held(58));
+
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(90_000);
+      sinon.assert.calledThrice(createMappingStub);
+      expect(upnpService.routerLeases.renews).to.equal(null);
+      await clock.tickAsync(75_000);
+
+      expect(await promise).to.equal(true);
+      sinon.assert.callCount(createMappingStub, 4);
+      sinon.assert.calledTwice(getMappingStub);
+    });
+
+    it('should know the router does not renew when it answers its lookup, finding nothing, before the renewed lease could have ended', async () => {
+      getMappingStub.callsFake(answeredIn(19_999, null));
+
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(95_000);
+
+      expect(await promise).to.equal(false);
+      sinon.assert.calledTwice(createMappingStub);
+    });
+
+    it('should run the test again, looking nothing up, when the router answers the second add after the first lease could have ended', async () => {
+      // sent at 30 s, answered at 60 s: a router that does not renew could have let the first lease end and taken it as a new mapping
+      createMappingStub.onSecondCall().callsFake(answeredIn(30_000));
+
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(60_000);
+      sinon.assert.notCalled(getMappingStub);
+      await clock.tickAsync(75_000);
+
+      expect(await promise).to.equal(true);
+      sinon.assert.callCount(createMappingStub, 4);
+      sinon.assert.calledOnce(getMappingStub);
+    });
+
+    it('should know the router does not renew, and log the node as stalling, when three runs are each answered too late', async () => {
+      // each run: adds at 0 s and 30 s, an empty lookup sent at 70 s answered at 90 s
+      getMappingStub.callsFake(answeredIn(20_000, null));
+
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(3 * 90_000 + 5_000);
+
+      sinon.assert.callCount(createMappingStub, 6);
+      sinon.assert.calledThrice(getMappingStub);
+      expect(await promise).to.equal(false);
+      expect(upnpService.routerLeases.renews).to.equal(false);
+      sinon.assert.calledWithMatch(log.error, /too late to show whether it renews: this node stalls/);
+    });
+
+    it('should ask the router nothing more once a later verification takes the port over, and leave the port to it', async () => {
+      const later = {};
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(0);
+      sinon.assert.calledOnce(createMappingStub);
+      const takingOver = portReconciler.want(TEST_PORT, 'Flux_UPNP_Mapping_Test', { protocols: ['TCP'], holder: later });
+      await clock.tickAsync(1_000);
+      await takingOver;
+      upnpService.routerLeases.generation += 1;
+      createMappingStub.resetHistory();
+      getMappingStub.resetHistory();
+      removeMappingStub.resetHistory();
+
+      await clock.tickAsync(75_000);
+      await promise;
+
+      sinon.assert.notCalled(createMappingStub);
+      sinon.assert.notCalled(getMappingStub);
+      sinon.assert.notCalled(removeMappingStub);
+      expect(portReconciler.holds(TEST_PORT, later)).to.equal(true);
+    });
+
+    it('should remove its mapping when it ends, whatever it found', async () => {
+      getMappingStub.resolves(null);
+
+      await run();
+
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: TEST_PORT, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      expect(portReconciler.wanted.has(TEST_PORT)).to.equal(false);
+    });
+
+    it('should hold the test port as in use while it runs', async () => {
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(40_000);
+      expect(portReconciler.wanted.has(TEST_PORT)).to.equal(true);
+      await clock.tickAsync(35_000);
+      await promise;
+      expect(portReconciler.wanted.has(TEST_PORT)).to.equal(false);
+    });
+
+    it('should remove nothing, and release the port, when the router refuses the first mapping', async () => {
+      createMappingStub.rejects(new natUpnp.UpnpError(718, 'ConflictInMappingEntry', 'AddPortMapping'));
+
+      expect(await run()).to.equal(false);
+      sinon.assert.calledOnce(createMappingStub);
+      sinon.assert.notCalled(removeMappingStub);
+      expect(portReconciler.wanted.has(TEST_PORT)).to.equal(false);
+    });
+
+    [null, false].forEach((kept) => {
+      it(`should map nothing, and know long-lived mappings are permanent, on a router ${kept === null ? 'not known to keep' : 'known to drop'} a lease`, async () => {
+        upnpService.routerLeases.kept = kept;
+
+        expect(await run()).to.equal(false);
+        expect(upnpService.routerLeases.renews).to.equal(false);
+        sinon.assert.notCalled(createMappingStub);
+      });
+    });
+
+    it('should not record an answer that arrives after UPnP was verified again', async () => {
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(40_000);
+      upnpService.routerLeases.generation += 1;
+      upnpService.routerLeases.renews = null;
+      await clock.tickAsync(35_000);
+      await promise;
+
+      expect(upnpService.routerLeases.renews).to.equal(null);
     });
   });
 
@@ -1508,7 +1237,8 @@ describe('upnpService tests', () => {
     const routerHas = (mappings) => { table = mappings; };
 
     beforeEach(() => {
-      upnpService.mappedHere.clear();
+      portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       clock = sinon.useFakeTimers();
       // the fake clock does not drive AbortSignal.timeout's own timer
       sinon.stub(AbortSignal, 'timeout').callsFake((ms) => {
@@ -1518,8 +1248,7 @@ describe('upnpService tests', () => {
       });
       sinon.stub(serviceHelper, 'delay').resolves();
       table = [];
-      getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings')
-        .callsFake(async (options) => table.filter((m) => !options.local || m.local === true));
+      getMappingsStub = stubTable().callsFake(async () => table);
       removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
     });
 
@@ -1533,7 +1262,7 @@ describe('upnpService tests', () => {
 
       const removed = await upnpService.removeStaleMappings(async () => [16127], BUDGET_MS);
 
-      sinon.assert.calledOnceWithExactly(getMappingsStub, { local: true, signal: sinon.match.instanceOf(AbortSignal) });
+      sinon.assert.calledWith(natUpnp.Client.prototype.getMappingAt, { index: 0, signal: sinon.match.instanceOf(AbortSignal) });
       expect(removed).to.equal(1);
       sinon.assert.calledOnceWithExactly(removeMappingStub, { public: { host: '', port: 31000 }, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
     });
@@ -1562,7 +1291,8 @@ describe('upnpService tests', () => {
 
       expect(removed).to.equal(1);
       const timeouts = AbortSignal.timeout.getCalls().map((call) => call.args[0]);
-      expect(timeouts).to.have.length(2);
+      // one for each entry read, one for the removal
+      expect(timeouts).to.have.length(getMappingsStub.callCount + 1);
       timeouts.forEach((ms) => expect(Number.isInteger(ms), `${ms} ms`).to.equal(true));
     });
 
@@ -1660,7 +1390,9 @@ describe('upnpService tests', () => {
 
       await upnpService.removeStaleMappings(held, BUDGET_MS);
 
-      expect(listingsBeforeHeld).to.equal(1);
+      // every entry read before, none after
+      expect(listingsBeforeHeld).to.be.above(0);
+      expect(listingsBeforeHeld).to.equal(getMappingsStub.callCount);
     });
 
     it('should remove nothing when what is held cannot be read', async () => {
@@ -1673,9 +1405,9 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(removeMappingStub);
     });
 
-    it('should not remove a port mapUpnpPort has mapped and nobody has unmapped', async () => {
+    it('should not remove a port wanted and not released since', async () => {
       sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
-      await upnpService.mapUpnpPort(31000, 'Flux_Test_App');
+      await portReconciler.want(31000, 'Flux_Test_App');
       routerHas([mapping(31000, 'Flux_Test_App')]);
 
       const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
@@ -1684,33 +1416,62 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(removeMappingStub);
     });
 
-    it('should hold a port from the moment mapUpnpPort starts mapping it, before the router has answered', async () => {
-      sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(new Promise(() => {}));
-      upnpService.mapUpnpPort(31000, 'Flux_Test_App');
+    it('should not remove a port wanted while its map is still waiting for the router', async () => {
+      let answer;
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').callsFake(() => new Promise((resolve) => { answer = resolve; }));
+      const wanting = portReconciler.want(31000, 'Flux_Test_App', { protocols: ['TCP'] });
       routerHas([mapping(31000, 'Flux_Test_App')]);
 
-      const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+      const cleanup = upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+      await clock.tickAsync(0);
+      answer();
+      await wanting;
 
-      expect(removed).to.equal(0);
+      expect(await cleanup).to.equal(0);
       sinon.assert.notCalled(removeMappingStub);
     });
 
-    it('should not remove a port mapUpnpPort maps while the pass is still at the ones before it', async () => {
+    it('should not remove a port wanted while the pass is still at the ones before it', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
       routerHas([mapping(31000, 'Flux_App_a'), mapping(31001, 'Flux_Test_App')]);
-      removeMappingStub.onFirstCall().callsFake(async () => { upnpService.mappedHere.add(31001); });
+      let wanting;
+      removeMappingStub.onFirstCall().callsFake(async () => { wanting = portReconciler.want(31001, 'Flux_Test_App', { protocols: ['TCP'] }); });
 
       const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+      await wanting;
 
       expect(removed).to.equal(1);
       sinon.assert.calledOnce(removeMappingStub);
     });
 
-    it('should remove a port mapUpnpPort mapped once removeMapUpnpPort has given it up, even if the router refused', async () => {
+    it('should map a port an install wants while the pass is removing its stale mapping, once the removal is answered', async () => {
+      const answered = [];
+      let answerRemoval;
+      removeMappingStub.callsFake(async ({ public: { port }, protocol }) => {
+        await new Promise((resolve) => { answerRemoval = resolve; });
+        answered.push(`remove ${port}/${protocol}`);
+      });
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').callsFake(async ({ public: port, protocol }) => { answered.push(`map ${port}/${protocol}`); });
+      routerHas([mapping(31002, 'Flux_App_gone')]);
+
+      const cleanup = upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+      await clock.tickAsync(0);
+      sinon.assert.calledOnce(removeMappingStub);
+      const installing = portReconciler.want(31002, 'Flux_App_web');
+      await clock.tickAsync(0);
+      answerRemoval();
+      await installing;
+
+      expect(await cleanup).to.equal(1);
+      expect(answered).to.deep.equal(['remove 31002/TCP', 'map 31002/TCP', 'map 31002/UDP']);
+    });
+
+    it('should remove a port once it is released, even if the router refused its removal', async () => {
       sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
       sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(mapping(31000, 'Flux_App_gone'));
-      await upnpService.mapUpnpPort(31000, 'Flux_App_gone');
+      await portReconciler.want(31000, 'Flux_App_gone');
       removeMappingStub.onFirstCall().rejects(refused());
-      await upnpService.removeMapUpnpPort(31000);
+      await portReconciler.release(31000);
       removeMappingStub.reset();
       removeMappingStub.resolves();
       routerHas([mapping(31000, 'Flux_App_gone')]);
@@ -1722,8 +1483,12 @@ describe('upnpService tests', () => {
     });
 
     it('should give the listing its 60s of the 75s slot, and remove nothing when it does not finish', async () => {
-      routerHas([mapping(31000, 'Flux_App_a')]);
-      getMappingsStub.callsFake(unanswered);
+      routerHas(Array.from({ length: 200 }, (_, i) => mapping(31000 + i, 'Flux_App_a')));
+      // every entry answered 9 s after it is asked, inside the client's 10 s for a request
+      getMappingsStub.callsFake(({ signal }) => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve(table), 9_000);
+        signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+      }));
 
       let error;
       const passing = upnpService.removeStaleMappings(async () => [], BUDGET_MS).catch((err) => { error = err; });
@@ -1767,6 +1532,133 @@ describe('upnpService tests', () => {
 
       sinon.assert.calledTwice(removeMappingStub);
       expect(removed).to.equal(2);
+    });
+
+    describe('from the record of this node\'s mappings', () => {
+      const recorded = (port, description, protocol = 'TCP') => ({ port, protocol, description, at: new Date(0) });
+
+      it('removes each recorded mapping nothing holds, by its port, and lists nothing once the record is complete', async () => {
+        upnpMappingRecord.all.resolves([recorded(31000, 'Flux_App_gone', 'UDP'), recorded(16127, 'Flux_Backend_API')]);
+        upnpMappingRecord.complete.resolves(true);
+
+        const removed = await upnpService.removeStaleMappings(async () => [16127], BUDGET_MS);
+
+        expect(removed).to.equal(1);
+        sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 31000, protocol: 'UDP', signal: sinon.match.instanceOf(AbortSignal) });
+        sinon.assert.notCalled(natUpnp.Client.prototype.getMappingAt);
+      });
+
+      it('leaves the operator\'s own recorded mappings, and ArcaneOS\'s maintenance ssh mapping, as the listing does', async () => {
+        fluxadmPortStub.isArcane = true;
+        upnpMappingRecord.all.resolves([recorded(31001, 'Flux_manual_entry'), recorded(16100, 'Flux_Fluxadm_SSH'), recorded(31000, 'Flux_App_gone')]);
+        upnpMappingRecord.complete.resolves(true);
+
+        const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+        expect(removed).to.equal(1);
+        sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 31000, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+      });
+
+      it('leaves a recorded port wanted here when its turn comes', async () => {
+        upnpMappingRecord.all.resolves([recorded(31000, 'Flux_App_web')]);
+        upnpMappingRecord.complete.resolves(true);
+        portReconciler.wanted.set(31000, { description: 'Flux_App_web', holder: null });
+
+        const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+        expect(removed).to.equal(0);
+        sinon.assert.notCalled(removeMappingStub);
+      });
+
+      it('goes on past a recorded mapping the router will not remove', async () => {
+        upnpMappingRecord.all.resolves([recorded(31000, 'Flux_App_a'), recorded(31001, 'Flux_App_b')]);
+        upnpMappingRecord.complete.resolves(true);
+        removeMappingStub.onFirstCall().rejects(refused());
+        sinon.stub(log, 'warn');
+
+        const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+        expect(removed).to.equal(1);
+        expect(removeMappingStub.getCalls().map((call) => call.args[0].public)).to.deep.equal([31000, 31001]);
+      });
+
+      it('lists the table as well until the record is complete, and then completes it', async () => {
+        upnpMappingRecord.all.resolves([recorded(31000, 'Flux_App_a')]);
+        routerHas([mapping(31001, 'Flux_App_made_before_the_record')]);
+
+        const removed = await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+        expect(removed).to.equal(2);
+        expect(removeMappingStub.getCalls().map((call) => call.args[0].public.port ?? call.args[0].public)).to.deep.equal([31000, 31001]);
+        sinon.assert.calledOnce(upnpMappingRecord.markComplete);
+      });
+
+      it('does not complete the record when the listing\'s pass stops before its end', async () => {
+        routerHas([mapping(31000, 'Flux_App_a'), mapping(31001, 'Flux_App_b')]);
+        removeMappingStub.onFirstCall().rejects(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
+        sinon.stub(log, 'warn');
+
+        await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+        sinon.assert.notCalled(upnpMappingRecord.markComplete);
+      });
+    });
+
+    describe('the listing', () => {
+      // the indexes the listing asked the router for, in order
+      const indexesAsked = () => natUpnp.Client.prototype.getMappingAt.getCalls().map((call) => call.args[0].index);
+
+      it('finds the table\'s end, then reads it from the last entry down to the first', async () => {
+        routerHas([31000, 31001, 31002, 31003].map((port) => mapping(port, 'Flux_App_gone')));
+
+        await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+        expect(indexesAsked().slice(-4)).to.deep.equal([3, 2, 1, 0]);
+        expect(removeMappingStub.getCalls().map((call) => call.args[0].public.port)).to.deep.equal([31000, 31001, 31002, 31003]);
+      });
+
+      it('misses no entry when another machine removes one while it reads', async () => {
+        routerHas([mapping(16999, 'theirs', { local: false }), ...[31000, 31001, 31002, 31003].map((port) => mapping(port, 'Flux_App_gone'))]);
+        let reads = 0;
+        getMappingsStub.callsFake(async () => {
+          reads += 1;
+          // the end found and the last entry read, another machine's goes from the
+          // front: every entry after it moves down one, and the one read last is read again
+          if (reads === 8) table = table.slice(1);
+          return table;
+        });
+
+        await upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+
+        expect(removeMappingStub.getCalls().map((call) => call.args[0].public.port)).to.deep.equal([31000, 31001, 31002, 31003]);
+      });
+
+      it('lets a request waiting for the router run between two of its entries', async () => {
+        routerHas([31000, 31001, 31002].map((port) => mapping(port, 'Flux_App_gone')));
+        const order = [];
+        let release;
+        let started;
+        const gate = new Promise((resolve) => { release = resolve; });
+        const firstRead = new Promise((resolve) => { started = resolve; });
+        let reads = 0;
+        getMappingsStub.callsFake(async (options) => {
+          reads += 1;
+          order.push(`read ${options.index}`);
+          if (reads === 1) {
+            started();
+            await gate;
+          }
+          return table;
+        });
+
+        const passing = upnpService.removeStaleMappings(async () => [], BUDGET_MS);
+        await firstRead;
+        const waiting = portReconciler.onRouter(() => { order.push('waiting request'); });
+        release();
+        await Promise.all([passing, waiting]);
+
+        expect(order.indexOf('waiting request')).to.equal(1);
+      });
     });
   });
 
@@ -1867,6 +1759,7 @@ describe('upnpService tests', () => {
         ttl: 0,
         protocol: 'TCP',
         description: 'Flux_manual_entry',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 1234,
@@ -1874,6 +1767,7 @@ describe('upnpService tests', () => {
         ttl: 0,
         protocol: 'UDP',
         description: 'Flux_manual_entry',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -1900,6 +1794,7 @@ describe('upnpService tests', () => {
         ttl: 0,
         protocol: 'TCP',
         description: 'Flux_manual_entry',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(createMappingSpy, {
         public: 1234,
@@ -1907,6 +1802,7 @@ describe('upnpService tests', () => {
         ttl: 0,
         protocol: 'UDP',
         description: 'Flux_manual_entry',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -2009,10 +1905,12 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(removeMappingSpy, {
         public: 1234,
         protocol: 'UDP',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(removeMappingSpy, {
         public: 1234,
         protocol: 'TCP',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -2037,10 +1935,12 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(removeMappingSpy, {
         public: 1234,
         protocol: 'TCP',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledWithExactly(removeMappingSpy, {
         public: 1234,
         protocol: 'UDP',
+        signal: sinon.match.instanceOf(AbortSignal),
       });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -2055,7 +1955,7 @@ describe('upnpService tests', () => {
 
     beforeEach(async () => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      getMappingsSpy = sinon.stub(natUpnp.Client.prototype, 'getMappings');
+      getMappingsSpy = stubTable();
     });
 
     afterEach(() => {
@@ -2078,7 +1978,7 @@ describe('upnpService tests', () => {
       });
     });
 
-    it('should create error message if getMappings throws', async () => {
+    it('should create error message if reading the table throws', async () => {
       getMappingsSpy.throws();
       verifyPrivilegeStub.resolves(true);
       const req = {
@@ -2099,10 +1999,9 @@ describe('upnpService tests', () => {
       });
     });
 
-    it('should show a proper message if all data is valid', async () => {
-      getMappingsSpy.resolves({
-        data: 'data1',
-      });
+    it('should show the router\'s whole table, in table order', async () => {
+      const entry = (port) => ({ public: { host: '', port }, private: { host: '192.168.1.10', port }, protocol: 'tcp', description: 'Flux_App_web', local: true });
+      getMappingsSpy.resolves([entry(31000), entry(31001), entry(31002)]);
       verifyPrivilegeStub.resolves(true);
       const req = {
         params: {
@@ -2116,8 +2015,9 @@ describe('upnpService tests', () => {
 
       await upnpService.getMapApi(req, res);
 
-      sinon.assert.calledOnce(getMappingsSpy);
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { data: 'data1' } });
+      const listed = res.json.firstCall.args[0];
+      expect(listed.status).to.equal('success');
+      expect(listed.data.map((m) => m.public.port)).to.deep.equal([31000, 31001, 31002]);
     });
   });
 

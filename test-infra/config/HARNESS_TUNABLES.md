@@ -122,6 +122,9 @@ loses the property, so the factor is pinned by a unit test.
 | `syncthing.stallNudgeMaxIntervalMs` | 900000 | 12000 | 75.0x |
 | `syncthing.stallRemoveMinNudges` | 3 | 2 | 1.5x |
 | `syncthing.stallRemoveMinWindowMs` | 1200000 | 30000 | 40.0x |
+| `upnp.cleanupCycleMs` | 600000 | 60000 | 10.0x |
+| `upnp.removalRetryFirstMs` | 30000 | 2000 | 15.0x |
+| `upnp.removalRetryMaxMs` | 60000 | 8000 | 7.5x |
 | `system.bootDaemonTimeoutMs` | 300000 | 30000 | 10.0x |
 | `system.bootSyncTimeoutMs` | 300000 | 30000 | 10.0x |
 | `system.heartbeatIntervalMs` | 30000 | 10000 | 3.0x |

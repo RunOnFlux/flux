@@ -771,9 +771,13 @@ describe('apiServer initiate readiness', () => {
   let notifyReady;
   let startFluxFunctions;
   let uncaughtBefore;
+  let userconfigBefore;
 
   beforeEach(() => {
     uncaughtBefore = process.listeners('uncaughtException');
+    // UPnP is set up only for a node whose userconfig names its API port.
+    userconfigBefore = globalThis.userconfig;
+    globalThis.userconfig = { initial: { ...userconfigBefore?.initial, apiport: 16127, routerIP: '' } };
     listen = sinon.stub().resolves();
     sinon.stub(fluxServer, 'FluxServer').callsFake(() => ({ listen, app: {}, socketIo: {} }));
     notifyReady = sinon.stub(systemdNotify, 'notifyReady').resolves(true);
@@ -781,6 +785,7 @@ describe('apiServer initiate readiness', () => {
     sinon.stub(dnsLookup, 'install');
     sinon.stub(upnpService, 'verifyUPNPsupport').resolves(true);
     sinon.stub(upnpService, 'setupUPNP').resolves(true);
+    sinon.stub(upnpService, 'learnLeaseRenewal').resolves(false);
     sinon.stub(configManager, 'startWatching').resolves();
     sinon.stub(fs, 'existsSync').returns(true);
     const readFileSync = fs.readFileSync.bind(fs);
@@ -790,6 +795,7 @@ describe('apiServer initiate readiness', () => {
 
   afterEach(() => {
     sinon.restore();
+    globalThis.userconfig = userconfigBefore;
     process.listeners('uncaughtException')
       .filter((listener) => !uncaughtBefore.includes(listener))
       .forEach((listener) => process.removeListener('uncaughtException', listener));
@@ -801,6 +807,29 @@ describe('apiServer initiate readiness', () => {
     sinon.assert.calledTwice(listen);
     sinon.assert.calledOnce(notifyReady);
     sinon.assert.callOrder(listen, notifyReady, startFluxFunctions);
+  });
+
+  it('starts learning whether the router renews a lease once the node\'s own ports are mapped, without waiting on it', async () => {
+    upnpService.learnLeaseRenewal.returns(new Promise(() => {}));
+
+    await apiServer.initiate();
+
+    // the suite's config listens on 16127
+    sinon.assert.calledOnceWithExactly(upnpService.learnLeaseRenewal, 16127);
+    sinon.assert.callOrder(upnpService.setupUPNP, upnpService.learnLeaseRenewal, listen);
+    sinon.assert.calledOnce(startFluxFunctions);
+  });
+
+  [['UPnP is not verified', 'verifyUPNPsupport'], ['the node\'s own ports are not mapped', 'setupUPNP']].forEach(([what, step]) => {
+    it(`does not learn whether the router renews a lease when ${what}`, async () => {
+      upnpService[step].resolves(false);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(process, 'exit');
+
+      await apiServer.initiate();
+
+      sinon.assert.notCalled(upnpService.learnLeaseRenewal);
+    });
   });
 
   it('does not hold startup on the readiness report', async () => {

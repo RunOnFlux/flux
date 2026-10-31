@@ -19,7 +19,8 @@ module.exports = {
             "policyDocuments": "policydocuments",
             "ipRanges": "ipranges",
             "nodeLocations": "nodelocations",
-            "ownAddress": "ownaddress"
+            "ownAddress": "ownaddress",
+            "upnpMappings": "upnpmappings"
         }
     },
     "daemon": {

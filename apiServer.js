@@ -142,9 +142,13 @@ async function loadUpnpIfRequired() {
     let setupUpnp = false;
     if (globalThis.userconfig.initial.apiport) {
       verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+      fluxEventBus.publish('upnp:verified', { verified: verifyUpnp });
       if (verifyUpnp) {
         setupUpnp = await upnpService.setupUPNP(apiPort);
       }
+      // Detached: long-lived mappings stay permanent until it answers, and
+      // nothing waits on it.
+      if (setupUpnp) upnpService.learnLeaseRenewal(apiPort);
     }
     if ((globalThis.userconfig.initial.apiport && globalThis.userconfig.initial.apiport !== config.server.apiport) || globalThis.userconfig.initial.routerIP) {
       if (verifyUpnp !== true) {

@@ -83,6 +83,7 @@ module.exports = {
         ipRanges: 'ipranges', // the IP location baseline, one document per allocated range, rebuilt and swapped in whole
         nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
+        upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
       },
     },
     daemon: {
@@ -131,10 +132,36 @@ module.exports = {
   upnp: {
     gatewayUrl: '',
     nodeIp: '',
+    // The stale-mapping cleanup's wall-clock cycle, eight slots long: a node runs
+    // its cleanup once per start, in the slot its api port's tens digit names, and
+    // the slot is the pass's whole budget (upnpService.removeStaleMappings).
+    cleanupCycleMs: 10 * 60 * 1000,
     // a removal of this node's own mapping the router refuses is asked again
     // after this long, the wait doubling up to removalRetryMaxMs
     removalRetryFirstMs: 30 * 1000,
     removalRetryMaxMs: 60 * 1000,
+    // The lease a test mapping is made with on a router that keeps one, so a
+    // mapping the router took after this node stopped waiting for its answer
+    // goes when the lease ends. Longer than a test holds its mapping: two
+    // protocols, each up to three router requests of the client's 10 s
+    // (upnpService.mapProtocol), then the port test's 10 s question to a peer
+    // (availabilityChecker.checkMyAppsAvailability) - under 100 s.
+    testMappingLeaseS: 3 * 60,
+    // The lease long-lived mappings (the node's own ports, each app's) are made
+    // with on a router that renews a lease when the mapping is added again
+    // (upnpService.learnLeaseRenewal), so the mappings of a node that stops go
+    // when it last refreshed them plus this. A refresh
+    // (fluxapps.portRestoreIntervalMs) leaves a mapping made since the last one
+    // (portReconciler.wantedMaps), so a renewed mapping has three refreshes
+    // inside its lease and a new one two.
+    longLivedLeaseS: 35 * 60,
+    // The lease learnLeaseRenewal tests with: renewed halfway through, looked up
+    // 10 s after it would have ended - before the renewed lease ends only while
+    // half of this is longer than those 10 s.
+    renewalTestLeaseS: 60,
+    // How long one turn on the router may run (portReconciler.onRouter): a turn
+    // is a few requests, each answered in milliseconds by nearly every router.
+    turnLimitMs: 60 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',

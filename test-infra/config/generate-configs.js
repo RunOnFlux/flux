@@ -24,6 +24,7 @@ function databaseConfig(prefix) {
         ipRanges: 'ipranges',
         nodeLocations: 'nodelocations',
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
+        upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
       },
     },
     daemon: {
