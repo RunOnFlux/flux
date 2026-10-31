@@ -8,6 +8,7 @@
 // having admitted it, carried as the `origin` of a reply rebuilt from storage.
 
 import { randomBytes } from 'node:crypto';
+import { dbClient } from './db-client.js';
 import { signBtcMessage } from '../auth.js';
 import { getState, advanceBlocks } from './daemon-control.js';
 import { waitForBlockProcessed } from './wait.js';
@@ -96,14 +97,14 @@ export async function admittingSignature(data, key) {
 }
 
 /**
- * What a node holds for a pending message, read past the route's cache, or null.
+ * What a node holds for a pending message, client tag included, or null - read
+ * from its database, since the public route keeps the tag back.
  * @param {object} client
  * @param {string} hash
  * @returns {Promise<object|null>}
  */
 export async function pendingMessageOn(client, hash) {
-  const response = await client.get(`/apps/temporarymessages/${hash}?_=${Date.now()}`);
-  return response.status === 'success' ? (response.data?.[0] ?? null) : null;
+  return dbClient(client.num).pendingMessage(hash);
 }
 
 /**

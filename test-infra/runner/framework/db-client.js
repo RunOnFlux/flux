@@ -113,6 +113,12 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappsinformation').countDocuments({});
     },
 
+    // A pending app message as the node stores it, client tag included, or null.
+    async pendingMessage(hash) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappstemporarymessages').findOne({ hash }, { projection: { _id: 0 } });
+    },
+
     async tempMessageCount() {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappstemporarymessages').countDocuments({});

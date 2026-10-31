@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
@@ -12,12 +13,17 @@ const OTHER_64 = '2001:db8:1:3:aaaa::1';
 
 describe('clientTag tests', () => {
   let executeCall;
+  let nodeAuthEncrypt;
   let clientTag;
+  // What every Arcane node's fluxbench gives for a text, and no other node's.
+  const arcaneEncrypt = async (text) => crypto.createHmac('sha256', 'node-auth').update(text).digest('base64');
 
   beforeEach(() => {
     executeCall = sinon.stub().callsFake(async (rpc, [height]) => ({ status: 'success', data: `blockhash-${height}` }));
+    nodeAuthEncrypt = sinon.stub().callsFake(arcaneEncrypt);
     clientTag = proxyquire('../../ZelBack/src/services/utils/clientTag', {
       '../daemonService/daemonServiceUtils': { executeCall },
+      '../benchmarkService': { nodeAuthEncrypt },
     });
   });
 
@@ -77,27 +83,40 @@ describe('clientTag tests', () => {
     });
   });
 
-  describe('clientTagFor', function clientTagForTests() {
-    // each distinct tag is one real scrypt, about 0.35 s
-    this.timeout(20000);
-
+  describe('clientTagFor', () => {
     const tip = 3081700;
     const from = (remoteAddress, headers = {}) => ({ remoteAddress, headers });
 
-    it('tags a client by scrypt over its address, salted with the block at the tag height', async () => {
+    it('tags a client by an HMAC of its address under the node-auth encryption of the tag height\'s block hash', async () => {
       const { clientTag: tag, clientTagHeight } = await clientTag.clientTagFor(from(CLIENT), tip);
 
       expect(clientTagHeight).to.equal(3081600);
-      expect(tag).to.match(/^[0-9a-f]{64}$/);
       sinon.assert.calledOnceWithExactly(executeCall, 'getBlockHash', [3081600]);
+      sinon.assert.calledOnceWithExactly(nodeAuthEncrypt, 'fluxclienttag|blockhash-3081600');
+      const key = await arcaneEncrypt('fluxclienttag|blockhash-3081600');
+      expect(tag).to.equal(crypto.createHmac('sha256', key).update(CLIENT).digest('hex'));
     });
 
-    it('gives one client the same tag on every request, computing it once', async () => {
+    it('cannot be made without the node-auth encryption: the block hash alone gives another tag', async () => {
+      const { clientTag: tag } = await clientTag.clientTagFor(from(CLIENT), tip);
+
+      expect(tag).to.not.equal(crypto.createHmac('sha256', 'blockhash-3081600').update(CLIENT).digest('hex'));
+    });
+
+    it('gives one client the same tag on every request, asking fluxbench once per height', async () => {
       const first = await clientTag.clientTagFor(from(CLIENT), tip);
       const second = await clientTag.clientTagFor(from(`::ffff:${CLIENT}`), tip + 5);
+      await clientTag.clientTagFor(from(OTHER_CLIENT), tip);
 
       expect(second).to.deep.equal(first);
       sinon.assert.calledOnce(executeCall);
+      sinon.assert.calledOnce(nodeAuthEncrypt);
+    });
+
+    it('asks fluxbench once for concurrent requests at one height', async () => {
+      await Promise.all([CLIENT, OTHER_CLIENT, CLIENT_V6].map((ip) => clientTag.clientTagFor(from(ip), tip)));
+
+      sinon.assert.calledOnce(nodeAuthEncrypt);
     });
 
     it('gives two clients different tags', async () => {
@@ -116,7 +135,7 @@ describe('clientTag tests', () => {
       expect(otherBlock.clientTag).to.not.equal(first.clientTag);
     });
 
-    it('gives the same client a new tag when the salt height moves', async () => {
+    it('gives the same client a new tag when the tag height moves', async () => {
       const first = await clientTag.clientTagFor(from(CLIENT), tip);
       const next = await clientTag.clientTagFor(from(CLIENT), tip + 120);
 
@@ -140,12 +159,23 @@ describe('clientTag tests', () => {
       sinon.assert.notCalled(executeCall);
     });
 
-    it('refuses when the daemon cannot give the salt', async () => {
-      executeCall.resolves({ status: 'error', data: { message: 'no block' } });
+    it('refuses when the daemon cannot give the block hash, and asks again on the next request', async () => {
+      executeCall.onFirstCall().resolves({ status: 'error', data: { message: 'no block' } });
 
       await clientTag.clientTagFor(from(CLIENT), tip).then(
         () => expect.fail('should have refused'),
         (error) => expect(error.message).to.equal('Unable to read the block hash at 3081600'),
+      );
+      const { clientTag: tag } = await clientTag.clientTagFor(from(CLIENT), tip);
+      expect(tag).to.match(/^[0-9a-f]{64}$/);
+    });
+
+    it('refuses when fluxbench will not make the key', async () => {
+      nodeAuthEncrypt.resolves(null);
+
+      await clientTag.clientTagFor(from(CLIENT), tip).then(
+        () => expect.fail('should have refused'),
+        (error) => expect(error.message).to.equal('This node cannot tag clients now. Try another node.'),
       );
     });
   });
