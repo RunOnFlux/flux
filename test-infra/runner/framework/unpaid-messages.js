@@ -108,6 +108,17 @@ export async function pendingMessageOn(client, hash) {
 }
 
 /**
+ * How many pending messages a node holds that match a query on their stored
+ * fields, such as `{ clientTag }` or `{ originKey }`.
+ * @param {object} client
+ * @param {object} query
+ * @returns {Promise<number>}
+ */
+export async function pendingCountOn(client, query) {
+  return dbClient(client.num).pendingMessageCount(query);
+}
+
+/**
  * A node's decision on an unpaid message, from the event it publishes.
  * @param {object} client
  * @param {string} hash

@@ -9,6 +9,11 @@
  * refused for its operator. A message node 2 admitted, relayed by the same stub
  * straight after, is taken: the refusal is the stub's operator's, not the
  * relay's.
+ *
+ * The stub then relays more messages than the allowance at the same moment, each
+ * admitted under node 1's key with a fresh tag. A message being taken counts
+ * against its operator from the moment it passes its check, so the observer takes
+ * exactly the allowance of them.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -17,7 +22,7 @@ import { nodeKey } from '../framework/keys.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import {
-  currentTagHeight, freshClientTag, pendingMessage, admittingSignature, admissionOf, pendingMessageOn,
+  currentTagHeight, freshClientTag, pendingMessage, admittingSignature, admissionOf, pendingMessageOn, pendingCountOn,
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -27,6 +32,8 @@ const STUB = 3;
 const REAL = [0, 1, 2];
 const OBSERVER = 1;
 const OTHER_ADMITTER = 2;
+// Admits only the burst, so its allowance is whole when the burst arrives.
+const BURST_ADMITTER = 0;
 const ORIGIN_KEY_CAP = 3;
 
 describe('an operator naming its own clients is held to the operator allowance', function () {
@@ -105,5 +112,28 @@ describe('an operator naming its own clients is held to the operator allowance',
 
     const decision = await admissionOf(env.clients[OBSERVER], app.hash, mark);
     expect(decision, JSON.stringify(decision)).to.include({ taken: true, originKey: nodeKey(OTHER_ADMITTER + 1).pubkey });
+  });
+
+  it('takes exactly the allowance of an operator\'s messages that arrive at the same moment', async function () {
+    this.timeout(180000);
+    const admitter = nodeKey(BURST_ADMITTER + 1);
+    const tagHeight = await currentTagHeight();
+    const apps = await Promise.all(Array.from({ length: ORIGIN_KEY_CAP + 2 }, () => unpaidApp()));
+    const frames = await Promise.all(apps.map(async (app) => {
+      const admitted = { clientTag: freshClientTag(), clientTagHeight: tagHeight };
+      const origin = await admittingSignature(pendingMessage(app, admitted), admitter);
+      return pendingMessage(app, { ...admitted, origin });
+    }));
+    const mark = env.clients[OBSERVER].getLastEventId();
+
+    await Promise.all(frames.map((frame) => stub.broadcast(frame)));
+
+    const decisions = await Promise.all(apps.map((app) => admissionOf(env.clients[OBSERVER], app.hash, mark)));
+    const taken = decisions.filter((decision) => decision.taken);
+    expect(taken, JSON.stringify(decisions)).to.have.length(ORIGIN_KEY_CAP);
+    decisions.filter((decision) => !decision.taken).forEach((decision) => expect(decision.reason).to.equal(`its admitting operator already has ${ORIGIN_KEY_CAP} unpaid app messages pending`));
+    await waitFor(async () => (await pendingCountOn(env.clients[OBSERVER], { originKey: admitter.pubkey })) === ORIGIN_KEY_CAP, {
+      timeout: 30000, interval: 1000, label: 'the observer holds the allowance of the operator\'s messages',
+    });
   });
 });
