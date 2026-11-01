@@ -149,7 +149,7 @@ module.exports = {
     // mapping the router took after this node stopped waiting for its answer
     // goes when the lease ends. Longer than a test holds its mapping: two
     // protocols, each up to three router requests of the client's 10 s
-    // (upnpService.mapProtocol), then the port test's 10 s question to a peer
+    // (upnpRouter.mapProtocol), then the port test's 10 s question to a peer
     // (availabilityChecker.checkMyAppsAvailability) - under 100 s.
     testMappingLeaseS: 3 * 60,
     // The lease long-lived mappings (the node's own ports, each app's) are made
