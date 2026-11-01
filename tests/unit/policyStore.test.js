@@ -1999,6 +1999,26 @@ describe('policyStore', () => {
       m.stop();
     });
 
+    // A NEWER CLAIM IS NEWS. A peer asked for one sequence that adopts a later one while the
+    // chase waits on it announces again; that claim is asked for, or the node stays behind
+    // the peer that has it until something else moves it.
+    it('asks a peer again when it claims a newer sequence than it was asked for', async () => {
+      let asks = 0;
+      const { m, asked } = await chasing((store, key, id) => {
+        if (key !== A) return;
+        asks += 1;
+        if (asks === 1) setTimeout(() => store.notePeerSeq(9, A), 0);
+        else store.offerBundle(bundle(9), key, id);
+      });
+
+      m.notePeerSeq(5, A);
+      await settled();
+
+      expect(asked, 'asked for 5, then for the 9 it announced while the chase waited').to.deep.equal([A, A]);
+      expect(m.getSeq()).to.equal(9);
+      m.stop();
+    });
+
     it('pursues a later claim once the first chase has ended', async () => {
       // The guard is released, not latched: a chase that found nothing must not be the last
       // this node ever runs.
