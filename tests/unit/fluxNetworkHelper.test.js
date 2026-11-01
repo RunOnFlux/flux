@@ -1895,6 +1895,22 @@ describe('fluxNetworkHelper tests', () => {
         expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
       });
 
+      // Six observers that do not list this node, each drawn once, leave the last
+      // two asks to observers that do not answer.
+      it('concludes nothing when the pass runs out of asks before silence counts', async () => {
+        let draws = 0;
+        getRandomExternalObserver.callsFake(async () => { draws += 1; return OBSERVERS[draws - 1]; });
+        const notListed = { data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } };
+        answering(Object.fromEntries(OBSERVERS.slice(0, 6).map((observer) => [observer, notListed])));
+
+        const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+        expect(result).to.be.false;
+        expect(asked(), 'the observers asked').to.deep.equal(OBSERVERS.slice(0, 8));
+        expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      });
+
       it('concludes nothing once every observer there is has not answered', async () => {
         observers = OBSERVERS.slice(0, 2);
         drawFrom(observers);
