@@ -6,8 +6,9 @@
  * x-forwarded-for, as a balancer does. The published blocklist carries a `client`
  * entry for one caller. Every node adopts it; that caller is then answered 403 by
  * the submission routes, and its registration is refused, while another caller
- * registers through the same node. An entry whose expiry has passed, and an entry
- * removed from the list, refuse nothing.
+ * registers through the same node. An entry whose expiry has passed, an entry
+ * removed from the list, and an entry wider than the policy floors (an IPv4 /24)
+ * refuse nothing; a ban beside the wide one is still enforced.
  *
  * Every node polls the published source every few seconds: the subject is what a
  * node does with a ban it holds, not how the ban reaches it.
@@ -152,5 +153,16 @@ describe('a banned caller is refused at every route that takes an app message', 
     await publish([]);
     const taken = await register(ENTRIES[1], BANNED);
     expect(taken.status, JSON.stringify(taken)).to.equal('success');
+  });
+
+  it('refuses no one for a range wider than the policy floors, and still enforces the ban beside it', async function () {
+    this.timeout(180000);
+    await publish([ban({ value: '0.0.0.0/0' }), ban({ value: '198.51.100.0/23' }), ban()]);
+
+    const taken = await register(ENTRIES[0], OTHER);
+    expect(taken.status, JSON.stringify(taken)).to.equal('success');
+    const refused = await register(ENTRIES[0], BANNED);
+    expect(refused.status, JSON.stringify(refused)).to.equal('error');
+    expect(refused.data.message).to.equal('App messages from this address are not accepted');
   });
 });
