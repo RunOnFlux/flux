@@ -15,7 +15,7 @@
 // The canary is a port published by hand, with no rule: it must be bound on IPv6
 // and answer IPv4 and not IPv6, or ufw is not what decides IPv6 here and the rest
 // proves nothing.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
@@ -28,6 +28,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODE = 0;
 const OUTSIDE = 1;
@@ -121,7 +122,7 @@ describe('2504 app ports answer every client on a firewalled node', function sui
     await waitForAppInstalled(node, appName, 240000, { afterId: mark });
   });
 
-  after(async () => {
+  afterTeardown(async () => {
     await env?.teardown();
   });
 

@@ -78,6 +78,12 @@ const Checkpoint = Object.freeze({
   // An install has its app's image verified and has not started pulling it.
   // Keyed by the app name.
   INSTALL_BEFORE_PULL: 'install:beforePull',
+  // A bulk hash sync has staged what its peers sent and has not yet verified
+  // any of it.
+  HASHSYNC_BEFORE_VERIFY: 'hashSync:beforeVerify',
+  // A node serving its permanent message log by height is about to write the
+  // next piece of it. Keyed by the number of pieces it has written.
+  MESSAGE_LOG_BEFORE_PIECE: 'messageLog:beforePiece',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',

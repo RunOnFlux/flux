@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus, restartFluxos } from '../framework/container.js';
@@ -14,6 +14,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // FluxOS owns app volume mounting (no @reboot crontab), and an unmounted app
 // dir is inert. These are the incident regressions:
@@ -165,8 +166,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await installOnNodes(env, entApp, [4]);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

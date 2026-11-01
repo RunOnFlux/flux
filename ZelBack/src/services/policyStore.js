@@ -355,6 +355,12 @@ async function restore() {
     onReject: (reason) => log.warn(`policyStore - stored bundle rejected, will refetch: ${reason}`),
   });
   if (!payload) return false;
+  // Policy only moves forward: a peer can answer while this reads the disk, and a bundle
+  // adopted meanwhile is never replaced by an older one stored.
+  if (getSeq() >= payload.seq) {
+    log.info(`policyStore - stored seq ${payload.seq} not restored: seq ${getSeq()} is held`);
+    return false;
+  }
   current = payload;
   currentRaw = stored.raw;
   // Through the derivation like every other write to either fact, NOT because this opens
@@ -820,17 +826,20 @@ async function pursueClaim() {
   if (chasingClaim) return;
   chasingClaim = true;
   try {
-    const tried = new Set();
+    // The sequence each peer has been asked for in this chase. A peer is asked again only
+    // once it claims a higher one - news it adopted since - so every claim costs at most one
+    // request, and a peer answering with the claim it already made is not asked again.
+    const askedFor = new Map();
     for (;;) {
       // Re-read each time round, so a peer that announces while this is running is asked by
       // this chase rather than waiting for the next one.
-      const next = [...claimants.keys()].find((key) => !tried.has(key));
-      // Every peer that offered has been asked. The claim goes no further rather than being
-      // retried on a timer, and a peer that never offered is not asked at all: if it held
-      // the bundle it would have said so, and it is asked anyway the moment it connects.
+      const next = [...claimants.keys()].find((key) => !(claimants.get(key) <= askedFor.get(key)));
+      // Every claim has been asked for. The claim goes no further rather than being retried
+      // on a timer, and a peer that never offered is not asked at all: if it held the bundle
+      // it would have said so, and it is asked anyway the moment it connects.
       if (!next) return;
-      tried.add(next);
       const claimed = claimants.get(next);
+      askedFor.set(next, claimed);
       // Already held, by this chase having got it from someone else or by any other route,
       // so there is nothing to ask this peer for. Skipped rather than ending the chase: a
       // peer further down the map may be claiming a sequence higher still.

@@ -24,7 +24,7 @@
  * stderr, so the two framed streams interleave in one connection - the case a
  * stdout-only writer cannot produce.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { io } from 'socket.io-client';
 import { createTestEnv } from '../framework/test-env.js';
@@ -37,6 +37,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const CONNECT_TIMEOUT_MS = 20000;
 
@@ -174,8 +175,7 @@ describe('an app log stream loses nothing and is shared between viewers', functi
     auth = await authenticate(holder.url, appOwnerKey());
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

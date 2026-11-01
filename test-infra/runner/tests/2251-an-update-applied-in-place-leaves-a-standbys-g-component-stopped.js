@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
@@ -10,6 +10,7 @@ import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { isDaemonUp, isFolderSynced, getFolderConfig } from '../framework/syncthing-real.js';
 import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A specification update that changes only the plain sibling of an app's single
 // single-writer (g:) component, on real syncthing daemons.
@@ -85,8 +86,7 @@ describe('an update applied in place leaves a standby\'s g: component stopped', 
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

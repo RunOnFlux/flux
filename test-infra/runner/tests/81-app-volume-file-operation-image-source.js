@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach, after } from 'mocha';
+import { describe, it, before, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -15,6 +15,7 @@ import { appOwnerKey } from '../framework/keys.js';
 import {
   volumeRoot, resetVolume, seedVolumeTree, exists,
 } from '../framework/volume-fixture.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Where a node gets the executor image, which decides whether it has a file
 // browser at all: createfolder used to be a local mkdir and now needs a
@@ -168,8 +169,7 @@ describe('app volume file operations - where the image comes from', function () 
     });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

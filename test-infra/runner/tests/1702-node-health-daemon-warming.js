@@ -1,10 +1,11 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -76,8 +77,7 @@ describe('Node health: a daemon still warming is not a syncthing fault', functio
     await sleepUnlessInfraDead(HEALTH_WINDOW_MS + SENTINEL_INTERVAL_MS * 2);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

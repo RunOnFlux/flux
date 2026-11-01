@@ -1,10 +1,11 @@
-import { describe, it, before, after, afterEach } from 'mocha';
+import { describe, it, before, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey, fluxTeamKey, appOwnerKey, userKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { waitForDaemonReady, waitForDosChanged } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 let env;
 let fluxTeamAuth;
@@ -23,8 +24,7 @@ describe('DOS state management', function () {
     await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

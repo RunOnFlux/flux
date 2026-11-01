@@ -6,6 +6,9 @@
 // them, because the ordering - guard first, cache second - is the whole point
 // and a direct call to the guard cannot show it.
 
+const http = require('node:http');
+const { once } = require('node:events');
+
 const { expect } = require('chai');
 const express = require('express');
 const request = require('supertest');
@@ -16,6 +19,7 @@ const {
   asyncRoute,
   cache,
   isDaemonUnavailable,
+  limitConcurrent,
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
@@ -433,6 +437,117 @@ describe('routeGuards', () => {
         expect(res.status).to.equal(503);
         expect(handlerCalls).to.equal(1);
       });
+    });
+  });
+
+  describe('limitConcurrent', () => {
+    let server;
+    let url;
+    let held;
+
+    function withoutHash(req) {
+      return !req.params.hash;
+    }
+
+    // The handler holds every request it takes open until the test answers it,
+    // as a long read holds its place.
+    beforeEach(async () => {
+      held = [];
+      const app = express();
+      app.get('/read/:hash?', limitConcurrent(2, 'Busy reading', withoutHash), (req, res) => {
+        held.push(res);
+      });
+      server = http.createServer(app);
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      url = `http://127.0.0.1:${server.address().port}`;
+    });
+
+    afterEach(() => {
+      server.closeAllConnections();
+      server.close();
+    });
+
+    /** Starts a GET, returning the client request; its answer is `answered`. */
+    function open(path) {
+      const req = http.get(`${url}${path}`);
+      req.answered = new Promise((resolve, reject) => {
+        req.on('response', function readBody(res) {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => { body += chunk; });
+          res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+        });
+        req.on('error', reject);
+      });
+      req.on('error', () => {});
+      return req;
+    }
+
+    async function untilHeld(count) {
+      const deadline = Date.now() + 1000;
+      while (held.length < count && Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+      }
+      expect(held).to.have.lengthOf(count);
+    }
+
+    it('admits as many requests at once as its limit', async () => {
+      open('/read');
+      open('/read');
+      await untilHeld(2);
+    });
+
+    it('refuses one more with a 503, the error envelope and when to come back', async () => {
+      open('/read');
+      open('/read');
+      await untilHeld(2);
+
+      const refused = await open('/read').answered;
+
+      expect(refused.status).to.equal(503);
+      expect(refused.headers['retry-after']).to.equal('10');
+      expect(JSON.parse(refused.body)).to.deep.equal({
+        status: 'error',
+        data: { code: 503, name: 'ServiceUnavailable', message: 'Busy reading' },
+      });
+      expect(held).to.have.lengthOf(2);
+    });
+
+    it('admits another once an answer has finished', async () => {
+      const first = open('/read');
+      open('/read');
+      await untilHeld(2);
+
+      held[0].json({ status: 'success' });
+      await first.answered;
+      open('/read');
+
+      await untilHeld(3);
+    });
+
+    it('admits another once a client has gone without its answer', async () => {
+      const first = open('/read');
+      open('/read');
+      await untilHeld(2);
+
+      const closed = once(held[0], 'close');
+      first.destroy();
+      await closed;
+      open('/read');
+
+      await untilHeld(3);
+    });
+
+    it('lets a request it does not limit straight through, however many it is holding', async () => {
+      open('/read');
+      open('/read');
+      await untilHeld(2);
+
+      open('/read/abc');
+
+      await untilHeld(3);
     });
   });
 

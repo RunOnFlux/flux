@@ -1,10 +1,11 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableMultiSyncthingApp } from '../framework/seed-helper.js';
 import { assertNoEvent } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Classifier acceptance of a valid MULTI-g app — every component carries a g:
 // PRIMARY mount (like real SimpleXxFTP: xftp + onion, both g:). The
@@ -30,8 +31,7 @@ describe('install accepts a valid multi-g (every component g:) app', function ()
     await pushImage(appName, 'v1');
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

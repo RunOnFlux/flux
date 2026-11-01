@@ -105,6 +105,12 @@ class AppSyncOrchestrator {
   #budgetStalled = false;
   #explorerSynced = false;
   #hashSyncComplete = false;
+  /**
+   * The initial hash sync failed every attempt it gets. Block-driven hash
+   * retries run once the initial sync has completed or given up.
+   * @type {boolean}
+   */
+  #hashSyncGaveUp = false;
   #dbRebuilt = false;
   #blocksSinceSyncStarted = 0;
   #blockReceivedHandler = null;
@@ -848,6 +854,7 @@ class AppSyncOrchestrator {
     this.#stateSyncComplete = false;
     this.#publishStateSyncAuthority();
     this.#hashSyncAttempts = 0;
+    this.#hashSyncGaveUp = false;
     if (this.#syncTimeout) {
       clearTimeout(this.#syncTimeout);
       this.#syncTimeout = null;
@@ -920,13 +927,13 @@ class AppSyncOrchestrator {
   }
 
   #onHashUnresolved() {
-    if (!this.#hashSyncComplete) return;
+    if (!this.#hashSyncComplete && !this.#hashSyncGaveUp) return;
     // New unresolved hash — schedule immediate check on next block
     this.#nextHashRetryHeight = 0;
   }
 
   async #checkHashRetry(blockHeight) {
-    if (!this.#hashSyncComplete) return;
+    if (!this.#hashSyncComplete && !this.#hashSyncGaveUp) return;
     if (!this.#canSendMessages) return;
     if (this.#syncInProgress) return;
     if (blockHeight < this.#nextHashRetryHeight) return;
@@ -1022,7 +1029,9 @@ class AppSyncOrchestrator {
           this.#runHashSync().then(() => this.#checkReadiness());
         }, HASH_SYNC_RETRY_MS);
       } else {
-        log.warn('AppSyncOrchestrator - Hash sync retries exhausted, falling back to block timer');
+        log.warn('AppSyncOrchestrator - Hash sync retries exhausted, falling back to block timer and block-driven hash retries');
+        this.#hashSyncGaveUp = true;
+        this.#nextHashRetryHeight = this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS;
       }
     } finally {
       this.#syncInProgress = false;

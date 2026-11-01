@@ -1,6 +1,6 @@
 // upgrades-from: v8.21.1
 import { fileURLToPath } from 'node:url';
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -14,6 +14,7 @@ import {
 import { failCommands } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { upgradeBase } from '../framework/upgrade-base.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node upgraded from a release that gave app containers no slice of their own:
 // the app's container, made by the release, lives in its runtime's scope under
@@ -99,8 +100,7 @@ describe('a stalled host kills a container made before the app slices', function
     runnableAfterWindow = await canRun(container, scope);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await releaseDatabase?.().catch(() => {});
     if (container) await resumeDisk(container, DOCKER_ROOT).catch(() => {});
     if (client) await thawEveryNode([client]);

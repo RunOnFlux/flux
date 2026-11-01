@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -12,6 +12,7 @@ import { restartFluxos, setNodeApiPort } from '../framework/container.js';
 import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-control.js';
 import { waitFor, waitForAppInstalled, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node behind UPnP proves an app's port as the last check before it installs
 // it, mapping the port under the app's own description. The mapping it proved is
@@ -86,8 +87,7 @@ describe('a port the install test proves stays mapped for the install', function
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

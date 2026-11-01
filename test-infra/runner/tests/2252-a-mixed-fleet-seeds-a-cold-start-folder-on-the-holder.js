@@ -17,7 +17,7 @@
  *
  */
 import { fileURLToPath } from 'node:url';
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus } from '../framework/container.js';
@@ -31,6 +31,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { upgradeBase } from '../framework/upgrade-base.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { tag: BASE_TAG } = upgradeBase(fileURLToPath(import.meta.url));
 const subnet = getSubnetConfig();
@@ -103,8 +104,7 @@ describe('a mixed fleet seeds a cold-start folder on the holder', function () {
     step('released');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await resetFdm().catch(() => {});
     await env?.teardown();

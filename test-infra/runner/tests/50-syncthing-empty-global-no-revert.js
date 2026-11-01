@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, restartFluxos } from '../framework/container.js';
@@ -11,6 +11,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // MUST-PASS data-safety gate (B1). The promotion FSM's isSynced is percentage-
 // based, so an EMPTY global index (globalBytes 0) reads as a vacuous 100% even
@@ -105,8 +106,7 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     await new Promise((r) => setTimeout(r, 18000)); // eslint-disable-line no-promise-executor-return
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

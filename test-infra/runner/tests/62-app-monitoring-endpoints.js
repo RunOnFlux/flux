@@ -12,7 +12,7 @@
  * trailing arguments the handlers dereferenced, and no test noticed because the
  * suite asserted that a response happened, which the catch block satisfies.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey, appOwnerKey } from '../framework/keys.js';
@@ -26,6 +26,7 @@ import {
   waitForAppInstalled, waitForAppSpecStored,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 function localRegistryCompose(appName) {
   return [{
@@ -103,8 +104,7 @@ describe('App monitoring endpoints', function () {
     }, { timeout: 60000, interval: 2000, label: 'monitoring samples collected' });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

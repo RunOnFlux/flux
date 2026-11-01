@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { crashFluxos, stopAppContainer } from '../framework/container.js';
@@ -10,6 +10,7 @@ import { dbClient } from '../framework/db-client.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { placeSilentPrimaryApp, A, B, C } from '../framework/silent-primary.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A second machine starts on the collateral of a single-writer app's primary. It
 // is not listed - the network lists the collateral at the primary - and while the
@@ -54,8 +55,7 @@ describe('a second machine on a primary\'s collateral', function () {
     await fleet.env.startNode(COPY);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await resetFdm().catch(() => {});
     await fleet?.env.teardown();

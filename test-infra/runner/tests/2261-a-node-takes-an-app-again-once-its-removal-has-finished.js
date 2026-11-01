@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -11,6 +11,7 @@ import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node removing an app is not offered it by its own spawner until the removal
 // has finished, and is offered it again from then on.
@@ -78,8 +79,7 @@ describe('a node takes an app again once its removal has finished', function () 
     await dbClient(REMOVER + 1).replaceGlobalAppSpec({ ...app.spec, expire: SPAWNABLE_EXPIRE });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await remover()?.releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });

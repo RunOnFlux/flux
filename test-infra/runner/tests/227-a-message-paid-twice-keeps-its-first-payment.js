@@ -11,7 +11,7 @@
  *
  * The chain moves only when this suite mines a block: the ticker is stopped after boot.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
@@ -21,6 +21,7 @@ import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { getState, mineBlock, stopTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Five dialers, 2 peers each way, the floor a submission needs.
 const SUBMITTER = 2;
@@ -105,8 +106,7 @@ describe('a message paid twice in one block keeps its first payment, on every no
     );
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     if (env) await env.teardown();
   });
 

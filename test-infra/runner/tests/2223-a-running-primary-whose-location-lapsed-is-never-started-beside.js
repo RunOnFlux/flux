@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -15,6 +15,7 @@ import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/re
 import { isDaemonUp, listFolderFiles } from '../framework/syncthing-real.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A primary's FluxOS dies without announcing a shutdown. Its container and its
 // syncthing go on running, and its location lapses. The standby that remembers
@@ -89,8 +90,7 @@ describe('a running primary whose location lapsed is never started beside', func
     await waitForElectionDecisions(client(A), identifier, 'primaryObserved', 1, { timeout: 60000 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await resetFdm().catch(() => {});
     await env?.teardown();
   });

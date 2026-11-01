@@ -19,7 +19,7 @@
  * node holds; a node that is not Arcane accepts it without the comparison, as the slice's
  * buckyorbit renewal shows.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -32,6 +32,7 @@ import { setSystemSecure, stopTicker } from '../framework/daemon-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'mainnet-message-slice');
 const JOINER = 3;
@@ -102,8 +103,7 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
     await waitForOrchestratorState(joiner, 'READY', 600000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, killAppContainer } from '../framework/container.js';
 import {
@@ -6,6 +6,7 @@ import {
 } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A vanished container (no Docker event fires for absence) is recreated by the
 // reconciler when Docker is reachable. If recreation itself fails — e.g. the
@@ -33,8 +34,7 @@ describe('reconciler recreates a missing container', function () {
     ({ index: idx } = await seedSimpleApp(env, appName));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -11,6 +11,7 @@ import { bootAndPeer, placeGAppInOrder } from '../framework/reconciler-suite.js'
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PARTITION_PEERS } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // MUST-PASS gate. What a g: app does when FDM - the election authority - cannot be
 // reached at all.
@@ -85,8 +86,7 @@ describe('masterSlave election while FDM is unreachable', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await endFdmOutage().catch(() => {});
     await resetSyncState().catch(() => {});
     await resetFdm().catch(() => {});

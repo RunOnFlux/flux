@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { resetSyncState, pinColdStart } from '../framework/syncthing-control.js';
@@ -13,6 +13,7 @@ import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { crashFluxos, releaseFluxos } from '../framework/container.js';
 import { destroyFolderVolume } from '../framework/volume-fixture.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A cold start of a g: app where one holder comes back from a restart with the
 // app's volume gone: the image is removed, so the mount check cannot repair it and
@@ -76,8 +77,7 @@ describe('a holder whose volume did not mount does not hold up the seed', functi
     );
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await client(LOWEST)?.releaseAllCheckpoints().catch(() => {});
     await resetSyncState().catch(() => {});
     await env?.teardown();

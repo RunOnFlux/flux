@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { appOwnerKey, otherOwnerKeys, nodeKey } from '../framework/keys.js';
@@ -10,6 +10,7 @@ import {
 } from '../framework/daemon-control.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Two owners register the same free name close together, so both
 // registrations pass every node's check on arrival. The chain decides who holds
@@ -93,8 +94,7 @@ describe('two owners racing for one app name: the chain decides who holds it', f
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

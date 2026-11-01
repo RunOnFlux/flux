@@ -1,6 +1,6 @@
 // weight: medium
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -17,6 +17,7 @@ import { dbClient } from '../framework/db-client.js';
 import { crashFluxos, releaseFluxos } from '../framework/container.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A move is signed by the node listed at the address it leaves. The stub peer is
 // a listed node with its own key, and broadcasts over the live path two moves
@@ -132,8 +133,7 @@ describe('a move signed by another node is refused', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

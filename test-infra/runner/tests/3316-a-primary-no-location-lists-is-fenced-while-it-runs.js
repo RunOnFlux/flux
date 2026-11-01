@@ -12,7 +12,7 @@
  * A = the standby, B = the primary, C = the holder placed later.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import {
@@ -28,6 +28,7 @@ import { clearMaster } from '../framework/fdm-control.js';
 import { waitFor } from '../framework/wait.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const SIGTERM_EXPIRY_S = 120;
 // The harness's syncthing monitor passes every 3s; this is several of them.
@@ -73,8 +74,7 @@ describe('a primary no location lists is fenced while it runs', function () {
     listedSyncMs = Date.now() - startedAt;
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await fleet?.env?.teardown();
   });

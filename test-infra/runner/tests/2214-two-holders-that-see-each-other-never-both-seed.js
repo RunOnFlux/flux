@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -17,6 +17,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Two holders of a cold-start app, each elected to seed it by its own view of the
 // field, never both seed it - however their decisions fall in time.
@@ -123,8 +124,7 @@ describe('two holders that can reach each other never both seed', function () {
     expect((await ask(holder, lowest)).stdout.trim(), 'fixture: the contenders cannot reach each other').to.equal('200');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await Promise.all(holders.map((i) => client(i)?.releaseAllCheckpoints().catch(() => {})));
     if (env) await unblockPeerAccess(client(silenced).container, [subnet.nodeIp(lowest + 1)], 16127).catch(() => {});
     await env?.teardown();

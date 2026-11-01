@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -13,6 +13,7 @@ import {
   waitForAppInstalled, waitForOrchestratorState, waitFor,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 async function bootAndPeer(env, nodeIndices) {
   const clients = nodeIndices.map((i) => env.clients[i]).filter(Boolean);
@@ -64,8 +65,7 @@ describe('Signed sync completes on late-joining node', function () {
     );
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -113,8 +113,7 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

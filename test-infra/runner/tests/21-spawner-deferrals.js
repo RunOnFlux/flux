@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
@@ -11,6 +11,7 @@ import {
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 function localRegistryCompose(appName) {
   return [{
@@ -96,8 +97,7 @@ describe('Arcane spawner deferrals', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -189,8 +189,7 @@ describe('Legacy spawner deferrals', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

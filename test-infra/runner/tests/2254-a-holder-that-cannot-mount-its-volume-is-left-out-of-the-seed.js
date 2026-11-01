@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -15,6 +15,7 @@ import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { crashFluxos, releaseFluxos } from '../framework/container.js';
 import { breakFolderVolume, destroyFolderVolume, restoreFolderVolume } from '../framework/volume-fixture.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Cold starts of a g: app where a holder comes back from a restart with a volume it
 // cannot mount, and its address sorts first, so the address order would give it the
@@ -120,8 +121,7 @@ describe('a holder that cannot mount its volume is left out of the seed', functi
     await resetSyncState();
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await Promise.all((env?.clients ?? []).map((c) => c?.releaseAllCheckpoints().catch(() => {})));
     await resetSyncState().catch(() => {});
     await env?.teardown();
