@@ -195,10 +195,16 @@ class FluxCacheManager {
       max: 100,
       ttl: 7 * FluxCacheManager.oneDay,
     },
-    // Pending app updates queue - stores update messages that arrived before registration
+    // Pending app updates queue - stores update messages that arrived before registration.
+    // An update leaving it other than by being handed to its replay (expired, evicted,
+    // cleared) gives back the place it holds in its sender's allowance. An app's list is
+    // extended in place, so adding to it disposes nothing.
     pendingAppUpdatesCache: {
       max: 200,
       ttl: 30 * FluxCacheManager.oneMinute,
+      dispose: (updates) => {
+        updates.forEach((queued) => { if (!queued.handedOver) queued.release?.(); });
+      },
     },
     // appUtilities - disk usage moves slowly, while the monitoring UI polls app stats
     // every few seconds. Sample it once a minute however many callers ask.

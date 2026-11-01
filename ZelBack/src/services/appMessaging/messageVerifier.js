@@ -926,20 +926,25 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
               const pendingUpdates = globalState.getPendingUpdates(appName);
               if (pendingUpdates.length > 0) {
                 log.info(`Processing ${pendingUpdates.length} pending updates for ${appName}`);
-                // Process updates in order (sorted by height)
-                for (let idx = 0; idx < pendingUpdates.length; idx += 1) {
-                  const pendingUpdate = pendingUpdates[idx];
-                  try {
-                    // It passed the authenticated-link rule when it was queued.
-                    // eslint-disable-next-line no-await-in-loop
-                    await messageStore.storeAppTemporaryMessage(pendingUpdate.message, { authenticated: true });
-                    log.info(`Processed pending update ${idx + 1}/${pendingUpdates.length} for ${appName}`);
-                  } catch (error) {
-                    // If an update fails, stop processing and clear remaining updates
-                    log.warn(`Pending update for ${appName} failed: ${error.message}. Clearing ${pendingUpdates.length - idx} remaining updates.`);
-                    globalState.clearPendingUpdates(appName);
-                    break;
+                // Process updates in order (sorted by height). Each gives back its place in its
+                // sender's allowance once its replay has taken a place of its own, or it is dropped.
+                try {
+                  for (let idx = 0; idx < pendingUpdates.length; idx += 1) {
+                    const pendingUpdate = pendingUpdates[idx];
+                    try {
+                      // It passed the authenticated-link rule when it was queued.
+                      // eslint-disable-next-line no-await-in-loop
+                      await messageStore.storeAppTemporaryMessage(pendingUpdate.message, { authenticated: true });
+                      log.info(`Processed pending update ${idx + 1}/${pendingUpdates.length} for ${appName}`);
+                    } catch (error) {
+                      // If an update fails, stop processing and clear remaining updates
+                      log.warn(`Pending update for ${appName} failed: ${error.message}. Clearing ${pendingUpdates.length - idx} remaining updates.`);
+                      globalState.clearPendingUpdates(appName);
+                      break;
+                    }
                   }
+                } finally {
+                  pendingUpdates.forEach((pendingUpdate) => pendingUpdate.release?.());
                 }
               }
             // every time we ask for a missing app message that is a appregister call after expireGlobalApplications to make sure we don't have on

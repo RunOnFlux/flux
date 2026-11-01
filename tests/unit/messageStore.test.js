@@ -396,7 +396,9 @@ describe('messageStore tests', () => {
           version: 1, timestamp: 1, pubKey: '04aa', signature: 'sig',
         };
         const release = sinon.stub();
-        unpaidAdmissionStub.admitUnpaid.resolves({ fields: { clientTag: 'a'.repeat(64), origin }, release });
+        const queueRelease = sinon.stub();
+        const keep = sinon.stub().returns(queueRelease);
+        unpaidAdmissionStub.admitUnpaid.resolves({ fields: { clientTag: 'a'.repeat(64), origin }, release, keep });
         const queue = sinon.stub(globalState, 'queuePendingUpdate');
         messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
           config: configStub,
@@ -425,9 +427,11 @@ describe('messageStore tests', () => {
         const result = await messageStore.storeAppTemporaryMessage(update);
 
         expect(result).to.equal(false);
-        sinon.assert.calledOnceWithExactly(queue, 'test', { ...update, origin }, 1000);
+        // it waits holding its place in its sender's allowance, which the queue gives back
+        sinon.assert.calledOnceWithExactly(queue, 'test', { ...update, origin }, 1000, queueRelease);
+        sinon.assert.calledOnce(keep);
+        sinon.assert.notCalled(queueRelease);
         sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
-        // a queued update is not stored, so it holds no place
         sinon.assert.calledOnce(release);
       });
 
