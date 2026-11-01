@@ -10,7 +10,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
-import { mixedFleet, mixedNetworkChecks } from '../framework/mixed-network.js';
+import { mixedFleet, mixedNetworkChecks, QUORUM } from '../framework/mixed-network.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // node 0's ring: 1-4 and 10-11; 5, 6 and 7 sit outside it, each in its own /16
@@ -38,9 +38,12 @@ describe('unpaid app messages on a mostly legacy fleet', function () {
   it('holds the quorum at node 0 through Arcane nodes its Arcane peer reported', async function () {
     this.timeout(120000);
     const { outbound, inbound } = await env.clients[0].getTestState('peers');
-    const linked = new Set([...outbound, ...inbound].filter((peer) => peer.authenticated).map((peer) => peer.ip));
+    const linked = [...new Set([...outbound, ...inbound].filter((peer) => peer.authenticated).map((peer) => peer.ip))];
     const reported = [5, 6, 7].map((i) => env.clients[i].ip);
-    expect([...linked].sort(), 'node 0\'s authenticated links').to.include.members(reported);
+    expect(linked, 'node 0\'s authenticated links').to.have.length.of.at.least(QUORUM);
+    expect(linked, 'node 0\'s ring Arcane peer').to.include(env.clients[4].ip);
+    // every link past node 4 is to a node outside node 0's ring, which only the pass dials
+    expect(linked.filter((ip) => ip !== env.clients[4].ip), 'links beyond the ring').to.satisfy((ips) => ips.every((ip) => reported.includes(ip)));
   });
 
   it('admits at every Arcane node\'s door and answers 503 at every legacy one, and every node then holds what was admitted', async function () {
