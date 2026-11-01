@@ -747,6 +747,16 @@ module.exports = {
     discoveryRetryMs: 60000,
     discoveryFailRetryMs: 120000,
     discoveryConnectionDelayMs: 500,
+    // The random peers discovery keeps beyond the deterministic ring: it dials
+    // until a node holds discoveryMaxOutbound outbound (discoveryMinUniqueOutboundIps
+    // of them on distinct IPs) and asks to be dialled until it holds
+    // discoveryMaxInbound inbound (discoveryMinUniqueInboundIps distinct), drawing at
+    // most discoveryMaxIterations candidates for each.
+    discoveryMaxOutbound: 14,
+    discoveryMinUniqueOutboundIps: 9,
+    discoveryMaxInbound: 12,
+    discoveryMinUniqueInboundIps: 5,
+    discoveryMaxIterations: 100,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
     // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted

@@ -56,12 +56,13 @@ const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 const verifyPool = require('./utils/verifyPool');
 const { Privilege, authOf } = require('./utils/privileges');
 
+// The random peers discovery keeps beyond the deterministic ring (fluxapps).
 const DISCOVERY = {
-  maxOutbound: 14,
-  minUniqueOutboundIps: 9,
-  maxInbound: 12,
-  minUniqueInboundIps: 5,
-  maxIterations: 100,
+  maxOutbound: config.fluxapps.discoveryMaxOutbound ?? 14,
+  minUniqueOutboundIps: config.fluxapps.discoveryMinUniqueOutboundIps ?? 9,
+  maxInbound: config.fluxapps.discoveryMaxInbound ?? 12,
+  minUniqueInboundIps: config.fluxapps.discoveryMinUniqueInboundIps ?? 5,
+  maxIterations: config.fluxapps.discoveryMaxIterations ?? 100,
   connectionDelayMs: config.fluxapps.discoveryConnectionDelayMs ?? 500,
 };
 
