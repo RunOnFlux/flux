@@ -41,9 +41,11 @@ function load() {
   peerManager.getAuthenticatedPeers = () => peerManager.authenticated;
   peerManager.getUnauthenticatedPeers = () => peerManager.unauthenticated;
   peerManager.authenticatedIpCount = () => new Set(peerManager.authenticated.map((p) => p.ip)).size;
+  const release = sinon.stub();
   const deps = {
     sign: sinon.stub().resolves(SIGNED),
-    admitUnpaid: sinon.stub().resolves({ fields: { clientTag: 't', originKey: 'entryKey' } }),
+    release,
+    admitUnpaid: sinon.stub().resolves({ fields: { clientTag: 't', originKey: 'entryKey' }, release }),
     insert: sinon.stub().resolves(),
     holds: sinon.stub().resolves(false),
     publish: sinon.stub(),
@@ -311,6 +313,50 @@ describe('admissionQuorum tests', () => {
       const asked = mod.alreadyAdmitted(HASH);
       receipt(mod, peerManager.authenticated[0], 'refused', 'nope');
       await expect(asked).to.be.rejectedWith('nope');
+    });
+
+    it('should hold the message\'s place in its allowances through the round, and give it back once written', async () => {
+      const { mod, peerManager, deps } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3']);
+      const { admission } = await startAdmit(mod);
+      receipt(mod, peerManager.authenticated[0], 'held');
+      receipt(mod, peerManager.authenticated[1], 'held');
+      await flush();
+      expect(deps.release.called).to.equal(false);
+
+      receipt(mod, peerManager.authenticated[2], 'held');
+      await admission;
+
+      sinon.assert.calledOnce(deps.release);
+      sinon.assert.callOrder(deps.insert, deps.release);
+    });
+
+    it('should give the place back when the round fails on a refusal', async () => {
+      const { mod, peerManager, deps } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3']);
+      const { admission } = await startAdmit(mod);
+      receipt(mod, peerManager.authenticated[0], 'refused', 'its client already has 10 unpaid app messages pending');
+
+      await expect(admission).to.be.rejectedWith('The network refused this app message');
+      sinon.assert.calledOnce(deps.release);
+    });
+
+    it('should give the place back when the round times out', async () => {
+      const { mod, deps } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3'], { latency: 1000 });
+      const { admission } = await startAdmit(mod);
+
+      clock.tick(config.fluxapps.admissionTimeoutMs);
+
+      await expect(admission).to.be.rejectedWith('did not confirm this app message on 3 nodes');
+      sinon.assert.calledOnce(deps.release);
+    });
+
+    it('should give the place back when its own write fails', async () => {
+      const { mod, peerManager, deps } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3']);
+      deps.insert.rejects(new Error('database gone'));
+      const { admission } = await startAdmit(mod);
+      peerManager.authenticated.forEach((peer) => receipt(mod, peer, 'held'));
+
+      await expect(admission).to.be.rejectedWith('database gone');
+      sinon.assert.calledOnce(deps.release);
     });
 
     it('should propose nothing when admission refuses it, or when this node cannot sign', async () => {

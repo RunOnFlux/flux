@@ -345,13 +345,58 @@ describe('messageStore tests', () => {
         expect(dbHelperStub.insertOneToDatabase.firstCall.args[2]).to.include(fields);
       });
 
+      it('gives the message\'s place in its allowances back once it is written', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        const release = sinon.stub();
+        unpaidAdmissionStub.admitUnpaid.resolves({ fields: {}, release });
+
+        await messageStore.storeAppTemporaryMessage(pending);
+
+        sinon.assert.calledOnce(release);
+        sinon.assert.callOrder(dbHelperStub.insertOneToDatabase, release);
+      });
+
+      it('gives the place back when the message fails its verification', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        const release = sinon.stub();
+        unpaidAdmissionStub.admitUnpaid.resolves({ fields: {}, release });
+        messageVerifierStub.verifyAppHash.rejects(new Error('hash mismatch'));
+
+        await messageStore.storeAppTemporaryMessage(pending).then(
+          () => expect.fail('should have failed'),
+          (error) => expect(error.message).to.equal('hash mismatch'),
+        );
+
+        sinon.assert.calledOnce(release);
+        sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+      });
+
+      it('holds the place while a proposal waits for its commit, and gives it back when none comes', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        const release = sinon.stub();
+        unpaidAdmissionStub.admitUnpaid.resolves({ fields: {}, release });
+        let answer;
+        const beforeWrite = () => new Promise((resolve) => { answer = resolve; });
+
+        const stored = messageStore.storeAppTemporaryMessage(pending, { beforeWrite });
+        await new Promise((resolve) => { setImmediate(resolve); });
+        expect(answer).to.be.a('function');
+        sinon.assert.notCalled(release);
+        answer(false);
+
+        expect(await stored).to.equal(false);
+        sinon.assert.calledOnce(release);
+        sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+      });
+
       it('queues an update that arrives before its registration with its origin, for the replay to verify', async () => {
         dbHelperStub.findOneInDatabase.resolves(null);
         const update = { ...pending, type: 'fluxappupdate' };
         const origin = {
           version: 1, timestamp: 1, pubKey: '04aa', signature: 'sig',
         };
-        unpaidAdmissionStub.admitUnpaid.resolves({ fields: { clientTag: 'a'.repeat(64), origin } });
+        const release = sinon.stub();
+        unpaidAdmissionStub.admitUnpaid.resolves({ fields: { clientTag: 'a'.repeat(64), origin }, release });
         const queue = sinon.stub(globalState, 'queuePendingUpdate');
         messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
           config: configStub,
@@ -382,6 +427,8 @@ describe('messageStore tests', () => {
         expect(result).to.equal(false);
         sinon.assert.calledOnceWithExactly(queue, 'test', { ...update, origin }, 1000);
         sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+        // a queued update is not stored, so it holds no place
+        sinon.assert.calledOnce(release);
       });
 
       it('takes a paid message without asking', async () => {

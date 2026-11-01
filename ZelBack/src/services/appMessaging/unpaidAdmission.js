@@ -97,12 +97,20 @@ async function resolveOrigin(message, frame) {
   return { origin, originKey: origin.pubKey };
 }
 
+// The tagged messages this node has let past both allowances and not yet
+// written or let go, by hash. Each counts against its client and its operator as
+// a stored message does, so messages admitted at the same moment are held to the
+// same allowance as messages admitted one after another. An entry lives exactly
+// as long as an admission holding it: every holder releases it once its message
+// is written, refused or dropped.
+const inFlight = new Map();
+
 /**
- * How many unpaid messages the temporary store holds that match a query.
+ * The hashes of the unpaid messages the temporary store holds that match a query.
  * @param {object} query
- * @returns {Promise<number>}
+ * @returns {Promise<string[]>}
  */
-async function unpaidCount(query) {
+async function storedUnpaid(query) {
   const db = dbHelper.databaseConnection();
   const held = await dbHelper.findInDatabase(
     db.db(config.database.appsglobal.database),
@@ -110,13 +118,61 @@ async function unpaidCount(query) {
     query,
     { projection: { _id: 0, hash: 1 } },
   );
-  if (held.length === 0) return 0;
-  const paid = await dbHelper.countInDatabase(
+  if (held.length === 0) return [];
+  const paid = await dbHelper.findInDatabase(
     db.db(config.database.daemon.database),
     appsHashesCollection,
     { hash: { $in: held.map((doc) => doc.hash) } },
+    { projection: { _id: 0, hash: 1 } },
   );
-  return held.length - paid;
+  const paidHashes = new Set(paid.map((doc) => doc.hash));
+  return held.map((doc) => doc.hash).filter((hash) => !paidHashes.has(hash));
+}
+
+/**
+ * How many unpaid messages count against one sender: those stored, and those
+ * in flight. A message both stored and in flight counts once.
+ * @param {string[]} stored The stored unpaid hashes matching the sender.
+ * @param {'clientTag'|'originKey'} field
+ * @param {string} value
+ * @returns {number}
+ */
+function pendingCount(stored, field, value) {
+  let count = stored.filter((hash) => !inFlight.has(hash)).length;
+  inFlight.forEach((entry) => { if (entry[field] === value) count += 1; });
+  return count;
+}
+
+/**
+ * The stored unpaid messages of a client and of an operator.
+ * @param {{clientTag?: string, originKey?: string}} sender
+ * @returns {Promise<{byTag: string[], byKey: string[]}>}
+ */
+async function storedFor({ clientTag, originKey }) {
+  const [byTag, byKey] = await Promise.all([
+    clientTag ? storedUnpaid({ clientTag }) : [],
+    originKey ? storedUnpaid({ originKey }) : [],
+  ]);
+  return { byTag, byKey };
+}
+
+/**
+ * Why a client or an operator may not admit another unpaid message, or null.
+ * Synchronous, so that no admission can be let past between this count and the
+ * reservation its caller makes on it.
+ * @param {{clientTag?: string, originKey?: string}} sender
+ * @param {{byTag: string[], byKey: string[]}} stored
+ * @returns {string|null}
+ */
+function allowanceRefusal({ clientTag, originKey }, { byTag, byKey }) {
+  const { clientTagCap, originKeyCap } = config.fluxapps;
+  if (clientTag && pendingCount(byTag, 'clientTag', clientTag) >= clientTagCap) {
+    return `its client already has ${clientTagCap} unpaid app messages pending`;
+  }
+  if (originKey && pendingCount(byKey, 'originKey', originKey) >= originKeyCap) {
+    return `its admitting operator already has ${originKeyCap} unpaid app messages pending`;
+  }
+  return null;
 }
 
 /**
@@ -124,15 +180,37 @@ async function unpaidCount(query) {
  * @param {{clientTag?: string, originKey?: string}} sender
  * @returns {Promise<string|null>}
  */
-async function overAllowance({ clientTag, originKey }) {
-  const { clientTagCap, originKeyCap } = config.fluxapps;
-  if (clientTag && await unpaidCount({ clientTag }) >= clientTagCap) {
-    return `its client already has ${clientTagCap} unpaid app messages pending`;
+async function overAllowance(sender) {
+  return allowanceRefusal(sender, await storedFor(sender));
+}
+
+/**
+ * Hold a message's place in its client's and its operator's allowances, or
+ * refuse it. A message with this hash already in flight shares that place: one
+ * hash is written once.
+ * @param {string} hash
+ * @param {{clientTag: string, originKey: string}} sender
+ * @returns {Promise<{refused: string}|{release: function(): void}>}
+ */
+async function reserve(hash, sender) {
+  const stored = await storedFor(sender);
+  let entry = inFlight.get(hash);
+  if (!entry) {
+    const refused = allowanceRefusal(sender, stored);
+    if (refused) return { refused };
+    entry = { ...sender, holders: 0 };
+    inFlight.set(hash, entry);
   }
-  if (originKey && await unpaidCount({ originKey }) >= originKeyCap) {
-    return `its admitting operator already has ${originKeyCap} unpaid app messages pending`;
-  }
-  return null;
+  entry.holders += 1;
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      entry.holders -= 1;
+      if (entry.holders === 0) inFlight.delete(hash);
+    },
+  };
 }
 
 /**
@@ -141,7 +219,9 @@ async function overAllowance({ clientTag, originKey }) {
  * @param {object} options
  * @param {object} [options.frame] The frame it arrived in, when it arrived alone.
  * @param {number} options.daemonHeight
- * @returns {Promise<{refused: string}|{fields: object}>}
+ * @returns {Promise<{refused: string}|{fields: object, release?: function(): void}>} A
+ *   tagged message that is taken holds its place in both allowances until the
+ *   caller calls `release`, once the message is written, refused or let go.
  */
 async function admitUnpaid(message, { frame, daemonHeight }) {
   const { clientTag, clientTagHeight, arcaneSender } = message;
@@ -154,13 +234,14 @@ async function admitUnpaid(message, { frame, daemonHeight }) {
   const resolved = await resolveOrigin(message, frame);
   if (resolved.refused) return { refused: resolved.refused };
 
-  const over = await overAllowance({ clientTag, originKey: resolved.originKey });
-  if (over) return { refused: over };
+  const place = await reserve(message.hash, { clientTag, originKey: resolved.originKey });
+  if (place.refused) return { refused: place.refused };
 
   return {
     fields: {
       clientTag, clientTagHeight, origin: resolved.origin, originKey: resolved.originKey,
     },
+    release: place.release,
   };
 }
 

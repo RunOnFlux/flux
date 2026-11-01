@@ -152,130 +152,136 @@ async function storeAppTemporaryMessage(message, options = {}) {
   // A paid message is taken whatever it carries; an unpaid one only within its
   // sender's allowance, decided before the verification below.
   let admission = { fields: {} };
-  if (!result) {
-    // Only an Arcane node can put an unpaid message into the network, and only
-    // over an authenticated link does one reach an Arcane node.
-    admission = isArcane && !options.authenticated
-      ? { refused: 'it did not arrive over an authenticated Arcane link' }
-      : await unpaidAdmission.admitUnpaid(message, { frame: options.frame, daemonHeight });
-    fluxEventBus.publish('appmessage:admission', {
-      hash: message.hash,
-      taken: !admission.refused,
-      reason: admission.refused ?? null,
-      clientTag: admission.fields?.clientTag ?? null,
-      originKey: admission.fields?.originKey ?? null,
-    });
-    if (admission.refused) {
-      log.warn(`storeAppTemporaryMessage - not taking ${message.hash}: ${admission.refused}`);
-      options.onRefusal?.(admission.refused);
-      return false;
-    }
-  }
-
-  // data shall already be verified by the broadcasting node. But verify all again.
-  // this takes roughly at least 1 second
-  if (furtherVerification) {
-    // Dynamic require to avoid circular dependency
-    // eslint-disable-next-line global-require
-    const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-    const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
-
-    // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
-    let previousAppSpecs = null;
-    if (!appRegistration) {
-      // a message fetched from peers is already on chain at block: check it against what was
-      // below it there. A live one builds on the newest message.
-      previousAppSpecs = await registryManager.getPreviousAppSpecifications(
-        appSpecFormatted,
-        isAppRequested ? block : undefined,
-        isAppRequested ? messageTimestamp : undefined,
-      );
-      if (!previousAppSpecs) {
-        // Registration doesn't exist yet - queue this update for later processing
-        const appName = appSpecFormatted.name;
-        log.info(`Queueing update for ${appName} - registration not yet stored`);
-        // Queued with its origin, which the replay verifies again.
-        const queued = admission.fields.origin ? { ...message, origin: admission.fields.origin } : message;
-        globalState.queuePendingUpdate(appName, queued, block);
-        options.onRefusal?.(`the registration of ${appName} is not yet stored here`);
-        return false; // Don't rebroadcast - we'll process when registration arrives
+  // A taken message holds its place in its sender's allowance until it is
+  // written or let go.
+  try {
+    if (!result) {
+      // Only an Arcane node can put an unpaid message into the network, and only
+      // over an authenticated link does one reach an Arcane node.
+      admission = isArcane && !options.authenticated
+        ? { refused: 'it did not arrive over an authenticated Arcane link' }
+        : await unpaidAdmission.admitUnpaid(message, { frame: options.frame, daemonHeight });
+      fluxEventBus.publish('appmessage:admission', {
+        hash: message.hash,
+        taken: !admission.refused,
+        reason: admission.refused ?? null,
+        clientTag: admission.fields?.clientTag ?? null,
+        originKey: admission.fields?.originKey ?? null,
+      });
+      if (admission.refused) {
+        log.warn(`storeAppTemporaryMessage - not taking ${message.hash}: ${admission.refused}`);
+        options.onRefusal?.(admission.refused);
+        return false;
       }
     }
 
-    verifyEnterpriseCarriesNoPlainSpec(specifications);
-
-    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+    // data shall already be verified by the broadcasting node. But verify all again.
+    // this takes roughly at least 1 second
+    if (furtherVerification) {
+      // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
-      const fluxService = require('../fluxService');
-      if (await fluxService.isSystemSecure()) {
-        verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
-        // eslint-disable-next-line no-use-before-define
-        const appSpecDecrypted = await checkAndDecryptAppSpecs(
+      const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
+      const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
+
+      // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
+      let previousAppSpecs = null;
+      if (!appRegistration) {
+        // a message fetched from peers is already on chain at block: check it against what was
+        // below it there. A live one builds on the newest message.
+        previousAppSpecs = await registryManager.getPreviousAppSpecifications(
           appSpecFormatted,
-          { daemonHeight: block, owner: appSpecFormatted.owner },
+          isAppRequested ? block : undefined,
+          isAppRequested ? messageTimestamp : undefined,
         );
-        // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
-        await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
-        if (appRegistration) {
-          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
-        } else {
-          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, previousAppSpecs);
+        if (!previousAppSpecs) {
+          // Registration doesn't exist yet - queue this update for later processing
+          const appName = appSpecFormatted.name;
+          log.info(`Queueing update for ${appName} - registration not yet stored`);
+          // Queued with its origin, which the replay verifies again.
+          const queued = admission.fields.origin ? { ...message, origin: admission.fields.origin } : message;
+          globalState.queuePendingUpdate(appName, queued, block);
+          options.onRefusal?.(`the registration of ${appName} is not yet stored here`);
+          return false; // Don't rebroadcast - we'll process when registration arrives
         }
       }
-    } else {
-      await appValidator.verifyAppSpecifications(appSpecFormatted, block);
-      if (appRegistration) {
-        await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+
+      verifyEnterpriseCarriesNoPlainSpec(specifications);
+
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        // eslint-disable-next-line global-require
+        const fluxService = require('../fluxService');
+        if (await fluxService.isSystemSecure()) {
+          verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
+          // eslint-disable-next-line no-use-before-define
+          const appSpecDecrypted = await checkAndDecryptAppSpecs(
+            appSpecFormatted,
+            { daemonHeight: block, owner: appSpecFormatted.owner },
+          );
+          // eslint-disable-next-line no-use-before-define
+          const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
+          await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
+          if (appRegistration) {
+            await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
+          } else {
+            await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, previousAppSpecs);
+          }
+        }
       } else {
-        await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
+        await appValidator.verifyAppSpecifications(appSpecFormatted, block);
+        if (appRegistration) {
+          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+        } else {
+          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
+        }
+      }
+
+      await messageVerifier.verifyAppHash(message);
+      if (appRegistration) {
+        await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
+      } else {
+        const { owner } = previousAppSpecs;
+        try {
+          await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
+        } catch (sigError) {
+          // Before height 2000000, owner-change races were accepted by the
+          // network (re-verification not deployed until v8.10.0, well after
+          // the last known race at h=1880981). Only retry on replay (on-chain).
+          if (!isAppRequested || block >= 2000000) throw sigError;
+          const prevOwner = await getPreviousOwner(appSpecFormatted.name, owner);
+          if (!prevOwner) throw sigError;
+          await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, prevOwner, block, previousAppSpecs);
+        }
       }
     }
 
-    await messageVerifier.verifyAppHash(message);
-    if (appRegistration) {
-      await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
-    } else {
-      const { owner } = previousAppSpecs;
-      try {
-        await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
-      } catch (sigError) {
-        // Before height 2000000, owner-change races were accepted by the
-        // network (re-verification not deployed until v8.10.0, well after
-        // the last known race at h=1880981). Only retry on replay (on-chain).
-        if (!isAppRequested || block >= 2000000) throw sigError;
-        const prevOwner = await getPreviousOwner(appSpecFormatted.name, owner);
-        if (!prevOwner) throw sigError;
-        await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, prevOwner, block, previousAppSpecs);
+    // A peer holding a proposed message (admissionQuorum) writes it only once the
+    // node that admitted it commits.
+    if (options.beforeWrite && !(await options.beforeWrite())) return false;
+
+    // message does not exist anywhere and is ok, store it
+    await insertTemporaryMessage({
+      appSpecifications: appSpecFormatted,
+      type: message.type, // shall be fluxappregister, fluxappupdate
+      version: messageVersion,
+      hash: message.hash,
+      timestamp: messageTimestamp,
+      signature: message.signature,
+      arcaneSender: message.arcaneSender,
+    }, admission.fields);
+    // it is stored and rebroadcasted
+    if (isAppRequested) {
+      if (result && result.txid && result.height) {
+        setImmediate(() => {
+          messageVerifier.checkAndRequestApp(message.hash, result.txid, result.height, result.value, 2)
+            .catch((err) => log.error(`Immediate promotion failed for ${message.hash}: ${err.message}`));
+        });
       }
+      return false;
     }
+    return true;
+  } finally {
+    admission.release?.();
   }
-
-  // A peer holding a proposed message (admissionQuorum) writes it only once the
-  // node that admitted it commits.
-  if (options.beforeWrite && !(await options.beforeWrite())) return false;
-
-  // message does not exist anywhere and is ok, store it
-  await insertTemporaryMessage({
-    appSpecifications: appSpecFormatted,
-    type: message.type, // shall be fluxappregister, fluxappupdate
-    version: messageVersion,
-    hash: message.hash,
-    timestamp: messageTimestamp,
-    signature: message.signature,
-    arcaneSender: message.arcaneSender,
-  }, admission.fields);
-  // it is stored and rebroadcasted
-  if (isAppRequested) {
-    if (result && result.txid && result.height) {
-      setImmediate(() => {
-        messageVerifier.checkAndRequestApp(message.hash, result.txid, result.height, result.value, 2)
-          .catch((err) => log.error(`Immediate promotion failed for ${message.hash}: ${err.message}`));
-      });
-    }
-    return false;
-  }
-  return true;
 }
 
 /**
