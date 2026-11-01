@@ -3537,7 +3537,8 @@ describe('fluxNetworkHelper tests', () => {
       expect(options.params.slice(1, 4)).to.deep.equal(['--wait', '30', '--rules']);
       expect(appliedRules()).to.deep.equal([
         ['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53'],
-        ['prepend', 'limit', 'to', 'any', 'app', 'OpenSSH'],
+        ['delete', 'limit', 'OpenSSH'],
+        ['prepend', 'allow', 'to', 'any', 'app', 'OpenSSH'],
         ['prepend', 'allow', 'from', '192.168.1.1', 'to', 'any', 'proto', 'udp'],
         ...ports().map((port) => ['allow', port]),
         ['allow', 'from', '172.23.0.0/16', 'proto', 'tcp', 'to', '169.254.43.43/32', 'port', '16101'],
@@ -3573,15 +3574,15 @@ describe('fluxNetworkHelper tests', () => {
         applied: true,
         failed: [
           { rule: 'delete allow in proto udp to any port 53', error: 'Could not delete non-existent rule' },
-          { rule: 'prepend limit to any app OpenSSH', error: "ERROR: Could not find a profile matching 'OpenSSH'" },
+          { rule: 'prepend allow to any app OpenSSH', error: "ERROR: Could not find a profile matching 'OpenSSH'" },
         ],
       });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(warnSpy, "Firewall rule not applied: ufw prepend limit to any app OpenSSH: ERROR: Could not find a profile matching 'OpenSSH'");
+      sinon.assert.calledWith(warnSpy, "Firewall rule not applied: ufw prepend allow to any app OpenSSH: ERROR: Could not find a profile matching 'OpenSSH'");
       sinon.assert.neverCalledWith(warnSpy, sinon.match(/port 53/));
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['prepend limit to any app OpenSSH'], appliedBy: 'library' });
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['prepend allow to any app OpenSSH'], appliedBy: 'library' });
     });
 
     it('should run no ufw command at all when another ufw command holds the lock', async () => {
@@ -3614,14 +3615,14 @@ describe('fluxNetworkHelper tests', () => {
       // The fallback runs each rule as given, and reports a refused one by it.
       firewallEnabled(true);
       answered({ removed: 0, applied: false, reason: 'ufw library not usable: TypeError()' });
-      runCommandStub.withArgs('python3', ufwRun(['prepend', 'limit', 'to', 'any', 'app', 'OpenSSH'])).callsFake(async (cmd, options) => {
+      runCommandStub.withArgs('python3', ufwRun(['prepend', 'allow', 'to', 'any', 'app', 'OpenSSH'])).callsFake(async (cmd, options) => {
         options.params.unshift(cmd);
         return { error: new Error('exit 1'), stdout: '', stderr: "ERROR: Could not find a profile matching 'OpenSSH'" };
       });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['prepend limit to any app OpenSSH'], appliedBy: 'commands' });
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['prepend allow to any app OpenSSH'], appliedBy: 'commands' });
     });
 
     it('should apply the rules one ufw command each when the applier fails', async () => {
