@@ -9,7 +9,7 @@ const portReconciler = require('../../ZelBack/src/services/portReconciler');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/localRemovalQueue');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { EventEmitter } = require('node:events');
 const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
@@ -598,7 +598,7 @@ describe('portManager tests', () => {
       sinon.stub(fluxNetworkHelper, 'allowPort').resolves(true);
       sinon.stub(portReconciler, 'keep').resolves(MAPPED);
       sinon.stub(serviceHelper, 'delay').resolves();
-      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(localRemovalQueue, 'queueRemovals');
       portManager.upnpMapFailures.clear();
     });
 
@@ -664,19 +664,20 @@ describe('portManager tests', () => {
 
       await portManager.restoreAppsPortsSupport();
 
-      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.notCalled(localRemovalQueue.queueRemovals);
       expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
     });
 
-    it('should retry a failed port within the cycle and record no failure on recovery', async () => {
+    it('asks for each port once a pass, and counts a refusal as the app\'s failed cycle', async () => {
       upnpService.isUPNP.returns(true);
       portReconciler.keep.onFirstCall().resolves(REFUSED);
       portReconciler.keep.resolves(MAPPED);
 
       await portManager.restoreAppsPortsSupport();
 
-      sinon.assert.notCalled(appUninstaller.removeAppLocally);
-      expect(portManager.upnpMapFailures.has('App1')).to.be.false;
+      sinon.assert.calledOnce(portReconciler.keep);
+      sinon.assert.notCalled(serviceHelper.delay);
+      expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
     });
 
     it('should not remove before the sustained window even after enough failing cycles', async () => {
@@ -688,7 +689,7 @@ describe('portManager tests', () => {
       await portManager.restoreAppsPortsSupport();
 
       // 3 consecutive cycles, but wall-clock window not yet elapsed
-      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.notCalled(localRemovalQueue.queueRemovals);
       expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(3);
     });
 
@@ -703,26 +704,26 @@ describe('portManager tests', () => {
 
       await portManager.restoreAppsPortsSupport();
 
-      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'App1', null, true, true, true);
+      sinon.assert.calledOnceWithExactly(localRemovalQueue.queueRemovals, ['App1']);
       expect(portManager.upnpMapFailures.has('App1')).to.be.false;
     });
 
-    it('should pay the retry pause at most once per cycle across failing apps', async () => {
+    it('queues each app past its limit for removal, and waits for nothing', async () => {
       portReconciler.desiredAppPorts.returns([
         { port: 30001, description: 'Flux_App_App1' },
         { port: 30002, description: 'Flux_App_App2' },
       ]);
       upnpService.isUPNP.returns(true);
       portReconciler.keep.resolves(REFUSED);
+      const longAgoMs = Number(process.hrtime.bigint() / 1000000n) - (31 * 60 * 1000);
+      portManager.upnpMapFailures.set('App1', { cycles: 2, firstFailureAtMs: longAgoMs });
+      portManager.upnpMapFailures.set('App2', { cycles: 2, firstFailureAtMs: longAgoMs });
 
       await portManager.restoreAppsPortsSupport();
 
-      // both apps still get their retry attempt and their strike, but the
-      // recovery pause is shared - not stacked per app
-      sinon.assert.calledOnce(serviceHelper.delay);
-      expect(portReconciler.keep.callCount).to.equal(4);
-      expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
-      expect(portManager.upnpMapFailures.get('App2').cycles).to.equal(1);
+      expect(localRemovalQueue.queueRemovals.getCalls().map((call) => call.args[0])).to.deep.equal([['App1'], ['App2']]);
+      sinon.assert.notCalled(serviceHelper.delay);
+      expect(portReconciler.keep.callCount).to.equal(2);
     });
 
     it('should clear the failure tracker once mapping succeeds again', async () => {
@@ -735,7 +736,7 @@ describe('portManager tests', () => {
       await portManager.restoreAppsPortsSupport();
 
       expect(portManager.upnpMapFailures.has('App1')).to.be.false;
-      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.notCalled(localRemovalQueue.queueRemovals);
     });
 
     // boot starts a pass without waiting on it, and the refresh may come round

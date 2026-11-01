@@ -9,6 +9,7 @@ const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
 const upnpService = require('../upnpService');
 const portReconciler = require('../portReconciler');
+const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
@@ -35,7 +36,6 @@ const PORTS_IN_USE_KEY = 'portsInUse';
 // minimum wall-clock window, measured on the monotonic clock.
 const UPNP_REMOVAL_MIN_CONSECUTIVE_CYCLES = 3;
 const UPNP_REMOVAL_MIN_WINDOW_MS = 30 * 60 * 1000;
-const UPNP_MAP_RETRY_DELAY_MS = 30 * 1000;
 // appName -> { cycles, firstFailureAtMs } (monotonic ms)
 const upnpMapFailures = new Map();
 
@@ -285,10 +285,12 @@ let appsPortsRestore = null;
 
 /**
  * Renews the UPnP mappings of the app ports installations want
- * (portReconciler.desiredAppPorts), app by app. An app port's host firewall
- * rule is written at install and re-applied at boot (appStartupManager), and
- * ufw keeps it across restarts. A call while a pass is in progress joins that
- * pass, so the router is asked once and each app's failed cycle is counted once.
+ * (portReconciler.desiredAppPorts), app by app. An app whose ports have failed
+ * to map for long enough is queued for removal (localRemovalQueue), which the
+ * pass does not wait for. An app port's host firewall rule is written at install
+ * and re-applied at boot (appStartupManager), and ufw keeps it across restarts.
+ * A call while a pass is in progress joins that pass, so the router is asked
+ * once and each app's failed cycle is counted once.
  * @returns {Promise<void>}
  */
 function restoreAppsPortsSupport() {
@@ -314,10 +316,6 @@ async function restoreAppsPortsPass() {
 
     // UPNP
     if (isUPNP) {
-      // one shared recovery pause per cycle: every failing mapping still gets
-      // its retry, but a router-wide outage must not stack per-app pauses
-      // (N apps -> N x 30s of serial delay, outgrowing the restore interval)
-      let retryDelayElapsed = false;
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
       for (const application of currentAppsPorts) {
@@ -329,16 +327,7 @@ async function restoreAppsPortsPass() {
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          let result = await portReconciler.keep(port);
-          if (!result.mapped && !result.released) {
-            if (!retryDelayElapsed) {
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(UPNP_MAP_RETRY_DELAY_MS);
-              retryDelayElapsed = true;
-            }
-            // eslint-disable-next-line no-await-in-loop
-            result = await portReconciler.keep(port);
-          }
+          const result = await portReconciler.keep(port);
           if (result.released) {
             released = true;
             break;
@@ -375,13 +364,7 @@ async function restoreAppsPortsPass() {
 
         log.warn(`REMOVAL REASON: UPNP port mapping failure - ${application.name} failed to map port ${failedPort} via UPNP for ${tracker.cycles} consecutive cycles over ${Math.round(sustainedMs / 60000)}m (portManager)`);
         upnpMapFailures.delete(application.name);
-        // Import locally to avoid circular dependency
-        // eslint-disable-next-line global-require
-        const appUninstaller = require('../appLifecycle/appUninstaller');
-        // eslint-disable-next-line no-await-in-loop
-        await appUninstaller.removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(3 * 60 * 1000); // 3 mins
+        localRemovalQueue.queueRemovals([application.name]);
       }
     }
   } catch (error) {
