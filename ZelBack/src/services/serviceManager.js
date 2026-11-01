@@ -76,6 +76,7 @@ const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
 const appPlacements = require('./appManagement/appPlacements');
+const upnpMappingRecord = require('./upnpMappingRecord');
 const imageUpdateService = require('./imageUpdateService');
 const { version: fluxVersion } = require('../../../package.json');
 // const throughputLogger = require('./utils/throughputLogger');
@@ -90,7 +91,6 @@ const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 
 const {
-  portRestoreIntervalMs,
   cpuCheckIntervalMs,
   forceRemovalIntervalMs,
   tempMsgTtlS,
@@ -171,6 +171,8 @@ async function prepareDatabaseSchema() {
   await appsRuntimeState.prepareCollection();
   // appPlacements (localzelapps): one record per app
   await appPlacements.prepareCollection();
+  // the UPnP mappings this node made at boot, before the database was connected
+  await upnpMappingRecord.writeWaiting();
   // The explorer's collections: their indexes are the explorer's to declare.
   await explorerService.prepareCollections();
   log.info('Local database prepared');
@@ -263,6 +265,27 @@ async function prepareDatabaseSchema() {
  * whole boot 15 s later with whatever is stubbed by then. Unit-test the steps
  * it calls; the integration harness covers the sequence.
  */
+/**
+ * On a UPnP node with a router address: its firewall rules for UPnP are written again every
+ * hour, against an operator removing them on a legacy node, and from a minute after the start
+ * other nodes are asked every 8 minutes to call its UPnP ports. A node that does not map
+ * through UPnP runs neither.
+ * @returns {boolean} whether the upkeep was started
+ */
+function startRouterAddressUpkeep() {
+  if (!upnpService.isUPNP() || !userconfig.initial.routerIP) return false;
+  setInterval(() => {
+    upnpService.adjustFirewallForUPNP();
+  }, (60 * 60 * 1000) + 1000);
+  setTimeout(() => {
+    portManager.callOtherNodeToKeepUpnpPortsOpen();
+    setInterval(() => {
+      portManager.callOtherNodeToKeepUpnpPortsOpen();
+    }, 8 * 60 * 1000);
+  }, 1 * 60 * 1000);
+  return true;
+}
+
 async function startFluxFunctions() {
   try {
     if (!config.server.allowedPorts.includes(+apiPort)) {
@@ -314,20 +337,7 @@ async function startFluxFunctions() {
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
     await cloudUIUpdateService.checkAndUpdateCloudUI();
-    // User configured UPnP node with routerIP, UPnP has already been verified and setup
-    if (userconfig.initial.routerIP) {
-      setInterval(() => {
-        // this is only used as a protection against node operators removing rules
-        // on legacy nodes.
-        upnpService.adjustFirewallForUPNP();
-      }, (60 * 60 * 1000) + 1000); // every 60m.
-      setTimeout(() => {
-        portManager.callOtherNodeToKeepUpnpPortsOpen();
-        setInterval(() => {
-          portManager.callOtherNodeToKeepUpnpPortsOpen();
-        }, 8 * 60 * 1000);
-      }, 1 * 60 * 1000);
-    }
+    startRouterAddressUpkeep();
     await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
     await fluxNetworkHelper.allowOnlyDockerNetworksToFluxNodeService();
     fluxNodeService.start();
@@ -682,7 +692,6 @@ async function startFluxFunctions() {
       appController.stopAllNonFluxRunningApps();
       // Best effort during boot — the reconciler starts monitoring per app as it settles.
       monitoringOrchestrator.startMonitoringOfApps(null).catch((error) => log.error(error));
-      portManager.restoreAppsPortsSupport();
     }, bootDelay(1 * 60 * 1000));
     // Resolve this node's enterprise identity once, up front. The key comes off disk and
     // policy arrives on an event, so this settles at boot rather than on a timer; the
@@ -718,9 +727,9 @@ async function startFluxFunctions() {
       // read the local app table, so it waits on the same db the sweep beside it waits
       // on.
       imageManager.startComplianceSweeps(appQueryService.installedApps, appUninstaller.removeAppLocally);
-      setInterval(() => {
-        portManager.restorePortsSupport();
-      }, portRestoreIntervalMs);
+      // Detached: from the boot gate settling, once per cycle in this node's
+      // own refresh slot. Nothing waits on it.
+      portManager.refreshPortsInSlot();
       // Detached: one pass per start, once the boot gate has settled and in
       // this node's own slot. Nothing waits on it.
       portManager.removeStaleUpnpMappings();
@@ -840,6 +849,7 @@ async function startFluxFunctions() {
 
 module.exports = {
   startFluxFunctions,
+  startRouterAddressUpkeep,
   prepareDatabaseSchema,
   // testing exports
   dosState,

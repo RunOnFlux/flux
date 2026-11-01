@@ -771,9 +771,13 @@ describe('apiServer initiate readiness', () => {
   let notifyReady;
   let startFluxFunctions;
   let uncaughtBefore;
+  let userconfigBefore;
 
   beforeEach(() => {
     uncaughtBefore = process.listeners('uncaughtException');
+    // UPnP is set up only for a node whose userconfig names its API port.
+    userconfigBefore = globalThis.userconfig;
+    globalThis.userconfig = { initial: { ...userconfigBefore?.initial, apiport: 16127, routerIP: '' } };
     listen = sinon.stub().resolves();
     sinon.stub(fluxServer, 'FluxServer').callsFake(() => ({ listen, app: {}, socketIo: {} }));
     notifyReady = sinon.stub(systemdNotify, 'notifyReady').resolves(true);
@@ -781,6 +785,9 @@ describe('apiServer initiate readiness', () => {
     sinon.stub(dnsLookup, 'install');
     sinon.stub(upnpService, 'verifyUPNPsupport').resolves(true);
     sinon.stub(upnpService, 'setupUPNP').resolves(true);
+    sinon.stub(upnpService, 'learnLeaseRenewal').resolves(false);
+    sinon.stub(upnpService, 'declareUpnpIfUnset').resolves();
+    sinon.stub(upnpService, 'startMapping').resolves(true);
     sinon.stub(configManager, 'startWatching').resolves();
     sinon.stub(fs, 'existsSync').returns(true);
     const readFileSync = fs.readFileSync.bind(fs);
@@ -790,6 +797,7 @@ describe('apiServer initiate readiness', () => {
 
   afterEach(() => {
     sinon.restore();
+    globalThis.userconfig = userconfigBefore;
     process.listeners('uncaughtException')
       .filter((listener) => !uncaughtBefore.includes(listener))
       .forEach((listener) => process.removeListener('uncaughtException', listener));
@@ -801,6 +809,38 @@ describe('apiServer initiate readiness', () => {
     sinon.assert.calledTwice(listen);
     sinon.assert.calledOnce(notifyReady);
     sinon.assert.callOrder(listen, notifyReady, startFluxFunctions);
+  });
+
+  it('writes whether the node maps through UPnP where its config does not say, then maps its own ports, before it listens', async () => {
+    globalThis.userconfig.initial.upnp = true;
+
+    await apiServer.initiate();
+
+    // the suite's config listens on 16127
+    sinon.assert.calledOnceWithExactly(upnpService.startMapping, 16127);
+    sinon.assert.callOrder(upnpService.declareUpnpIfUnset, upnpService.startMapping, listen);
+    sinon.assert.calledOnce(startFluxFunctions);
+  });
+
+  it('maps nothing of its own on a node that does not map through UPnP', async () => {
+    globalThis.userconfig.initial.upnp = false;
+
+    await apiServer.initiate();
+
+    sinon.assert.calledOnce(upnpService.declareUpnpIfUnset);
+    sinon.assert.notCalled(upnpService.startMapping);
+    sinon.assert.calledTwice(listen);
+  });
+
+  it('listens, and stays up, when the router does not take its ports', async () => {
+    globalThis.userconfig.initial.upnp = true;
+    upnpService.startMapping.resolves(false);
+    sinon.stub(process, 'exit');
+
+    await apiServer.initiate();
+
+    sinon.assert.calledTwice(listen);
+    sinon.assert.notCalled(process.exit);
   });
 
   it('does not hold startup on the readiness report', async () => {

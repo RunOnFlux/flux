@@ -22,7 +22,7 @@ const { requireMongo } = require('./dbTestHelper');
 const MESSAGES = 'zelappsmessages';
 const INFO = 'zelappsinformation';
 const LOCAL_INFO = 'zelappsinformation';
-const APPS = 3000;
+const APPS = 20;
 const HEIGHT = 1000;
 
 describe('registry rebuild', () => {
@@ -50,20 +50,34 @@ describe('registry rebuild', () => {
     await globalDb.collection(INFO).replaceOne({ name: row.name }, row, { upsert: true });
   };
 
-  const rebuild = () => dbHelper.reindexGlobalAppsInformation(
-    globalDb, localDb, MESSAGES, INFO, LOCAL_INFO, HEIGHT, daemonDb,
+  const rebuild = (daemon = daemonDb) => dbHelper.reindexGlobalAppsInformation(
+    globalDb, localDb, MESSAGES, INFO, LOCAL_INFO, HEIGHT, daemon,
   );
 
-  // Resolves once the rebuild has created its staging collection, which is the
-  // window a concurrent write has to land in to be at risk.
-  const stagingExists = async () => {
-    for (;;) {
-      // eslint-disable-next-line no-await-in-loop
-      const names = (await globalDb.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
-      if (names.includes(`${INFO}_rebuild`)) return;
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve) => { setImmediate(resolve); });
-    }
+  // A rebuild held inside the window a concurrent write or read has to land in: the
+  // staging collection built and filled, the live registry not yet replaced, the
+  // registry write lock held. It is held at its read of the chain's hashes, the
+  // one step of the rebuild between the two, by the daemon database it is given.
+  const heldRebuild = () => {
+    let reached;
+    let release;
+    const atWindow = new Promise((resolve) => { reached = resolve; });
+    const gate = new Promise((resolve) => { release = resolve; });
+    const held = {
+      collection: (name) => {
+        const real = daemonDb.collection(name);
+        return {
+          find: (...args) => ({
+            toArray: async () => {
+              reached();
+              await gate;
+              return real.find(...args).toArray();
+            },
+          }),
+        };
+      },
+    };
+    return { running: rebuild(held), atWindow, release };
   };
 
   before(async function setUp() {
@@ -75,9 +89,11 @@ describe('registry rebuild', () => {
   });
 
   beforeEach(async () => {
-    await globalDb.dropDatabase();
-    await localDb.dropDatabase();
-    await daemonDb.dropDatabase();
+    await Promise.all([
+      globalDb.collection(MESSAGES).deleteMany({}),
+      globalDb.collection(INFO).deleteMany({}),
+      localDb.collection(LOCAL_INFO).deleteMany({}),
+    ]);
     const docs = [];
     for (let i = 0; i < APPS; i += 1) docs.push(message(`app${i}`, HEIGHT));
     await globalDb.collection(MESSAGES).insertMany(docs);
@@ -103,35 +119,40 @@ describe('registry rebuild', () => {
     let reads = 0;
     const otherErrors = [];
     let done = false;
+    let readInWindow;
+    const twoReadsInWindow = new Promise((resolve) => { readInWindow = resolve; });
+    const { running, atWindow, release } = heldRebuild();
+    await atWindow;
     const watching = (async () => {
       while (!done) {
         try {
           // eslint-disable-next-line no-await-in-loop
           lowest = Math.min(lowest, await globalDb.collection(INFO).countDocuments());
           reads += 1;
+          if (reads === 2) readInWindow();
         } catch (error) {
           if (!/collection dropped/.test(error.message)) otherErrors.push(error.message);
         }
       }
     })();
-    await rebuild();
+    await twoReadsInWindow;
+    release();
+    await running;
     done = true;
     await watching;
-    // Anchored on the watcher having looked at all: a count never taken is also
-    // never below APPS.
-    expect(reads).to.be.greaterThan(1);
     expect(otherErrors).to.deep.equal([]);
     expect(lowest).to.equal(APPS);
   });
 
   it('keeps a write made while it runs, exactly once, when the write takes the lock', async () => {
-    const running = rebuild();
-    await stagingExists();
+    const { running, atWindow, release } = heldRebuild();
+    await atWindow;
     // No message the rebuild could read it back from - the case of a message
     // stored after the rebuild read the messages - so only the write itself can
     // put this row in the registry, and only the lock keeps it there.
-    await withRegistryWrite(() => promote(message('arrivedDuringRebuild', HEIGHT + 1)));
-    await running;
+    const writing = withRegistryWrite(() => promote(message('arrivedDuringRebuild', HEIGHT + 1)));
+    release();
+    await Promise.all([running, writing]);
     expect(await globalDb.collection(INFO).countDocuments({ name: 'arrivedDuringRebuild' })).to.equal(1);
   });
 
@@ -139,11 +160,13 @@ describe('registry rebuild', () => {
   // discarded by the swap. If this ever stops holding, the test above no longer
   // puts its write inside the window it is meant to cover.
   it('discards a write made while it runs without the lock - the reason every writer takes it', async () => {
-    const running = rebuild();
-    await stagingExists();
+    const { running, atWindow, release } = heldRebuild();
+    await atWindow;
     // Promoted without the lock, and without a message the rebuild could read it
     // back from: only the write itself can put this row in the registry.
     await promote(message('unlockedWrite', HEIGHT + 1));
+    expect(await globalDb.collection(INFO).countDocuments({ name: 'unlockedWrite' }), 'canary: the write landed').to.equal(1);
+    release();
     await running;
     expect(await globalDb.collection(INFO).countDocuments({ name: 'unlockedWrite' })).to.equal(0);
   });
@@ -183,7 +206,12 @@ describe('registry rebuild: who holds a name', () => {
   });
 
   beforeEach(async () => {
-    await Promise.all([globalDb.dropDatabase(), localDb.dropDatabase(), daemonDb.dropDatabase()]);
+    await Promise.all([
+      globalDb.collection(MESSAGES).deleteMany({}),
+      globalDb.collection(INFO).deleteMany({}),
+      localDb.collection(LOCAL_INFO).deleteMany({}),
+      daemonDb.collection('zelappshashes').deleteMany({}),
+    ]);
   });
 
   after(async () => {

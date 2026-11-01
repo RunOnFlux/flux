@@ -210,7 +210,7 @@ describe('appSpawner tests', () => {
         )),
         getApplicationGlobalSpecifications: sinon.stub().resolves(opts.appSpec || null),
         expireGlobalApplications: sinon.stub().resolves(),
-        storeAppInstallingMessage: sinon.stub().resolves(),
+        storeAppInstallingMessage: opts.claimStub ?? sinon.stub().resolves(),
         getRunningAppIpList: sinon.stub().resolves([]),
         countAppInstallingErrors: sinon.stub().resolves(opts.errorCount ?? 0),
       },
@@ -238,11 +238,12 @@ describe('appSpawner tests', () => {
       },
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
-        siblingHoldingPort: sinon.stub().resolves(opts.siblingHoldingPort ?? null),
+        siblingHoldingPort: (opts.siblingCheck ?? sinon.stub()).resolves(opts.siblingHoldingPort ?? null),
         checkInstallingAppPortAvailable: (opts.portCheck ?? sinon.stub()).resolves({
           ok: opts.portsAvailable ?? true,
           reason: (opts.portsAvailable ?? true) ? 'proven' : 'notOurs',
         }),
+        releaseTestedPorts: opts.releaseTestedPorts ?? sinon.stub().resolves(),
       },
       '../appQuery/resourceQueryService': {
         appsResources: sinon.stub().resolves({ status: 'success', data: { unreadable: opts.unaccounted ?? [] } }),
@@ -1059,6 +1060,57 @@ describe('appSpawner tests', () => {
       expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at'))).to.be.false;
     });
 
+    // The ask is a signed request to every node at this address, so it waits
+    // for the local checks: an app whose instances are already covered is
+    // turned away without a sibling hearing about it.
+    it('asks no sibling about an app whose instances are already covered', async () => {
+      const siblingCheck = sinon.stub();
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        siblingCheck,
+        recheckAppLocations: [{ ip: '1.1.1.1:16127' }, { ip: '2.2.2.2:16127' }, { ip: '3.3.3.3:16127' }],
+      });
+
+      const delay = await appSpawner.trySpawningGlobalApplication();
+
+      expect(delay).to.equal(60000);
+      sinon.assert.notCalled(siblingCheck);
+    });
+
+    // And it comes before the claim, so a sibling's refusal leaves nothing on
+    // the network to withdraw.
+    it('makes no installing claim when a sibling holds the port', async () => {
+      const claimStub = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        claimStub,
+        siblingHoldingPort: { address: '86.9.47.94:16137', port: 31000 },
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      sinon.assert.notCalled(claimStub);
+    });
+
+    // The control for both: with nothing to turn it away, the attempt asks the
+    // siblings and then claims, so the two stubs above are the ones the spawner
+    // calls.
+    it('asks the siblings, then claims, when nothing turns the app away', async () => {
+      const siblingCheck = sinon.stub();
+      const claimStub = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, siblingCheck, claimStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.callOrder(siblingCheck, claimStub);
+    });
+
     // A node whose calls to other nodes are redirected cannot ask a synced app's
     // partners anything, so it is not given one. Anything else it still takes.
     describe('a node whose calls to other nodes are redirected', () => {
@@ -1136,7 +1188,53 @@ describe('appSpawner tests', () => {
 
       await appSpawner.trySpawningGlobalApplication();
 
-      sinon.assert.calledOnceWithExactly(portCheck, sinon.match.array, fullSpec.name);
+      sinon.assert.calledOnceWithExactly(portCheck, sinon.match.array, fullSpec.name, { holder: sinon.match.object });
+    });
+
+    it('releases the ports its port test kept, for that test\'s attempt, when the install goes no further', async () => {
+      const portCheck = sinon.stub();
+      const releaseTestedPorts = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        portCheck,
+        releaseTestedPorts,
+        installStub: sinon.stub().resolves(InstallOutcome.DECLINED),
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      sinon.assert.calledOnce(portCheck);
+      sinon.assert.calledOnceWithExactly(releaseTestedPorts, portCheck.firstCall.args[0], fullSpec.name, portCheck.firstCall.args[2].holder);
+    });
+
+    it('releases the ports its port test kept, for that test\'s attempt, after an install too', async () => {
+      const portCheck = sinon.stub();
+      const releaseTestedPorts = sinon.stub().resolves();
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, portCheck, releaseTestedPorts, installStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.calledOnce(installStub);
+      sinon.assert.calledOnceWithExactly(releaseTestedPorts, portCheck.firstCall.args[0], fullSpec.name, portCheck.firstCall.args[2].holder);
+      sinon.assert.callOrder(installStub, releaseTestedPorts);
+    });
+
+    it('releases nothing when the attempt stops before its port test', async () => {
+      const portCheck = sinon.stub();
+      const releaseTestedPorts = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, portCheck, releaseTestedPorts, siblingHoldingPort: { port: 31000, address: '192.168.1.2:16137' },
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      sinon.assert.notCalled(portCheck);
+      sinon.assert.notCalled(releaseTestedPorts);
     });
 
     it('should add to short-term cache when network error count >= 5', async () => {
@@ -1592,6 +1690,44 @@ describe('appSpawner tests', () => {
       expect(withdrawal.version).to.equal(2);
       expect(withdrawal.ip).to.equal('192.168.1.1:16127');
       expect(withdrawal.name).to.be.a('string');
+    });
+
+    it('withdraws its claim when the port check refuses, the last check before the install', async () => {
+      const portCheck = sinon.stub();
+      const { installStub, withdrawalStub } = await runAttempt({ portsAvailable: false, portCheck });
+
+      sinon.assert.calledOnce(portCheck);
+      expect(installStub.called, 'installed on ports the check refused').to.be.false;
+      expect(
+        withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true),
+        'a claim held after its ports were refused',
+      ).to.have.lengthOf(1);
+    });
+
+    it('tests no port for an attempt that yields its claim to an earlier claimant', async () => {
+      const portCheck = sinon.stub();
+      const { logged } = await runAttempt({
+        portCheck,
+        placementShare: { domainCount: 3, maxPerDomain: 1 },
+        finalInstallingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.1.1:16127', broadcastedAt: 2000 },
+        ],
+      });
+
+      expect(logged('earlier claimants in fault domain'), 'never reached the stand-down').to.be.true;
+      sinon.assert.notCalled(portCheck);
+    });
+
+    it('stands down while the node is already doing something to an app, before it tests a port', async () => {
+      const portCheck = sinon.stub();
+      const { withdrawalStub } = await runAttempt({
+        portCheck,
+        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
+      });
+
+      expect(withdrawalStub.called, 'never reached the stand-down').to.be.true;
+      sinon.assert.notCalled(portCheck);
     });
 
     it('does not claim an app the network already has covered', async () => {

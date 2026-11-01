@@ -45,6 +45,9 @@
     }
   ],
   "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=20.8.0"
+  },
   "bugs": {
     "url": "https://github.com/runonflux/flux/issues"
   },
@@ -73,7 +76,7 @@
     "@aws-sdk/client-ecr": "^3.922.0",
     "@azure/identity": "^4.13.0",
     "@isaacs/ttlcache": "~1.4.1",
-    "@runonflux/nat-upnp": "~2.0.6",
+    "@runonflux/nat-upnp": "~2.2.0",
     "apicache": "~1.6.3",
     "archiver": "~7.0.1",
     "axios": "~1.13.6",

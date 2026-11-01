@@ -25,6 +25,7 @@ const { RemovalOutcome } = require('./utils/removalOutcome');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
+const configManager = require('./utils/configManager');
 const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
 const ufw = require('./utils/ufw');
 const ufwHelper = require('./utils/ufwHelper');
@@ -102,6 +103,7 @@ const StickyDosOwner = Object.freeze({
   CGROUP_FLOOR: 'cgroupFloor',
   HOST_STALL: 'hostStall',
   IP_CHANGES: 'ipChanges',
+  UPNP_ROUTER: 'upnpRouter',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -1965,22 +1967,8 @@ async function adjustExternalIp(previous, current, { announceMove = true } = {})
  * @returns {Promise<void>}
  */
 async function writeConfiguredIp(ip) {
-  const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
   log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
-  const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${ip}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-    kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
-    development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-    routerIP: '${userconfig.initial.routerIP || ''}',
-    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-  }
-}`;
-  await fs.writeFile(fluxDirPath, dataToWrite);
+  await configManager.writeInitial({ ipaddress: ip });
 }
 
 /**

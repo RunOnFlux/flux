@@ -8,6 +8,7 @@ const config = require('config');
 const configDefault = require('../../config/default');
 
 const log = require('../lib/log');
+const configManager = require('./utils/configManager');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
@@ -1729,23 +1730,7 @@ async function adjustKadenaAccount(req, res) {
         throw new Error(`Invalid Chain ID ${chainid} provided.`);
       }
       const kadenaURI = `kadena:${account}?chainid=${chainid}`;
-      const { userconfig } = globalThis;
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-    kadena: '${kadenaURI}',
-    testnet: ${userconfig.initial.testnet || false},
-    development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-    routerIP: '${userconfig.initial.routerIP || ''}',
-    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-  }
-}`;
-
-      await fs.writeFile(fluxDirPath, dataToWrite);
+      await configManager.writeInitial({ kadena: kadenaURI });
 
       const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
@@ -1772,22 +1757,7 @@ async function adjustRouterIP(req, res) {
       let { routerip } = req.params;
       routerip = routerip || req.query.routerip || '';
 
-      const { userconfig } = globalThis;
-      const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-          kadena: '${userconfig.initial.kadena || ''}',
-          testnet: ${userconfig.initial.testnet || false},
-          development: ${userconfig.initial.development || false},
-          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-          routerIP: '${routerip}',
-          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      await fs.writeFile(fluxDirPath, dataToWrite);
+      await configManager.writeInitial({ routerIP: routerip });
 
       const successMessage = messageHelper.createSuccessMessage('Router IP adjusted');
       res.json(successMessage);
@@ -1821,22 +1791,7 @@ async function adjustAPIPort(req, res) {
         return;
       }
 
-      const { userconfig } = globalThis;
-      const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-          kadena: '${userconfig.initial.kadena || ''}',
-          testnet: ${userconfig.initial.testnet || false},
-          development: ${userconfig.initial.development || false},
-          apiport: ${Number(+apiport)},
-          routerIP: '${userconfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      await fs.writeFile(fluxDirPath, dataToWrite);
+      await configManager.writeInitial({ apiport: Number(+apiport) });
 
       const successMessage = messageHelper.createSuccessMessage('API Port adjusted. A restart of FluxOS is necessary');
       res.json(successMessage);

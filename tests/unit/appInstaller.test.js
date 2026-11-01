@@ -7,7 +7,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 
-// what upnpService.mapUpnpPort answers for a port mapped, and for one the router refused
+// what portReconciler.want answers for a port mapped, and for one the router refused
 const MAPPED = {
   mapped: true, code: null, reason: null, routerWide: false,
 };
@@ -225,7 +225,6 @@ describe('appInstaller tests', () => {
       },
       '../upnpService': {
         isUPNP: sinon.stub().returns(false),
-        mapUpnpPort: sinon.stub().resolves(MAPPED),
       },
       '../utils/globalState': globalStateStub,
       '../../lib/log': logStub,
@@ -1095,7 +1094,6 @@ describe('appInstaller tests', () => {
         },
         '../upnpService': {
           isUPNP: sinon.stub().returns(false),
-          mapUpnpPort: sinon.stub().resolves(MAPPED),
         },
         '../appRequirements/hwRequirements': hwRequirementsStub,
         '../appMessaging/messageVerifier': messageVerifierStub,
@@ -1325,7 +1323,6 @@ describe('appInstaller tests', () => {
         },
         '../upnpService': {
           isUPNP: sinon.stub().returns(false),
-          mapUpnpPort: sinon.stub().resolves(MAPPED),
         },
         '../utils/globalState': globalStateStub,
         '../../lib/log': logStub,
@@ -1534,7 +1531,6 @@ describe('appInstaller tests', () => {
         },
         '../upnpService': {
           isUPNP: sinon.stub().returns(false),
-          mapUpnpPort: sinon.stub().resolves(MAPPED),
         },
         '../utils/globalState': globalStateStub,
         '../../lib/log': logStub,
@@ -1803,7 +1799,7 @@ describe('appInstaller tests', () => {
           }),
         },
         '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
-        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(MAPPED) },
+        '../upnpService': { isUPNP: sinon.stub().returns(false) },
         '../utils/globalState': globalStateStub,
         '../utils/volumeService': { verifyAppVolumeMount: sinon.stub().resolves(), ensureMountPathsExist: sinon.stub().resolves() },
         '../../lib/log': logStub,
@@ -1889,7 +1885,7 @@ describe('appInstaller tests', () => {
         '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
         '../utils/imageVerifier': { ImageVerifier: sinon.stub().returns({ addCredentials: sinon.stub(), verifyImage: sinon.stub().resolves(), throwIfError: sinon.stub(), supported: true, provider: 'docker.io' }) },
         '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
-        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(MAPPED) },
+        '../upnpService': { isUPNP: sinon.stub().returns(false) },
         '../utils/enterpriseHelper': enterpriseHelperStub,
         '../utils/appSpecHelpers': appSpecHelpersStub,
         '../../lib/log': logStub,
@@ -1926,6 +1922,7 @@ describe('appInstaller tests', () => {
     let appInstallerPorts;
     let firewallStub;
     let upnpStub;
+    let reconcilerStub;
     let logStub;
 
     beforeEach(() => {
@@ -1934,12 +1931,14 @@ describe('appInstaller tests', () => {
         allowPort: sinon.stub().resolves({ status: true }),
         allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
       };
-      upnpStub = { isUPNP: sinon.stub().returns(true), mapUpnpPort: sinon.stub().resolves(MAPPED) };
+      upnpStub = { isUPNP: sinon.stub().returns(true) };
+      reconcilerStub = { want: sinon.stub().resolves(MAPPED) };
       logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
       appInstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
+        '../portReconciler': reconcilerStub,
         '../../lib/log': logStub,
       });
     });
@@ -1953,8 +1952,8 @@ describe('appInstaller tests', () => {
 
       expect(firewallStub.allowPort.called).to.be.false;
       expect(firewallStub.allowAppPorts.args).to.deep.equal([[[31000, 31001]]]);
-      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
-      expect(upnpStub.mapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.want.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.want.calledWith(31001, 'Flux_App_myapp')).to.be.true;
     });
 
     it('maps a v1 app port and opens it in the host firewall', async () => {
@@ -1962,7 +1961,7 @@ describe('appInstaller tests', () => {
 
       expect(firewallStub.allowPort.called).to.be.false;
       expect(firewallStub.allowAppPorts.args).to.deep.equal([[[31000]]]);
-      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.want.calledWith(31000, 'Flux_App_myapp')).to.be.true;
     });
 
     it('installs on with a warning when a port cannot be opened in the firewall', async () => {
@@ -1971,11 +1970,11 @@ describe('appInstaller tests', () => {
       await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null);
 
       sinon.assert.calledWithMatch(logStub.warn, 'Port of myapp not opened in the firewall: ufw allow 31000: ERROR: Bad port');
-      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.want.calledWith(31000, 'Flux_App_myapp')).to.be.true;
     });
 
     it('fails the install with the router\'s reason when a port is refused', async () => {
-      upnpStub.mapUpnpPort.resolves(REFUSED);
+      reconcilerStub.want.resolves(REFUSED);
 
       const error = await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null).catch((e) => e);
 
@@ -1983,7 +1982,7 @@ describe('appInstaller tests', () => {
     });
 
     it('fails a v1 install with the router\'s reason when its port is refused', async () => {
-      upnpStub.mapUpnpPort.resolves(REFUSED);
+      reconcilerStub.want.resolves(REFUSED);
 
       const error = await appInstallerPorts.setupApplicationPorts({ port: 31000 }, 'myapp', false, null).catch((e) => e);
 

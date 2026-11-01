@@ -138,28 +138,12 @@ async function logErrorAndExit(msg, options = {}) {
 
 async function loadUpnpIfRequired() {
   try {
-    let verifyUpnp = false;
-    let setupUpnp = false;
-    if (globalThis.userconfig.initial.apiport) {
-      verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-      if (verifyUpnp) {
-        setupUpnp = await upnpService.setupUPNP(apiPort);
-      }
-    }
-    if ((globalThis.userconfig.initial.apiport && globalThis.userconfig.initial.apiport !== config.server.apiport) || globalThis.userconfig.initial.routerIP) {
-      if (verifyUpnp !== true) {
-        await logErrorAndExit(
-          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`,
-          { exitCode: 1, delay: 120_000 },
-        );
-      }
-      if (setupUpnp !== true) {
-        await logErrorAndExit(
-          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`,
-          { exitCode: 1, delay: 120_000 },
-        );
-      }
-    }
+    await upnpService.declareUpnpIfUnset();
+    if (!upnpService.isUPNP()) return;
+    // The first attempt is awaited, so a router that answers has the node's own
+    // ports mapped before it listens; one that does not is asked again until it
+    // does, and the node waits for that at boot (appStartupManager).
+    await upnpService.startMapping(apiPort);
   } catch (error) {
     log.error(error);
   }
@@ -167,10 +151,8 @@ async function loadUpnpIfRequired() {
 
 async function configReload() {
   // Config watching is now handled by configManager
-  await configManager.startWatching(log, async (newConfig) => {
-    if (newConfig?.initial?.apiport) {
-      await loadUpnpIfRequired();
-    }
+  await configManager.startWatching(log, async () => {
+    await loadUpnpIfRequired();
   });
 }
 

@@ -18,17 +18,20 @@ describe('appUninstaller tests', () => {
     let appUninstallerPorts;
     let firewallStub;
     let upnpStub;
+    let reconcilerStub;
 
     beforeEach(() => {
       firewallStub = {
         isFirewallActive: sinon.stub().resolves(true),
         deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
       };
-      upnpStub = { isUPNP: sinon.stub().returns(true), removeMapUpnpPort: sinon.stub().resolves(true) };
+      upnpStub = { isUPNP: sinon.stub().returns(true) };
+      reconcilerStub = { release: sinon.stub().resolves(true) };
       appUninstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
         '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
+        '../portReconciler': reconcilerStub,
         '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       });
     });
@@ -41,15 +44,15 @@ describe('appUninstaller tests', () => {
       await appUninstallerPorts.cleanupPorts({ ports: [31000, 31001] }, 'myapp', null, 'myapp');
 
       expect(firewallStub.deleteAppPortRules.args).to.deep.equal([[[31000, 31001]]]);
-      expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
-      expect(upnpStub.removeMapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.release.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.release.calledWith(31001, 'Flux_App_myapp')).to.be.true;
     });
 
     it('removes a v1 app port mapping and the port\'s rules', async () => {
       await appUninstallerPorts.cleanupPorts({ port: 31000 }, 'myapp', null, 'myapp');
 
       expect(firewallStub.deleteAppPortRules.args).to.deep.equal([[[31000]]]);
-      expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.release.calledWith(31000, 'Flux_App_myapp')).to.be.true;
     });
   });
 
@@ -155,7 +158,6 @@ describe('appUninstaller tests', () => {
         checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
       },
       '../upnpService': {
-        removeMapUpnpPort: sinon.stub().resolves(),
         isUPNP: sinon.stub().returns(false),
       },
       '../fluxNetworkHelper': {
@@ -473,7 +475,6 @@ describe('appUninstaller tests', () => {
           checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
@@ -558,7 +559,6 @@ describe('appUninstaller tests', () => {
           checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
@@ -701,7 +701,6 @@ describe('appUninstaller tests', () => {
           stopSyncthingApp: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
           isUPNP: sinon.stub().returns(false),
         },
         '../fluxNetworkHelper': {
@@ -1407,7 +1406,6 @@ describe('appUninstaller tests', () => {
           checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
           isUPNP: sinon.stub().returns(false),
         },
         '../fluxNetworkHelper': {
@@ -1508,7 +1506,6 @@ describe('appUninstaller tests', () => {
           checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
           isUPNP: sinon.stub().returns(false),
         },
         '../fluxNetworkHelper': {

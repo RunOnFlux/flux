@@ -26,6 +26,7 @@ const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
+const portReconciler = require('../portReconciler');
 const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -125,7 +126,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
+        const portResponse = await portReconciler.want(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
         if (portResponse.mapped) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -145,7 +146,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+      const portResponse = await portReconciler.want(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
       if (portResponse.mapped) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
@@ -859,6 +860,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   // Setup firewall and UPnP ports (fail fast before downloading images)
   await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_AFTER_PORTS, appName);
 
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
