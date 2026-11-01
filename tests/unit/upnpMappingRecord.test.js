@@ -142,6 +142,12 @@ describe('upnpMappingRecord against a database that takes no write', () => {
     admin = dbHelper.databaseConnection().db('admin');
   });
 
+  // Locking flushes the database to disk first, which takes as long as the disk does, so it
+  // is set up before each test: a test is timed on the write alone.
+  beforeEach(async () => {
+    await admin.command({ fsync: 1, lock: true });
+  });
+
   afterEach(async () => {
     sinon.restore();
     await admin.command({ fsyncUnlock: 1 }).catch(() => {});
@@ -155,7 +161,6 @@ describe('upnpMappingRecord against a database that takes no write', () => {
   ].forEach(([what, write, logged]) => {
     it(`${what} or fails within the limit while writes are locked out`, async () => {
       sinon.stub(log, 'error');
-      await admin.command({ fsync: 1, lock: true });
 
       const startedMs = Date.now();
       await write();
