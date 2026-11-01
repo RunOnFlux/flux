@@ -130,3 +130,41 @@ describe('upnpMappingRecord tests', () => {
     expect([...documents.keys()]).to.deep.equal(['16137/TCP']);
   });
 });
+
+// A router turn waits on a mapping's record, so a write the database cannot take
+// fails within config.upnp.recordWriteLimitMs instead of holding the turn.
+describe('upnpMappingRecord against a database that takes no write', () => {
+  const LIMIT_MS = config.upnp.recordWriteLimitMs;
+  let admin;
+
+  before(async () => {
+    await dbHelper.initiateDB();
+    admin = dbHelper.databaseConnection().db('admin');
+  });
+
+  afterEach(async () => {
+    sinon.restore();
+    await admin.command({ fsyncUnlock: 1 }).catch(() => {});
+    await dbHelper.databaseConnection().db(config.database.local.database)
+      .collection(config.database.local.collections.upnpMappings).deleteMany({ _id: { $in: ['31999/TCP', '31998/TCP'] } });
+  });
+
+  [
+    ['records a mapping', () => upnpMappingRecord.mapping(31999, 'TCP', 'Flux_App_web', 0), '31999/TCP not recorded'],
+    ['ends a record', () => upnpMappingRecord.removed(31998, 'TCP'), '31998/TCP not cleared'],
+  ].forEach(([what, write, logged]) => {
+    it(`${what} or fails within the limit while writes are locked out`, async () => {
+      sinon.stub(log, 'error');
+      await admin.command({ fsync: 1, lock: true });
+
+      const startedMs = Date.now();
+      await write();
+      const tookMs = Date.now() - startedMs;
+
+      expect(tookMs, 'how long the write held its caller').to.be.below(LIMIT_MS + 1000);
+      const messages = log.error.getCalls().map((call) => String(call.args[0]));
+      expect(messages.some((m) => m.includes(logged)), JSON.stringify(messages)).to.equal(true);
+      expect(messages.filter((m) => m.includes(logged)).join(), 'canary: the write ran out of time').to.match(/timed? ?out|time limit|exceeded/i);
+    });
+  });
+});

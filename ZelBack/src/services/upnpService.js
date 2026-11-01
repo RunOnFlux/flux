@@ -10,6 +10,8 @@ const fluxEventBus = require('./utils/fluxEventBus');
 const ufw = require('./utils/ufw');
 const fluxadmPort = require('./fluxadmPort');
 const { Privilege, authOf } = require('./utils/privileges');
+const upnpRouter = require('./upnpRouter');
+
 const {
   routerEvents,
   routerLeases,
@@ -19,7 +21,7 @@ const {
   descriptionStartsWith,
   isTestMappingDescription,
   mayStillBeThisNodes,
-} = require('./upnpRouter');
+} = upnpRouter;
 const portReconciler = require('./portReconciler');
 const configManager = require('./utils/configManager');
 const upnpMappingRecord = require('./upnpMappingRecord');
@@ -692,7 +694,7 @@ async function removeRecordedMappings(heldPorts, select, what) {
         return 'refused';
       }
       log.info(`UPnP - ${what} removed: ${record.protocol} ${record.port} (${record.description})`);
-      await serviceHelper.delay(500);
+      await upnpRouter.pause(500);
       return 'removed';
     }, { upkeep: true });
     if (outcome === 'removed') removed += 1;
@@ -725,7 +727,7 @@ async function removeListedMapping(client, mapping, left, what) {
     if (!(error instanceof natUpnp.UpnpError)) return 'stopped';
     outcome = 'refused';
   }
-  await serviceHelper.delay(500);
+  await upnpRouter.pause(500);
   return outcome;
 }
 

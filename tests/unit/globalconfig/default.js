@@ -119,6 +119,7 @@ module.exports = {
     longLivedLeaseS: 35 * 60,
     renewalTestLeaseS: 60,
     turnLimitMs: 60 * 1000,
+    recordWriteLimitMs: 500,
   },
   benchmark: {
     host: '127.0.0.1',

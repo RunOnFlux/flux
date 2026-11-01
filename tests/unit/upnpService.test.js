@@ -13,7 +13,9 @@ const ufw = require('../../ZelBack/src/services/utils/ufw');
 const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
 const { upnp: { testMappingLeaseS: TEST_LEASE_S, verifyRetryFirstMs: RETRY_FIRST_MS } } = require('config');
 const configManager = require('../../ZelBack/src/services/utils/configManager');
-const { routerEvents } = require('../../ZelBack/src/services/upnpRouter');
+const upnpRouter = require('../../ZelBack/src/services/upnpRouter');
+
+const { routerEvents } = upnpRouter;
 
 const ufwRun = (args) => sinon.match({ runAsRoot: true, params: [ufw.UFW_HELPER, '--wait', '30', '--command', JSON.stringify(args)] });
 // The ufw commands each batch handed to the helper.
@@ -92,8 +94,10 @@ const upnpServiceAtGatewayUrl = proxyquire(
 
 describe('upnpService tests', () => {
   // the record of this node's mappings: empty, and not yet covering the router's
-  // table, unless a test says otherwise
+  // table, unless a test says otherwise; a router turn's pauses end at once
+  // (their timing is portReconciler's to test)
   beforeEach(() => {
+    sinon.stub(upnpRouter, 'pause').resolves();
     sinon.stub(upnpMappingRecord, 'all').resolves([]);
     sinon.stub(upnpMappingRecord, 'complete').resolves(false);
     sinon.stub(upnpMappingRecord, 'markComplete').resolves();

@@ -60,6 +60,13 @@ function routerAccess() {
           routerBindings.add(node.id.name);
         }
       }
+      // taken from the module once it is bound: destructured, or read off it
+      if (node.type === 'VariableDeclarator' && node.id.type === 'ObjectPattern'
+          && node.init?.type === 'Identifier' && routerBindings.has(node.init.name)) {
+        node.id.properties.forEach((property) => {
+          if (ROUTER_CALLS.has(property.key.name)) taken.push(property.key.name);
+        });
+      }
       if (node.type === 'MemberExpression' && node.object.type === 'Identifier'
           && routerBindings.has(node.object.name) && ROUTER_CALLS.has(node.property.name)) {
         taken.push(node.property.name);

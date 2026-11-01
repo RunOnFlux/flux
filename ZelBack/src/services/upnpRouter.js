@@ -9,19 +9,35 @@ const upnpMappingRecord = require('./upnpMappingRecord');
 // entry, and the router refusing to remove a mapping that is not this node's.
 const RECORD_ENDING_FAULTS = new Set([606, 714]);
 
-// The signal of the lane turn a call is made in (portReconciler.onRouter): every
-// request the client sends in that turn is aborted with it.
-const turnSignal = new AsyncLocalStorage();
+// The lane turn a call is made in (portReconciler.onRouter): its signal, with
+// which every request the client sends in that turn is aborted, and the
+// controller its pauses sleep on, aborted with it.
+const turnInFlight = new AsyncLocalStorage();
 
 /**
- * Runs `work` as part of the lane turn `signal` belongs to.
+ * Runs `work` as part of the lane turn `turn` names.
  * @template T
- * @param {AbortSignal} signal aborts once the turn is over
+ * @param {{signal: AbortSignal, pauses: object}} turn signal aborts once the turn
+ *   is over; pauses is the FluxController its pauses sleep on
  * @param {function(): T} work
  * @returns {T}
  */
-function inTurn(signal, work) {
-  return turnSignal.run(signal, work);
+function inTurn(turn, work) {
+  return turnInFlight.run(turn, work);
+}
+
+/**
+ * Waits `ms`, or less in a lane turn that is over: a turn's pause ends when the
+ * turn does, so a turn cut off by the lane has nothing left to wait on but its
+ * mapping record.
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function pause(ms) {
+  const turn = turnInFlight.getStore();
+  if (!turn) return new Promise((resolve) => { setTimeout(resolve, ms); });
+  if (turn.signal.aborted) return Promise.resolve();
+  return turn.pauses.sleep(ms).catch(() => {});
 }
 
 const portOf = (value) => (typeof value === 'object' && value !== null ? value.port : value);
@@ -70,7 +86,7 @@ const client = new Proxy(recordingClient, {
     const value = Reflect.get(target, property);
     if (typeof value !== 'function') return value;
     return (options, ...rest) => {
-      const turn = turnSignal.getStore();
+      const turn = turnInFlight.getStore()?.signal;
       const takesOptions = options === undefined || (typeof options === 'object' && options !== null);
       if (!turn || !takesOptions) return value.call(target, options, ...rest);
       if (turn.aborted) return Promise.reject(turn.reason);
@@ -351,6 +367,7 @@ function isTestMappingDescription(description) {
 module.exports = {
   client,
   inTurn,
+  pause,
   routerEvents,
   routerLeases,
   routerRefusals,

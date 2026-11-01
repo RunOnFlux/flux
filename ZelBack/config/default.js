@@ -167,6 +167,10 @@ module.exports = {
     // How long one turn on the router may run (portReconciler.onRouter): a turn
     // is a few requests, each answered in milliseconds by nearly every router.
     turnLimitMs: 60 * 1000,
+    // How long a write of a mapping's record may take (upnpMappingRecord): a turn
+    // waits on it, and a turn cut off at turnLimitMs still finishes it before
+    // the next turn starts. A local write takes milliseconds.
+    recordWriteLimitMs: 5 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',

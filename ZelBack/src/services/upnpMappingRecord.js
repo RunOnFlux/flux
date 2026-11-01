@@ -19,6 +19,11 @@ const log = require('../lib/log');
 
 const COMPLETE_ID = 'complete';
 
+// A router turn waits on a mapping's record (portReconciler.runLane), so each
+// write a turn makes ends within config.upnp.recordWriteLimitMs; one that does
+// not fails as any failed write does.
+const turnWrite = { timeoutMS: config.upnp.recordWriteLimitMs };
+
 // Writes made before the database was connected, by key: the document to write,
 // or null for a record ended.
 const unwritten = new Map();
@@ -43,10 +48,10 @@ async function writeUnwritten(records) {
   for (const [key, document] of unwritten) {
     if (document) {
       // eslint-disable-next-line no-await-in-loop
-      await records.updateOne({ _id: key }, { $set: document }, { upsert: true });
+      await records.updateOne({ _id: key }, { $set: document }, { upsert: true, ...turnWrite });
     } else {
       // eslint-disable-next-line no-await-in-loop
-      await records.deleteOne({ _id: key });
+      await records.deleteOne({ _id: key }, turnWrite);
     }
     unwritten.delete(key);
   }
@@ -89,7 +94,7 @@ async function mapping(port, protocol, description, lease) {
       return;
     }
     await writeUnwritten(records);
-    await records.updateOne({ _id: key }, { $set: document }, { upsert: true });
+    await records.updateOne({ _id: key }, { $set: document }, { upsert: true, ...turnWrite });
   } catch (error) {
     log.error(`upnpMappingRecord - ${keyOf(port, protocol)} not recorded: ${error.message}`);
   }
@@ -111,7 +116,7 @@ async function removed(port, protocol) {
       return;
     }
     await writeUnwritten(records);
-    await records.deleteOne({ _id: key });
+    await records.deleteOne({ _id: key }, turnWrite);
   } catch (error) {
     log.error(`upnpMappingRecord - ${keyOf(port, protocol)} not cleared: ${error.message}`);
   }

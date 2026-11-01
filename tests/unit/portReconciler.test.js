@@ -3,7 +3,6 @@ const chai = require('chai');
 const natUpnp = require('@runonflux/nat-upnp');
 const sinon = require('sinon');
 const log = require('../../ZelBack/src/lib/log');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const upnpRouter = require('../../ZelBack/src/services/upnpRouter');
 const portReconciler = require('../../ZelBack/src/services/portReconciler');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
@@ -50,7 +49,7 @@ describe('portReconciler tests', () => {
       upnpRouter.routerLeases.kept = null;
       upnpRouter.routerLeases.renews = null;
       logSpy = sinon.spy(log, 'error');
-      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(upnpRouter, 'pause').resolves();
       createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
       getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
     });
@@ -468,7 +467,7 @@ describe('portReconciler tests', () => {
       portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
       logSpy = sinon.spy(log, 'error');
-      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(upnpRouter, 'pause').resolves();
       createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
       getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
       removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
@@ -615,7 +614,7 @@ describe('portReconciler tests', () => {
       portReconciler.mappedProtocols.clear();
       portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
       portReconciler.pendingRemovals.clear();
-      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(upnpRouter, 'pause').resolves();
       sinon.stub(log, 'error');
       sinon.stub(log, 'info');
       createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
@@ -1028,7 +1027,7 @@ describe('portReconciler tests', () => {
       calls = [];
       inFlight = 0;
       most = 0;
-      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(upnpRouter, 'pause').resolves();
       sinon.stub(log, 'error');
       sinon.stub(log, 'info');
       sinon.stub(log, 'warn');
@@ -1241,20 +1240,67 @@ describe('portReconciler tests', () => {
         clock.restore();
       });
 
-      it('starts the next turn at its limit, logged, and leaves its caller to what it settles with', async () => {
-        let answered = false;
-        portReconciler.onRouter(() => new Promise(() => {})).finally(() => { answered = true; });
-        const next = portReconciler.want(31015, 'Flux_App_web', { protocols: ['TCP'] });
+      // the next request of `stub` is answered only once the turn is cut off, with its abort
+      const answerOnlyAtAbort = (stub) => stub.onFirstCall().callsFake(({ signal }) => new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason));
+      }));
+
+      it('cuts the turn off at its limit, logged, and starts the next only once it has settled', async () => {
+        const order = [];
+        const write = gate();
+        answerOnlyAtAbort(removeMappingStub);
+        const cut = portReconciler.onRouter(async (routerClient) => {
+          await routerClient.removeMapping({ public: 31015, protocol: 'TCP' }).catch(() => {});
+          // the mapping record's write, still under way when the turn is cut off
+          await write.opened;
+          order.push('cut off turn settled');
+        });
+        const next = portReconciler.onRouter(() => { order.push('next turn'); });
 
         await clock.tickAsync(TURN_LIMIT_MS - 1);
-        sinon.assert.notCalled(createMappingStub);
+        expect(order, 'before the limit').to.deep.equal([]);
         await clock.tickAsync(1);
         await settle();
-
         sinon.assert.calledWithMatch(log.error, OVERRUN);
-        sinon.assert.calledOnce(createMappingStub);
-        expect((await next).mapped).to.equal(true);
-        expect(answered).to.equal(false);
+        expect(order, 'cut off, its write still under way').to.deep.equal([]);
+
+        write.open();
+        await cut;
+        await next;
+        expect(order).to.deep.equal(['cut off turn settled', 'next turn']);
+      });
+
+      it('ends its pause when it is cut off', async () => {
+        upnpRouter.pause.restore();
+        let settled = false;
+        const cut = portReconciler.onRouter(async () => {
+          await upnpRouter.pause(10 * TURN_LIMIT_MS);
+        }).then(() => { settled = true; });
+
+        await clock.tickAsync(TURN_LIMIT_MS);
+        await settle();
+
+        expect(settled, 'settled at the limit, not at the end of its pause').to.equal(true);
+        await cut;
+      });
+
+      it('leaves no removal pending of a port a turn after it maps, when its release is cut off between protocols', async () => {
+        upnpRouter.pause.restore();
+        portReconciler.mappedProtocols.set(31018, new Set(['TCP', 'UDP']));
+        portReconciler.wanted.set(31018, { description: 'Flux_App_web', holder: null });
+        // the router answers the TCP removal just before the limit, so the limit
+        // lands in the pause before the UDP removal
+        removeMappingStub.onFirstCall().callsFake(() => new Promise((resolve) => { setTimeout(resolve, TURN_LIMIT_MS - 100); }));
+
+        const released = portReconciler.release(31018, 'Flux_App_web');
+        const wantedAgain = portReconciler.want(31018, 'Flux_App_web', { protocols: ['TCP', 'UDP'] });
+        await clock.tickAsync(TURN_LIMIT_MS + 2000);
+        await released;
+        await wantedAgain;
+        await clock.tickAsync(2000);
+
+        expect([...portReconciler.pendingRemovals.keys()], 'removals pending').to.deep.equal([]);
+        expect([...(portReconciler.mappedProtocols.get(31018) ?? [])].sort(), 'mapped').to.deep.equal(['TCP', 'UDP']);
       });
 
       it('aborts the request it is waiting on, and answers its caller as a router that did not answer', async () => {
@@ -1310,7 +1356,7 @@ describe('portReconciler tests', () => {
       upnpRouter.routerLeases.kept = true;
       upnpRouter.routerLeases.renews = null;
       clock = sinon.useFakeTimers({ toFake: ['hrtime'] });
-      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(upnpRouter, 'pause').resolves();
       sinon.stub(log, 'error');
       createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
       sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
@@ -1426,7 +1472,7 @@ describe('portReconciler tests', () => {
       portReconciler.wanted.clear();
       portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
-      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(upnpRouter, 'pause').resolves();
       sinon.stub(log, 'error');
       sinon.stub(log, 'info');
       createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();

@@ -1,6 +1,8 @@
 const config = require('config');
-const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
+const { FluxController } = require('./utils/fluxController');
+const upnpRouter = require('./upnpRouter');
+
 const {
   client,
   inTurn,
@@ -11,7 +13,7 @@ const {
   removeProtocol,
   mayStillBeThisNodes,
   isTestMappingDescription,
-} = require('./upnpRouter');
+} = upnpRouter;
 const upnpMappingRecord = require('./upnpMappingRecord');
 
 // The one owner of this node's UPnP mappings, and the only way to the router:
@@ -62,9 +64,12 @@ const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 /**
  * Runs the waiting turns one at a time until none is left: a turn a caller
  * waits on before any upkeep that has not started. A turn still running after
- * config.upnp.turnLimitMs is over: every request it has made or makes from then
- * on is aborted (upnpRouter.inTurn), which it answers as a router that did not
- * answer, and the next turn starts. Its caller is answered with whatever the
+ * config.upnp.turnLimitMs is cut off: every request it has made or makes from
+ * then on is aborted (upnpRouter.inTurn), which it answers as a router that did
+ * not answer, and its pauses end (upnpRouter.pause). It then settles at once -
+ * a turn waits on nothing else but its mapping record, whose writes are
+ * bounded (upnpMappingRecord) - and the next turn starts only after it has, so
+ * no two turns ever run together. Its caller is answered with whatever the
  * turn settles with.
  * @returns {Promise<void>}
  */
@@ -73,25 +78,22 @@ async function runLane() {
   while (intentTurns.length || upkeepTurns.length) {
     const turn = intentTurns.shift() ?? upkeepTurns.shift();
     const over = new AbortController();
-    let timer;
-    // settles once the turn's requests are aborted and what that settles has run
-    const overrun = new Promise((resolve) => {
-      timer = setTimeout(() => {
-        const error = new Error(`the router turn ran past ${config.upnp.turnLimitMs} ms`);
-        log.error(`portReconciler - ${error.message}: its requests are aborted and the next turn starts`);
-        over.abort(error);
-        setImmediate(resolve);
-      }, config.upnp.turnLimitMs);
-    });
+    const pauses = new FluxController();
+    const timer = setTimeout(() => {
+      const error = new Error(`the router turn ran past ${config.upnp.turnLimitMs} ms`);
+      log.error(`portReconciler - ${error.message}: its requests are aborted and its pauses ended`);
+      over.abort(error);
+      pauses.abort();
+    }, config.upnp.turnLimitMs);
     let settled;
     try {
-      settled = Promise.resolve(inTurn(over.signal, () => turn.work(client)));
+      settled = Promise.resolve(inTurn({ signal: over.signal, pauses }, () => turn.work(client)));
     } catch (error) {
       settled = Promise.reject(error);
     }
     settled.then(turn.resolve, turn.reject);
     // eslint-disable-next-line no-await-in-loop
-    await Promise.race([settled.catch(() => {}), overrun]);
+    await settled.catch(() => {});
     clearTimeout(timer);
   }
   laneRunning = false;
@@ -99,10 +101,11 @@ async function runLane() {
 
 /**
  * Runs `work` as a turn on the router, handing it the router's client: nothing
- * else of this node reaches the router until it settles, or until
- * config.upnp.turnLimitMs is over (runLane). Upkeep waits behind
- * every turn a caller waits on that has not started. `work` never waits on
- * another turn: that turn would wait on it.
+ * else of this node reaches the router until it settles. Upkeep waits behind
+ * every turn a caller waits on that has not started. `work` waits on nothing
+ * but the router, upnpRouter.pause and the mapping record (upnpMappingRecord),
+ * which is what lets a turn cut off at config.upnp.turnLimitMs settle at once
+ * (runLane); it never waits on another turn: that turn would wait on it.
  * @template T
  * @param {function(object): (T|Promise<T>)} work given the router's client
  * @param {{upkeep?: boolean}} [options] upkeep: keeping mappings as they are,
@@ -223,7 +226,7 @@ async function mapPort(port, description, {
   // eslint-disable-next-line no-restricted-syntax
   for (const [i, protocol] of protocols.entries()) {
     // eslint-disable-next-line no-await-in-loop
-    if (i > 0) await serviceHelper.delay(500);
+    if (i > 0) await upnpRouter.pause(500);
     // eslint-disable-next-line no-await-in-loop
     result = await mapProtocol(port, protocol, description, { counted });
     recordMapped(port, protocol, result.mapped);
@@ -236,7 +239,7 @@ async function mapPort(port, description, {
   // leaseFor after the map: a router that refused the lease has the mapping
   // permanent, and leaseFor gives no lease from then on
   if (!upkeep) wantedMaps.set(port, { description, lease: leaseFor(description), atMs: monotonicMs() });
-  await serviceHelper.delay(500);
+  await upnpRouter.pause(500);
   return result;
 }
 
@@ -358,7 +361,7 @@ async function releasePort(port, description, holder) {
       schedulePendingRemoval(pending);
     }
     // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(500);
+    await upnpRouter.pause(500);
   }
   return removed;
 }
