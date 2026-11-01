@@ -140,6 +140,11 @@ module.exports = {
     // after this long, the wait doubling up to removalRetryMaxMs
     removalRetryFirstMs: 30 * 1000,
     removalRetryMaxMs: 60 * 1000,
+    // A UPnP node whose router does not answer its verification, or does not take
+    // its own ports, asks again after this long, the wait doubling up to
+    // verifyRetryMaxMs, until the router does (upnpService.startMapping).
+    verifyRetryFirstMs: 10 * 1000,
+    verifyRetryMaxMs: 120 * 1000,
     // The lease a test mapping is made with on a router that keeps one, so a
     // mapping the router took after this node stopped waiting for its answer
     // goes when the lease ends. Longer than a test holds its mapping: two

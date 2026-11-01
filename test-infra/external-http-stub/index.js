@@ -395,6 +395,8 @@ const state = {
   // node's own when null), how many mappings its table holds (no limit when null), its port
   // mappings, and every action the node sent it.
   upnpGateways: {},
+  // Fleet addresses whose router has UPnP off: it serves no device description.
+  upnpGatewaysOff: {},
   // Bytes served INSTEAD of the signed artifact, under the signed artifact's own name. A
   // mirror or CDN answering correctly-named requests with the wrong content, which is the
   // one attack a content-addressed name cannot prevent on its own - only the digest check
@@ -757,6 +759,10 @@ function upnpGatewayOf(req) {
 }
 
 app.get('/upnp/device.xml', (req, res) => {
+  if (state.upnpGatewaysOff[clientAddress(req)]) {
+    res.sendStatus(404);
+    return;
+  }
   const services = upnpGatewayOf(req)
     ? `<serviceList><service><serviceType>${UPNP_SERVICE}</serviceType><serviceId>urn:upnp-org:serviceId:WANIPConn1</serviceId>`
       + '<controlURL>/upnp/control</controlURL><eventSubURL>/upnp/events</eventSubURL><SCPDURL>/upnp/scpd.xml</SCPDURL></service></serviceList>'
@@ -813,6 +819,7 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
     case 'AddPortMapping': {
       const held = gateway.mappings.find(sameEntry);
       if (held && held.internalClient !== arg('NewInternalClient')) {
+        gateway.requests[gateway.requests.length - 1].refused = 718;
         soapFault(res, 718, 'ConflictInMappingEntry');
         return;
       }
@@ -1121,9 +1128,18 @@ control.post('/upnp-gateway', (req, res) => {
     res.status(400).json({ error: 'ip is required' });
     return;
   }
+  delete state.upnpGatewaysOff[ip];
   state.upnpGateways[ip] = {
     externalIp, capacity, mappings, refuseDeletes, fritzDescriptions, requests: [],
   };
+  res.json({ ok: true });
+});
+
+// A node's router turns UPnP off: it serves no device description, and its table and
+// requests are gone. Putting the node behind a gateway again turns it back on.
+control.delete('/upnp-gateway/:ip', (req, res) => {
+  delete state.upnpGateways[req.params.ip];
+  state.upnpGatewaysOff[req.params.ip] = true;
   res.json({ ok: true });
 });
 

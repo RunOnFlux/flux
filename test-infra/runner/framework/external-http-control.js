@@ -210,6 +210,16 @@ export async function enableUpnpGateway(ip, {
 }
 
 /**
+ * A node's router turns UPnP off: it serves no device description, and its table and the
+ * requests it has seen are gone. enableUpnpGateway turns it back on.
+ * @param {string} ip
+ */
+export async function disableUpnpGateway(ip) {
+  const res = await fetch(`${CONTROL}/upnp-gateway/${ip}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`disableUpnpGateway: ${res.status}`);
+}
+
+/**
  * Set how many DeletePortMapping requests a node's gateway refuses from now on, keeping its
  * table and the requests it has seen.
  * @param {string} ip

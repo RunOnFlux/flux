@@ -17,6 +17,7 @@ const { expect } = chai;
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
+const configManager = require('../../ZelBack/src/services/utils/configManager');
 
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
@@ -2524,6 +2525,7 @@ describe('fluxService tests', () => {
     let originalUserConfig;
 
     beforeEach(() => {
+      sinon.stub(configManager, 'writeInitial').resolves();
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
@@ -2570,26 +2572,11 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
-      // eslint-disable-next-line no-unused-vars
-      const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(adminConfig.initial.apiport)},
-          routerIP: '192.168.1.50',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustRouterIP(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { routerIP: '192.168.1.50', upnp: true });
     });
   });
 
@@ -2598,6 +2585,7 @@ describe('fluxService tests', () => {
     let originalUserConfig;
 
     beforeEach(() => {
+      sinon.stub(configManager, 'writeInitial').resolves();
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
@@ -2665,26 +2653,11 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
-      // eslint-disable-next-line no-unused-vars
-      const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(16147)},
-          routerIP: '${adminConfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustAPIPort(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { apiport: 16147, upnp: true });
     });
   });
 
@@ -2693,6 +2666,7 @@ describe('fluxService tests', () => {
     let originalUserConfig;
 
     beforeEach(() => {
+      sinon.stub(configManager, 'writeInitial').resolves();
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
@@ -2740,26 +2714,11 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
-      // eslint-disable-next-line no-unused-vars
-      const expectedData = `module.exports = {
-  initial: {
-    ipaddress: '${adminConfig.initial.ipaddress}',
-    zelid: '${adminConfig.initial.zelid}',
-    kadena: 'kadena:testing?chainid=5',
-    testnet: ${adminConfig.initial.testnet},
-    development: ${adminConfig.initial.development},
-    apiport: ${Number(adminConfig.initial.apiport)},
-    routerIP: '${adminConfig.initial.routerIP}',
-    pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-    pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-  }
-}`;
-      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustKadenaAccount(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { kadena: 'kadena:testing?chainid=5' });
     });
 
     it('should return error if chain id > 20', async () => {

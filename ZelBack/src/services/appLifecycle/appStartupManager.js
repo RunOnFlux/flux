@@ -21,6 +21,8 @@ const nodeStatusMonitor = require('../appMonitoring/nodeStatusMonitor');
 const appPlacements = require('../appManagement/appPlacements');
 const { TIMED_OUT } = require('../utils/withinDeadline');
 const portManager = require('../appNetwork/portManager');
+const upnpService = require('../upnpService');
+const { routerEvents } = require('../upnpRouter');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
 const nodeConfirmationService = require('../nodeConfirmationService');
@@ -30,6 +32,13 @@ const { RemovalOutcome } = require('../utils/removalOutcome');
 const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
 
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
+
+// The router taking this node's ports ends the hold boot put on it for not taking them.
+routerEvents.on('upnpReady', () => {
+  if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER)) {
+    fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER);
+  }
+});
 
 /**
  * Await a promise, giving up after a deadline. The timer is cleared however the
@@ -459,10 +468,20 @@ async function manageAppsOnBoot(bootContext) {
       return;
     }
 
+    // A UPnP node is ready once its router has taken its own ports, as it is once
+    // its database is: both within the one deadline.
+    const upnpNode = upnpService.isUPNP();
     try {
-      await awaitWithin(globalState.waitForDbReady(), SYNC_TIMEOUT_MS, 'sync_timeout');
+      await awaitWithin(Promise.all([globalState.waitForDbReady(), upnpNode ? upnpService.whenUPNPReady() : null]), SYNC_TIMEOUT_MS, 'sync_timeout');
     } catch (error) {
       if (error.message === 'sync_timeout') {
+        if (upnpNode && !upnpService.isUPNPReady()) {
+          const reason = `UPnP: the router has not taken this node's ports within ${SYNC_TIMEOUT_MS / 1000}s of its start`;
+          fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER, reason);
+          log.error(`appStartupManager - ${reason}, removing all apps`);
+          await removeAllApps('UPnP not mapped');
+          return;
+        }
         log.error(`appStartupManager - DB not ready after ${SYNC_TIMEOUT_MS / 1000}s, removing all apps`);
         await removeAllApps('Sync timeout');
         return;

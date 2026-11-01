@@ -300,17 +300,20 @@ export async function restartFluxos(container, { apiPort = 16127, readyTimeoutMs
   throw new Error(`restartFluxos: FluxOS did not cycle down and back up within ${readyTimeoutMs}ms`);
 }
 
-// Set the api port a node's FluxOS takes at its next start, as an operator
-// changing it does. The port is read once, when FluxOS starts: restartFluxos with
-// the same apiPort brings it up there. The forward that stands in for the node's
-// syncthing on apiport+2 moves now.
-export async function setNodeApiPort(container, apiPort) {
+// The node's api port in its userconfig.js, and whether it maps its ports through UPnP
+// (`upnp`, which FluxOS reads as declared): a suite that gives a node an api port puts it
+// behind a router, so a UPnP node unless it says otherwise. FluxOS takes them at its next
+// start: restartFluxos with the same apiPort brings it up there. The forward that stands in
+// for the node's syncthing on apiport+2 moves now.
+export async function setNodeApiPort(container, apiPort, { upnp = true } = {}) {
+  const file = '/flux/config/userconfig.js';
   const env = '/etc/fluxos-harness.env';
   const port = Number(apiPort);
-  const r = await execInContainer(container, `sed -i -E 's/^( *apiport:).*,$/\\1 ${port},/' /flux/config/userconfig.js && grep -q 'apiport: ${port},' /flux/config/userconfig.js`
+  const r = await execInContainer(container, `sed -i -E 's/^( *apiport:).*,$/\\1 ${port},/' ${file} && grep -q 'apiport: ${port},' ${file}`
+    + ` && sed -i -E '/^ *upnp:/d' ${file} && sed -i -E 's/^( *)(apiport:.*,)$/\\1\\2\\n\\1upnp: ${upnp},/' ${file} && grep -q 'upnp: ${upnp},' ${file}`
     + ` && sed -i -E 's/^FLUX_API_PORT=.*$/FLUX_API_PORT="${port}"/' ${env} && grep -q '^FLUX_API_PORT="${port}"$' ${env}`
     + ' && { ! systemctl is-active -q syncthing-forward || systemctl restart syncthing-forward; }');
-  if (r.exitCode !== 0) throw new Error(`setNodeApiPort: could not set apiport ${apiPort}: ${r.output}`);
+  if (r.exitCode !== 0) throw new Error(`setNodeApiPort: could not set apiport ${apiPort} and upnp ${upnp}: ${r.output}`);
 }
 
 export async function getContainerImageDigest(container, appName, componentName) {

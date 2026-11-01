@@ -1821,9 +1821,21 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPrivateKey: ``,/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPublicKey: ``,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPrivateKey: '',/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPublicKey: '',/gm));
       sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+    });
+
+    it('should keep every other key of the config when it writes a new ip, one it does not set itself included', async () => {
+      const before = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...before.initial, upnp: true, network: 'mainnet' } };
+      try {
+        await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt('127.0.0.67'));
+      } finally {
+        globalThis.userconfig = before;
+      }
+
+      sinon.assert.calledOnceWithMatch(writeFileStub, sinon.match.string, sinon.match(/ipaddress: '127.0.0.67',\n[\s\S]*upnp: true,\n[\s\S]*network: 'mainnet',/));
     });
 
     it('should not write to file if the config already has same exact ip', async () => {

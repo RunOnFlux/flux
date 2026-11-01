@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
+const { EventEmitter } = require('node:events');
 const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -11,6 +12,8 @@ describe('appStartupManager tests', () => {
   let dbHelperStub;
   let dockerServiceStub;
   let fluxNetworkHelperStub;
+  let upnpServiceStub;
+  let routerEventsStub;
   let registryManagerStub;
   let advancedWorkflowsStub;
   let appReconcilerStub;
@@ -43,9 +46,18 @@ describe('appStartupManager tests', () => {
       getLocalSocketAddress: sinon.stub(),
       isNodeDos: sinon.stub().returns(false),
       isStickyDosHeldBy: sinon.stub().returns(false),
-      StickyDosOwner: { HOST_STALL: 'hostStall' },
+      setStickyDos: sinon.stub(),
+      clearStickyDos: sinon.stub(),
+      StickyDosOwner: { HOST_STALL: 'hostStall', UPNP_ROUTER: 'upnpRouter' },
       allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
     };
+
+    upnpServiceStub = {
+      isUPNP: sinon.stub().returns(false),
+      isUPNPReady: sinon.stub().returns(false),
+      whenUPNPReady: sinon.stub().resolves(),
+    };
+    routerEventsStub = new EventEmitter();
 
     portManagerStub = {
       appsWithPorts: sinon.stub().resolves({ apps: [], unreadable: [] }),
@@ -108,6 +120,8 @@ describe('appStartupManager tests', () => {
       '../dockerService': dockerServiceStub,
       '../serviceHelper': { delay: sinon.stub().resolves(), ensureNumber: (value) => Number(value) },
       '../appNetwork/portManager': portManagerStub,
+      '../upnpService': upnpServiceStub,
+      '../upnpRouter': { routerEvents: routerEventsStub },
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../appDatabase/registryManager': registryManagerStub,
       './advancedWorkflows': advancedWorkflowsStub,
@@ -689,6 +703,58 @@ describe('appStartupManager tests', () => {
   });
 
   describe('manageAppsOnBoot', () => {
+    describe('on a node that maps through UPnP', () => {
+      const KEEP = { machineRebooted: false, downtimeMs: 1000, cleanShutdown: true };
+
+      beforeEach(() => {
+        upnpServiceStub.isUPNP.returns(true);
+        dockerServiceStub.dockerListContainers.resolves([]);
+        dbHelperStub.findInDatabase.resolves([]);
+      });
+
+      it('reconciles its apps only once the router has taken its ports', async () => {
+        let mapped;
+        upnpServiceStub.whenUPNPReady.returns(new Promise((resolve) => { mapped = resolve; }));
+
+        const booting = appStartupManager.manageAppsOnBoot(KEEP);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'not before the router took its ports').to.equal(false);
+        mapped();
+        await booting;
+
+        expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'reconciled').to.equal(true);
+        sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
+      });
+
+      it('holds the node out of service as upnpRouter, and removes its apps, when the router has not taken its ports by the boot deadline', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+          upnpServiceStub.whenUPNPReady.returns(new Promise(() => {}));
+          appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
+
+          const booting = appStartupManager.manageAppsOnBoot(KEEP);
+          await clock.tickAsync(config.system.bootSyncTimeoutMs - 1);
+          sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
+          await clock.tickAsync(1);
+          await booting;
+
+          sinon.assert.calledOnceWithMatch(fluxNetworkHelperStub.setStickyDos, 'upnpRouter', sinon.match(/router has not taken this node's ports/));
+          sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'app1');
+          expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'no reconcile').to.equal(false);
+        } finally {
+          clock.restore();
+        }
+      });
+
+      it('ends the upnpRouter hold once the router takes its ports', () => {
+        fluxNetworkHelperStub.isStickyDosHeldBy.withArgs('upnpRouter').returns(true);
+
+        routerEventsStub.emit('upnpReady');
+
+        sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.clearStickyDos, 'upnpRouter');
+      });
+    });
+
     it('leaves a node out of service for a host stall to its own removal, and starts no app', async () => {
       fluxNetworkHelperStub.isStickyDosHeldBy.returns(true);
       fluxNetworkHelperStub.isNodeDos.returns(true);

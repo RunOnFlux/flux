@@ -1,6 +1,3 @@
-const config = require('config');
-const path = require('path');
-const fs = require('fs').promises;
 const generalService = require('./generalService');
 const workerRunner = require('./utils/workerRunner');
 const configManager = require('./utils/configManager');
@@ -19,27 +16,11 @@ const runPgp = (operation, params) => workerRunner.runInWorker('pgpWorker', { op
  * @returns {Promise<void>} Rejects if the identity could not be stored.
  */
 async function adjustPGPidentity(privateKey, publicKey) {
-  const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
   if (publicKey === userconfig.initial.pgpPublicKey && privateKey === userconfig.initial.pgpPrivateKey) {
     return;
   }
   log.info(`Adjusting Identity to ${publicKey}`);
-  const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-    kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
-    development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-    routerIP: '${userconfig.initial.routerIP || ''}',
-    pgpPrivateKey: \`${privateKey}\`,
-    pgpPublicKey: \`${publicKey}\`,
-  }
-}`;
-
-  await fs.writeFile(fluxDirPath, dataToWrite);
-  configManager.reloadConfig();
+  await configManager.writeInitial({ pgpPrivateKey: privateKey, pgpPublicKey: publicKey });
 }
 
 /**

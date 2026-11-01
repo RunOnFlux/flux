@@ -11,7 +11,9 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
 const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
-const { upnp: { testMappingLeaseS: TEST_LEASE_S } } = require('config');
+const { upnp: { testMappingLeaseS: TEST_LEASE_S, verifyRetryFirstMs: RETRY_FIRST_MS } } = require('config');
+const configManager = require('../../ZelBack/src/services/utils/configManager');
+const { routerEvents } = require('../../ZelBack/src/services/upnpRouter');
 
 const ufwRun = (args) => sinon.match({ runAsRoot: true, params: [ufw.UFW_HELPER, '--wait', '30', '--command', JSON.stringify(args)] });
 // The ufw commands each batch handed to the helper.
@@ -101,6 +103,102 @@ describe('upnpService tests', () => {
 
   afterEach(() => {
     sinon.restore();
+  });
+
+  // Whether a node maps through UPnP is what its userconfig.js declares; where it
+  // declares nothing, its network settings decide it once and that is written.
+  describe('declared UPnP tests', () => {
+    let before;
+
+    beforeEach(() => {
+      before = globalThis.userconfig;
+      sinon.stub(configManager, 'writeInitial').resolves();
+      sinon.stub(log, 'info');
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = before;
+    });
+
+    [[true, true], [false, false], [undefined, false]].forEach(([upnp, answer]) => {
+      it(`should take a node whose userconfig.js says upnp ${upnp} as ${answer ? '' : 'not '}mapping through UPnP, whatever its api port`, () => {
+        globalThis.userconfig = { initial: { apiport: 16137, routerIP: '192.168.1.1', upnp } };
+
+        expect(upnpService.isUPNP()).to.equal(answer);
+      });
+    });
+
+    [[{ apiport: 16137, routerIP: '' }, true], [{ apiport: 16127, routerIP: '' }, false], [{ apiport: 16127, routerIP: '10.0.0.1' }, true]].forEach(([settings, upnp]) => {
+      it(`should write upnp ${upnp} where userconfig.js says nothing of it, for api port ${settings.apiport} and router address '${settings.routerIP}'`, async () => {
+        globalThis.userconfig = { initial: { ...settings } };
+
+        await upnpService.declareUpnpIfUnset();
+
+        sinon.assert.calledOnceWithExactly(configManager.writeInitial, { upnp });
+      });
+    });
+
+    it('should leave a declared upnp as it is, whatever the network settings say', async () => {
+      globalThis.userconfig = { initial: { apiport: 16137, routerIP: '192.168.1.1', upnp: false } };
+
+      await upnpService.declareUpnpIfUnset();
+
+      sinon.assert.notCalled(configManager.writeInitial);
+    });
+  });
+
+  // The router is asked until it takes the node's own ports; the node is ready
+  // then, and an edge on routerEvents says each change.
+  describe('startMapping tests', () => {
+    it('should answer its first attempt, ask again on a growing wait until the router takes the ports, then be ready and learn whether the router renews, once', async () => {
+      const clock = sinon.useFakeTimers();
+      const edges = [];
+      const onReady = () => edges.push('ready');
+      const onLost = () => edges.push('lost');
+      routerEvents.on('upnpReady', onReady);
+      routerEvents.on('upnpLost', onLost);
+      sinon.stub(log, 'warn');
+      try {
+        const attempt = sinon.stub();
+        attempt.onCall(0).resolves({ verified: false, mapped: false });
+        attempt.onCall(1).resolves({ verified: true, mapped: false });
+        attempt.onCall(2).resolves({ verified: true, mapped: true });
+        const learn = sinon.stub().resolves(true);
+        let ready = false;
+        upnpService.whenUPNPReady().then(() => { ready = true; });
+
+        const first = await upnpService.startMapping(16127, { attempt, learn });
+        expect(first, 'the first attempt mapped nothing').to.equal(false);
+        expect(await upnpService.startMapping(16127, { attempt, learn }), 'a call while it runs joins it').to.equal(false);
+        sinon.assert.calledOnce(attempt);
+
+        await clock.tickAsync(RETRY_FIRST_MS - 1);
+        sinon.assert.calledOnce(attempt);
+        await clock.tickAsync(1);
+        sinon.assert.calledTwice(attempt);
+        await clock.tickAsync(2 * RETRY_FIRST_MS);
+        sinon.assert.calledThrice(attempt);
+
+        expect(ready).to.equal(true);
+        expect(upnpService.isUPNPReady()).to.equal(true);
+        sinon.assert.calledOnceWithExactly(learn, 16127);
+
+        // a later mapping the router refuses, then takes: lost, then ready again
+        attempt.resetBehavior();
+        attempt.onCall(3).resolves({ verified: false, mapped: false });
+        attempt.onCall(4).resolves({ verified: true, mapped: true });
+        await upnpService.startMapping(16127, { attempt, learn });
+        expect(upnpService.isUPNPReady()).to.equal(false);
+        await clock.tickAsync(RETRY_FIRST_MS);
+
+        expect(upnpService.isUPNPReady()).to.equal(true);
+        expect(edges).to.deep.equal(['ready', 'lost', 'ready']);
+      } finally {
+        routerEvents.off('upnpReady', onReady);
+        routerEvents.off('upnpLost', onLost);
+        clock.restore();
+      }
+    });
   });
 
   describe('client tests', () => {
@@ -539,7 +637,6 @@ describe('upnpService tests', () => {
           const result = await upnpService.verifyUPNPsupport();
 
           expect(result).to.equal(true);
-          expect(upnpService.isUPNP()).to.equal(true);
           sinon.assert.calledWithExactly(natUpnp.Client.prototype.getMapping, { public: 16127, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
           // the leased test mapping, and the same asked for once without a lease
           expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([TEST_LEASE_S, 0]);
@@ -558,7 +655,6 @@ describe('upnpService tests', () => {
             const result = await upnpService.verifyUPNPsupport();
 
             expect(result).to.equal(false);
-            expect(upnpService.isUPNP()).to.equal(false);
           });
         });
 

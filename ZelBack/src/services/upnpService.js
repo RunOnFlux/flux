@@ -21,6 +21,7 @@ const {
   mayStillBeThisNodes,
 } = require('./upnpRouter');
 const portReconciler = require('./portReconciler');
+const configManager = require('./utils/configManager');
 const upnpMappingRecord = require('./upnpMappingRecord');
 
 const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
@@ -69,16 +70,114 @@ const RENEWAL_TEST_RUNS = 3;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
+// Whether the router answered this FluxOS's verification and took its own ports
+// (startMapping). Each change is an edge on routerEvents: 'upnpReady', then
+// 'upnpLost' if a later verification fails.
+let upnpReady = false;
 
-
-let upnpMachine = false;
+// The mapping startMapping runs until the router takes it, if one is running.
+let mapping = null;
 
 /**
- * To quickly check if node has UPnP (Universal Plug and Play) support.
- * @returns {boolean} True if port mappings can be set. Otherwise false.
+ * Whether this node maps its ports through UPnP: the operator's `upnp` in
+ * userconfig.js (declareUpnpIfUnset writes it where it is missing). A router that
+ * does not answer leaves a UPnP node a UPnP node, out of service until it does.
+ * @returns {boolean}
  */
 function isUPNP() {
-  return upnpMachine;
+  return globalThis.userconfig?.initial?.upnp === true;
+}
+
+/**
+ * Writes `upnp` into userconfig.js where it is missing, from the node's network
+ * settings (configManager.upnpFromNetworkSettings): from then on it is read, never
+ * worked out again.
+ * @returns {Promise<void>}
+ */
+async function declareUpnpIfUnset() {
+  const { initial } = globalThis.userconfig;
+  if (typeof initial.upnp === 'boolean') return;
+  const upnp = configManager.upnpFromNetworkSettings(initial);
+  log.info(`UPnP - userconfig.js says nothing of UPnP; from its api port and router address this node ${upnp ? 'maps' : 'does not map'} its ports through it, and that is written`);
+  await configManager.writeInitial({ upnp });
+}
+
+/**
+ * Whether the router has taken this node's own ports since this FluxOS started.
+ * @returns {boolean}
+ */
+function isUPNPReady() {
+  return upnpReady;
+}
+
+/**
+ * Resolves once the router has taken this node's own ports.
+ * @returns {Promise<void>}
+ */
+function whenUPNPReady() {
+  if (upnpReady) return Promise.resolve();
+  return new Promise((resolve) => { routerEvents.once('upnpReady', () => resolve()); });
+}
+
+function setUpnpReady(ready) {
+  if (ready === upnpReady) return;
+  upnpReady = ready;
+  routerEvents.emit(ready ? 'upnpReady' : 'upnpLost');
+}
+
+/**
+ * One attempt at what startMapping repeats: the router verified, then this node's
+ * own ports mapped. Publishes upnp:verified.
+ * @param {number|string} apiport
+ * @returns {Promise<{verified: boolean, mapped: boolean}>}
+ */
+async function verifyAndMap(apiport) {
+  const verified = await verifyUPNPsupport(apiport);
+  fluxEventBus.publish('upnp:verified', { verified });
+  const mapped = verified && await setupUPNP(apiport);
+  return { verified, mapped };
+}
+
+/**
+ * Verifies the router and maps this node's own ports (verifyAndMap), and asks
+ * again after each failure - config.upnp.verifyRetryFirstMs, the wait doubling up
+ * to config.upnp.verifyRetryMaxMs - until the router takes them: a router cannot
+ * say when it answers again. Once it has, the node is ready (whenUPNPReady) and
+ * learns whether the router renews a lease. A call while a mapping runs joins it.
+ * @param {number|string} apiport
+ * @param {{attempt?: Function, learn?: Function}} [steps] verifyAndMap and
+ *   learnLeaseRenewal unless given
+ * @returns {Promise<boolean>} whether the first attempt mapped them; the attempts
+ *   after it run on
+ */
+function startMapping(apiport, { attempt = verifyAndMap, learn = learnLeaseRenewal } = {}) {
+  if (mapping) return mapping.first;
+  let firstAnswer;
+  const first = new Promise((resolve) => { firstAnswer = resolve; });
+  mapping = { first };
+  (async () => {
+    let waitMs = config.upnp.verifyRetryFirstMs;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      // eslint-disable-next-line no-await-in-loop
+      const { verified, mapped } = await attempt(apiport);
+      firstAnswer(mapped);
+      if (mapped) {
+        setUpnpReady(true);
+        learn(apiport);
+        return;
+      }
+      setUpnpReady(false);
+      log.warn(`UPnP - the router ${verified ? 'did not take this node\'s ports' : 'did not answer its verification'}; asking again in ${Math.round(waitMs / 1000)} s`);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(waitMs);
+      waitMs = Math.min(waitMs * 2, config.upnp.verifyRetryMaxMs);
+    }
+  })().catch((error) => {
+    log.error(`UPnP - mapping stopped: ${error.message}`);
+    firstAnswer(false);
+  }).finally(() => { mapping = null; });
+  return first;
 }
 
 /**
@@ -132,7 +231,6 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get public ip');
-    upnpMachine = false;
     return false;
   }
   try {
@@ -142,12 +240,11 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get Gateway');
-    upnpMachine = false;
     return false;
   }
   // Held for this verify alone: a cleanup pass taking it between the create and
-  // the remove would fail the verify, and a node with a custom api port or a
-  // router IP exits on that. A verify that fails leaves it held. A verify
+  // the remove would fail the verify, and a UPnP node is out of service until a
+  // verify passes. A verify that fails leaves it held. A verify
   // started since takes the port over, and this one's release then leaves it
   // to that one.
   const holder = {};
@@ -183,14 +280,12 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
       if (mapsHere(apiMapping, +apiport)) {
         log.warn(`VerifyUPNPsupport - ${testMapping.reason}, but the router maps this node's api port to it`);
         await portReconciler.release(testPort, 'Flux_UPNP_Mapping_Test', { holder });
-        upnpMachine = true;
         return true;
       }
     }
   }
   if (!testMapping.mapped) {
     log.error(`VerifyUPNPsupport - Failed Create Mapping: ${testMapping.reason}`);
-    upnpMachine = false;
     return false;
   }
   try {
@@ -208,14 +303,11 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get Mapping');
-    upnpMachine = false;
     return false;
   }
   // UPnP works once the router has taken the mapping and shows it: a removal it
   // refuses is asked again until it goes, and fails nothing here.
   await portReconciler.release(testPort, 'Flux_UPNP_Mapping_Test', { holder });
-
-  upnpMachine = true;
   return true;
 }
 
@@ -895,6 +987,10 @@ async function getGatewayApi(req, res) {
 
 module.exports = {
   isUPNP,
+  isUPNPReady,
+  whenUPNPReady,
+  declareUpnpIfUnset,
+  startMapping,
   verifyUPNPsupport,
   learnLeaseRenewal,
   setupUPNP,

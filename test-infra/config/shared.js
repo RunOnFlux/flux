@@ -18,7 +18,7 @@ module.exports = {
   // also its budget (7.5s): half for the listing, the rest for removals that each take a 500ms
   // pause, which does not compress - 3001's four left-over test mappings take 2s of it.
   upnp: {
-    gatewayUrl: 'http://31.200.0.6:3000/upnp/device.xml', nodeIp: '', removalRetryFirstMs: 2000, removalRetryMaxMs: 8000, cleanupCycleMs: 60000,
+    gatewayUrl: 'http://31.200.0.6:3000/upnp/device.xml', nodeIp: '', removalRetryFirstMs: 2000, removalRetryMaxMs: 8000, cleanupCycleMs: 60000, verifyRetryFirstMs: 2000, verifyRetryMaxMs: 8000,
   },
   // Empty disables analytics. The app default is the live cloudaudit endpoint, which
   // the fleet must never report suite activity to.
