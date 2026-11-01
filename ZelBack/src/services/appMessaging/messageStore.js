@@ -196,9 +196,10 @@ async function storeAppTemporaryMessage(message, options = {}) {
           // Registration doesn't exist yet - queue this update for later processing
           const appName = appSpecFormatted.name;
           log.info(`Queueing update for ${appName} - registration not yet stored`);
-          // Queued with its origin, which the replay verifies again.
+          // Queued with its origin, which the replay verifies again. An unpaid one
+          // keeps its place in its sender's allowance while it waits.
           const queued = admission.fields.origin ? { ...message, origin: admission.fields.origin } : message;
-          globalState.queuePendingUpdate(appName, queued, block);
+          globalState.queuePendingUpdate(appName, queued, block, admission.keep?.());
           options.onRefusal?.(`the registration of ${appName} is not yet stored here`);
           return false; // Don't rebroadcast - we'll process when registration arrives
         }

@@ -443,24 +443,37 @@ module.exports = {
 
   /**
    * Queue an update message that arrived before registration was stored.
-   * Uses TTL cache - entries automatically expire after 30 minutes.
+   * Uses TTL cache - entries automatically expire after 30 minutes. One message
+   * is queued once, whichever peers send it.
    * @param {string} appName - The app name
    * @param {object} message - The raw update message to queue
    * @param {number} height - The blockchain height of the update
+   * @param {function(): void} [release] Gives back the place an unpaid update
+   *   holds in its sender's allowance; called once the update leaves the queue,
+   *   whether replayed, cleared, expired or evicted.
    */
-  queuePendingUpdate(appName, message, height) {
-    if (!pendingAppUpdatesCache) return;
+  queuePendingUpdate(appName, message, height, release) {
+    if (!pendingAppUpdatesCache) {
+      release?.();
+      return;
+    }
     const updates = pendingAppUpdatesCache.get(appName) || [];
-    updates.push({ message, height });
+    if (updates.some((queued) => queued.message.hash === message.hash)) {
+      release?.();
+      return;
+    }
+    updates.push({ message, height, release });
     // Keep sorted by height ascending
     updates.sort((a, b) => a.height - b.height);
     pendingAppUpdatesCache.set(appName, updates);
   },
 
   /**
-   * Get pending updates for an app and remove them from the cache.
+   * Get pending updates for an app and remove them from the cache. Each holds
+   * its place in its sender's allowance until the caller calls its `release`.
    * @param {string} appName - The app name
-   * @returns {Array<{ message, height }>} The pending updates sorted by height
+   * @returns {Array<{ message, height, release?: function(): void }>} The pending
+   *   updates sorted by height
    */
   getPendingUpdates(appName) {
     if (!pendingAppUpdatesCache) return [];
@@ -468,7 +481,8 @@ module.exports = {
     if (!pending || pending.length === 0) {
       return [];
     }
-    // Remove from cache - they will be processed
+    // Handed to the caller, which releases them: removing the cache entry does not.
+    pending.forEach((queued) => { queued.handedOver = true; });
     pendingAppUpdatesCache.delete(appName);
     return pending;
   },

@@ -113,7 +113,7 @@ describe('unpaidAdmission tests', () => {
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
-      expect(admission).to.have.all.keys('fields', 'release');
+      expect(admission).to.have.all.keys('fields', 'release', 'keep');
       expect(admission.fields).to.deep.equal({
         clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin: originBy(), originKey: ENTRY_KEY,
       });
@@ -441,6 +441,19 @@ describe('unpaidAdmission tests', () => {
       landings.forEach((land) => land());
 
       expect(await checking).to.deep.equal({ refused: 'its client already has 3 unpaid app messages pending' });
+    });
+
+    it('keeps a place for as long as a further hold on it, after the admission releases', async () => {
+      const [waiting] = await Promise.all([1, 2, 3].map((i) => admitLive({ hash: `burst${i}` })));
+      const queueRelease = waiting.keep();
+
+      waiting.release();
+      expect(await admitLive({ hash: 'next' })).to.have.property('refused');
+
+      queueRelease();
+      queueRelease();
+      expect(taken([await admitLive({ hash: 'next' })])).to.have.length(1);
+      expect(await admitLive({ hash: 'again' })).to.have.property('refused');
     });
 
     it('holds no place for a refused message', async () => {

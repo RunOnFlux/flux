@@ -109,11 +109,12 @@ async function resolveOrigin(message, frame) {
 }
 
 // The tagged messages this node has let past both allowances and not yet
-// written or let go, by hash. Each counts against its client and its operator as
-// a stored message does, so messages admitted at the same moment are held to the
-// same allowance as messages admitted one after another. An entry lives exactly
-// as long as an admission holding it: every holder releases it once its message
-// is written, refused or dropped.
+// written or let go, by hash: those being admitted, and updates waiting in the
+// queue for their registration. Each counts against its client and its operator
+// as a stored message does, so messages admitted at the same moment are held to
+// the same allowance as messages admitted one after another. An entry lives
+// exactly as long as something holds it: every holder releases it once its
+// message is written, refused, dropped or leaves the queue.
 const inFlight = new Map();
 
 // Every reservation and every release run one at a time, in arrival order.
@@ -233,18 +234,20 @@ function reserve(hash, sender) {
       entry = { ...sender, holders: 0 };
       inFlight.set(hash, entry);
     }
-    entry.holders += 1;
-    let released = false;
-    return {
-      release: () => {
+    // One holder's release: gives its share back once, in turn.
+    const hold = () => {
+      entry.holders += 1;
+      let released = false;
+      return () => {
         if (released) return;
         released = true;
         inTurn(() => {
           entry.holders -= 1;
           if (entry.holders === 0) inFlight.delete(hash);
         });
-      },
+      };
     };
+    return { release: hold(), keep: hold };
   });
 }
 
@@ -254,9 +257,11 @@ function reserve(hash, sender) {
  * @param {object} options
  * @param {object} [options.frame] The frame it arrived in, when it arrived alone.
  * @param {number} options.daemonHeight
- * @returns {Promise<{refused: string}|{fields: object, release?: function(): void}>} A
- *   tagged message that is taken holds its place in both allowances until the
- *   caller calls `release`, once the message is written, refused or let go.
+ * @returns {Promise<{refused: string}|{fields: object, release?: function(): void,
+ *   keep?: function(): function(): void}>} A tagged message that is taken holds its
+ *   place in both allowances until the caller calls `release`, once the message is
+ *   written, refused or let go. `keep` takes a further hold on the same place for
+ *   whatever keeps the message beyond that, and returns that hold's release.
  */
 async function admitUnpaid(message, { frame, daemonHeight }) {
   const {
@@ -289,6 +294,7 @@ async function admitUnpaid(message, { frame, daemonHeight }) {
       originKey: resolved.originKey,
     },
     release: place.release,
+    keep: place.keep,
   };
 }
 
