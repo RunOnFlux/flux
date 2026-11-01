@@ -105,6 +105,23 @@ async function resolveOrigin(message, frame) {
 // is written, refused or dropped.
 const inFlight = new Map();
 
+// Every reservation and every release run one at a time, in arrival order.
+// While a reservation reads the store no message leaves inFlight, so one written
+// during the read is still counted, once, by its hash. A reservation holds the
+// turn only for its two indexed reads.
+let allowanceTurn = Promise.resolve();
+
+/**
+ * Run a task once every earlier check and release has finished.
+ * @param {function(): (Promise<*>|*)} task
+ * @returns {Promise<*>}
+ */
+function inTurn(task) {
+  const run = allowanceTurn.then(task);
+  allowanceTurn = run.catch(() => {});
+  return run;
+}
+
 /**
  * The hashes of the unpaid messages the temporary store holds that match a query.
  * @param {object} query
@@ -192,25 +209,29 @@ async function overAllowance(sender) {
  * @param {{clientTag: string, originKey: string}} sender
  * @returns {Promise<{refused: string}|{release: function(): void}>}
  */
-async function reserve(hash, sender) {
-  const stored = await storedFor(sender);
-  let entry = inFlight.get(hash);
-  if (!entry) {
-    const refused = allowanceRefusal(sender, stored);
-    if (refused) return { refused };
-    entry = { ...sender, holders: 0 };
-    inFlight.set(hash, entry);
-  }
-  entry.holders += 1;
-  let released = false;
-  return {
-    release: () => {
-      if (released) return;
-      released = true;
-      entry.holders -= 1;
-      if (entry.holders === 0) inFlight.delete(hash);
-    },
-  };
+function reserve(hash, sender) {
+  return inTurn(async () => {
+    const stored = await storedFor(sender);
+    let entry = inFlight.get(hash);
+    if (!entry) {
+      const refused = allowanceRefusal(sender, stored);
+      if (refused) return { refused };
+      entry = { ...sender, holders: 0 };
+      inFlight.set(hash, entry);
+    }
+    entry.holders += 1;
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        inTurn(() => {
+          entry.holders -= 1;
+          if (entry.holders === 0) inFlight.delete(hash);
+        });
+      },
+    };
+  });
 }
 
 /**

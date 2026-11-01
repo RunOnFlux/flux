@@ -353,6 +353,28 @@ describe('unpaidAdmission tests', () => {
       expect(taken([await admitLive({ hash: 'other3' })])).to.have.length(1);
     });
 
+    it('counts a message written and released while another check reads the store', async () => {
+      await admitLive({ hash: 'other1' });
+      await admitLive({ hash: 'other2' });
+      const late = await admitLive({ hash: 'late' });
+      // the next check's reads start before late's write lands, so they do not see it
+      const landings = [];
+      let readStarted;
+      const reading = new Promise((resolve) => { readStarted = resolve; });
+      dbHelper.findInDatabase.callsFake(async () => {
+        readStarted();
+        await new Promise((land) => { landings.push(land); });
+        return [];
+      });
+
+      const checking = admitLive({ hash: 'next' });
+      await reading;
+      late.release();
+      landings.forEach((land) => land());
+
+      expect(await checking).to.deep.equal({ refused: 'its client already has 3 unpaid app messages pending' });
+    });
+
     it('holds no place for a refused message', async () => {
       holding({ clientTag: TAG }, 3);
       expect(await admitLive({ hash: 'refused' })).to.have.property('refused');
