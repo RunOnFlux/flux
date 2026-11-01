@@ -19,7 +19,9 @@ import { thawEveryNode } from './host-stall.js';
 import { waitFor } from './wait.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
-import { getSubnetConfig, REGISTRY_ALIAS, STORAGE_HOST } from './subnet-config.js';
+import {
+  getSubnetConfig, setIpGroups, SLOT_WIDTH, REGISTRY_ALIAS, STORAGE_HOST,
+} from './subnet-config.js';
 import { closeDb } from './db-client.js';
 import { FLUXD_PUBLISHED_PORT, newFluxdLogin, setFluxdLogin } from './fluxd-control.js';
 import {
@@ -186,7 +188,7 @@ const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json')
 const deterministicList = JSON.parse(readFileSync(join(fixturesDir, 'deterministic-list.json'), 'utf-8'));
 
 // All infra/node addresses derive from the per-run subnet base (TEST_SUBNET_BASE,
-// default '31.200.0'); see subnet-config.js. The named constants below are kept so
+// default '25.192.0'); see subnet-config.js. The named constants below are kept so
 // downstream references are unchanged — only the base varies per run.
 const subnet = getSubnetConfig();
 const SUBNET = subnet.subnet;
@@ -698,6 +700,8 @@ function makeEnvShell(networkName) {
     async teardown() {
       if (tornDown) return;
       tornDown = true;
+      // the next fleet in this process places its own nodes
+      setIpGroups({});
       const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
       // Every step below is a docker round trip with no timeout of its own, and until
       // now they printed only on THROW - and being slow is not throwing. The `after`
@@ -1027,7 +1031,21 @@ export async function createTestEnv({
   // adds its own on top. true for every node, or a list of node indices. Off
   // unless E2E_FIREWALL=1 turns it on for the whole run.
   firewall = process.env.E2E_FIREWALL === '1',
+  // Nodes placed in another /16 of the run's slot, by node index: { index: group },
+  // group 1..SLOT_WIDTH-1. A node not named sits in the slot's first /16 with the
+  // infra. FluxOS never dials a peer in its own /16 or a second in one it already
+  // has a peer in, so this is how a fleet holds peers a node may dial at will.
+  ipGroups = {},
 } = {}) {
+  for (const [index, group] of Object.entries(ipGroups)) {
+    if (!Number.isInteger(Number(index)) || Number(index) < 0 || Number(index) >= nodes) {
+      throw new Error(`createTestEnv: ipGroups names node ${index}, outside a fleet of ${nodes}`);
+    }
+    if (!Number.isInteger(group) || group < 1 || group >= SLOT_WIDTH) {
+      throw new Error(`createTestEnv: ipGroups places node ${index} in group ${group}; a slot has groups 1..${SLOT_WIDTH - 1} besides the first`);
+    }
+  }
+  setIpGroups(Object.fromEntries(Object.entries(ipGroups).map(([index, group]) => [Number(index) + 1, group])));
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
   }
@@ -1452,7 +1470,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // Render the deterministic node list for this run: identity from the committed
   // fixture, addresses from subnet-config (the single source of truth for node IPs).
   // POST before any node boots; /set-node-list also resets the stub's restore/reset
-  // baseline. A no-op-equivalent when base === '31.200.0'.
+  // baseline.
   const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({
     ...n, ip: subnet.nodeIp(idx + 1), pubkey: nodeKey(keyNumber(sharedKeys, idx + 1)).pubkey,
   })).filter((n, idx) => collateralOf[idx + 1] === undefined);
@@ -1801,10 +1819,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (aptBadSource && isLegacy) nodeEnv.FLUX_APT_BAD_SOURCE = 'true';
     if (firewall === true || (Array.isArray(firewall) && firewall.includes(i))) nodeEnv.FLUX_FIREWALL = 'true';
     // Point the node's config at the base-derived infra IPs. The mounted config
-    // files carry the default 31.200.0 addresses; this is written into the node's
-    // config directory as local.js, which node-config loads after them, so under a
-    // non-default base these overrides take effect (and are a no-op when
-    // base === '31.200.0'). Explicit test overrides still win (merged on top of this).
+    // files carry the default slot's addresses; this is written into the node's
+    // config directory as local.js, which node-config loads after them, so under
+    // another slot these overrides take effect. Explicit test overrides still win
+    // (merged on top of this).
     const infraOverride = {
       database: { url: MONGO_IP },
       daemon: { host: DAEMON_IP },

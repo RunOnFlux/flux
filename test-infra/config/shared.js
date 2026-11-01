@@ -2,8 +2,8 @@ module.exports = {
   testEventStream: true,
   logConsole: true,
   fluxTeamFluxID: '19J4Ef396goaQhrqgNLTFvtCXYqjFAx2Js',
-  daemon: { host: '31.200.0.3' },
-  benchmark: { host: '31.200.0.3' },
+  daemon: { host: '25.192.0.3' },
+  benchmark: { host: '25.192.0.3' },
   // upnpService builds its client at module load, and with no gateway URL the client
   // discovers one by SSDP - every node multicasting to 239.255.255.250:1900 for the life of
   // the run. Naming a gateway replaces discovery with a fixed device, which is the point of
@@ -18,7 +18,7 @@ module.exports = {
   // also its budget (7.5s): half for the listing, the rest for removals that each take a 500ms
   // pause, which does not compress - 3001's four left-over test mappings take 2s of it.
   upnp: {
-    gatewayUrl: 'http://31.200.0.6:3000/upnp/device.xml', nodeIp: '', removalRetryFirstMs: 2000, removalRetryMaxMs: 8000, cleanupCycleMs: 60000, verifyRetryFirstMs: 2000, verifyRetryMaxMs: 8000,
+    gatewayUrl: 'http://25.192.0.6:3000/upnp/device.xml', nodeIp: '', removalRetryFirstMs: 2000, removalRetryMaxMs: 8000, cleanupCycleMs: 60000, verifyRetryFirstMs: 2000, verifyRetryMaxMs: 8000,
   },
   // Empty disables analytics. The app default is the live cloudaudit endpoint, which
   // the fleet must never report suite activity to.
@@ -26,7 +26,7 @@ module.exports = {
   // compressed decider cadence: the syncthing readiness/stall loop runs every 3s
   // and a stall is declared after 4 no-progress cycles (~12s) instead of ~5min.
   syncthing: {
-    ip: '31.200.0.4',
+    ip: '25.192.0.4',
     port: 8384,
     monitorIntervalMs: 3000,
     // stall ladder compressed for suite time: first nudge ~6s after flat-idle,
@@ -37,8 +37,8 @@ module.exports = {
     stallRemoveMinNudges: 2,
     // The repository a legacy node installs syncthing from, served by the external
     // stub out of the node image rather than by apt.syncthing.net.
-    aptSourceUrl: 'http://31.200.0.6:3000/apt/',
-    releaseKeyUrl: 'http://31.200.0.6:3000/apt/keyring.gpg',
+    aptSourceUrl: 'http://25.192.0.6:3000/apt/',
+    releaseKeyUrl: 'http://25.192.0.6:3000/apt/keyring.gpg',
   },
   system: {
     bootIdPath: '/tmp/flux-boot-config/boot-id',
@@ -60,17 +60,17 @@ module.exports = {
     daemonExpiredMs: 600000,
   },
   github: {
-    apiBaseUrl: 'http://31.200.0.6:3000',
+    apiBaseUrl: 'http://25.192.0.6:3000',
   },
   geolocation: {
-    ipApiBaseUrl: 'http://31.200.0.6:3000',
+    ipApiBaseUrl: 'http://25.192.0.6:3000',
   },
-  stats: { baseUrl: 'http://31.200.0.6:3000' },
+  stats: { baseUrl: 'http://25.192.0.6:3000' },
   pricing: {
-    fluxRatesBaseUrl: 'http://31.200.0.6:3000',
-    coingeckoBaseUrl: 'http://31.200.0.6:3000',
+    fluxRatesBaseUrl: 'http://25.192.0.6:3000',
+    coingeckoBaseUrl: 'http://25.192.0.6:3000',
   },
-  mongodb: { signingKeyBaseUrl: 'http://31.200.0.6:3000' },
+  mongodb: { signingKeyBaseUrl: 'http://25.192.0.6:3000' },
   // the stub serves iplocation.bin.gz, so harness nodes exercise the real
   // table reader rather than skipping it. Its default artifact puts the whole
   // harness range in ONE organisation, which is the single-fault-domain
@@ -78,13 +78,13 @@ module.exports = {
   // their meaning. POST /iplocation {domains:n} to the stub's control port
   // splits the fleet n ways. Nothing here ever calls out to github.
   policy: {
-    baseUrl: 'http://31.200.0.6:3000',
+    baseUrl: 'http://25.192.0.6:3000',
     // The signed bundle. Present here as well as in test-env's per-run override for one
     // reason: what it falls back to is the real published URL, so a node that somehow
     // missed the override would fetch the LIVE network policy from github rather than
     // failing. The pinned keys are not restated here - test-env imports them from the
     // stub's own signing module, so there is one place they are written down.
-    signedBaseUrl: 'http://31.200.0.6:3000',
+    signedBaseUrl: 'http://25.192.0.6:3000',
     // Left at production's 24 hours ON PURPOSE, though it is compressible.
     //
     // Compressing it fleet-wide would have every node in every suite re-fetching from
