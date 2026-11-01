@@ -355,6 +355,12 @@ async function restore() {
     onReject: (reason) => log.warn(`policyStore - stored bundle rejected, will refetch: ${reason}`),
   });
   if (!payload) return false;
+  // Policy only moves forward: a peer can answer while this reads the disk, and a bundle
+  // adopted meanwhile is never replaced by an older one stored.
+  if (getSeq() >= payload.seq) {
+    log.info(`policyStore - stored seq ${payload.seq} not restored: seq ${getSeq()} is held`);
+    return false;
+  }
   current = payload;
   currentRaw = stored.raw;
   // Through the derivation like every other write to either fact, NOT because this opens

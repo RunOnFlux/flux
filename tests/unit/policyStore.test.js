@@ -1097,11 +1097,11 @@ describe('policyStore', () => {
       const announce = sinon.stub().resolves();
       const { module: m } = load();
       m.setPeerTransport({ ...holdingNothing(m), announce });
-      m.offerBundle(bundle(6));
+      await m.offerBundle(bundle(6));
       announce.resetHistory();
 
-      m.offerBundle(bundle(2)); // older
-      m.offerBundle(bundle(9, undefined, OTHER.privateKey)); // unsigned by a pinned key
+      await m.offerBundle(bundle(2)); // older
+      await m.offerBundle(bundle(9, undefined, OTHER.privateKey)); // unsigned by a pinned key
 
       expect(announce.called).to.equal(false);
     });
@@ -1112,18 +1112,18 @@ describe('policyStore', () => {
       const { module: m } = load();
       m.setPeerTransport({ ...holdingNothing(m), announce });
 
-      m.offerBundle(bundle(6));
+      await m.offerBundle(bundle(6));
 
       expect(m.getSeq()).to.equal(6);
     });
 
-    it('asks the peer that claimed a higher sequence, not the network', () => {
+    it('asks the peer that claimed a higher sequence, not the network', async () => {
       // The claim itself is not checkable, so it is a prompt to ask - and the peer that
       // made it is the one to ask. What comes back is a signed bundle, which is checkable.
       const request = sinon.stub().resolves();
       const { module: m } = load();
       m.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: async () => {} });
-      m.offerBundle(bundle(6));
+      await m.offerBundle(bundle(6));
       request.resetHistory();
 
       m.notePeerSeq(11, CAPABLE[0]);
@@ -1133,13 +1133,13 @@ describe('policyStore', () => {
       expect(request.firstCall.args[1], 'what this node holds').to.equal(6);
     });
 
-    it('ignores a claim at or below what it holds, and a malformed one', () => {
+    it('ignores a claim at or below what it holds, and a malformed one', async () => {
       // A liar claiming 9999 costs one request; a liar claiming a number every second would
       // cost one per second, so the cheap checks happen before the ask.
       const request = sinon.stub().resolves();
       const { module: m } = load();
       m.setPeerTransport({ capableKeys: () => CAPABLE, requestFrom: request, announce: async () => {} });
-      m.offerBundle(bundle(6));
+      await m.offerBundle(bundle(6));
       request.resetHistory();
 
       m.notePeerSeq(6);
@@ -1314,8 +1314,8 @@ describe('policyStore', () => {
       const { module: m } = load();
       m.onBundleChanged((change) => seen.push(change));
 
-      m.offerBundle(bundle(5, undefined, OTHER.privateKey));
-      m.offerBundle('not json');
+      await m.offerBundle(bundle(5, undefined, OTHER.privateKey));
+      await m.offerBundle('not json');
 
       expect(seen, 'nothing was adopted, so nothing changed').to.deep.equal([]);
       m.stop();
@@ -2037,6 +2037,40 @@ describe('policyStore', () => {
       // once is not disqualified from holding what it said it holds.
       expect(asked).to.deep.equal([A, A, C]);
       expect(m.getSeq(), 'the second chase reached the peer that could answer').to.equal(9);
+      m.stop();
+    });
+  });
+
+  // Policy only moves forward: a peer's bundle adopted while the node reads its stored one
+  // at start is never replaced by the older stored one.
+  describe('policy only moves forward', () => {
+    const PEER_A = '10.9.0.1:16127';
+    const gate = () => {
+      let open;
+      const opened = new Promise((resolve) => { open = resolve; });
+      return { opened, open };
+    };
+
+    it('keeps a peer\'s bundle adopted while it reads its stored one at start', async () => {
+      const read = gate();
+      const repo = {
+        readBundle: sinon.stub().callsFake(async () => {
+          await read.opened;
+          return { raw: bundle(4), seq: 4 };
+        }),
+        writeBundle: sinon.stub().resolves(true),
+      };
+      const { module: m } = load({ repo });
+
+      const starting = m.start();
+      const offered = m.offerBundle(bundle(40), PEER_A);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      read.open();
+      await starting;
+      await offered;
+
+      expect(m.getSeq(), 'the peer\'s bundle, not the stored one').to.equal(40);
+      sinon.assert.calledOnceWithMatch(repo.writeBundle, sinon.match.string, 40);
       m.stop();
     });
   });

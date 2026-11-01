@@ -126,6 +126,8 @@ async function writeArtifactBytes(name, bytes) {
 // the bundle would mean a file, a chunk, a record and an orphan sweep for something that fits
 // in a single row with room to spare.
 const BUNDLE_ID = 'networkPolicy';
+// MongoDB's duplicate key error
+const DUPLICATE_KEY = 11000;
 
 /**
  * The signed bundle this node last verified, or null when it has never had one.
@@ -147,21 +149,41 @@ async function readBundle() {
  * Record a bundle this node has verified. Stored as the bytes that were verified, not as the
  * parsed payload: re-serialising and re-parsing would leave a document whose signature no
  * longer checks, and the point of keeping it is to be able to check it again at boot.
+ *
+ * The stored bundle only moves forward: one is written only over a lower sequence, by the
+ * database in the one operation, so of two writes the higher sequence is what stays,
+ * whichever finishes last.
  * @param {string} raw The bundle exactly as received.
  * @param {number} seq Its sequence, already verified.
- * @returns {Promise<boolean>} true when recorded.
+ * @returns {Promise<boolean>} true when recorded; false when no database is connected or a
+ *   bundle of this sequence or a higher one is stored.
  */
 async function writeBundle(raw, seq) {
   const database = db();
   if (!database) return false;
-  await dbHelper.findOneAndUpdateInDatabase(
+  const write = () => dbHelper.findOneAndUpdateInDatabase(
     database,
     policyDocumentsCollection,
-    { _id: BUNDLE_ID },
+    { _id: BUNDLE_ID, $or: [{ seq: { $lt: seq } }, { seq: { $exists: false } }] },
     { $set: { raw, seq, verifiedAt: Date.now() } },
     { upsert: true },
   );
-  return true;
+  try {
+    await write();
+    return true;
+  } catch (error) {
+    if (error.code !== DUPLICATE_KEY) throw error;
+  }
+  // The insert met the bundle's own id: either it is stored at this sequence or higher, or
+  // another write inserted it first, when none was stored. Asked once more, the document
+  // exists, so the sequence alone decides.
+  try {
+    await write();
+    return true;
+  } catch (error) {
+    if (error.code === DUPLICATE_KEY) return false;
+    throw error;
+  }
 }
 
 /**
