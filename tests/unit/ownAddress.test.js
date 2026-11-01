@@ -548,6 +548,7 @@ describe('fluxNetworkHelper own address tests', () => {
     let synced;
     let reportedAt;
     let held;
+    let stopListening;
     // The chain height the daemon holds: a daemon synced to the tip at `at` that
     // has just reported it, or, at 0, one that is not synced.
     const chainAt = (at) => {
@@ -568,13 +569,16 @@ describe('fluxNetworkHelper own address tests', () => {
       reportedAt = sinon.stub(daemonServiceMiscRpcs, 'getLastSuccessfulRpcCall');
       chainAt(HEIGHT);
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      held = sinon.spy();
-      fluxNetworkHelper.onIpChangeHold(held);
       restart();
+      // called with the reason, each time the node is newly held for its IP changes
+      held = sinon.spy();
+      stopListening = fluxNetworkHelper.onStickyDos((owner, reason) => {
+        if (owner === fluxNetworkHelper.StickyDosOwner.IP_CHANGES) held(reason);
+      });
     });
 
     afterEach(() => {
-      fluxNetworkHelper.offIpChangeHold(held);
+      stopListening();
       restart();
     });
 
@@ -585,7 +589,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
       await fluxNetworkHelper.handleOwnAddress('198.51.100.58:16127');
 
-      sinon.assert.calledOnceWithExactly(held, 2);
+      sinon.assert.calledOnceWithExactly(held, IP_CHANGES);
       expect(fluxNetworkHelper.getMaxNumberOfIpChanges()).to.equal(2);
       expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
       const { ipChangeHeights, ipChangeHold } = await fullRecord();
