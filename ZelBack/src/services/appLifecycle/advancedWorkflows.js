@@ -3669,7 +3669,7 @@ async function updateAppGlobaly(params) {
   // allowance counts it a second time.
   if (await admissionQuorum.alreadyAdmitted(messageHASH)) return messageHASH;
 
-  const { clientTag, clientTagHeight } = await unpaidAdmission.tagSubmission(client, daemonHeight);
+  const tag = await unpaidAdmission.tagSubmission(client, daemonHeight);
 
   // As every node rebuilds it to check this node's signature on it.
   const temporaryAppMessage = unpaidAdmission.admittedMessage({
@@ -3680,8 +3680,7 @@ async function updateAppGlobaly(params) {
     timestamp: cleanTimestamp,
     signature: cleanSignature,
     arcaneSender: isArcane,
-    clientTag,
-    clientTagHeight,
+    ...tag,
   });
   await admissionQuorum.admit(temporaryAppMessage, { daemonHeight });
   return messageHASH;

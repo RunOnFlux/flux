@@ -337,6 +337,49 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
   });
 
+  describe('a temp sync answer carries what each message\'s admitting node signed', () => {
+    let wasAuthoritative;
+    let peer;
+
+    const origin = {
+      version: 1, timestamp: 1793351627000, pubKey: '04aa', signature: 'sig',
+    };
+    const pending = (hash, fields) => ({
+      type: 'fluxappregister', version: 1, appSpecifications: { name: hash }, hash, timestamp: 1, signature: 's', arcaneSender: true, ...fields,
+    });
+
+    beforeEach(() => {
+      wasAuthoritative = globalState.appStateAuthoritative;
+      globalState.appStateAuthoritative = true;
+      peer = { key: '198.51.100.9:16127', sendAsync: sinon.stub().resolves(), send: sinon.stub(), remoteClockOffsetMs: 0 };
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const stored = [
+        pending('capped', { clientTag: 'a'.repeat(64), clientTagHeight: 3081600, clientTagCap: 100, origin, originKey: '04aa' }),
+        pending('nullcap', { clientTag: 'a'.repeat(64), clientTagHeight: 3081600, clientTagCap: null, origin, originKey: '04aa' }),
+        pending('uncapped', { clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin, originKey: '04aa' }),
+      ];
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => ({ find: () => ({ sort: () => stored }) }) }) });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.appStateAuthoritative = wasAuthoritative;
+    });
+
+    it('sends a stored client cap as it is, and none where none was stored', async () => {
+      await fluxCommunicationMessagesSender.respondWithTempMessages(peer, 0);
+
+      const [{ messages }] = peer.sendAsync.getCalls().map((c) => JSON.parse(c.args[0]).data);
+      const tagged = { clientTag: 'a'.repeat(64), clientTagHeight: 3081600 };
+      expect(messages).to.deep.equal([
+        pending('capped', { ...tagged, clientTagCap: 100, origin }),
+        pending('nullcap', { ...tagged, origin }),
+        pending('uncapped', { ...tagged, origin }),
+      ]);
+    });
+  });
+
   // The peer half of policy distribution. A node that adopts a sequence tells its peers; a
   // peer that is behind asks for the bundle. Both directions are here because neither had any
   // coverage and they are the point of the whole exercise.
@@ -716,6 +759,33 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, {
         ...message, clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin,
+      });
+    });
+
+    [[100, { clientTagCap: 100 }], [null, {}]].forEach(([stored, sentCap]) => {
+      it(`should send the client cap stored as ${stored} beside a pending message ${stored === null ? 'as no cap at all' : 'as it is'}`, async () => {
+        const callMessage = {
+          timestamp: Date.now(),
+          pubKey: '1234asd',
+          signature: 'blabla',
+          version: 1,
+          data: { type: 'fluxapprequest', hash: 'test1', version: 1 },
+        };
+        const origin = {
+          version: 1, timestamp: 1793351627000, pubKey: '04aa', signature: 'sig',
+        };
+        sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(undefined);
+        sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').returns({
+          ...message, origin, originKey: '04aa', clientTag: 'a'.repeat(64), clientTagHeight: 3081600, clientTagCap: stored, receivedAt: new Date(),
+        });
+        sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
+        const myMessageCacheSetStub = sinon.stub(FluxTTLCache.prototype, 'set').returns(undefined);
+
+        await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, generateWebsocket());
+
+        sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, {
+          ...message, clientTag: 'a'.repeat(64), clientTagHeight: 3081600, ...sentCap, origin,
+        });
       });
     });
 
