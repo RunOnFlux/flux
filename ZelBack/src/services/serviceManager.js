@@ -265,6 +265,27 @@ async function prepareDatabaseSchema() {
  * whole boot 15 s later with whatever is stubbed by then. Unit-test the steps
  * it calls; the integration harness covers the sequence.
  */
+/**
+ * On a UPnP node with a router address: its firewall rules for UPnP are written again every
+ * hour, against an operator removing them on a legacy node, and from a minute after the start
+ * other nodes are asked every 8 minutes to call its UPnP ports. A node that does not map
+ * through UPnP runs neither.
+ * @returns {boolean} whether the upkeep was started
+ */
+function startRouterAddressUpkeep() {
+  if (!upnpService.isUPNP() || !userconfig.initial.routerIP) return false;
+  setInterval(() => {
+    upnpService.adjustFirewallForUPNP();
+  }, (60 * 60 * 1000) + 1000);
+  setTimeout(() => {
+    portManager.callOtherNodeToKeepUpnpPortsOpen();
+    setInterval(() => {
+      portManager.callOtherNodeToKeepUpnpPortsOpen();
+    }, 8 * 60 * 1000);
+  }, 1 * 60 * 1000);
+  return true;
+}
+
 async function startFluxFunctions() {
   try {
     if (!config.server.allowedPorts.includes(+apiPort)) {
@@ -316,20 +337,7 @@ async function startFluxFunctions() {
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
     await cloudUIUpdateService.checkAndUpdateCloudUI();
-    // User configured UPnP node with routerIP, UPnP has already been verified and setup
-    if (userconfig.initial.routerIP) {
-      setInterval(() => {
-        // this is only used as a protection against node operators removing rules
-        // on legacy nodes.
-        upnpService.adjustFirewallForUPNP();
-      }, (60 * 60 * 1000) + 1000); // every 60m.
-      setTimeout(() => {
-        portManager.callOtherNodeToKeepUpnpPortsOpen();
-        setInterval(() => {
-          portManager.callOtherNodeToKeepUpnpPortsOpen();
-        }, 8 * 60 * 1000);
-      }, 1 * 60 * 1000);
-    }
+    startRouterAddressUpkeep();
     await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
     await fluxNetworkHelper.allowOnlyDockerNetworksToFluxNodeService();
     fluxNodeService.start();
@@ -841,6 +849,7 @@ async function startFluxFunctions() {
 
 module.exports = {
   startFluxFunctions,
+  startRouterAddressUpkeep,
   prepareDatabaseSchema,
   // testing exports
   dosState,
