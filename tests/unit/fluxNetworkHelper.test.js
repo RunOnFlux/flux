@@ -3281,6 +3281,83 @@ describe('fluxNetworkHelper tests', () => {
       fluxNetworkHelper.setDosStateValue(0);
     });
 
+    describe('the hold signal', () => {
+      let stopListening;
+      let listener;
+
+      beforeEach(() => {
+        listener = sinon.stub();
+      });
+
+      afterEach(() => {
+        if (stopListening) stopListening();
+        stopListening = null;
+      });
+
+      it('tells a listener each owner that newly holds the node, with its reason', () => {
+        stopListening = fluxNetworkHelper.onStickyDos(listener);
+
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
+
+        expect(listener.args).to.deep.equal([[APP_TAMPERING, 'tampering flag'], [RESIDENTIAL_DOS, 'residential']]);
+      });
+
+      it('tells a listener once per hold, however often or with whatever reason the owner sets it again', () => {
+        stopListening = fluxNetworkHelper.onStickyDos(listener);
+
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering, again');
+
+        sinon.assert.calledOnce(listener);
+      });
+
+      it('tells a listener again of an owner that holds the node after releasing it', () => {
+        stopListening = fluxNetworkHelper.onStickyDos(listener);
+
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        fluxNetworkHelper.clearStickyDos(APP_TAMPERING);
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+
+        sinon.assert.calledTwice(listener);
+      });
+
+      it('tells a listener at once of every owner already holding the node', () => {
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+
+        stopListening = fluxNetworkHelper.onStickyDos(listener);
+
+        sinon.assert.calledOnceWithExactly(listener, APP_TAMPERING, 'tampering flag');
+      });
+
+      it('tells a listener nothing once it stops listening', () => {
+        fluxNetworkHelper.onStickyDos(listener)();
+
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+
+        sinon.assert.notCalled(listener);
+      });
+    });
+
+    describe('checkInsightExplorerAllowed', () => {
+      const { INSIGHT_EXPLORER } = fluxNetworkHelper.StickyDosOwner;
+
+      it('allows a fluxd that keeps the address index', () => {
+        expect(fluxNetworkHelper.checkInsightExplorerAllowed(true)).to.equal(true);
+        expect(fluxNetworkHelper.isStickyDosHeldBy(INSIGHT_EXPLORER)).to.equal(false);
+      });
+
+      it('takes a node whose fluxd does not keep the address index out of service, and says so', () => {
+        expect(fluxNetworkHelper.checkInsightExplorerAllowed(false)).to.equal(false);
+
+        const reported = fluxNetworkHelper.getDOSState().data;
+        expect(reported.dosMessage).to.equal('fluxd is running without insightexplorer=1');
+        expect(reported.dosState).to.equal(100);
+        expect(fluxNetworkHelper.isStickyDosHeldBy(INSIGHT_EXPLORER)).to.equal(true);
+      });
+    });
+
     it('reports no reason while no owner holds the node', () => {
       expect(fluxNetworkHelper.getStickyDosMessage()).to.be.null;
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);

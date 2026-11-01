@@ -60,6 +60,13 @@ describe('hostStallService tests', () => {
   }
   const placementHeld = () => fluxNetworkHelper.isPlacementHeld();
   const outOfService = () => fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+  // Calls `listener` each time the node is newly held for a host stall.
+  let stopListening = [];
+  const onHostStallHold = (listener) => {
+    stopListening.push(fluxNetworkHelper.onStickyDos((owner) => {
+      if (owner === fluxNetworkHelper.StickyDosOwner.HOST_STALL) listener();
+    }));
+  };
 
   beforeEach(() => {
     procRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hoststall-'));
@@ -72,6 +79,8 @@ describe('hostStallService tests', () => {
   });
 
   afterEach(async () => {
+    stopListening.forEach((stop) => stop());
+    stopListening = [];
     await hostStallService.stop();
     fluxNetworkHelper.clearPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL);
     fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
@@ -211,10 +220,10 @@ describe('hostStallService tests', () => {
     expect(outOfService()).to.equal(true);
   });
 
-  describe('onTrip', () => {
+  describe('the hold', () => {
     it('tells a listener the moment the node goes out of service, and not before', async () => {
       const listener = sinon.stub();
-      hostStallService.onTrip(listener);
+      onHostStallHold(listener);
       stuckMongod();
       await readTimes(stuckIntervals);
       sinon.assert.notCalled(listener);
@@ -231,7 +240,7 @@ describe('hostStallService tests', () => {
       await readTimes(stuckIntervals + 1);
       const listener = sinon.stub();
 
-      hostStallService.onTrip(listener);
+      onHostStallHold(listener);
 
       sinon.assert.calledOnce(listener);
     });
@@ -242,7 +251,7 @@ describe('hostStallService tests', () => {
       hostStallService.stop();
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
       const listener = sinon.stub();
-      hostStallService.onTrip(listener);
+      onHostStallHold(listener);
 
       await hostStallService.start(paths);
 
@@ -530,13 +539,13 @@ describe('hostStallService tests', () => {
       });
     });
 
-    it('takes the node out of service and tells its listeners when the state cannot be kept', async () => {
+    it('takes the node out of service, holding it, when the state cannot be kept', async () => {
       const writeFile = fs.promises.writeFile.bind(fs.promises);
       sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (file.startsWith(paths.stateFile)
         ? Promise.reject(new Error('read-only'))
         : writeFile(file, ...rest)));
       const listener = sinon.stub();
-      hostStallService.onTrip(listener);
+      onHostStallHold(listener);
       stuckMongod();
 
       await readTimes(stuckIntervals + 1);

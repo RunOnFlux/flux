@@ -102,6 +102,7 @@ const StickyDosOwner = Object.freeze({
   DOCKER_FLOOR: 'dockerFloor',
   MONGODB_FLOOR: 'mongodbFloor',
   CGROUP_FLOOR: 'cgroupFloor',
+  INSIGHT_EXPLORER: 'insightExplorer',
   HOST_STALL: 'hostStall',
   IP_CHANGES: 'ipChanges',
   UPNP_ROUTER: 'upnpRouter',
@@ -175,10 +176,9 @@ let lastKnownSocketAddress = null;
 // from lastKnownSocketAddress, and 'known' with it when the node has an address
 // after having none.
 const localSocketAddressEvents = new EventEmitter();
-// Emits 'held', with the IP changes the window holds, when this process finds
-// the node held by the IP change hold: the pass that starts it, or the first
-// after a restart that finds it standing.
-const ipChangeHoldEvents = new EventEmitter();
+// Emits 'held', with the owner and its reason, when an owner newly holds the
+// node out of service.
+const stickyDosEvents = new EventEmitter();
 // Open while localSocketAddress holds an address.
 const localSocketAddressGate = new AsyncGate();
 
@@ -1095,24 +1095,6 @@ function offLocalSocketAddressChange(listener) {
 }
 
 /**
- * @param {function(number): void} listener Called, with the IP changes the
- *   window holds, each time this process finds the node held by the IP change
- *   hold. Removing the apps of a held node is the listener's.
- * @returns {void}
- */
-function onIpChangeHold(listener) {
-  ipChangeHoldEvents.on('held', listener);
-}
-
-/**
- * @param {function(number): void} listener
- * @returns {void}
- */
-function offIpChangeHold(listener) {
-  ipChangeHoldEvents.off('held', listener);
-}
-
-/**
  * @param {function(string): void} listener Called with the address each time the
  *   node has one after having none.
  * @returns {void}
@@ -1173,9 +1155,24 @@ function setStickyDos(owner, reason) {
     throw new Error(`setStickyDos: unknown owner ${owner}`);
   }
   if (stickyDosHolds.get(owner) === reason) return;
+  const newlyHeld = !stickyDosHolds.has(owner);
   stickyDosHolds.set(owner, reason);
   log.error(`Sticky DOS set by ${owner}: ${reason}`);
   publishEffectiveDosState();
+  if (newlyHeld) stickyDosEvents.emit('held', owner, reason);
+}
+
+/**
+ * Call `listener` each time an owner newly holds this node out of service, and
+ * at once for every owner that already does.
+ * @param {function(string, string): void} listener Called with the owner and
+ *   its reason.
+ * @returns {function(): void} Stops the calls.
+ */
+function onStickyDos(listener) {
+  stickyDosEvents.on('held', listener);
+  [...stickyDosHolds].forEach(([owner, reason]) => listener(owner, reason));
+  return () => stickyDosEvents.off('held', listener);
 }
 
 /**
@@ -1671,6 +1668,22 @@ async function checkCgroupsAllowed(cgroupDriver, { cgroupRoot = '/sys/fs/cgroup'
     StickyDosOwner.CGROUP_FLOOR,
     `Cgroup Error. FluxOS requires cgroup v2, cgroup.kill and Docker's systemd cgroup driver; missing: ${unmet.join(', ')}. Fix the host and restart FluxOS`,
   );
+  return false;
+}
+
+/**
+ * Whether fluxd keeps the address index (insightexplorer=1), which FluxOS reads
+ * to order app payments and to bootstrap the explorer.
+ *
+ * Asked once, when fluxd first answers at startup. The setting is read from
+ * flux.conf, which FluxOS reads only at startup, so the verdict stands until
+ * FluxOS next starts.
+ * @param {boolean} insightExplorer Whether flux.conf turns the index on.
+ * @returns {boolean} True when it does.
+ */
+function checkInsightExplorerAllowed(insightExplorer) {
+  if (insightExplorer) return true;
+  setStickyDos(StickyDosOwner.INSIGHT_EXPLORER, 'fluxd is running without insightexplorer=1');
   return false;
 }
 
@@ -2678,9 +2691,8 @@ function applyIpChangeHold() {
  * the record holds inside the window: over the limit with no hold standing, it
  * starts one at the height of the newest change; over the limit with one
  * standing, a change after the hold's start moves the start to it, so a node
- * that keeps changing stays held. A node this process finds newly held is told
- * to the onIpChangeHold listeners. Passes run one at a time and a started hold
- * is in the record before the next pass reads it, so it is told once.
+ * that keeps changing stays held. Passes run one at a time and a started hold
+ * is in the record before the next pass reads it.
  * @returns {Promise<boolean>} Whether the node is held.
  */
 async function enforceIpChangeHoldOnce() {
@@ -2723,11 +2735,8 @@ async function enforceIpChangeHoldOnce() {
       hold = null;
     }
   }
-  const wasHeld = isStickyDosHeldBy(StickyDosOwner.IP_CHANGES);
   ipChangeHold = hold;
-  const held = applyIpChangeHold();
-  if (held && !wasHeld) ipChangeHoldEvents.emit('held', maxNumberOfIpChanges);
-  return held;
+  return applyIpChangeHold();
 }
 
 // The pass of enforceIpChangeHold running, and the one asked for while it runs.
@@ -4057,8 +4066,6 @@ module.exports = {
   waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
-  onIpChangeHold,
-  offIpChangeHold,
   onLocalSocketAddressKnown,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
@@ -4094,6 +4101,7 @@ module.exports = {
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
   checkCgroupsAllowed,
+  checkInsightExplorerAllowed,
   checkMongoDbVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIp,
@@ -4132,6 +4140,7 @@ module.exports = {
   isPlacementHeld,
   StickyDosOwner,
   setStickyDos,
+  onStickyDos,
   clearStickyDos,
   isStickyDosHeldBy,
   getStickyDosMessage,

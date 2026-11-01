@@ -417,11 +417,42 @@ async function tidyPlacementsOnBoot() {
   });
 }
 
+// What a wait answers when an owner holds the node out of service.
+const OUT_OF_SERVICE = Symbol('outOfService');
+
+/**
+ * Decide the apps this node runs after boot: remove them all when the node may
+ * run none, otherwise wait for fluxd, confirmation and the app database and
+ * reconcile them. A node an owner holds out of service, at any point of this,
+ * is left to the removal the hold starts (nodeStatusMonitor.initialize): boot
+ * removes nothing for it and starts nothing. Boot settles however it ends.
+ * @param {object} bootContext AppSyncOrchestrator.readBootContext
+ * @returns {Promise<void>}
+ */
 async function manageAppsOnBoot(bootContext) {
+  let stopWatching = () => {};
+  const takenOut = new Promise((resolve) => {
+    stopWatching = fluxNetworkHelper.onStickyDos(() => resolve(OUT_OF_SERVICE));
+  });
+  const isOutOfService = () => fluxNetworkHelper.getStickyDosMessage() !== null;
+  // OUT_OF_SERVICE when the node is held out of service by the time the wait
+  // ends, however it ends. A hold released while it waits leaves it waiting.
+  const unlessTakenOut = async (work) => {
+    const answer = await Promise.race([takenOut, work]);
+    if (isOutOfService()) return OUT_OF_SERVICE;
+    if (answer !== OUT_OF_SERVICE) return answer;
+    const done = await work;
+    return isOutOfService() ? OUT_OF_SERVICE : done;
+  };
+  const leaveToItsRemoval = () => log.error(`appStartupManager - Node is out of service (${fluxNetworkHelper.getStickyDosMessage()}); its removal unloads the apps, and boot starts none`);
   try {
     await tidyPlacementsOnBoot();
     // ahead of every container start, so no slice in use can be empty here
     await appSlice.stopEmptySlices();
+    if (isOutOfService()) {
+      leaveToItsRemoval();
+      return;
+    }
     if (bootContext.firstBoot) {
       log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
     } else if (bootContext.unreadable) {
@@ -440,7 +471,10 @@ async function manageAppsOnBoot(bootContext) {
     // Locations still valid — wait for daemon + sync then reconcile.
     const DAEMON_TIMEOUT_MS = config.system.bootDaemonTimeoutMs ?? 300000;
     try {
-      await awaitWithin(globalState.waitForDaemonReady(), DAEMON_TIMEOUT_MS, 'daemon_timeout');
+      if (await awaitWithin(unlessTakenOut(globalState.waitForDaemonReady()), DAEMON_TIMEOUT_MS, 'daemon_timeout') === OUT_OF_SERVICE) {
+        leaveToItsRemoval();
+        return;
+      }
     } catch (error) {
       if (error.message === 'daemon_timeout') {
         log.error(`appStartupManager - Daemon not ready after ${DAEMON_TIMEOUT_MS / 1000}s, removing all apps`);
@@ -450,15 +484,13 @@ async function manageAppsOnBoot(bootContext) {
       throw error;
     }
 
-    await nodeConfirmationService.waitForConfirmationStatus();
+    if (await unlessTakenOut(nodeConfirmationService.waitForConfirmationStatus()) === OUT_OF_SERVICE) {
+      leaveToItsRemoval();
+      return;
+    }
     if (!nodeConfirmationService.isConfirmed()) {
       log.info('appStartupManager - Node not confirmed, removing all apps');
       await removeAllApps('Node not confirmed');
-      return;
-    }
-
-    if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
-      log.error('appStartupManager - Node is out of service for a host stall; its own removal unloads the apps');
       return;
     }
 
@@ -472,14 +504,16 @@ async function manageAppsOnBoot(bootContext) {
     // its database is: both within the one deadline.
     const upnpNode = upnpService.isUPNP();
     try {
-      await awaitWithin(Promise.all([globalState.waitForDbReady(), upnpNode ? upnpService.whenUPNPReady() : null]), SYNC_TIMEOUT_MS, 'sync_timeout');
+      if (await awaitWithin(unlessTakenOut(Promise.all([globalState.waitForDbReady(), upnpNode ? upnpService.whenUPNPReady() : null])), SYNC_TIMEOUT_MS, 'sync_timeout') === OUT_OF_SERVICE) {
+        leaveToItsRemoval();
+        return;
+      }
     } catch (error) {
       if (error.message === 'sync_timeout') {
         if (upnpNode && !upnpService.isUPNPReady()) {
           const reason = `UPnP: the router has not taken this node's ports within ${SYNC_TIMEOUT_MS / 1000}s of its start`;
           fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER, reason);
-          log.error(`appStartupManager - ${reason}, removing all apps`);
-          await removeAllApps('UPnP not mapped');
+          leaveToItsRemoval();
           return;
         }
         log.error(`appStartupManager - DB not ready after ${SYNC_TIMEOUT_MS / 1000}s, removing all apps`);
@@ -497,6 +531,7 @@ async function manageAppsOnBoot(bootContext) {
     await portManager.declareInstalledAppsPorts();
     await reconcileAppsOnBoot();
   } finally {
+    stopWatching();
     globalState.bootContainerStateSettled = true;
     fluxEventBus.publish('boot:settled', {});
     log.info('appStartupManager - Boot container state settled');

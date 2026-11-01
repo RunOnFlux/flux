@@ -57,8 +57,6 @@ let readTimer = null;
 let generation = 0;
 /** The state being kept, which stop() lets its caller wait for. */
 let keeping = Promise.resolve();
-/** Called once the node is out of service for a host stall. */
-const tripListeners = [];
 const DEFAULT_PATHS = {
   procRoot: '/proc',
   stateFile: '/run/fluxos/host-stall.json',
@@ -256,22 +254,6 @@ function keepState() {
   keeping = keeping.then(() => writeState(text, stateFile));
 }
 
-/** Tell every listener the node is out of service for a host stall. */
-function announceTrip() {
-  tripListeners.forEach((listener) => listener());
-}
-
-/**
- * Call `listener` once the node is out of service for a host stall: at once
- * when it already is, whether it tripped in this process or the trip was
- * restored at start.
- * @param {function(): void} listener
- */
-function onTrip(listener) {
-  tripListeners.push(listener);
-  if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) listener();
-}
-
 /** Restore what an earlier FluxOS in this boot kept: the trip, and every thread's count. */
 async function restoreState() {
   const text = await readOrNull(paths.stateFile);
@@ -284,7 +266,6 @@ async function restoreState() {
     if (trip) {
       tripReason = trip;
       fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, trip);
-      announceTrip();
     }
   } catch (error) {
     log.error(`hostStall - the kept state could not be read: ${error.message}`);
@@ -302,7 +283,6 @@ async function act() {
   if (longest.intervals >= STUCK_INTERVALS && !fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
     tripReason = `Host stall: ${describe(longest)}`;
     fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, tripReason);
-    announceTrip();
   }
 }
 
@@ -370,13 +350,11 @@ function stop() {
   keptText = NOTHING_KEPT;
   queuedText = null;
   paths = { ...DEFAULT_PATHS };
-  tripListeners.length = 0;
   return keeping;
 }
 
 module.exports = {
   start,
   stop,
-  onTrip,
   readOnce,
 };

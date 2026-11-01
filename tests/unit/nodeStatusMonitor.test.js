@@ -102,7 +102,7 @@ describe('nodeStatusMonitor tests', () => {
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
         '../dbHelper': {},
         '../serviceHelper': { delay: sinon.stub().resolves() },
-        '../fluxNetworkHelper': { onIpChangeHold: (cb) => { listeners.ipChangeHold = cb; } },
+        '../fluxNetworkHelper': { onStickyDos: (cb) => { listeners.hold = cb; }, StickyDosOwner: { HOST_STALL: 'hostStall' } },
         '../fluxCommunicationUtils': {},
         '../appMessaging/messageStore': {},
         '../networkStateService': {},
@@ -140,19 +140,19 @@ describe('nodeStatusMonitor tests', () => {
       sinon.assert.calledWithMatch(logStub.error, /daemon unreachable\) failed/);
     });
 
-    it('removes every app at once when the node is held for its IP changes', async () => {
+    it('removes every app at once when an owner holds the node out of service, giving the hold\'s reason', async () => {
       const installedAppsFn = sinon.stub().resolves({ status: 'success', data: [{ name: 'one' }, { name: 'two' }] });
       const removeAppLocallyFn = sinon.stub().resolves('removed');
       monitor.initialize(installedAppsFn, removeAppLocallyFn);
 
-      listeners.ipChangeHold(2);
+      listeners.hold('insightExplorer', 'fluxd is running without insightexplorer=1');
       await new Promise((resolve) => { setImmediate(resolve); });
       await new Promise((resolve) => { setImmediate(resolve); });
 
       // each removal is a hand-back the network should hear of; whether it can is the announcement's to read
       sinon.assert.calledWithExactly(removeAppLocallyFn, 'one', null, true, false, true);
       sinon.assert.calledWith(removeAppLocallyFn, 'two');
-      sinon.assert.calledWithMatch(logStub.info, /going to be removed: IP changes over the limit/);
+      sinon.assert.calledWithMatch(logStub.info, /going to be removed: fluxd is running without insightexplorer=1/);
     });
   });
 
@@ -163,7 +163,7 @@ describe('nodeStatusMonitor tests', () => {
     let monitor;
     let appKill;
     let dockerService;
-    let onTrip;
+    let onHold;
     let dos;
     let confirmed;
     let bus;
@@ -197,7 +197,7 @@ describe('nodeStatusMonitor tests', () => {
         '../dbHelper': {},
         // the spacing between removals runs on the clock, and the wait before the next pass never ends
         '../serviceHelper': { delay: sinon.stub().callsFake((ms) => (ms === SPACING ? new Promise((resolve) => { setTimeout(resolve, ms); }) : never())) },
-        '../fluxNetworkHelper': { isNodeDos: () => dos, onIpChangeHold: sinon.stub() },
+        '../fluxNetworkHelper': { isNodeDos: () => dos, onStickyDos: (listener) => { onHold = listener; }, StickyDosOwner: { HOST_STALL: 'hostStall' } },
         '../fluxCommunicationUtils': {},
         '../appMessaging/messageStore': {},
         '../networkStateService': {},
@@ -208,7 +208,6 @@ describe('nodeStatusMonitor tests', () => {
           isDaemonStale: () => false,
           isConfirmed: () => confirmed,
         },
-        '../hostStallService': { onTrip: (listener) => { onTrip = listener; } },
         '../appLifecycle/appKill': appKill,
         '../dockerService': dockerService,
         '../utils/fluxEventBus': bus,
@@ -292,13 +291,15 @@ describe('nodeStatusMonitor tests', () => {
       sinon.assert.callOrder(appKill.kill.withArgs('b'), remove.withArgs('a'));
     });
 
-    it('removes every app once the host stalls, starting from the trip', async () => {
+    it('removes every app by the unload once the host stalls, starting from the hold', async () => {
       const remove = sinon.stub().resolves('removed');
       monitor.initialize(installed('one', 'two'), remove);
 
-      onTrip();
+      onHold('hostStall', 'Host stall: thread 12 stuck');
       await clock.tickAsync(0);
 
+      sinon.assert.calledWith(dockerService.appDockerStop, 'fluxone');
+      sinon.assert.calledWith(dockerService.appDockerStop, 'fluxtwo');
       expect(remove.getCalls().map((call) => call.args[0])).to.deep.equal(['one', 'two']);
       sinon.assert.notCalled(appKill.kill);
     });
