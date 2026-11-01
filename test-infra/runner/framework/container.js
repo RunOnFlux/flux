@@ -302,9 +302,14 @@ export async function restartFluxos(container, { apiPort = 16127, readyTimeoutMs
 
 // Set the api port a node's FluxOS takes at its next start, as an operator
 // changing it does. The port is read once, when FluxOS starts: restartFluxos with
-// the same apiPort brings it up there.
+// the same apiPort brings it up there. The forward that stands in for the node's
+// syncthing on apiport+2 moves now.
 export async function setNodeApiPort(container, apiPort) {
-  const r = await execInContainer(container, `sed -i -E 's/^( *apiport:).*,$/\\1 ${Number(apiPort)},/' /flux/config/userconfig.js && grep -q 'apiport: ${Number(apiPort)},' /flux/config/userconfig.js`);
+  const env = '/etc/fluxos-harness.env';
+  const port = Number(apiPort);
+  const r = await execInContainer(container, `sed -i -E 's/^( *apiport:).*,$/\\1 ${port},/' /flux/config/userconfig.js && grep -q 'apiport: ${port},' /flux/config/userconfig.js`
+    + ` && sed -i -E 's/^FLUX_API_PORT=.*$/FLUX_API_PORT="${port}"/' ${env} && grep -q '^FLUX_API_PORT="${port}"$' ${env}`
+    + ' && { ! systemctl is-active -q syncthing-forward || systemctl restart syncthing-forward; }');
   if (r.exitCode !== 0) throw new Error(`setNodeApiPort: could not set apiport ${apiPort}: ${r.output}`);
 }
 

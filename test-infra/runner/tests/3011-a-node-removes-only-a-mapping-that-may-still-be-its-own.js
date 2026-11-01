@@ -24,9 +24,8 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import {
-  crashFluxos, releaseFluxos, restartFluxos, setNodeApiPort,
-} from '../framework/container.js';
+import { crashFluxos, releaseFluxos } from '../framework/container.js';
+import { giveNodeApiPort } from '../framework/node-address.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import {
   enableUpnpGateway, setUpnpEmptyLookups, setUpnpLeases, setUpnpLookupFault, setUpnpRefuseDeletes, upnpGatewayState,
@@ -103,9 +102,7 @@ describe('a node removes only a mapping that may still be its own', function () 
     // a machine behind the same router that is not this node
     otherMachine = nodeIp.replace(/\.\d+$/, '.240');
     await enableUpnpGateway(nodeIp);
-    await setNodeApiPort(client.container, API_PORT);
-    await restartFluxos(client.container, { apiPort: API_PORT });
-    await client.followTo(nodeIp, API_PORT);
+    await giveNodeApiPort(env, SUBJECT, API_PORT);
   });
 
   after(async function () {

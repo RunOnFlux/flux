@@ -16,7 +16,8 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { crashFluxos, releaseFluxos, restartFluxos, setNodeApiPort } from '../framework/container.js';
+import { crashFluxos, releaseFluxos } from '../framework/container.js';
+import { giveNodeApiPort } from '../framework/node-address.js';
 import { pushBusybox } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
@@ -49,9 +50,7 @@ describe('a node maps no port of an app removed while its boot maps the installe
     client = env.clients[SUBJECT];
     nodeIp = subnet.nodeIp(SUBJECT + 1);
     await enableUpnpGateway(nodeIp);
-    await setNodeApiPort(client.container, API_PORT);
-    await restartFluxos(client.container, { apiPort: API_PORT });
-    await client.followTo(nodeIp, API_PORT);
+    await giveNodeApiPort(env, SUBJECT, API_PORT);
 
     await pushBusybox('e2eupnpbootgone', 'v1', 'busybox', {
       entrypoint: ['/bin/busybox', 'nc', '-lk', '-p', String(LISTEN_PORT), '-e', '/bin/busybox', 'echo', 'ok'],

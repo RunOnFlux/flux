@@ -4,7 +4,7 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { restartFluxos, setNodeApiPort } from '../framework/container.js';
+import { giveNodeApiPort } from '../framework/node-address.js';
 import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
@@ -51,9 +51,7 @@ describe('a node behind a full router table verifies UPnP', function () {
     // the first boot writes userconfig.js (its identity) and would put back the old port
     await waitForBootSettled(env.clients[0]);
     await enableUpnpGateway(nodeIp, { capacity: CAPACITY, mappings: [...LEFT_OVER, OTHERS] });
-    await setNodeApiPort(env.clients[0].container, API_PORT);
-    await restartFluxos(env.clients[0].container, { apiPort: API_PORT });
-    await env.clients[0].followTo(nodeIp, API_PORT);
+    await giveNodeApiPort(env, 0, API_PORT);
   });
 
   after(async function () {
@@ -99,9 +97,7 @@ describe('a node behind a full FRITZ!Box-style router table verifies UPnP', func
     await enableUpnpGateway(nodeIp, {
       capacity: CAPACITY, mappings: [...LEFT_OVER.map(fritz), fritz(OTHERS)], fritzDescriptions: true,
     });
-    await setNodeApiPort(env.clients[0].container, API_PORT);
-    await restartFluxos(env.clients[0].container, { apiPort: API_PORT });
-    await env.clients[0].followTo(nodeIp, API_PORT);
+    await giveNodeApiPort(env, 0, API_PORT);
   });
 
   after(async function () {
@@ -143,9 +139,7 @@ describe('a node whose own ports fill its router\'s table verifies UPnP', functi
     // the first boot writes userconfig.js (its identity) and would put back the old port
     await waitForBootSettled(env.clients[0]);
     await enableUpnpGateway(nodeIp, { capacity: FULL.length, mappings: FULL });
-    await setNodeApiPort(env.clients[0].container, API_PORT);
-    await restartFluxos(env.clients[0].container, { apiPort: API_PORT });
-    await env.clients[0].followTo(nodeIp, API_PORT);
+    await giveNodeApiPort(env, 0, API_PORT);
   });
 
   after(async function () {

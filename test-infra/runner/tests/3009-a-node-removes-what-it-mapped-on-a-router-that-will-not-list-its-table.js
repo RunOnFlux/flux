@@ -18,7 +18,7 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { restartFluxos, setNodeApiPort } from '../framework/container.js';
+import { giveNodeApiPort } from '../framework/node-address.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { enableUpnpGateway, setUpnpListFault, upnpGatewayState } from '../framework/external-http-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -46,10 +46,8 @@ describe('a node removes what it mapped on a router that will not list its table
     nodeIp = subnet.nodeIp(SUBJECT + 1);
     const client = env.clients[SUBJECT];
     await enableUpnpGateway(nodeIp);
-    await setNodeApiPort(client.container, OLD_API_PORT);
     const mark = client.getLastEventId();
-    await restartFluxos(client.container, { apiPort: OLD_API_PORT });
-    await client.followTo(nodeIp, OLD_API_PORT);
+    await giveNodeApiPort(env, SUBJECT, OLD_API_PORT);
     await waitFor(async () => {
       const { mappings } = await upnpGatewayState(nodeIp);
       return corePorts(OLD_API_PORT).every((port) => mappings.some((m) => m.externalPort === port));
@@ -59,9 +57,7 @@ describe('a node removes what it mapped on a router that will not list its table
 
     await setUpnpListFault(nodeIp, NOT_LISTED);
     restartedAt = Date.now();
-    await setNodeApiPort(client.container, NEW_API_PORT);
-    await restartFluxos(client.container, { apiPort: NEW_API_PORT });
-    await client.followTo(nodeIp, NEW_API_PORT);
+    await giveNodeApiPort(env, SUBJECT, NEW_API_PORT);
   });
 
   after(async function () {
