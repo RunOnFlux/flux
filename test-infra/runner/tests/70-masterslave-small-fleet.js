@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -14,6 +14,7 @@ import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PARTITION_PEERS } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // MUST-PASS gate. The election on a fleet small enough that a node has barely any
 // peers at all.
@@ -90,8 +91,7 @@ describe('masterSlave election on a three-node fleet', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await resetFdm().catch(() => {});
     await env?.teardown();

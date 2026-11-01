@@ -1,11 +1,12 @@
 // weight: light
 /* global WebSocket */
-import { describe, it, before, beforeEach, after } from 'mocha';
+import { describe, it, before, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitForDaemonReady, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The relay a browser and a wallet meet through, against a real node.
 //
@@ -71,8 +72,7 @@ describe('the payment relay holds an id against whoever asked for it', function 
     base = `http://${getSubnetConfig().nodeIp(1)}:16127`;
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -226,8 +226,7 @@ describe('the payment relay counts the caller a balancer reports', function () {
     base = `http://${getSubnetConfig().nodeIp(1)}:16127`;
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

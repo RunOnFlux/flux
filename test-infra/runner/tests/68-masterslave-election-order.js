@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -21,6 +21,7 @@ import {
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { loadSharedConfig, PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // MUST-PASS gate. Primary election when the election order DISAGREES with the
 // syncthing seed order - the one arrangement the other g: suites cannot make.
@@ -143,8 +144,7 @@ describe('primary election under a divergent placement order', function () {
     await deploy(orderApp);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await resetFdm().catch(() => {});
     await env?.teardown();

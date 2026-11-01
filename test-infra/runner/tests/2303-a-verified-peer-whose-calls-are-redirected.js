@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -12,6 +12,7 @@ import {
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { isDaemonUp, listFolderFiles } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A single-writer app on two nodes, the primary running it and the standby
 // holding a copy. The standby has proven who is at the primary's address, and
@@ -104,8 +105,7 @@ describe('a verified peer whose calls are redirected between the question and th
     }, 2000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     clearInterval(sampler);
     await env?.clients[A].releaseAllCheckpoints().catch(() => {});
     if (env && redirectRules.length) await clearOutboundRedirect(env.clients[A].container, redirectRules).catch(() => {});

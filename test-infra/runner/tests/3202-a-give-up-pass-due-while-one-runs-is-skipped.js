@@ -7,13 +7,14 @@
  * than run beside the held one. Released, the held pass finishes and frees the lock, and the pass
  * due after that runs.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
 import { advanceBlock, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODE = 0;
 const JOB = 'checkAndRemoveApplicationInstance';
@@ -83,8 +84,7 @@ describe('a give-up pass due while one is running is skipped', function () {
     thirdHeld = (await node.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_PASS, 60000, { afterId: afterRelease })).data;
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.clients[NODE]?.releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });

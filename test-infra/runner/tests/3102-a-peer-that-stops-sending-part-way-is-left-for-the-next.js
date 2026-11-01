@@ -7,13 +7,14 @@
  * the peer has sent nothing for hashSyncBulkIdleMs the joiner abandons it, keeping what it sent,
  * and asks the next peer only for the rest.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { waitForOrchestratorState } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import {
   BEFORE_LOG_PIECE, fleetMissingALog, startJoiner, firstPeerHeldAfterOnePiece, peerKey, messagesNotKept,
 } from '../framework/message-log.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('a node whose peer stops sending part way through its log takes the rest from the next', function () {
   let env;
@@ -40,8 +41,7 @@ describe('a node whose peer stops sending part way through its log takes the res
     await waitForOrchestratorState(client, 'READY', 600000);
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await env?.clients[first]?.releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });

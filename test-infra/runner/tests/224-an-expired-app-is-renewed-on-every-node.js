@@ -12,7 +12,7 @@
  * and promotes a payment only on a block that is still the tip when it fetches it, so each block
  * is mined only once every node has processed the one before.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey, fluxTeamKey } from '../framework/keys.js';
@@ -27,6 +27,7 @@ import { driveFleetUntil as driveFleet, relayedToFleet } from '../framework/flee
 import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -143,8 +144,7 @@ describe('an expired app is renewed by an update, on every node alike', function
       && (await hashes(ownerName)).every((h) => h === null), { blocks: EXPIRY_BUDGET, label: 'both apps expire on every node' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

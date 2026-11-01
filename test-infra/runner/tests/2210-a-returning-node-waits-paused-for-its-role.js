@@ -20,6 +20,7 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { electMaster, clearMaster } from '../framework/fdm-control.js';
 import { enableRpcFailure, disableRpcFailure } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // fleet: 3
 //
@@ -198,8 +199,7 @@ describe('a returning node waits paused until its role is decided', function () 
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

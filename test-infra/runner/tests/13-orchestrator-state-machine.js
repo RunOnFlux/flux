@@ -1,4 +1,4 @@
-import { describe, it, before, after, afterEach } from 'mocha';
+import { describe, it, before, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -13,6 +13,7 @@ import {
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { loadSharedConfig, peerDeathMs, PARTITION_PEERS } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // How long a node takes to notice a peer that has been unplugged rather than
 // disconnected - the thing every DEGRADED wait below is really waiting for.
@@ -90,8 +91,7 @@ describe('Orchestrator: INITIALIZING to SYNCING', function () {
     await waitForOrchestratorStarted(env.clients[0]);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -134,8 +134,7 @@ describe('Orchestrator: SYNCING to READY', function () {
       await bootNodes(env, { discover: true });
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 
@@ -192,8 +191,7 @@ describe('Orchestrator: SYNCING to READY', function () {
       await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 
@@ -261,8 +259,7 @@ describe('Orchestrator: SYNCING to READY', function () {
       await bootNodes(env, { discover: true });
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 
@@ -305,8 +302,7 @@ describe('Orchestrator: READY to DEGRADED', function () {
     await stopTicker();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -355,8 +351,7 @@ describe('Orchestrator: peer drop during SYNCING', function () {
     await waitForOrchestratorState(env.clients[0], 'SYNCING', 60000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -386,8 +381,7 @@ describe('Orchestrator: DEGRADED recovery cycle', function () {
     await dropEveryPeerAndAwaitDegraded(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -431,8 +425,7 @@ describe('Orchestrator: block timer during RESYNCING', function () {
     await waitForOrchestratorState(env.clients[0], 'RESYNCING', 60000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -480,8 +473,7 @@ describe('Orchestrator: the block budget starts again after the peer set goes', 
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -532,8 +524,7 @@ describe('Orchestrator: message capability loss', function () {
       await stopTicker();
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await clearAllNodeStatus();
       await env?.teardown();
     });
@@ -572,8 +563,7 @@ describe('Orchestrator: message capability loss', function () {
       await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await clearAllNodeStatus();
       await env?.teardown();
     });

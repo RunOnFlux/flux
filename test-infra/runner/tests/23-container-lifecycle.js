@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -16,6 +16,7 @@ import {
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -80,8 +81,7 @@ describe('reconcileAppsOnBoot restarts containers after simulated reboot', funct
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -123,8 +123,7 @@ describe('containerHealthMonitor recreates killed container', function () {
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -160,8 +159,7 @@ describe('containerHealthMonitor restarts stopped container', function () {
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

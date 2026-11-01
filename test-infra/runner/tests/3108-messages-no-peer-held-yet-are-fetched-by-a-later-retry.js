@@ -7,7 +7,7 @@
  * The peers are then given the log, and once the chain is past that interval the block-driven
  * retry asks for the 600 again, in bulk, and keeps every one.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -16,6 +16,7 @@ import { advanceBlocks, stopTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { buildMessageLog, startJoiner, messagesNotKept } from '../framework/message-log.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const PEERS = [0, 1, 2, 3];
 const JOINER = 4;
@@ -70,8 +71,7 @@ describe('messages no peer held yet are fetched in bulk by a later retry', funct
     }).catch(() => {});
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

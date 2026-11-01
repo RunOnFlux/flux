@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -10,6 +10,7 @@ import {
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -51,8 +52,7 @@ describe('Boot manager: FluxOS-only restart', function () {
     await waitForBootSettledAndLogged(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -80,8 +80,7 @@ describe('Boot manager: machine reboot with clean shutdown', function () {
     await waitForBootSettledAndLogged(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -111,8 +110,7 @@ describe('Boot manager: first boot', function () {
     await waitForBootSettledAndLogged(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -145,8 +143,7 @@ describe('Boot manager: daemon timeout', function () {
     await waitForBootSettledAndLogged(env, 0, { timeout: 60000 });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -174,8 +171,7 @@ describe('Boot manager: not confirmed', function () {
     await waitForBootSettledAndLogged(env, 0, { timeout: 60000 });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await clearAllNodeStatus();
     await env?.teardown();
   });
@@ -198,8 +194,7 @@ describe('Boot manager: shutdownReason sequence', function () {
       await waitForDaemonReady(env.clients[0]);
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 
@@ -225,8 +220,7 @@ describe('Boot manager: shutdownReason sequence', function () {
       await waitForDaemonReady(env.clients[0]);
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 

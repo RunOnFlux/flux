@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -8,6 +8,7 @@ import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { failCommands, failWrites } from '../framework/mongo-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node joining the network asks a peer for the network's app state, and the peer
 // answers in several messages, only the last saying it is done. Here the joining
@@ -94,8 +95,7 @@ FAILURES.forEach(({ what, arm }) => describe(`a sync answer the node cannot reco
     step('synced');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await release?.().catch(() => {});
     await env?.teardown();
   });

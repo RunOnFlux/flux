@@ -10,7 +10,7 @@
 // running nothing else: SUITE_GLOB='tests/2503-*.js' E2E_HOST_KERNEL=1. It loads
 // the module with the runner's sudo and unloads only what it loaded.
 import { execFileSync } from 'node:child_process';
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
@@ -20,6 +20,7 @@ import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { REGISTRY_REPO_HOST, REGISTRY_PORT, getSubnetConfig } from '../framework/subnet-config.js';
 import { waitForAppInstalled, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODE = 0;
 const IMAGE_REPO = 'e2enettools';
@@ -143,7 +144,7 @@ describe('2503 app containers on a node with br_netfilter loaded', function suit
     await waitForBootSettled(node, 180000, { afterId });
   });
 
-  after(async () => {
+  afterTeardown(async () => {
     await env?.teardown();
     const loadedNow = hostModulesLoaded();
     const ours = MODULES.filter((m) => loadedNow.includes(m) && !loadedBefore.includes(m));

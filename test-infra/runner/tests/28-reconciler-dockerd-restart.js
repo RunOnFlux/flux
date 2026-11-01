@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { getAppContainerStatus, restartDockerd } from '../framework/container.js';
@@ -11,6 +11,7 @@ import {
   waitForAppInstalled, waitFor, waitForReconcileActuated,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Must-pass fleet gate. A dockerd restart underneath a running FluxOS leaves the
 // app containers exited with no die event reaching the watcher. When the docker
@@ -79,8 +80,7 @@ describe('reconciler recovers orphaned containers after a dockerd restart', func
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -15,6 +15,7 @@ import {
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { peerSetSweepsPerWindow, PARTITION_PEERS } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -160,8 +161,7 @@ describe('A peer set lost to the network is counted; the node\'s own teardown is
     [node] = env.clients;
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.healPartition(ISOLATED, REST).catch(() => {});
     await env?.teardown();
   });
@@ -245,8 +245,7 @@ describe('Losing confirmation tears the peer set down and is not counted against
     nodeIp = subnet.nodeIp(1);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await clearAllNodeStatus().catch(() => {});
     await env?.teardown();
   });
@@ -321,8 +320,7 @@ describe('The DOS a collapsing peer set earns takes the apps off the node', func
     await waitForAppInstalled(node, appName, 240000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.healPartition(ISOLATED, REST).catch(() => {});
     await env?.teardown();
   });
@@ -380,8 +378,7 @@ describe('Coming back needs the peer set up, not merely quiet', function () {
     await waitForPeerSetDos(node, () => true, 180000, { afterId: anchor });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.healPartition(ISOLATED, REST).catch(() => {});
     await env?.teardown();
   });

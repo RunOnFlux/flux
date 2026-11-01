@@ -9,7 +9,7 @@
  * A = the standby, B = the primary, C = holds nothing.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import {
@@ -23,6 +23,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const SIGTERM_EXPIRY_S = 120;
 // A machine that dies closes none of its connections, so the standby's syncthing
@@ -50,8 +51,7 @@ describe('a standby\'s own changes kept while no holder ran the app are reverted
     fleet = await placeSilentPrimaryApp({ hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await fleet?.env?.teardown();
   });

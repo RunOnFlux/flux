@@ -13,7 +13,7 @@
  * is asked for on its own and nothing between them is sent: one peer answers two ranges, sending
  * 600 messages of which 550 are missing.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -22,6 +22,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import {
   buildMessageLog, seedMessageLog, startJoiner, messagesNotKept,
 } from '../framework/message-log.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const PEERS = [0, 1, 2, 3];
 const JOINER = 4;
@@ -65,8 +66,7 @@ describe('a node asks a peer only for the heights it is missing', function () {
     await waitForOrchestratorState(client, 'READY', 600000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

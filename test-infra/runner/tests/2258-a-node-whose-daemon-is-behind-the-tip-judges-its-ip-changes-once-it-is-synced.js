@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -16,6 +16,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The limit on IP changes counts the changes inside a window of blocks, so it
 // needs the chain's height. A daemon behind the tip - catching up, or
@@ -161,8 +162,7 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
     listed[SILENT] = client(SILENT).ip;
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await Promise.all([BEHIND, RESYNCING, SILENT].map(async (i) => {
       if (listed[i]) {
         await clearDaemonBehind(listed[i]).catch(() => {});

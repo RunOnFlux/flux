@@ -1,9 +1,10 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitForDaemonReady, waitForNodeStatus, waitFor } from '../framework/wait.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // holdOutPendingNode refuses a node that has not started yet, with a
 // one-directional INPUT drop on each running node. Its comment claims "one
@@ -85,8 +86,7 @@ describe('a node held out before it starts', function () {
     await env.startDiscovery();
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

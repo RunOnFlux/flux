@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey, fluxTeamKey } from '../framework/keys.js';
@@ -8,6 +8,7 @@ import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForNodeStatus }
 import { advanceBlock, startTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) {
@@ -67,8 +68,7 @@ describe('Hash sync: late-joining node', function () {
     await env.startDiscovery();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -121,8 +121,7 @@ describe('Hash sync: network partition', function () {
     await waitForBlockProcessed(env.clients[env.lastNodeIndex], () => true, 60000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -177,8 +176,7 @@ describe('Hash sync: stale state recovery', function () {
     audit = await node.reconstructHashes(auth.zelidauth);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

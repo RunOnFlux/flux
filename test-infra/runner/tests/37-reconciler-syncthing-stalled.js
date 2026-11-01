@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus } from '../framework/container.js';
@@ -10,6 +10,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitForAppRemoved, assertNoEvent, waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // MUST-PASS data-safety gate for the stall ladder. Flat bytes alone are NOT a
 // stall - the responses depend on WHY no blocks arrive:
@@ -70,8 +71,7 @@ describe('reconciler stall ladder: nudge with evidence, remove only with proof, 
     await setNoPeerData({ ip: subnet.nodeIp(4), folder: stuck.folder });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

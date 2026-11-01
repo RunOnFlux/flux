@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach, after } from 'mocha';
+import { describe, it, before, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -14,6 +14,7 @@ import {
   volumeRoot, resetVolume, seedVolumeTree, seedSymlink,
   isSymlink, treeOf, exists, stagingEntries,
 } from '../framework/volume-fixture.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The properties that make these endpoints safe to expose to an app owner, and
 // the boot-time recovery that decides whether their data survives a crash.
@@ -110,8 +111,7 @@ describe('app volume file operations - safety and recovery', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

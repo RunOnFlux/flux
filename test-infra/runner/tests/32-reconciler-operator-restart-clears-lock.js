@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus } from '../framework/container.js';
@@ -9,6 +9,7 @@ import {
   waitForUp, waitForDown, assertNoEvent, waitForReconcileActuated,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // B4 end-to-end: a user apprestart is an explicit "make it run" - it must clear
 // the durable operator stop lock with appstart's exact semantics. Without the
@@ -30,8 +31,7 @@ describe('apprestart clears the operator stop lock (app stays running)', functio
     ({ index: idx } = await seedSimpleApp(env, appName));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

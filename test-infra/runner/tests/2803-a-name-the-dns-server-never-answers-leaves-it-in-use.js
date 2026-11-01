@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -6,6 +6,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dnsRecordsServed } from '../framework/external-http-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A name a node's own DNS server never answers - its authoritative servers are dead -
 // fails that lookup alone. The node goes on asking its own server for every other name.
@@ -64,8 +65,7 @@ describe('a name its own DNS server never answers leaves a node using that serve
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

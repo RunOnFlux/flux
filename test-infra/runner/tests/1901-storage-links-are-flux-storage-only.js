@@ -19,7 +19,7 @@
  * fetched and lands in the container, a foreign one is refused before a request
  * is made, and a message on chain validates whatever its link says.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
@@ -39,6 +39,7 @@ import {
   waitForAppInstalled, waitForAppSpecStored,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // What the staged payload puts into the container. Read back off the container
 // itself rather than out of the stub, so what is asserted is what the node did
@@ -96,8 +97,7 @@ describe('1901 a storage link addresses Flux storage or nothing', function suite
     await bootAndPeer(env);
   });
 
-  after(async function hook() {
-    this.timeout(30000);
+  afterTeardown(async function hook() {
     await env?.teardown();
   });
 

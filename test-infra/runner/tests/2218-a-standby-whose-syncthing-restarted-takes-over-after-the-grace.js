@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { execInContainer, crashFluxos } from '../framework/container.js';
@@ -9,6 +9,7 @@ import { waitFor, waitForUp } from '../framework/wait.js';
 import { stopDaemon, startDaemon } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { placeSilentPrimaryApp, A, B } from '../framework/silent-primary.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A standby whose syncthing restarted after the primary went has no closing of
 // its own to read. A primary it was connected to before, and that has not
@@ -32,8 +33,7 @@ describe('a standby whose syncthing restarted takes over from a crashed primary 
     fleet = await placeSilentPrimaryApp({ hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await resetFdm().catch(() => {});
     await fleet?.env.teardown();

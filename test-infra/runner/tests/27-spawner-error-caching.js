@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
@@ -15,6 +15,7 @@ import {
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const REGISTRY = REGISTRY_REPO_HOST;
 
@@ -77,8 +78,7 @@ describe('Spawner error caching: local install failure', function () {
     await waitForAppSpecStored(env.clients[0], appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await stopTicker().catch(() => {});
     await env?.teardown();
   });
@@ -189,8 +189,7 @@ describe.skip('Spawner error caching: network-wide error skip', function () {
     }
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await stopTicker().catch(() => {});
     await env?.teardown();
   });

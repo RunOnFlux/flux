@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -13,6 +13,7 @@ import { appOwnerKey } from '../framework/keys.js';
 import { assignPorts } from '../framework/port-allocator.js';
 import { signBtcMessage } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Region pins, end to end, on a fleet whose regions the location table actually
 // carries.
@@ -236,8 +237,7 @@ describe('placement honours region pins on proof from the shared table', functio
     expect(tree.data.total.domains, 'the fleet spans the published organisations').to.equal(DOMAINS);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     // leave the stub on its single-domain, region-less default for whatever
     // runs next
     await fetch(`${env?.stubControl}/iplocation`, {

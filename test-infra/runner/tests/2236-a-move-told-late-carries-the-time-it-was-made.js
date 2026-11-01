@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -13,6 +13,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node moves, and its peers hear the move at once. A node that joins later is
 // told the move then, from a copy signed again once the move is
@@ -65,8 +66,7 @@ describe('a move told late carries the time it was made', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (toIp) await clearRpcFailures(toIp).catch(() => {});
     if (fromIp) await clearNodeAddress(fromIp).catch(() => {});
     await env?.teardown();

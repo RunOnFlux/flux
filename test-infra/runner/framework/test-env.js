@@ -699,13 +699,9 @@ function makeEnvShell(networkName) {
       setIpGroups({});
       env.stopSyncthingTrace?.();
       const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
-      // Every step below is a docker round trip with no timeout of its own, and until
-      // now they printed only on THROW - and being slow is not throwing. The `after`
-      // hook that calls this fails the suite on its own budget: on the bc5d86154 gate
-      // seven suites (36, 45, 46, 47, 48, 51, 53) died on "after all hook: Timeout of
-      // 30000ms exceeded" with every one of their tests green, and nothing anywhere
-      // recorded which step had spent the 30 seconds. So each step reports as it
-      // COMPLETES: the step whose line is missing is the one that ran out of budget.
+      // Every step below is a docker round trip with no timeout of its own, so each reports
+      // its time as it COMPLETES: a teardown that does not finish is the step whose line is
+      // missing. The hook that calls this has no limit of its own (afterTeardown).
       const tStart = Date.now();
       let tPrev = tStart;
       const step = (name) => {
@@ -757,15 +753,10 @@ function makeEnvShell(networkName) {
         ).catch((e) => warn('immutable-flag sweep', e));
       }));
       step(`immutable-sweep(${clients.filter(Boolean).length} nodes)`);
-      // STOPPED CONCURRENTLY, because this is the step the budget is spent on.
-      // The per-step timing above put 3.6-13.9s of a 3.8-14.4s teardown in here
-      // on a quiet box, with every other step in milliseconds: sixteen
-      // containers at ~200-870ms each, one after another. That is work that
-      // scales with the fleet under an `after` hook budget that is a flat 30s in
-      // 123 of 137 suites, which is how seven suites lost a gate to it with
-      // every one of their tests green. The serial loop bought no politeness
-      // either - the docker daemon serialises stops across every concurrent
-      // suite regardless - only latency.
+      // STOPPED CONCURRENTLY: this is where a teardown spends its time, sixteen containers
+      // at ~200-870ms each on a quiet box, and the docker daemon serialises stops across
+      // every concurrent suite whatever order this asks in, so asking one after another
+      // only adds latency.
       //
       // The one ordering that means anything is kept: every node goes down
       // before any infra does, so a node is never left running against a
@@ -789,10 +780,8 @@ function makeEnvShell(networkName) {
       // has already marked the server Unknown and the call is skipped, but when it
       // has not, close() commits to an operation whose server goes Unknown
       // mid-flight, and waits out the full 30s serverSelectionTimeoutMS before
-      // squashError swallows the error. An `after all` budget that is a flat 30s
-      // cannot absorb that, so the suite fails with every one of its tests green -
-      // which is how suite 02 lost the f8fe3db1b gate: `db 32831ms`, against the
-      // other 145 teardowns in that same gate at 0-2ms.
+      // squashError swallows the error: `db 32831ms`, against 0-2ms in every other
+      // teardown.
       //
       // Measured on chud, six suite-02 runs at a time so the stops land together:
       // closing after the stop was slow in 27 of 30 runs at ~33s, the in-flight

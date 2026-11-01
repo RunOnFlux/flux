@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { io } from 'socket.io-client';
 import { createTestEnv } from '../framework/test-env.js';
@@ -8,6 +8,7 @@ import { execInContainer, getAppContainerStatus, fluxosPid } from '../framework/
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // MUST-PASS gate. Opening the web terminal must never take the node down.
 //
@@ -101,8 +102,7 @@ describe('docker terminal fails cleanly and never crashes the node', function ()
     }, { timeout: 90000, interval: 3000, label: 'app container running before terminal tests' });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -36,7 +36,7 @@
 // Each run generates its keypairs on the runner and holds them in memory: the files
 // ssh-keygen writes are deleted as soon as they are read, so no key outlives the
 // run on the runner whatever stops it, and none is stored in the repo.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -48,6 +48,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { restartFluxos, unitState } from '../framework/systemd-control.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const LEGACY = 0;
 const NODE_OWNER_SSHD = 1;
@@ -370,7 +371,7 @@ describe('2401 legacy node maintenance access', function suite() {
     }
   });
 
-  after(async () => {
+  afterTeardown(async () => {
     await env?.teardown();
   });
 

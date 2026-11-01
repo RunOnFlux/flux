@@ -1,9 +1,10 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, crashFluxos, releaseFluxos } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A FluxOS that starts while the directory its host-stall state is kept in takes no
 // writes: the state there cannot be read, so the start's first reading writes it,
@@ -53,8 +54,7 @@ describe('a boot does not wait for a host stall\'s state write', function () {
     await releaseFluxos(client.container);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (client) await execInContainer(client.container, `fsfreeze -u ${STATE_DIR}; umount -l ${STATE_DIR}; rm -f ${IMAGE}`).catch(() => {});
     await env?.teardown();
   });

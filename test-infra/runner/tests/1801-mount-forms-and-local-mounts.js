@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -12,6 +12,7 @@ import {
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { nodeKey } from '../framework/keys.js';
 import { signBtcMessage } from '../auth.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The mount forms that put something on the volume the owner did not write, and
 // what replication does with each.
@@ -120,8 +121,7 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     )));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.clients[heldIndex].releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });

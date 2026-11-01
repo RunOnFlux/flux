@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv, SYNCTHING_FAULT } from '../framework/test-env.js';
@@ -12,6 +12,7 @@ import {
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -66,8 +67,7 @@ describe('a node judges its own standing from what it can know', function () {
       await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     });
 
-    after(async function () {
-      this.timeout(60000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 
@@ -201,8 +201,7 @@ describe('a node judges its own standing from what it can know', function () {
       await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     });
 
-    after(async function () {
-      this.timeout(60000);
+    afterTeardown(async function () {
       await setBenchmarkUnresolved(ipOf(UNRESOLVED), false).catch(() => {});
       await env?.teardown();
     });
@@ -309,8 +308,7 @@ describe('a node judges its own standing from what it can know', function () {
       await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     });
 
-    after(async function () {
-      this.timeout(60000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 
@@ -385,8 +383,7 @@ describe('a node judges its own standing from what it can know', function () {
       await bootAndPeer(env, { minOutbound: 1, minInbound: 0 });
     });
 
-    after(async function () {
-      this.timeout(60000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 
@@ -444,8 +441,7 @@ describe('a node judges its own standing from what it can know', function () {
       await bootAndPeer(env, { minOutbound: 1, minInbound: 0 });
     });
 
-    after(async function () {
-      this.timeout(60000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 

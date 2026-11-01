@@ -1,10 +1,11 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitForDaemonReady, waitForBlockProcessed } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { advanceBlock, getState } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 let env;
 
@@ -17,8 +18,7 @@ describe('Boot: explorer sync', function () {
     await waitForBlockProcessed(env.clients[0], (d) => d.height > env.initialHeight, 50000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
