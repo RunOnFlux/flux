@@ -2,8 +2,9 @@
  * Swap for apps, from chunk files under /dat/app-swap, sized to what the
  * installed apps may swap: `config.fluxapps.defaultSwap` per component, the disk
  * admission already reserves for each one. Every container may swap that much
- * (dockerService), so with the pool covering it the host swapfile is left to
- * the system.
+ * (dockerService) and no more, so with the pool covering it the system always
+ * keeps the host swapfile's worth of swap. The kernel shares every swap device
+ * with every process: the pool adds capacity, it does not set devices aside.
  *
  * Arcane nodes only, with /dat on XFS, and never inside a container: swap
  * belongs to the kernel, and a node in a container shares its host's.
