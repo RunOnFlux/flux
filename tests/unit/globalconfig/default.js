@@ -413,6 +413,11 @@ module.exports = {
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,
+    discoveryMaxOutbound: 14,
+    discoveryMinUniqueOutboundIps: 9,
+    discoveryMaxInbound: 12,
+    discoveryMinUniqueInboundIps: 5,
+    discoveryMaxIterations: 100,
     nodeMonitorRemovalDelayMs: 5000,
     pullStallMs: 90000,
     // events per message of an answer to a peer's state sync
