@@ -374,9 +374,13 @@ class FluxPeerManager extends EventEmitter {
     this.#pendingAdds.inbound.delete(key);
     this.#schedulePeerUpdate();
 
-    // Track disconnect for unstable node detection and network health
-    this.trackDisconnect(peer.ip, peer.port);
-    if (this.networkHealthMonitor) this.networkHealthMonitor.recordDisconnect(peer.connectedAt, closeCode);
+    // Track disconnect for unstable node detection and network health. A link
+    // closed for not being an Arcane one says nothing about either.
+    if (closeCode !== CLOSE_CODES.NOT_ARCANE_LINK) {
+      this.trackDisconnect(peer.ip, peer.port);
+      if (this.networkHealthMonitor) this.networkHealthMonitor.recordDisconnect(peer.connectedAt, closeCode);
+    }
+    if (peer.link?.authenticated) this.noteAuthenticatedLinkLost(key);
 
     // Queue outbound peers for reconnection only on unexpected disconnections.
     // Whitelist: only reconnect for dead connections, capacity rejections,
@@ -891,6 +895,15 @@ class FluxPeerManager extends EventEmitter {
       if (!peer.link?.authenticated) unauthenticated.push(peer);
     }
     return unauthenticated;
+  }
+
+  /**
+   * An authenticated link stopped being one: its connection closed, or its peer
+   * gave up on it. Listeners learn it through `authenticatedLinkLost`.
+   * @param {string} key
+   */
+  noteAuthenticatedLinkLost(key) {
+    this.emit('authenticatedLinkLost', key);
   }
 
   /**
@@ -1987,4 +2000,6 @@ fluxEventBus.snapshot('peers', () => {
   };
 });
 
-module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };
+module.exports = {
+  FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES, isValidPeerKey,
+};

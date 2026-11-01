@@ -48,9 +48,10 @@ function arrivedAuthenticated(msgObj) {
 // The most frames a connection takes while its link handshake runs.
 const HANDSHAKE_QUEUE_MAX = 256;
 
-// The admission protocol (services/appMessaging/admissionQuorum.js), taken only
-// from a frame carrying a valid link MAC.
-const LINK_MESSAGE_TYPES = new Set(['appproposal', 'appreceipt', 'appcommit']);
+// The admission protocol (services/appMessaging/admissionQuorum.js), and an
+// Arcane node's report of its authenticated links, taken only from a frame
+// carrying a valid link MAC.
+const LINK_MESSAGE_TYPES = new Set(['appproposal', 'appreceipt', 'appcommit', 'arcanepeers']);
 
 // These number the PEER sockets. The browser routes on the same server carry
 // their own meanings for the same numbers - the payment relay answers a
@@ -94,6 +95,10 @@ const CLOSE_CODES = Object.freeze({
 
   // Node lost confirmation — disconnecting all peers
   NODE_UNCONFIRMED: 4019,
+
+  // Dialled for an authenticated Arcane link, and its handshake did not
+  // authenticate: not a fault of the peer, and not redialled
+  NOT_ARCANE_LINK: 4020,
 });
 
 const PEER_SOURCE = Object.freeze({
@@ -103,6 +108,8 @@ const PEER_SOURCE = Object.freeze({
   MANUAL: 'manual',
   INBOUND: 'inbound',
   EPHEMERAL: 'ephemeral',
+  // Dialled to hold admissionLinkTarget authenticated links (fluxCommunication).
+  ARCANE: 'arcane',
 });
 
 const DIRECTION = Object.freeze({
