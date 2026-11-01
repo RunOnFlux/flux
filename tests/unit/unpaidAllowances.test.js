@@ -133,6 +133,16 @@ describe('unpaidAllowances tests', () => {
       expect(unpaidAllowances.allowances().largestClientCap).to.equal(20);
     });
 
+    it('grants nothing to a range wider than the policy floors, keeping the rest, and says so', () => {
+      document = policy({ submitters: [submitter({ value: '0.0.0.0/0', cap: 90 }), submitter({ value: '37.59.0.0/16', cap: 80 }), submitter({ cap: 40 })] });
+
+      expect(unpaidAllowances.submitterCap(caller('198.51.100.25'))).to.equal(null);
+      expect(unpaidAllowances.submitterCap(caller('37.59.1.1'))).to.equal(null);
+      expect(unpaidAllowances.submitterCap(caller(APPSMONITOR))).to.equal(40);
+      expect(unpaidAllowances.allowances().largestClientCap).to.equal(40);
+      sinon.assert.calledTwice(logError);
+    });
+
     it('skips a range it cannot read, keeping the rest', () => {
       document = policy({ submitters: [submitter({ value: 'not-a-range', cap: 90 }), submitter({ value: '203.0.113.0/24', cap: 30 })] });
 
