@@ -1260,8 +1260,14 @@ describe('explorerService tests', () => {
       fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
       getBlockCountStub.returns({ status: 'success', data: 2000000 });
       const executeCallStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'error', data: { message: 'RPC unavailable' } });
-      // The retries between calls pass at once; the wait before the next bootstrap holds it.
-      const delayStub = sinon.stub(serviceHelper, 'delay').callsFake((ms) => (ms === 60000 ? new Promise(() => {}) : Promise.resolve()));
+      // The retries between calls pass at once. The first wait before the next
+      // bootstrap passes, and the second holds it.
+      let bootstrapWaits = 0;
+      const delayStub = sinon.stub(serviceHelper, 'delay').callsFake((ms) => {
+        if (ms !== 60000) return Promise.resolve();
+        bootstrapWaits += 1;
+        return bootstrapWaits === 1 ? Promise.resolve() : new Promise(() => {});
+      });
       // A scan that starts stops at its first block, so it is seen rather than run.
       daemonServiceBlockchainRpcs.getBlock.callsFake(() => {
         explorerService.setBlockProccessingCanContinue(false);
@@ -1273,10 +1279,92 @@ describe('explorerService tests', () => {
       await new Promise((resolve) => { setTimeout(resolve, 200); });
       explorerService.setBlockProccessingCanContinue(false);
 
-      sinon.assert.callCount(executeCallStub.withArgs('getaddressdeltas'), 5);
+      // Five asks of the address index per bootstrap: the first, and the one the wait started.
+      sinon.assert.callCount(executeCallStub.withArgs('getaddressdeltas'), 10);
       sinon.assert.calledWithMatch(logInfoSpy, 'Explorer has scanned nothing, bootstrapping again in 60s');
-      sinon.assert.calledWith(delayStub, 60000);
+      sinon.assert.callCount(delayStub.withArgs(60000), 2);
       sinon.assert.notCalled(daemonServiceBlockchainRpcs.getBlock);
+    });
+
+    describe('the recovery when fluxd fails', () => {
+      let restoreToHeightStub;
+      let blocksAsked;
+
+      const scannedHeightWrites = () => dbHelper.updateOneInDatabase.args
+        .filter(([, , , update]) => update?.$set?.generalScannedHeight !== undefined)
+        .map(([, , , update]) => update.$set.generalScannedHeight);
+
+      // Every block asked for ends the scan, so the height the recovery resumes
+      // at is seen rather than processed. With failFirst, the first block asked
+      // for fails instead, as a refused fluxd call does.
+      const askingBlocks = ({ failFirst = false } = {}) => {
+        daemonServiceBlockchainRpcs.getBlock.callsFake(async ({ params }) => {
+          blocksAsked.push(params.hashheight);
+          if (failFirst && blocksAsked.length === 1) return { status: 'error', data: { message: 'fluxd refused the call' } };
+          explorerService.setBlockProccessingCanContinue(false);
+          return { status: 'error', data: { message: 'scan stopped' } };
+        });
+      };
+
+      beforeEach(() => {
+        sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+        sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+        sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+        restoreToHeightStub = sinon.stub(fluxnodeAddressRecord, 'restoreToHeight').resolves();
+        sinon.stub(fluxnodeAddressRecord, 'resumeAt');
+        const collectionFake = sinon.fake.returns({
+          createIndex: sinon.fake.resolves(true), updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+          find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+        });
+        fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
+        blocksAsked = [];
+        explorerService.setBlockProccessingCanContinue(true);
+      });
+
+      afterEach(() => {
+        explorerService.setBlockProccessingCanContinue(false);
+      });
+
+      it('restores the 100 blocks below the scanned height, records it, and resumes at the block after it', async () => {
+        findInDatabaseStub.returns({ generalScannedHeight: 1000000 });
+        getBlockCountStub.returns({ status: 'error', data: { message: 'fluxd is down' } });
+        askingBlocks();
+
+        await explorerService.initiateBlockProcessor(false, false);
+        await new Promise((resolve) => { setTimeout(resolve, 200); });
+
+        sinon.assert.calledOnceWithMatch(restoreToHeightStub, 999900);
+        expect(scannedHeightWrites(), 'the scanned height written').to.deep.equal([999900]);
+        expect(blocksAsked).to.deep.equal([999901]);
+      });
+
+      it('restores to the scanned height when a block fails, and asks for that block again', async () => {
+        findInDatabaseStub.returns({ generalScannedHeight: 1000000 });
+        getBlockCountStub.returns({ status: 'success', data: 1000010 });
+        askingBlocks({ failFirst: true });
+
+        await explorerService.initiateBlockProcessor(false, false);
+        await new Promise((resolve) => { setTimeout(resolve, 200); });
+
+        sinon.assert.calledOnceWithMatch(restoreToHeightStub, 1000000);
+        expect(scannedHeightWrites(), 'the scanned height written').to.deep.equal([]);
+        expect(blocksAsked).to.deep.equal([1000001, 1000001]);
+      });
+
+      // An explorer on a chain too short to bootstrap scans from epochstart, and
+      // fluxd fails within its first 100 blocks.
+      it('resumes at epochstart when the restore goes below it', async () => {
+        const { epochstart } = config.fluxapps;
+        findInDatabaseStub.returns({ generalScannedHeight: epochstart + 50 });
+        getBlockCountStub.returns({ status: 'error', data: { message: 'fluxd is down' } });
+        askingBlocks();
+
+        await explorerService.initiateBlockProcessor(false, false);
+        await new Promise((resolve) => { setTimeout(resolve, 200); });
+
+        sinon.assert.calledOnceWithMatch(restoreToHeightStub, epochstart - 50);
+        expect(blocksAsked).to.deep.equal([epochstart]);
+      });
     });
 
     it('should run the block processor, restoreDatabase set to true, height > 0', async () => {
