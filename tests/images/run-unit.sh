@@ -8,7 +8,8 @@
 #
 # Each run is its own compose project, removed with its volumes on exit, so
 # runs on one host never touch each other's containers or the host's Docker.
-# Exits with mocha's status.
+# A failing run keeps its MongoDB's log, which names every operation that took
+# over 100 ms and what it waited on, and prints where. Exits with mocha's status.
 
 set -u
 
@@ -22,3 +23,10 @@ compose() {
 trap 'compose down -v --remove-orphans >/dev/null 2>&1' EXIT
 
 compose run --build --rm tester "$@"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  mongo_log="${TMPDIR:-/tmp}/$project-mongo.log"
+  compose logs --no-color --timestamps mongo > "$mongo_log" 2>&1
+  echo "run-unit: mocha exited $rc; this run's MongoDB log is $mongo_log" >&2
+fi
+exit "$rc"
