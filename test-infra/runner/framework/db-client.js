@@ -124,6 +124,12 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappstemporarymessages').countDocuments({});
     },
 
+    // How many pending app messages the node stores that match a query on their stored fields.
+    async pendingMessageCount(query) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappstemporarymessages').countDocuments(query);
+    },
+
     async locationCount() {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappslocation').countDocuments({});

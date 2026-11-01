@@ -13,6 +13,11 @@
  * The ticker is stopped and the chain is moved to the start of a tag epoch first.
  * A tag changes at each epoch boundary, so a boundary crossed mid-test would hand
  * A a fresh allowance and pass the refusals for the wrong reason.
+ *
+ * Client C sends more registrations than its allowance through one node at the
+ * same moment. A message being admitted counts against its client from the
+ * moment it passes its check, so exactly the allowance is taken, and no node
+ * holds more than that under C's tag.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -23,7 +28,7 @@ import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { stopTicker, queueAppTx, advanceBlock } from '../framework/daemon-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
-  startTagEpoch, currentTagHeight, pendingMessageOn,
+  startTagEpoch, currentTagHeight, pendingMessageOn, pendingCountOn,
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -36,6 +41,8 @@ const CLIENT_TAG_CAP = 2;
 // RFC 5737 / RFC 3849 documentation ranges.
 const CLIENT_A = '198.51.100.71';
 const CLIENT_B = '198.51.100.72';
+const CLIENT_C = '198.51.100.73';
+const BURST = CLIENT_TAG_CAP + 3;
 const V6_FIRST = '2001:db8:71:1::1';
 const V6_SAME_64 = '2001:db8:71:1::99';
 const V6_OTHER_64 = '2001:db8:71:2::1';
@@ -146,5 +153,21 @@ describe('one client is held to its allowance of unpaid app messages, whichever 
     expect(await currentTagHeight(), 'the chain left the tag epoch, so A\'s tag changed').to.equal(tagHeight);
 
     taken(await register(ENTRIES[2], CLIENT_A, 'a4'));
+  });
+
+  it('takes exactly the allowance of registrations a client sends through one node at the same moment', async function () {
+    this.timeout(240000);
+    const results = await Promise.all(Array.from({ length: BURST }, (_, i) => register(ENTRIES[0], CLIENT_C, `c${i}`)));
+
+    const takenHashes = results.filter((result) => result.status === 'success').map((result) => result.data);
+    const refusals = results.filter((result) => result.status !== 'success');
+    expect(takenHashes, JSON.stringify(results)).to.have.length(CLIENT_TAG_CAP);
+    refusals.forEach((refusal) => expect(refusal.data.message, JSON.stringify(refusal)).to.include(`its client already has ${CLIENT_TAG_CAP} unpaid app messages pending`));
+
+    await Promise.all(takenHashes.map(heldEverywhere));
+    const [tagC] = await tagsOf(takenHashes[0]);
+    const counts = await Promise.all(env.clients.map((c) => pendingCountOn(c, { clientTag: tagC })));
+    expect(counts, 'messages held under C\'s tag, per node').to.deep.equal(env.clients.map(() => CLIENT_TAG_CAP));
+    expect(await currentTagHeight(), 'the chain left the tag epoch, so C\'s tag changed').to.equal(tagHeight);
   });
 });
