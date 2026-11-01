@@ -33,7 +33,7 @@ function makeNode({
   ip, pubKey, encrypt = arcaneEncrypt, arcane = true,
 }) {
   const node = {
-    ip, pubKey, peers: new Map(), routes: new Map(), encryptCalls: 0,
+    ip, pubKey, peers: new Map(), routes: new Map(), encryptCalls: 0, linksLost: [],
   };
   const before = process.env.FLUXOS_PATH;
   if (arcane) process.env.FLUXOS_PATH = '/flux';
@@ -55,6 +55,7 @@ function makeNode({
     './utils/peerState': {
       peerManager: {
         getOwnSocketAddress: () => `${node.ip}:16127`,
+        noteAuthenticatedLinkLost: (key) => node.linksLost.push(key),
       },
     },
   });
@@ -107,6 +108,7 @@ describe('arcaneLink tests', () => {
     expect(fluxNetworkHelper.getFluxNodePublicKey).to.be.a('function');
     expect(messagesSender.sendSignedMessage).to.be.a('function');
     expect(peerManager.getOwnSocketAddress).to.be.a('function');
+    expect(peerManager.noteAuthenticatedLinkLost).to.be.a('function');
   });
 
   it('should advertise the capability only on an Arcane node', () => {
@@ -277,6 +279,7 @@ describe('arcaneLink tests', () => {
 
       expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(false);
       expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.PEER_GAVE_UP);
+      expect(a.linksLost, 'the authenticated link was lost').to.deep.equal([peers.aPeer.key]);
     });
 
     it('should take a give-up only from the key the peer\'s nonce came under', async () => {

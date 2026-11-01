@@ -2,6 +2,7 @@
 const EventEmitter = require('node:events');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
+const config = require('config');
 const objectHash = require('object-hash');
 const WebSocket = require('ws');
 const { expect } = require('chai');
@@ -33,6 +34,37 @@ const fluxPeerSocketModule = require('../../ZelBack/src/services/utils/FluxPeerS
 const appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
 const { PEER_SOURCE, FluxPeerSocket } = fluxPeerSocketModule;
+const { NetworkStateManager } = require('../../ZelBack/src/services/utils/networkStateManager');
+
+// What fluxCommunication installs on the shared peer manager as it loads.
+const PEER_MANAGER_HOOKS = ['linkHandshake', 'messageDispatcher', 'linkMessageDispatcher', 'syncResponseDispatcher', 'hashHandlers'];
+const PEER_MANAGER_EVENTS = ['peerConnected', 'peerDisconnected', 'authenticatedLinkLost'];
+
+/**
+ * fluxCommunication loaded again as an Arcane node, installed on the shared peer
+ * manager as production installs it. restore() puts the hooks back and removes
+ * the listeners this copy added.
+ * @param {object} [stubs] More proxyquire stubs.
+ * @returns {{mod: object, hooks: object, restore: function(): void}}
+ */
+function loadArcaneFluxCommunication(stubs = {}) {
+  const hooks = Object.fromEntries(PEER_MANAGER_HOOKS.map((name) => [name, peerManager[name]]));
+  const listeners = Object.fromEntries(PEER_MANAGER_EVENTS.map((event) => [event, peerManager.listeners(event)]));
+  const mod = proxyquire('../../ZelBack/src/services/fluxCommunication', {
+    './utils/appConstants': { ...appConstants, isArcane: true },
+    ...stubs,
+  });
+  return {
+    mod,
+    hooks,
+    restore() {
+      PEER_MANAGER_HOOKS.forEach((name) => { peerManager[name] = hooks[name]; });
+      PEER_MANAGER_EVENTS.forEach((event) => peerManager.listeners(event)
+        .filter((listener) => !listeners[event].includes(listener))
+        .forEach((listener) => peerManager.off(event, listener)));
+    },
+  };
+}
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -729,23 +761,21 @@ describe('fluxCommunication tests', () => {
       close: () => {},
       sendNak: () => {},
     };
-    const installed = ['linkHandshake', 'messageDispatcher', 'linkMessageDispatcher', 'syncResponseDispatcher', 'hashHandlers'];
     const authenticated = new WeakSet();
+    let arcane;
     let saved;
     let verify;
     let store;
 
     before(() => {
-      saved = Object.fromEntries(installed.map((name) => [name, peerManager[name]]));
-      // Loading it installs its dispatcher on the peer manager, as production does.
-      proxyquire('../../ZelBack/src/services/fluxCommunication', {
-        './utils/appConstants': { ...appConstants, isArcane: true },
+      arcane = loadArcaneFluxCommunication({
         './utils/FluxPeerSocket': { ...fluxPeerSocketModule, arrivedAuthenticated: (msg) => authenticated.has(msg) },
       });
+      saved = arcane.hooks;
     });
 
     after(() => {
-      installed.forEach((name) => { peerManager[name] = saved[name]; });
+      arcane.restore();
     });
 
     beforeEach(() => {
@@ -842,6 +872,347 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledOnce(store);
       expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
+    });
+  });
+
+  describe('holding authenticated links', () => {
+    let arcane;
+    let mod;
+    let linked;
+
+    const linkPeer = (ip, port = '16127') => ({
+      ip, port, key: `${ip}:${port}`, link: { authenticated: true }, send: sinon.stub(), source: PEER_SOURCE.RANDOM,
+    });
+
+    before(() => {
+      arcane = loadArcaneFluxCommunication();
+      ({ mod } = arcane);
+    });
+
+    after(() => {
+      arcane.restore();
+    });
+
+    beforeEach(() => {
+      linked = [];
+      sinon.stub(peerManager, 'getAuthenticatedPeers').callsFake(() => linked);
+      sinon.stub(peerManager, 'authenticatedIpCount').callsFake(() => new Set(linked.map((peer) => peer.ip)).size);
+      sinon.stub(peerManager, 'getOwnSocketAddress').returns('203.0.113.1:16127');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    describe('a peer\'s report of its authenticated links', () => {
+      let replace;
+
+      beforeEach(() => {
+        replace = sinon.stub(networkStateService, 'replaceArcaneReport').callsFake((reporter, addresses) => addresses.length);
+      });
+
+      it('replaces that peer\'s marks with the valid addresses it names, never this node\'s own', () => {
+        const reporter = linkPeer('198.51.100.7');
+
+        mod.takeArcanePeers({ type: 'arcanepeers', peers: ['203.0.113.9:16127', '203.0.113.1:16127', 'not-an-address', '10.0.0.5:16127', 7] }, reporter);
+
+        sinon.assert.calledOnceWithExactly(replace, reporter.key, ['203.0.113.9:16127']);
+      });
+
+      it('takes at most 32 addresses from one report', () => {
+        const peers = Array.from({ length: 40 }, (_, i) => `203.0.113.${i + 10}:16127`);
+
+        mod.takeArcanePeers({ type: 'arcanepeers', peers }, linkPeer('198.51.100.7'));
+
+        expect(replace.firstCall.args[1]).to.have.length(32);
+      });
+
+      it('ignores a report that carries no list', () => {
+        mod.takeArcanePeers({ type: 'arcanepeers', peers: 'x' }, linkPeer('198.51.100.7'));
+
+        sinon.assert.notCalled(replace);
+      });
+    });
+
+    describe('telling a peer this node\'s authenticated links', () => {
+      it('names every other authenticated link, and not the peer it tells', () => {
+        const told = linkPeer('198.51.100.7');
+        linked = [told, linkPeer('198.51.100.8'), linkPeer('198.51.100.9', '16137')];
+        sinon.stub(peerManager, 'get').callsFake((key) => linked.find((peer) => peer.key === key));
+        sinon.stub(networkStateService, 'markArcane');
+
+        peerManager.emit('peerConnected', told.key);
+
+        const sent = JSON.parse(told.send.firstCall.args[0]);
+        expect(sent).to.deep.equal({ type: 'arcanepeers', version: 1, peers: ['198.51.100.8:16127', '198.51.100.9:16137'] });
+        sinon.assert.calledWithExactly(networkStateService.markArcane, told.key, NetworkStateManager.SELF_REPORTED);
+      });
+
+      it('tells nothing to a peer whose link did not authenticate', () => {
+        const peer = { ...linkPeer('198.51.100.7'), link: { authenticated: false } };
+        sinon.stub(peerManager, 'get').returns(peer);
+        sinon.stub(networkStateService, 'markArcane');
+
+        peerManager.emit('peerConnected', peer.key);
+
+        sinon.assert.notCalled(peer.send);
+        sinon.assert.notCalled(networkStateService.markArcane);
+      });
+    });
+
+    describe('a pass that holds the target', () => {
+      const MY_GROUP = '203.0.0.0';
+      let draw;
+      let unmark;
+
+      beforeEach(() => {
+        sinon.stub(peerManager, 'isPending').returns(false);
+        sinon.stub(peerManager, 'canAcceptPeer').returns(true);
+        unmark = sinon.stub(networkStateService, 'unmarkArcane');
+        draw = sinon.stub(networkStateService, 'getRandomArcaneSocketAddress');
+      });
+
+      // Each candidate the draw would answer with, honouring the pass's own avoid rule.
+      const offering = (...candidates) => {
+        draw.callsFake(async (local, avoid) => candidates.find((c) => !avoid(c.socketAddress, c.reporter)) ?? null);
+      };
+
+      it('dials marked nodes until it holds the target, and reports it held', async () => {
+        linked = [linkPeer('45.0.0.1'), linkPeer('45.1.0.1')];
+        offering(
+          { socketAddress: '45.2.0.1:16127', reporter: 'r1' },
+          { socketAddress: '45.3.0.1:16127', reporter: 'r2' },
+          { socketAddress: '45.4.0.1:16127', reporter: 'r3' },
+          { socketAddress: '45.5.0.1:16127', reporter: 'r4' },
+        );
+        const dial = sinon.stub().callsFake(async (address) => { linked.push(linkPeer(address.split(':')[0])); return true; });
+
+        expect(await mod.holdAuthenticatedLinks('203.0.113.1:16127', MY_GROUP, dial)).to.equal(true);
+
+        expect(dial.args.map(([address]) => address)).to.deep.equal(['45.2.0.1:16127', '45.3.0.1:16127', '45.4.0.1:16127']);
+      });
+
+      it('dials nothing while it already holds the target', async () => {
+        linked = ['45.0.0.1', '45.1.0.1', '45.2.0.1', '45.3.0.1', '45.4.0.1'].map((ip) => linkPeer(ip));
+        const dial = sinon.stub();
+
+        expect(await mod.holdAuthenticatedLinks('203.0.113.1:16127', MY_GROUP, dial)).to.equal(true);
+        sinon.assert.notCalled(dial);
+      });
+
+      it('takes at most one candidate per reporter and per IP group in a pass, except its own marks', async () => {
+        offering(
+          { socketAddress: '45.2.0.1:16127', reporter: 'r1' },
+          { socketAddress: '45.3.0.1:16127', reporter: 'r1' },
+          { socketAddress: '45.2.0.2:16127', reporter: 'r2' },
+          { socketAddress: '45.4.0.1:16127', reporter: NetworkStateManager.SELF_REPORTED },
+          { socketAddress: '45.5.0.1:16127', reporter: NetworkStateManager.SELF_REPORTED },
+        );
+        const dial = sinon.stub().resolves(false);
+
+        await mod.holdAuthenticatedLinks('203.0.113.1:16127', MY_GROUP, dial);
+
+        expect(dial.args.map(([address]) => address)).to.deep.equal(['45.2.0.1:16127', '45.4.0.1:16127', '45.5.0.1:16127']);
+      });
+
+      it('skips a node it is linked to, connected to or dialling already', async () => {
+        linked = [linkPeer('45.2.0.1', '16137')];
+        peerManager.isPending.callsFake((key) => key === '45.3.0.1:16127');
+        peerManager.canAcceptPeer.callsFake((ip) => ip !== '45.4.0.1');
+        offering(
+          { socketAddress: '45.2.0.1:16127', reporter: 'r1' },
+          { socketAddress: '45.3.0.1:16127', reporter: 'r2' },
+          { socketAddress: '45.4.0.1:16127', reporter: 'r3' },
+          { socketAddress: '45.5.0.1:16127', reporter: 'r4' },
+        );
+        const dial = sinon.stub().resolves(false);
+
+        await mod.holdAuthenticatedLinks('203.0.113.1:16127', MY_GROUP, dial);
+
+        expect(dial.args.map(([address]) => address)).to.deep.equal(['45.5.0.1:16127']);
+      });
+
+      it('takes the mark away from a node whose link did not authenticate', async () => {
+        offering({ socketAddress: '45.2.0.1:16127', reporter: 'r1' });
+        const dial = sinon.stub().resolves(false);
+
+        expect(await mod.holdAuthenticatedLinks('203.0.113.1:16127', MY_GROUP, dial)).to.equal(false);
+        sinon.assert.calledOnceWithExactly(unmark, '45.2.0.1:16127');
+      });
+
+      it('makes at most twice the target\'s attempts in a pass', async () => {
+        draw.callsFake(async () => ({ socketAddress: `45.${draw.callCount}.0.1:16127`, reporter: `r${draw.callCount}` }));
+        const dial = sinon.stub().resolves(false);
+
+        expect(await mod.holdAuthenticatedLinks('203.0.113.1:16127', MY_GROUP, dial)).to.equal(false);
+        expect(dial.callCount).to.equal(config.fluxapps.admissionLinkTarget * 2);
+      });
+    });
+
+    describe('dialling a marked node', () => {
+      const address = '127.0.0.1:1';
+
+      it('answers true once its link joins authenticated', async () => {
+        const peer = linkPeer('127.0.0.1', '1');
+        sinon.stub(peerManager, 'get').returns(peer);
+
+        const dialled = mod.dialForLink(address);
+        peerManager.emit('peerConnected', peer.key);
+
+        expect(await dialled).to.equal(true);
+      });
+
+      it('closes a connection it opened whose link joins unauthenticated, as not an Arcane link', async () => {
+        const peer = { ...linkPeer('127.0.0.1', '1'), link: null, source: PEER_SOURCE.ARCANE, close: sinon.stub() };
+        sinon.stub(peerManager, 'get').returns(peer);
+
+        const dialled = mod.dialForLink(address);
+        peerManager.emit('peerConnected', peer.key);
+
+        expect(await dialled).to.equal(false);
+        sinon.assert.calledOnceWithExactly(peer.close, fluxPeerSocketModule.CLOSE_CODES.NOT_ARCANE_LINK, 'not an Arcane link');
+      });
+
+      it('leaves a connection it did not open, though it is not authenticated', async () => {
+        const peer = { ...linkPeer('127.0.0.1', '1'), link: null, source: PEER_SOURCE.INBOUND, close: sinon.stub() };
+        sinon.stub(peerManager, 'get').returns(peer);
+
+        const dialled = mod.dialForLink(address);
+        peerManager.emit('peerConnected', peer.key);
+
+        expect(await dialled).to.equal(false);
+        sinon.assert.notCalled(peer.close);
+      });
+
+      it('answers false when the connection closes first', async () => {
+        const dialled = mod.dialForLink(address);
+        peerManager.emit('peerDisconnected', '127.0.0.1:1');
+
+        expect(await dialled).to.equal(false);
+      });
+    });
+
+    describe('the wait before a pass brought forward', () => {
+      beforeEach(() => {
+        // a pass that held the target starts the wait over
+        mod.discoveryRetryMs();
+      });
+
+      it('starts at five seconds, doubles while passes end short, and stops at the retry interval', () => {
+        sinon.stub(Math, 'random').returns(0);
+        const first = mod.linkRecoveryDelay();
+        const afterOne = mod.linkRecoveryDelay(true);
+        const afterTwo = mod.linkRecoveryDelay(true);
+        for (let i = 0; i < 10; i += 1) mod.linkRecoveryDelay(true);
+        const capped = mod.linkRecoveryDelay();
+
+        expect([first, afterOne, afterTwo]).to.deep.equal([5000, 10000, 20000]);
+        expect(capped).to.equal(config.fluxapps.discoveryRetryMs ?? 60000);
+      });
+
+      it('is spread by up to two seconds', () => {
+        sinon.stub(Math, 'random').returns(0.999);
+
+        expect(mod.linkRecoveryDelay()).to.equal(6998);
+      });
+
+      it('starts over after a pass that held the target', () => {
+        sinon.stub(Math, 'random').returns(0);
+        mod.linkRecoveryDelay(true);
+        mod.linkRecoveryDelay(true);
+
+        expect(mod.discoveryRetryMs()).to.equal(config.fluxapps.discoveryRetryMs ?? 60000);
+        expect(mod.linkRecoveryDelay()).to.equal(5000);
+      });
+    });
+
+    describe('the discovery schedule', () => {
+      let clock;
+      let passes;
+
+      beforeEach(async () => {
+        clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        passes = [];
+        // A pass ends at once here: its first question finds the daemon unsynced.
+        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').callsFake(() => {
+          passes.push(Date.now());
+          return { data: { synced: false } };
+        });
+        // drain whatever an earlier test left due
+        mod.scheduleDiscovery(0);
+        await clock.tickAsync(1);
+        passes.length = 0;
+      });
+
+      afterEach(() => {
+        clock.restore();
+      });
+
+      it('runs one pass at the earlier of two requests', async () => {
+        const start = Date.now();
+        mod.scheduleDiscovery(10000);
+        mod.scheduleDiscovery(3000);
+
+        await clock.tickAsync(11000);
+
+        expect(passes.map((at) => at - start)).to.deep.equal([3000]);
+      });
+
+      it('is not put back by a later request', async () => {
+        const start = Date.now();
+        mod.scheduleDiscovery(3000);
+        mod.scheduleDiscovery(10000);
+
+        await clock.tickAsync(11000);
+
+        expect(passes.map((at) => at - start)).to.deep.equal([3000]);
+      });
+
+      it('runs a request made during a pass once the pass ends, in place of its own next', async () => {
+        const start = Date.now();
+        daemonServiceMiscRpcs.isDaemonSynced.callsFake(() => {
+          passes.push(Date.now());
+          if (passes.length === 1) mod.scheduleDiscovery(1000);
+          return { data: { synced: false } };
+        });
+        mod.scheduleDiscovery(2000);
+
+        await clock.tickAsync(4000);
+
+        expect(passes.map((at) => at - start)).to.deep.equal([2000, 3000]);
+      });
+    });
+
+    describe('a lost authenticated link', () => {
+      let clock;
+
+      beforeEach(() => {
+        clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: false } });
+      });
+
+      afterEach(() => {
+        clock.restore();
+      });
+
+      it('brings a discovery pass forward while this node is short and accepting peers', async () => {
+        sinon.stub(peerManager, 'acceptingConnections').value(true);
+        sinon.stub(Math, 'random').returns(0);
+
+        peerManager.emit('authenticatedLinkLost', '198.51.100.7:16127');
+        await clock.tickAsync(20000);
+
+        expect(daemonServiceMiscRpcs.isDaemonSynced.called, 'no pass ran').to.equal(true);
+      });
+
+      it('brings nothing forward while this node is not accepting peers', async () => {
+        sinon.stub(peerManager, 'acceptingConnections').value(false);
+
+        peerManager.emit('authenticatedLinkLost', '198.51.100.7:16127');
+        await clock.tickAsync(20000);
+
+        sinon.assert.notCalled(daemonServiceMiscRpcs.isDaemonSynced);
+      });
     });
   });
 

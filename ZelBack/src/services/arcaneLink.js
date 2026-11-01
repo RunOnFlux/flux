@@ -150,6 +150,7 @@ function peerGaveUp(peer, link) {
   link.failed = FAILURE.PEER_GAVE_UP;
   log.warn(`arcaneLink - link with ${peer.key} no longer authenticated: ${FAILURE.PEER_GAVE_UP}`);
   fluxEventBus.publish('peers:linkFailed', { ip: peer.ip, port: peer.port, reason: FAILURE.PEER_GAVE_UP });
+  peerManager.noteAuthenticatedLinkLost(peer.key);
 }
 
 function checkConfirm(peer, link) {

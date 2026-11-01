@@ -46,7 +46,10 @@ const unsettledInHand = new Set();
 
 const testListCache = new LRUCache(LRUTest); */
 
-const { FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./utils/FluxPeerManager');
+const {
+  FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES, isValidPeerKey,
+} = require('./utils/FluxPeerManager');
+const { NetworkStateManager } = require('./utils/networkStateManager');
 const { arrivedAuthenticated } = require('./utils/FluxPeerSocket');
 const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
@@ -158,7 +161,10 @@ async function handleAppProposal(msg, peer) {
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
  */
 function dispatchLinkMessage(msg, peer) {
-  if (msg.type === admissionQuorum.PROPOSAL) {
+  if (msg.type === ARCANE_PEERS_TYPE) {
+    // eslint-disable-next-line no-use-before-define
+    takeArcanePeers(msg, peer);
+  } else if (msg.type === admissionQuorum.PROPOSAL) {
     handleAppProposal(msg, peer).catch((error) => log.error(error));
   } else if (msg.type === admissionQuorum.RECEIPT) {
     admissionQuorum.onReceipt(peer, msg);
@@ -1304,6 +1310,24 @@ register('fluxappinstallingsync', handleAppInstallingSyncResponse, ROUTE.ORDERED
 register('fluxappinstallingerrorssync', handleAppInstallingErrorsSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
 
 peerManager.messageDispatcher = dispatchFluxMessage;
+// A link that joins authenticated is marked and told this node's authenticated
+// links; a change to them is reported to every authenticated peer, and a lost one
+// brings the next discovery pass forward while this node is short of the target.
+peerManager.on('peerConnected', (key) => {
+  const peer = peerManager.get(key);
+  if (!peer?.link?.authenticated) return;
+  networkStateService.markArcane(key, NetworkStateManager.SELF_REPORTED);
+  // eslint-disable-next-line no-use-before-define
+  reportArcanePeersTo(peer);
+  // eslint-disable-next-line no-use-before-define
+  scheduleArcaneReport();
+});
+peerManager.on('authenticatedLinkLost', () => {
+  // eslint-disable-next-line no-use-before-define
+  scheduleArcaneReport();
+  // eslint-disable-next-line no-use-before-define
+  if (peerManager.acceptingConnections && linksShort()) scheduleDiscovery(linkRecoveryDelay());
+});
 peerManager.linkMessageDispatcher = dispatchLinkMessage;
 peerManager.syncResponseDispatcher = dispatchSyncResponse;
 async function verifySyncRequest(peer, decoded) {
@@ -1898,6 +1922,203 @@ async function addOutgoingPeer(req, res) {
   }
 }
 
+// --- Holding authenticated links ---
+//
+// An Arcane node admits an unpaid app message only while it holds admissionQuorum
+// authenticated links on distinct IPs, and takes one only over such a link, so it
+// keeps admissionLinkTarget of them. Arcane nodes tell each other, over their
+// authenticated links, which of their peers they have authenticated; each node
+// marks those listed nodes as Arcane (networkStateManager). Short of the target,
+// discovery dials marked nodes drawn at random from the whole node list, so the
+// links stay as mixed as the rest of the peer set, and at most one per pass from
+// any one reporter, so no peer decides where a node's links go. A dialled node
+// whose link does not authenticate loses its mark and is closed.
+
+const ARCANE_PEERS_TYPE = 'arcanepeers';
+// The most addresses one report carries, and so the most nodes one peer marks.
+const ARCANE_PEERS_MAX = 32;
+// Changes to the authenticated links are reported together, at most this often.
+const ARCANE_REPORT_DEBOUNCE_MS = 2000;
+// The first wait before a pass a lost link or new marks bring forward; it doubles
+// while passes end short of the target, up to discoveryRetryMs.
+const LINK_RECOVERY_BASE_MS = 5000;
+// Spread over this, so nodes that lose links together do not dial together.
+const LINK_RECOVERY_JITTER_MS = 2000;
+
+let arcaneReportTimer = null;
+let linkShortfalls = 0;
+
+function discoveryRetryMs() {
+  linkShortfalls = 0;
+  return config.fluxapps.discoveryRetryMs ?? 60000;
+}
+
+function linksShort() {
+  return isArcane && peerManager.authenticatedIpCount() < config.fluxapps.admissionLinkTarget;
+}
+
+/**
+ * How long until a pass that should hold more authenticated links.
+ * @param {boolean} [afterShortPass] A pass just ended short of the target.
+ * @returns {number}
+ */
+function linkRecoveryDelay(afterShortPass = false) {
+  if (afterShortPass) linkShortfalls += 1;
+  const retryMs = config.fluxapps.discoveryRetryMs ?? 60000;
+  const wait = Math.min(retryMs, LINK_RECOVERY_BASE_MS * 2 ** linkShortfalls);
+  return wait + Math.floor(Math.random() * LINK_RECOVERY_JITTER_MS);
+}
+
+/**
+ * Tell an authenticated peer which other peers this node has authenticated.
+ * @param {object} peer
+ */
+function reportArcanePeersTo(peer) {
+  if (!peer?.link?.authenticated) return;
+  const peers = peerManager.getAuthenticatedPeers()
+    .filter((other) => other.key !== peer.key)
+    .slice(0, ARCANE_PEERS_MAX)
+    .map((other) => other.key);
+  peer.send(JSON.stringify({ type: ARCANE_PEERS_TYPE, version: 1, peers }));
+}
+
+function scheduleArcaneReport() {
+  if (arcaneReportTimer) return;
+  arcaneReportTimer = setTimeout(() => {
+    arcaneReportTimer = null;
+    peerManager.getAuthenticatedPeers().forEach(reportArcanePeersTo);
+  }, ARCANE_REPORT_DEBOUNCE_MS);
+}
+
+/**
+ * An authenticated peer's report of its authenticated links: it replaces that
+ * peer's earlier marks.
+ * @param {object} msg
+ * @param {object} peer
+ */
+function takeArcanePeers(msg, peer) {
+  if (!isArcane || !Array.isArray(msg.peers)) return;
+  const own = peerManager.getOwnSocketAddress();
+  const reported = msg.peers.slice(0, ARCANE_PEERS_MAX)
+    .filter((key) => isValidPeerKey(key) && key !== own);
+  const marked = networkStateService.replaceArcaneReport(peer.key, reported);
+  // eslint-disable-next-line no-use-before-define
+  if (marked > 0 && linksShort()) scheduleDiscovery(linkRecoveryDelay());
+}
+
+/**
+ * Dial a marked node for an authenticated link.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>} Whether the link authenticated.
+ */
+function dialForLink(socketAddress) {
+  const key = `${extractIp(socketAddress)}:${extractPort(socketAddress)}`;
+  const timeoutMs = (config.fluxapps.wsHandshakeTimeoutMs ?? 10000) + config.fluxapps.linkHandshakeDeadlineMs + 5000;
+  return new Promise((resolve) => {
+    let timer = null;
+    let joined = null;
+    let left = null;
+    const done = (authenticated) => {
+      clearTimeout(timer);
+      peerManager.off('peerConnected', joined);
+      peerManager.off('peerDisconnected', left);
+      resolve(authenticated);
+    };
+    joined = (joinedKey) => {
+      if (joinedKey !== key) return;
+      const peer = peerManager.get(key);
+      if (peer?.link?.authenticated) {
+        done(true);
+        return;
+      }
+      if (peer?.source === PEER_SOURCE.ARCANE) peer.close(CLOSE_CODES.NOT_ARCANE_LINK, 'not an Arcane link');
+      done(false);
+    };
+    left = (leftKey) => { if (leftKey === key) done(false); };
+    peerManager.on('peerConnected', joined);
+    peerManager.on('peerDisconnected', left);
+    timer = setTimeout(() => done(false), timeoutMs);
+    // eslint-disable-next-line no-use-before-define
+    initiateAndHandleConnection(socketAddress, PEER_SOURCE.ARCANE).catch(() => done(false));
+  });
+}
+
+/**
+ * Dial marked nodes until this node holds admissionLinkTarget authenticated
+ * links on distinct IPs, or a pass has made its attempts.
+ * @param {string} localSocketAddr
+ * @param {string} myIpGroup
+ * @param {function(string): Promise<boolean>} [dial] Dials a node for a link.
+ * @returns {Promise<boolean>} Whether the target is held.
+ */
+async function holdAuthenticatedLinks(localSocketAddr, myIpGroup, dial = dialForLink) {
+  const attempts = config.fluxapps.admissionLinkTarget * 2;
+  const reporters = new Set();
+  const ipGroups = new Set();
+  for (let attempt = 0; attempt < attempts && linksShort(); attempt += 1) {
+    const linkedIps = new Set(peerManager.getAuthenticatedPeers().map((peer) => peer.ip));
+    // eslint-disable-next-line no-await-in-loop
+    const candidate = await networkStateService.getRandomArcaneSocketAddress(localSocketAddr, (socketAddress, reporter) => {
+      const ip = extractIp(socketAddress);
+      const port = extractPort(socketAddress);
+      return linkedIps.has(ip)
+        || ipGroups.has(FluxPeerManager.getIpGroup(ip))
+        || (reporter !== NetworkStateManager.SELF_REPORTED && reporters.has(reporter))
+        || peerManager.isPending(`${ip}:${port}`)
+        || !peerManager.canAcceptPeer(ip, port, DIRECTION.OUTBOUND, myIpGroup);
+    });
+    if (!candidate) break;
+    reporters.add(candidate.reporter);
+    ipGroups.add(FluxPeerManager.getIpGroup(extractIp(candidate.socketAddress)));
+    log.info(`Dialling ${candidate.socketAddress} for an authenticated link`);
+    // eslint-disable-next-line no-await-in-loop
+    if (!await dial(candidate.socketAddress)) networkStateService.unmarkArcane(candidate.socketAddress);
+  }
+  return !linksShort();
+}
+
+// --- The discovery schedule ---
+//
+// One pass at a time and one timer: an earlier request replaces a later one, and
+// a request made during a pass runs once the pass ends.
+
+let discoveryTimer = null;
+let discoveryDueAt = Infinity;
+let discoveryInPass = false;
+let discoveryRequestedMs = null;
+
+/**
+ * Run a discovery pass in `ms`, unless one is already due sooner.
+ * @param {number} ms
+ */
+function scheduleDiscovery(ms) {
+  if (discoveryInPass) {
+    discoveryRequestedMs = discoveryRequestedMs === null ? ms : Math.min(discoveryRequestedMs, ms);
+    return;
+  }
+  const dueAt = Date.now() + ms;
+  if (discoveryTimer && discoveryDueAt <= dueAt) return;
+  clearTimeout(discoveryTimer);
+  discoveryDueAt = dueAt;
+  // eslint-disable-next-line no-use-before-define
+  discoveryTimer = setTimeout(runDiscoveryPass, ms);
+}
+
+async function runDiscoveryPass() {
+  discoveryTimer = null;
+  discoveryDueAt = Infinity;
+  discoveryInPass = true;
+  let nextMs = config.fluxapps.discoveryFailRetryMs ?? 120000;
+  try {
+    nextMs = await fluxDiscovery();
+  } finally {
+    discoveryInPass = false;
+    const requested = discoveryRequestedMs;
+    discoveryRequestedMs = null;
+    scheduleDiscovery(requested === null ? nextMs : Math.min(nextMs, requested));
+  }
+}
+
 function startDiscovery() {
   if (discoveryRunning) return;
   discoveryRunning = true;
@@ -1906,7 +2127,8 @@ function startDiscovery() {
   // land after it. A peer holds one socket in either direction, so peers that
   // dial us while we are waiting take the very sockets we would have dialled
   // them on, and a late first pass then has nothing left to connect to.
-  networkStateService.onReady(fluxDiscovery);
+  // eslint-disable-next-line no-use-before-define
+  networkStateService.onReady(() => scheduleDiscovery(0));
 }
 
 async function startDiscoveryApi(req, res) {
@@ -1925,6 +2147,7 @@ async function startDiscoveryApi(req, res) {
 
 /**
  * To discover and connect to other randomly selected FluxNodes. Maintains connections with 1-2% of nodes on the Flux network. Ensures that FluxNode connections are not duplicated.
+ * @returns {Promise<number>} How long to wait before the next pass.
  */
 async function fluxDiscovery() {
   try {
@@ -2090,14 +2313,14 @@ async function fluxDiscovery() {
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(DISCOVERY.connectionDelayMs);
     }
-    setTimeout(() => {
-      fluxDiscovery();
-    }, config.fluxapps.discoveryRetryMs ?? 60000);
+
+    // eslint-disable-next-line no-use-before-define
+    const linksHeld = await holdAuthenticatedLinks(localSocketAddr, myIpGroup);
+    // eslint-disable-next-line no-use-before-define
+    return linksHeld ? discoveryRetryMs() : linkRecoveryDelay(true);
   } catch (error) {
     log.warn(error.message || error);
-    setTimeout(() => {
-      fluxDiscovery();
-    }, config.fluxapps.discoveryFailRetryMs ?? 120000);
+    return config.fluxapps.discoveryFailRetryMs ?? 120000;
   }
 }
 
@@ -2321,6 +2544,12 @@ module.exports = {
   peerResponsiveness,
   keepConnectionsAlive,
   fluxDiscovery,
+  scheduleDiscovery,
+  holdAuthenticatedLinks,
+  dialForLink,
+  linkRecoveryDelay,
+  discoveryRetryMs,
+  takeArcanePeers,
   startDiscovery,
   initializeDiscovery,
   startDiscoveryApi,

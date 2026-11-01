@@ -1436,6 +1436,38 @@ describe('FluxPeerManager tests', () => {
   });
 
   describe('remove', () => {
+    it('announces a lost authenticated link, and nothing for a link that was not authenticated', () => {
+      const lost = [];
+      manager.on('authenticatedLinkLost', (key) => lost.push(key));
+      const authenticated = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      authenticated.link = { authenticated: true };
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
+
+      manager.remove('10.0.0.1:16127', 1006);
+      manager.remove('10.0.0.2:16127', 1006);
+
+      expect(lost).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    it('neither counts toward instability nor redials a link closed for not being an Arcane one', () => {
+      for (let i = 0; i < 10; i += 1) {
+        manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.ARCANE });
+        manager.remove('10.0.0.1:16127', CLOSE_CODES.NOT_ARCANE_LINK);
+      }
+
+      expect(manager.isUnstable('10.0.0.1', '16127')).to.equal(false);
+      expect(manager.getReconnectCandidates().map((c) => c.key)).to.not.include('10.0.0.1:16127');
+    });
+
+    it('still counts another close toward instability', () => {
+      for (let i = 0; i < 10; i += 1) {
+        manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        manager.remove('10.0.0.1:16127', 1006);
+      }
+
+      expect(manager.isUnstable('10.0.0.1', '16127')).to.equal(true);
+    });
+
     it('should delete from map and correct direction set, return removed peer', () => {
       const ws = createMockWs('10.0.0.1', '16127');
       const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
