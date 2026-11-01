@@ -483,7 +483,6 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     if (isUpnp) {
       // A router refusing either protocol's mapping for a reason of its own is
       // a router fault, counted as one.
-      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.AVAILABILITY_BEFORE_TEST_MAPPING, String(dosState.testingPort));
       const upnpMapResult = await portReconciler.want(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()), holder });
       fluxEventBus.publish('availability:testMapping', { port: dosState.testingPort, mapped: upnpMapResult.mapped, reason: upnpMapResult.reason });
       routerRefused = routerRefusedSinceLastPass(dosState);
