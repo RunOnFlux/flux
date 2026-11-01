@@ -41,13 +41,15 @@ describe('unpaidAdmission tests', () => {
   const frameOf = (data, pubKey = ENTRY_KEY) => ({ ...originBy(pubKey), data });
 
   beforeEach(() => {
-    // what the temporary store holds per query, and how many of those hashes are paid
+    // what the temporary store holds per query, and which of its hashes are paid
     held = new Map();
-    paid = 0;
+    paid = new Set();
     dbHelper = {
       databaseConnection: sinon.stub().returns({ db: (name) => name }),
-      findInDatabase: sinon.stub().callsFake(async (database, collection, query) => held.get(JSON.stringify(query)) ?? []),
-      countInDatabase: sinon.stub().callsFake(async () => paid),
+      findInDatabase: sinon.stub().callsFake(async (database, collection, query) => {
+        if (collection === 'hashes') return query.hash.$in.filter((hash) => paid.has(hash)).map((hash) => ({ hash }));
+        return held.get(JSON.stringify(query)) ?? [];
+      }),
     };
     verifyBroadcasts = sinon.stub().resolves([{ result: VerifyResult.OK }]);
     clientTagFor = sinon.stub().resolves({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
@@ -69,8 +71,8 @@ describe('unpaidAdmission tests', () => {
     sinon.restore();
   });
 
-  const holding = (query, count) => {
-    held.set(JSON.stringify(query), Array.from({ length: count }, (_, i) => ({ hash: `held${i}` })));
+  const holding = (query, count, hashes = Array.from({ length: count }, (_, i) => `held${i}`)) => {
+    held.set(JSON.stringify(query), hashes.map((hash) => ({ hash })));
   };
 
   describe('admittedMessage', () => {
@@ -94,10 +96,9 @@ describe('unpaidAdmission tests', () => {
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
-      expect(admission).to.deep.equal({
-        fields: {
-          clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin: originBy(), originKey: ENTRY_KEY,
-        },
+      expect(admission).to.have.all.keys('fields', 'release');
+      expect(admission.fields).to.deep.equal({
+        clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin: originBy(), originKey: ENTRY_KEY,
       });
       sinon.assert.notCalled(verifyBroadcasts);
     });
@@ -122,13 +123,13 @@ describe('unpaidAdmission tests', () => {
 
     it('does not count a client\'s paid messages against it', async () => {
       holding({ clientTag: TAG }, 3);
-      paid = 1;
+      paid.add('held1');
       const data = tagged();
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
       expect(admission.refused).to.equal(undefined);
-      sinon.assert.calledWithExactly(dbHelper.countInDatabase, 'daemon', 'hashes', { hash: { $in: ['held0', 'held1', 'held2'] } });
+      sinon.assert.calledWithExactly(dbHelper.findInDatabase, 'daemon', 'hashes', { hash: { $in: ['held0', 'held1', 'held2'] } }, { projection: { _id: 0, hash: 1 } });
     });
 
     it('refuses an operator that has used its allowance, whatever tags it gives', async () => {
@@ -199,10 +200,8 @@ describe('unpaidAdmission tests', () => {
 
       const admission = await unpaidAdmission.admitUnpaid(reply, { frame: frameOf(reply, RELAY_KEY), daemonHeight: TIP });
 
-      expect(admission).to.deep.equal({
-        fields: {
-          clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin, originKey: ENTRY_KEY,
-        },
+      expect(admission.fields).to.deep.equal({
+        clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin, originKey: ENTRY_KEY,
       });
       sinon.assert.calledOnceWithExactly(verifyBroadcasts, [{ ...origin, data: tagged() }]);
     });
@@ -284,6 +283,96 @@ describe('unpaidAdmission tests', () => {
     });
   });
 
+  describe('admitUnpaid: messages in flight', () => {
+    // Each its own message, arriving alone in its admitting node's frame.
+    const admitLive = (fields) => {
+      const data = tagged(fields);
+      return unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+    };
+    const taken = (admissions) => admissions.filter((admission) => !admission.refused);
+
+    it('holds messages admitted at the same moment to the client\'s allowance', async () => {
+      const admissions = await Promise.all([1, 2, 3, 4, 5].map((i) => admitLive({ hash: `burst${i}` })));
+
+      expect(taken(admissions)).to.have.length(3);
+      expect(admissions.filter((admission) => admission.refused)).to.deep.equal([
+        { refused: 'its client already has 3 unpaid app messages pending' },
+        { refused: 'its client already has 3 unpaid app messages pending' },
+      ]);
+    });
+
+    it('holds messages admitted at the same moment to the operator\'s allowance, whatever tags they carry', async () => {
+      const admissions = await Promise.all([1, 2, 3, 4, 5, 6, 7].map((i) => admitLive({ hash: `burst${i}`, clientTag: String(i).repeat(64) })));
+
+      expect(taken(admissions)).to.have.length(5);
+      expect(admissions.filter((admission) => admission.refused)).to.deep.equal([
+        { refused: 'its admitting operator already has 5 unpaid app messages pending' },
+        { refused: 'its admitting operator already has 5 unpaid app messages pending' },
+      ]);
+    });
+
+    it('counts a message in flight on top of those stored', async () => {
+      holding({ clientTag: TAG }, 2);
+      await admitLive({ hash: 'flying' });
+
+      expect(await admitLive({ hash: 'next' })).to.deep.equal({ refused: 'its client already has 3 unpaid app messages pending' });
+    });
+
+    it('gives back exactly one place when a message is released', async () => {
+      const [first] = await Promise.all([1, 2, 3].map((i) => admitLive({ hash: `burst${i}` })));
+
+      first.release();
+
+      expect(taken([await admitLive({ hash: 'after' })])).to.have.length(1);
+      expect(await admitLive({ hash: 'again' })).to.deep.equal({ refused: 'its client already has 3 unpaid app messages pending' });
+    });
+
+    it('counts a message stored while still in flight once', async () => {
+      const flying = await admitLive({ hash: 'stored' });
+      holding({ clientTag: TAG }, 1, ['stored']);
+      holding({ originKey: ENTRY_KEY }, 1, ['stored']);
+
+      const admissions = await Promise.all([admitLive({ hash: 'second' }), admitLive({ hash: 'third' })]);
+
+      expect(taken(admissions)).to.have.length(2);
+      flying.release();
+    });
+
+    it('gives two copies of one message one place, kept until both are released', async () => {
+      const copies = await Promise.all([admitLive({ hash: 'same' }), admitLive({ hash: 'same' })]);
+      await admitLive({ hash: 'other1' });
+      await admitLive({ hash: 'other2' });
+      expect(await admitLive({ hash: 'other3' })).to.have.property('refused');
+
+      // a copy released twice gives back its share once, so the other copy keeps the place
+      copies[0].release();
+      copies[0].release();
+      expect(await admitLive({ hash: 'other3' })).to.have.property('refused');
+
+      copies[1].release();
+      expect(taken([await admitLive({ hash: 'other3' })])).to.have.length(1);
+    });
+
+    it('holds no place for a refused message', async () => {
+      holding({ clientTag: TAG }, 3);
+      expect(await admitLive({ hash: 'refused' })).to.have.property('refused');
+      held.clear();
+
+      const admissions = await Promise.all([1, 2, 3].map((i) => admitLive({ hash: `burst${i}` })));
+
+      expect(taken(admissions)).to.have.length(3);
+    });
+
+    it('holds no place for a message without a tag', async () => {
+      const data = message({ hash: 'untagged' });
+      await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      const admissions = await Promise.all([1, 2, 3].map((i) => admitLive({ hash: `burst${i}` })));
+
+      expect(taken(admissions)).to.have.length(3);
+    });
+  });
+
   describe('tagSubmission', () => {
     const client = { remoteAddress: '198.51.100.25', headers: {} };
 
@@ -298,6 +387,22 @@ describe('unpaidAdmission tests', () => {
       await unpaidAdmission.tagSubmission(client, TIP).then(
         () => expect.fail('should have refused'),
         (error) => expect(error.message).to.equal('The network will not take this app message: its client already has 3 unpaid app messages pending. Pending messages expire after an hour.'),
+      );
+    });
+
+    it('counts the messages in flight, and holds no place itself', async () => {
+      await Promise.all([1, 2].map((i) => {
+        const data = tagged({ hash: `flying${i}` });
+        return unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+      }));
+
+      expect(await unpaidAdmission.tagSubmission(client, TIP)).to.deep.equal({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
+      expect(await unpaidAdmission.tagSubmission(client, TIP)).to.deep.equal({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
+      const third = tagged({ hash: 'flying3' });
+      await unpaidAdmission.admitUnpaid(third, { frame: frameOf(third), daemonHeight: TIP });
+      await unpaidAdmission.tagSubmission(client, TIP).then(
+        () => expect.fail('should have refused'),
+        (error) => expect(error.message).to.include('its client already has 3'),
       );
     });
 

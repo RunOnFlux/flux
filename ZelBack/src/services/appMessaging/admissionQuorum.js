@@ -189,17 +189,21 @@ async function admitOnce(message, { daemonHeight }) {
   const admission = await unpaidAdmission.admitUnpaid(envelope.data, { frame: envelope, daemonHeight });
   if (admission.refused) throw new Error(`The network will not take this app message: ${admission.refused}`);
 
-  const outcome = await runRound(message.hash, envelope);
-  const heldBy = [...outcome.members.values()].filter((member) => member.state === RECEIPT_STATE.HELD).length;
-  fluxEventBus.publish('appmessage:quorum', {
-    hash: message.hash, committed: outcome.ok, heldBy, reasons: outcome.reasons ?? [],
-  });
-  if (!outcome.ok) throw new Error(failureMessage(outcome));
+  try {
+    const outcome = await runRound(message.hash, envelope);
+    const heldBy = [...outcome.members.values()].filter((member) => member.state === RECEIPT_STATE.HELD).length;
+    fluxEventBus.publish('appmessage:quorum', {
+      hash: message.hash, committed: outcome.ok, heldBy, reasons: outcome.reasons ?? [],
+    });
+    if (!outcome.ok) throw new Error(failureMessage(outcome));
 
-  const commit = JSON.stringify({ type: COMMIT, hash: message.hash });
-  // A peer holding nothing for this hash ignores it.
-  outcome.members.forEach((member) => member.peer.send(commit));
-  await insertTemporaryMessage(message, admission.fields);
+    const commit = JSON.stringify({ type: COMMIT, hash: message.hash });
+    // A peer holding nothing for this hash ignores it.
+    outcome.members.forEach((member) => member.peer.send(commit));
+    await insertTemporaryMessage(message, admission.fields);
+  } finally {
+    admission.release?.();
+  }
   peerManager.getUnauthenticatedPeers().forEach((peer) => peer.send(signed));
 }
 
