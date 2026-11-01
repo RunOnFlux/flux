@@ -1,11 +1,13 @@
 // weight: light
 /*
- * A node maps through UPnP only when its userconfig.js says so, and a UPnP node is ready once
- * its router has taken its own ports.
+ * A node maps through UPnP only when it says so, and a UPnP node is ready once its router has
+ * taken its own ports.
  *
- * `upnp` in userconfig.js is read as declared. Where it is missing, the node writes it at its
- * start from its network settings: an api port other than the default, or a router address,
- * means UPnP. A node that says no maps nothing of its own, whatever router it is behind.
+ * A node on an api port other than the default maps through UPnP: only a UPnP node can take
+ * one. On the default port, `upnp` in userconfig.js is read as declared. Where it is missing,
+ * the node writes it at its start from its network settings: an api port other than the
+ * default, or a router address, means UPnP. A node on the default port that says no maps
+ * nothing of its own, whatever router it is behind.
  *
  * A UPnP node whose router has not taken its own ports asks again until it does, and its boot
  * waits for them within the deadline it gives its database (system.bootSyncTimeoutMs, 30 s in
@@ -101,14 +103,15 @@ describe('a node maps through UPnP only when it says so, and is ready once its r
     await client.followTo(nodeIp, API_PORT);
   });
 
-  it('maps nothing of its own when it says it does not map through UPnP, behind a router that answers', async function () {
+  it('maps nothing of its own on the default api port when it says it does not map through UPnP, behind a router that answers', async function () {
     this.timeout(300000);
     await crashFluxos(client.container, { hold: true });
-    await setNodeApiPort(client.container, API_PORT, { upnp: false });
+    await setNodeApiPort(client.container, 16127, { upnp: false });
+    await listNodeAtApiPort(client, 16127);
     await enableUpnpGateway(nodeIp);
     const fromMs = Date.now();
-    await releaseFluxos(client.container, { apiPort: API_PORT });
-    await client.followTo(nodeIp, API_PORT);
+    await releaseFluxos(client.container, { apiPort: 16127 });
+    await client.followTo(nodeIp, 16127);
     // a start's verification comes before the api listens; a refresh cycle after it
     await new Promise((resolve) => { setTimeout(resolve, 45000); });
 
@@ -117,6 +120,7 @@ describe('a node maps through UPnP only when it says so, and is ready once its r
 
     await crashFluxos(client.container, { hold: true });
     await setNodeApiPort(client.container, API_PORT);
+    await listNodeAtApiPort(client, API_PORT);
     await releaseFluxos(client.container, { apiPort: API_PORT });
     await client.followTo(nodeIp, API_PORT);
   });

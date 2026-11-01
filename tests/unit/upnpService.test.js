@@ -105,8 +105,9 @@ describe('upnpService tests', () => {
     sinon.restore();
   });
 
-  // Whether a node maps through UPnP is what its userconfig.js declares; where it
-  // declares nothing, its network settings decide it once and that is written.
+  // A node on an api port other than the default maps through UPnP; on the default,
+  // as its userconfig.js declares. Where it declares nothing, its network settings
+  // decide it once and that is written.
   describe('declared UPnP tests', () => {
     let before;
 
@@ -121,10 +122,18 @@ describe('upnpService tests', () => {
     });
 
     [[true, true], [false, false], [undefined, false]].forEach(([upnp, answer]) => {
-      it(`should take a node whose userconfig.js says upnp ${upnp} as ${answer ? '' : 'not '}mapping through UPnP, whatever its api port`, () => {
-        globalThis.userconfig = { initial: { apiport: 16137, routerIP: '192.168.1.1', upnp } };
+      it(`should take a node on the default api port whose userconfig.js says upnp ${upnp} as ${answer ? '' : 'not '}mapping through UPnP, whatever its router address`, () => {
+        globalThis.userconfig = { initial: { apiport: 16127, routerIP: '192.168.1.1', upnp } };
 
         expect(upnpService.isUPNP()).to.equal(answer);
+      });
+    });
+
+    [false, true, undefined].forEach((upnp) => {
+      it(`should take a node on another api port as mapping through UPnP when its userconfig.js says upnp ${upnp}`, () => {
+        globalThis.userconfig = { initial: { apiport: 16137, routerIP: '', upnp } };
+
+        expect(upnpService.isUPNP()).to.equal(true);
       });
     });
 
@@ -139,7 +148,7 @@ describe('upnpService tests', () => {
     });
 
     it('should leave a declared upnp as it is, whatever the network settings say', async () => {
-      globalThis.userconfig = { initial: { apiport: 16137, routerIP: '192.168.1.1', upnp: false } };
+      globalThis.userconfig = { initial: { apiport: 16127, routerIP: '192.168.1.1', upnp: false } };
 
       await upnpService.declareUpnpIfUnset();
 

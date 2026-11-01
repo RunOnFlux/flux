@@ -79,13 +79,16 @@ let upnpReady = false;
 let mapping = null;
 
 /**
- * Whether this node maps its ports through UPnP: the operator's `upnp` in
- * userconfig.js (declareUpnpIfUnset writes it where it is missing). A router that
- * does not answer leaves a UPnP node a UPnP node, out of service until it does.
+ * Whether this node maps its ports through UPnP. On an api port other than
+ * config.server.apiport it always does: only a UPnP node can take one. On that
+ * port, as the operator's `upnp` in userconfig.js says (declareUpnpIfUnset writes
+ * it where it is missing). A router that does not answer leaves a UPnP node a UPnP
+ * node, out of service until it does.
  * @returns {boolean}
  */
 function isUPNP() {
-  return globalThis.userconfig?.initial?.upnp === true;
+  const { apiport, upnp } = globalThis.userconfig?.initial ?? {};
+  return upnp === true || Boolean(apiport && Number(apiport) !== config.server.apiport);
 }
 
 /**

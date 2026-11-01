@@ -2576,7 +2576,7 @@ describe('fluxService tests', () => {
       await fluxService.adjustRouterIP(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { routerIP: '192.168.1.50', upnp: true });
+      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { routerIP: '192.168.1.50' });
     });
   });
 
@@ -2657,7 +2657,7 @@ describe('fluxService tests', () => {
       await fluxService.adjustAPIPort(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { apiport: 16147, upnp: true });
+      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { apiport: 16147 });
     });
   });
 

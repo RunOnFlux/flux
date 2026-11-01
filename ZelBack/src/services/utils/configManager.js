@@ -7,9 +7,8 @@ const config = require('config');
 
 /**
  * Whether a node maps its ports through UPnP, from its network settings: an api
- * port other than the default, or a router address. The rule `upnp` is set by
- * where the operator set only those - a config written before the key existed,
- * and the api port and router address endpoints.
+ * port other than the default, or a router address. `upnp` is written by this rule
+ * where userconfig.js does not have it.
  * @param {{apiport?: number|string, routerIP?: string}} initial
  * @returns {boolean}
  */

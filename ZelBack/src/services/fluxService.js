@@ -1757,8 +1757,7 @@ async function adjustRouterIP(req, res) {
       let { routerip } = req.params;
       routerip = routerip || req.query.routerip || '';
 
-      const { apiport } = globalThis.userconfig.initial;
-      await configManager.writeInitial({ routerIP: routerip, upnp: configManager.upnpFromNetworkSettings({ apiport, routerIP: routerip }) });
+      await configManager.writeInitial({ routerIP: routerip });
 
       const successMessage = messageHelper.createSuccessMessage('Router IP adjusted');
       res.json(successMessage);
@@ -1792,8 +1791,7 @@ async function adjustAPIPort(req, res) {
         return;
       }
 
-      const { routerIP } = globalThis.userconfig.initial;
-      await configManager.writeInitial({ apiport: Number(+apiport), upnp: configManager.upnpFromNetworkSettings({ apiport: +apiport, routerIP }) });
+      await configManager.writeInitial({ apiport: Number(+apiport) });
 
       const successMessage = messageHelper.createSuccessMessage('API Port adjusted. A restart of FluxOS is necessary');
       res.json(successMessage);
