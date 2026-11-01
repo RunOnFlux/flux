@@ -1164,6 +1164,10 @@ class AppSyncOrchestrator {
 
       const machineRebooted = !currentBootId || !heartbeat || heartbeat.machineBootId !== currentBootId;
       const downtimeMs = heartbeat ? Date.now() - heartbeat.lastAlive : Infinity;
+      // True only when the previous process recorded 'sigterm': it stopped for a
+      // machine shutdown or reboot, told its peers (fluxnodesigterm) and shortened
+      // its own locations to SIGTERM_EXPIRY_MS. A stop of the service alone exits
+      // without recording a reason, so a clean restart reads false here.
       const cleanShutdown = heartbeat?.shutdownReason === 'sigterm';
 
       const ctx = {
