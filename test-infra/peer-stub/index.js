@@ -176,6 +176,11 @@ async function serialiseUnverifiableSyncResponse(type) {
   return JSON.stringify({ version, timestamp, pubKey: PUBLIC_KEY, signature, data });
 }
 
+// One line on stdout per link event, which the failure dump keeps.
+function linkLog(link, event) {
+  console.log(`${new Date().toISOString()} link ${link?.peerIp ?? '?'}: ${event}`);
+}
+
 // Every text frame this stub sends goes through here: on an authenticated link
 // it carries the link MAC, as a node's would.
 function sendTo(ws, frame) {
@@ -199,13 +204,19 @@ async function nodeAuthEncrypt(text) {
 // the confirm. The node opens the handshake as soon as it connects.
 async function handleLinkNonce(ws, msg) {
   const link = links.get(ws);
-  if (!link || link.peerNonce || !linkCrypto.isHex32(msg.data.nonce)) return;
+  if (!link || link.peerNonce || !linkCrypto.isHex32(msg.data.nonce)) {
+    linkLog(link, `nonce ignored (${!link ? 'no link state' : link.peerNonce ? 'a nonce is already held' : 'malformed'})`);
+    return;
+  }
   link.peerNonce = msg.data.nonce;
   link.peerPubKey = msg.pubKey;
+  linkLog(link, 'nonce received');
   ws.send(await serialiseAndSignBroadcast({ type: linkCrypto.NONCE_TYPE, version: 1, nonce: link.localNonce }));
   const secret = await nodeAuthEncrypt(linkCrypto.transcript(link));
   Object.assign(link, linkCrypto.directionKeys(secret, link.localNonce, link.peerNonce));
+  linkLog(link, 'keys derived');
   ws.send(await serialiseAndSignBroadcast({ type: linkCrypto.CONFIRM_TYPE, version: 1, mac: linkCrypto.confirmMac(link.sendKey) }));
+  linkLog(link, 'confirm sent');
   if (link.peerConfirm) handleLinkConfirm(ws, link.peerConfirm);
 }
 
@@ -217,16 +228,24 @@ function handleLinkConfirm(ws, msg) {
     if (link.authenticated) linksAuthenticated -= 1;
     link.authenticated = false;
     link.gaveUp = true;
+    linkLog(link, 'the node gave up');
     return;
   }
-  if (link.authenticated || link.gaveUp) return;
+  if (link.authenticated || link.gaveUp) {
+    linkLog(link, `confirm ignored (${link.authenticated ? 'already authenticated' : 'the node gave up'})`);
+    return;
+  }
   if (!link.recvKey) {
     link.peerConfirm = msg;
+    linkLog(link, 'confirm held until the keys are derived');
     return;
   }
   if (msg.pubKey === link.peerPubKey && linkCrypto.confirmVerifies(link.recvKey, msg.data.mac)) {
     link.authenticated = true;
     linksAuthenticated += 1;
+    linkLog(link, 'authenticated');
+  } else {
+    linkLog(link, `confirm refused (${msg.pubKey === link.peerPubKey ? 'its MAC does not verify' : 'signed by another key'})`);
   }
 }
 
@@ -380,8 +399,13 @@ wss.on('connection', (ws, req) => {
       authenticated: false,
     });
   }
+  linkLog(links.get(ws) ?? { peerIp: (req.socket.remoteAddress || '').replace('::ffff:', '') }, `connected (${links.has(ws) ? 'speaks the link protocol' : 'no link protocol'})`);
   connectedNodes.add(ws);
-  ws.on('close', () => connectedNodes.delete(ws));
+  ws.on('close', (code) => {
+    connectedNodes.delete(ws);
+    const link = links.get(ws);
+    if (link) linkLog(link, `closed ${code} (${link.authenticated ? 'authenticated' : 'not authenticated'})`);
+  });
   ws.on('message', (data) => handleMessage(ws, data));
   ws.on('error', () => {});
 });
@@ -692,7 +716,12 @@ const controlServer = http.createServer(async (req, res) => {
       const wire = await serialiseAndSignBroadcast(data);
       let sent = 0;
       for (const ws of connectedNodes) {
-        if (ws.readyState === 1) { sendTo(ws, wire); sent++; }
+        if (ws.readyState === 1) {
+          const link = links.get(ws);
+          if (link) linkLog(link, `broadcast ${data?.hash ?? data?.type ?? ''} ${link.authenticated ? 'sealed' : 'NOT sealed'}`);
+          sendTo(ws, wire);
+          sent++;
+        }
       }
       broadcastsSent += sent;
       res.writeHead(200, { 'Content-Type': 'application/json' });
