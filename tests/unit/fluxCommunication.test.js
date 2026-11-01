@@ -1,6 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 const EventEmitter = require('node:events');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire');
 const objectHash = require('object-hash');
 const WebSocket = require('ws');
 const { expect } = require('chai');
@@ -28,7 +29,10 @@ const networkStateService = require('../../ZelBack/src/services/networkStateServ
 const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
-const { PEER_SOURCE, FluxPeerSocket } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const fluxPeerSocketModule = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const appConstants = require('../../ZelBack/src/services/utils/appConstants');
+
+const { PEER_SOURCE, FluxPeerSocket } = fluxPeerSocketModule;
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -711,6 +715,132 @@ describe('fluxCommunication tests', () => {
 
       await peerManager.messageDispatcher(envelope(data), peerSocket);
 
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
+    });
+  });
+
+  describe('a copy of an app message that cannot settle it on an Arcane node', () => {
+    const peerSocket = {
+      ip: '127.0.0.9',
+      port: '16127',
+      key: '127.0.0.9:16127',
+      direction: 'outgoing',
+      badMessageTimestamps: [],
+      close: () => {},
+      sendNak: () => {},
+    };
+    const installed = ['linkHandshake', 'messageDispatcher', 'linkMessageDispatcher', 'syncResponseDispatcher', 'hashHandlers'];
+    const authenticated = new WeakSet();
+    let saved;
+    let verify;
+    let store;
+
+    before(() => {
+      saved = Object.fromEntries(installed.map((name) => [name, peerManager[name]]));
+      // Loading it installs its dispatcher on the peer manager, as production does.
+      proxyquire('../../ZelBack/src/services/fluxCommunication', {
+        './utils/appConstants': { ...appConstants, isArcane: true },
+        './utils/FluxPeerSocket': { ...fluxPeerSocketModule, arrivedAuthenticated: (msg) => authenticated.has(msg) },
+      });
+    });
+
+    after(() => {
+      installed.forEach((name) => { peerManager[name] = saved[name]; });
+    });
+
+    beforeEach(() => {
+      cacheManager.announcementSeen.clear();
+      verify = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').resolves(fluxCommunicationUtils.VerifyResult.OK);
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      sinon.stub(admissionQuorum, 'takeRelay').returns(false);
+      store = sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(false);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    const data = {
+      type: 'fluxappregister', version: 1, appSpecifications: { name: 'someapp' }, hash: 'a'.repeat(64), timestamp: 1, signature: 's',
+    };
+    const copy = ({ signed = false } = {}) => {
+      const frame = {
+        version: 1, pubKey: '0400', timestamp: Date.now(), signature: 'sig', data,
+      };
+      if (signed) authenticated.add(frame);
+      return frame;
+    };
+    const handled = async () => {
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    };
+
+    it('leaves no mark when refused for its route, so the authenticated copy after it is handled', async () => {
+      await peerManager.messageDispatcher(copy(), peerSocket);
+      await handled();
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(false);
+
+      await peerManager.messageDispatcher(copy({ signed: true }), peerSocket);
+      await handled();
+
+      sinon.assert.calledTwice(store);
+      expect(store.firstCall.args[1]).to.include({ authenticated: false });
+      expect(store.secondCall.args[1]).to.include({ authenticated: true });
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
+    });
+
+    it('is dropped once an authenticated copy has marked the message', async () => {
+      await peerManager.messageDispatcher(copy({ signed: true }), peerSocket);
+      await handled();
+
+      await peerManager.messageDispatcher(copy(), peerSocket);
+      await handled();
+
+      sinon.assert.calledOnce(store);
+      sinon.assert.calledOnce(verify);
+    });
+
+    it('is handled one at a time with copies like it, and lets the next in once handled', async () => {
+      let finish;
+      store.onFirstCall().returns(new Promise((resolve) => { finish = () => resolve(false); }));
+
+      await peerManager.messageDispatcher(copy(), peerSocket);
+      await handled();
+      await peerManager.messageDispatcher(copy(), peerSocket);
+      await handled();
+      sinon.assert.calledOnce(store);
+
+      finish();
+      await handled();
+      await peerManager.messageDispatcher(copy(), peerSocket);
+      await handled();
+      sinon.assert.calledTwice(store);
+    });
+
+    it('still marks any other announcement from any link', async () => {
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(false);
+      const ipChanged = {
+        type: 'fluxipchanged', version: 1, oldIP: '1.1.1.1', newIP: '2.2.2.2', broadcastedAt: Date.now(),
+      };
+      const frame = {
+        version: 1, pubKey: '0400', timestamp: Date.now(), signature: 'sig', data: ipChanged,
+      };
+
+      await peerManager.messageDispatcher(frame, peerSocket);
+
+      expect(cacheManager.announcementSeen.has(objectHash(ipChanged))).to.equal(true);
+    });
+
+    it('marks the message on a node that is not Arcane, from any link', async () => {
+      // the dispatcher of the module as this test process loaded it: not Arcane
+      await saved.messageDispatcher(copy(), peerSocket);
+      await handled();
+      await saved.messageDispatcher(copy(), peerSocket);
+      await handled();
+
+      sinon.assert.calledOnce(store);
       expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
     });
   });

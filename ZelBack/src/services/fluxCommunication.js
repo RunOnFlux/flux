@@ -18,7 +18,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const arcaneLink = require('./arcaneLink');
 const messageHelper = require('./messageHelper');
 const { peerManager, PEER_SOURCE, CLOSE_CODES } = require('./utils/peerState');
-const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
+const { RUNNING_EXPIRY_MS, isArcane } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
@@ -34,6 +34,9 @@ const {
 } = require('./utils/messageRoutes');
 
 const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
+// The hashes of app messages being handled from copies that cannot settle them (see
+// dispatchFluxMessage), each only while its copy is handled.
+const unsettledInHand = new Set();
 
 /* const LRUTest = {
   max: 25000000, // 25M
@@ -1032,12 +1035,28 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   // suppresses the genuine message that hashes the same. So the slot is released on every
   // path that does not reach a handler, and what remains is the window of one signature check
   // rather than the cache's whole ttl.
+  //
+  // A COPY THAT CANNOT SETTLE THE MESSAGE LEAVES NO MARK. An Arcane node takes an unpaid app
+  // message only over an authenticated link (messageStore), so an app message from any other
+  // link may be refused for its route alone, which says nothing of the message. Such a copy
+  // is still dropped when the message is already marked, and copies like it are handled one
+  // at a time, but it never marks the message, so the authenticated copy after it is handled.
   const claimedSlot = declaredIntent(msgObj.data.type) === INTENT.ANNOUNCE;
+  const settles = !(isArcane && APP_MESSAGE_TYPES.has(msgObj.data.type) && !arrivedAuthenticated(msgObj));
   if (claimedSlot) {
     if (announcementSeen.has(messageHash)) return;
-    announcementSeen.set(messageHash, true);
+    if (settles) {
+      announcementSeen.set(messageHash, true);
+    } else {
+      if (unsettledInHand.has(messageHash)) return;
+      unsettledInHand.add(messageHash);
+    }
   }
-  const releaseSlot = () => { if (claimedSlot) announcementSeen.delete(messageHash); };
+  const releaseSlot = () => {
+    if (!claimedSlot) return;
+    if (settles) announcementSeen.delete(messageHash);
+    else unsettledInHand.delete(messageHash);
+  };
 
   // check blocked list
   if (wsPeerCache.has(pubKey)) {
@@ -1080,11 +1099,11 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         log.warn(`Unsolicited ${msgObj.data.type} from ${peerSocket.direction} peer ${peerSocket.key}`);
       } else {
         setImmediate(() => {
-          try {
-            handler(msgObj, peerSocket);
-          } catch (e) {
-            log.error(e);
-          }
+          // A copy that cannot settle the message lets the next one in once it is handled.
+          Promise.resolve()
+            .then(() => handler(msgObj, peerSocket))
+            .catch((e) => log.error(e))
+            .finally(() => { if (claimedSlot && !settles) unsettledInHand.delete(messageHash); });
         });
       }
     } else {
