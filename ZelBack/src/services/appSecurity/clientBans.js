@@ -1,21 +1,22 @@
 'use strict';
 
 const net = require('net');
+const log = require('../../lib/log');
 const messageHelper = require('../messageHelper');
 const policyStore = require('../policyStore');
 const { isTrustedBalancer, resolveClientIp } = require('../utils/ingressCapture');
+const { policyRange } = require('../utils/policyRanges');
 
 // The addresses whose app messages no node takes: the `client` entries of the
 // network blocklist. A caller in one of their ranges is refused at every route
 // that takes or prepares an app message, before the node does any work for it.
 //
-// An entry is in force through the UTC day its `expires` names. The ranges are
-// held as one BlockList per family, rebuilt from the adopted bundle when its
-// sequence or the UTC day changes; nothing is fetched to do it.
+// An entry is in force through the UTC day its `expires` names, and only for a
+// range within the policy floors (utils/policyRanges). The ranges are held as one
+// BlockList per family, rebuilt from the adopted bundle when its sequence or the
+// UTC day changes; nothing is fetched to do it.
 
-const CLIENT_RANGE = /^([^/]+)\/(\d{1,3})$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const FAMILY_BITS = { 4: 32, 6: 128 };
 
 let held = { key: null, lists: null };
 
@@ -31,12 +32,12 @@ function listsOf(entries, today) {
   entries.forEach((entry) => {
     if (entry?.kind !== 'client' || typeof entry.value !== 'string') return;
     if (typeof entry.expires !== 'string' || !ISO_DATE.test(entry.expires) || entry.expires < today) return;
-    const match = CLIENT_RANGE.exec(entry.value);
-    const family = match ? net.isIP(match[1]) : 0;
-    if (!family) return;
-    const prefix = Number(match[2]);
-    if (prefix > FAMILY_BITS[family]) return;
-    lists[family].addSubnet(match[1], prefix, family === 4 ? 'ipv4' : 'ipv6');
+    const range = policyRange(entry.value);
+    if (!range) {
+      log.error(`clientBans - client entry ${entry.value} is not a range within the policy floors; not enforced`);
+      return;
+    }
+    lists[range.family].addSubnet(range.address, range.prefix, range.type);
   });
   return lists;
 }

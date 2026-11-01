@@ -5,6 +5,7 @@ const config = require('config');
 const log = require('../../lib/log');
 const policyStore = require('../policyStore');
 const { isTrustedBalancer, resolveClientIp } = require('./ingressCapture');
+const { policyRange } = require('./policyRanges');
 
 // How many unpaid app messages a node takes from one client and from one
 // admitting operator, read from the `unpaidallowances` document of the signed
@@ -21,12 +22,11 @@ const { isTrustedBalancer, resolveClientIp } = require('./ingressCapture');
 //
 // A node holding no readable document uses fluxapps.clientTagCap and
 // fluxapps.originKeyCap, and grants no submitter a cap of its own. A submitter
-// entry is in force through the UTC day its `expires` names.
+// entry is in force through the UTC day its `expires` names, and only for a range
+// within the policy floors (utils/policyRanges).
 
 const DOCUMENT = 'unpaidallowances';
-const RANGE = /^([^/]+)\/(\d{1,3})$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const FAMILY_BITS = { 4: 32, 6: 128 };
 
 let held = { key: null, allowances: null };
 
@@ -59,13 +59,13 @@ function rangesOf(submitters, today) {
   const byCap = new Map();
   submitters.forEach((entry) => {
     if (entry.expires < today) return;
-    const match = RANGE.exec(entry.value);
-    const family = match ? net.isIP(match[1]) : 0;
-    if (!family) return;
-    const prefix = Number(match[2]);
-    if (prefix > FAMILY_BITS[family]) return;
+    const range = policyRange(entry.value);
+    if (!range) {
+      log.error(`unpaidAllowances - submitter ${entry.value} is not a range within the policy floors; granted nothing`);
+      return;
+    }
     if (!byCap.has(entry.cap)) byCap.set(entry.cap, { 4: new net.BlockList(), 6: new net.BlockList() });
-    byCap.get(entry.cap)[family].addSubnet(match[1], prefix, family === 4 ? 'ipv4' : 'ipv6');
+    byCap.get(entry.cap)[range.family].addSubnet(range.address, range.prefix, range.type);
   });
   return [...byCap].sort(([a], [b]) => b - a).map(([cap, lists]) => ({ cap, lists }));
 }

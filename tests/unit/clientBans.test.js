@@ -15,6 +15,7 @@ const STRANGER = '198.51.100.25';
 describe('clientBans tests', () => {
   let document;
   let seq;
+  let logError;
   let clientBans;
 
   const entry = (value, fields = {}) => ({
@@ -23,10 +24,12 @@ describe('clientBans tests', () => {
   const caller = (remoteAddress, headers = {}) => ({ remoteAddress, headers });
 
   beforeEach(() => {
-    document = [entry(`${BANNED}/32`), entry('101.32.0.0/16'), entry('2401:db00:1:2::/64')];
+    document = [entry(`${BANNED}/32`), entry('101.32.7.0/24'), entry('2401:db00:1:2::/64')];
     seq = 7;
+    logError = sinon.stub();
     clientBans = proxyquire('../../ZelBack/src/services/appSecurity/clientBans', {
       '../policyStore': { getDocument: (name) => (name === 'blocklist' ? document : null), getSeq: () => seq },
+      '../../lib/log': { error: logError },
     });
     sinon.useFakeTimers(new Date('2026-11-02T12:00:00Z'));
   });
@@ -61,7 +64,7 @@ describe('clientBans tests', () => {
     });
 
     it('never bans a balancer that forwards no caller, even inside a banned range', () => {
-      document = [entry(`${BALANCER}/32`), entry('1.2.0.0/16')];
+      document = [entry(`${BALANCER}/32`), entry('1.2.3.0/24')];
       seq = 11;
       expect(clientBans.isBannedCaller(caller(BALANCER))).to.equal(false);
       expect(clientBans.isBannedCaller(caller(BALANCER, { 'x-forwarded-for': 'not-an-address' }))).to.equal(false);
@@ -106,9 +109,20 @@ describe('clientBans tests', () => {
     });
 
     it('keeps the families apart: an IPv6 range never refuses an IPv4 caller', () => {
-      document = [entry('::/32')];
+      document = [entry('::/48')];
       seq = 10;
       expect(clientBans.isBannedCaller(caller(BANNED))).to.equal(false);
+    });
+
+    it('enforces no range wider than the policy floors, and keeps every entry beside it', () => {
+      document = [entry('0.0.0.0/0'), entry('43.134.0.0/16'), entry('::/0'), entry('2401:db00::/32'), entry(`${BANNED}/32`)];
+      seq = 11;
+
+      expect(clientBans.isBannedCaller(caller(BANNED))).to.equal(true);
+      expect(clientBans.isBannedCaller(caller(NEIGHBOUR))).to.equal(false);
+      expect(clientBans.isBannedCaller(caller(STRANGER))).to.equal(false);
+      expect(clientBans.isBannedCaller(caller(SAME_64))).to.equal(false);
+      expect(logError.callCount, 'each skipped entry is logged once').to.equal(4);
     });
 
     it('bans nobody on a node that holds no blocklist', () => {
