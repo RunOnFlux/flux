@@ -10,7 +10,7 @@
  * The other is untouched by the late log, so its row is only rewritten by a full rebuild,
  * which replaces every row of the registry.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
@@ -18,6 +18,7 @@ import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitForDaemonReady, waitForOrchestratorState, waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 4;
 // the running node: held back until the apps it boots holding are in place
@@ -114,8 +115,7 @@ describe('a running node applies late messages app by app', function () {
     step('fetched in bulk');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

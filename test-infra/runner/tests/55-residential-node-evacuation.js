@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { dbClient } from '../framework/db-client.js';
 import {
@@ -19,6 +19,7 @@ import {
   departureWaitMs, fleetNodes, RESIDENTIAL_PACING, PASS_MS, retireSeededApps, expectHoldsOnly,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOwner, untilOwnedTurnEndsMs } from '../framework/handback-turns.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('Residential node evacuation: classification', function () {
   let env;
@@ -29,8 +30,7 @@ describe('Residential node evacuation: classification', function () {
     env = await bootResidentialFleet(this);
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await clearSystemSecure().catch(() => {});
     await stopTicker().catch(() => {});
     if (env) await env.teardown();
@@ -146,8 +146,7 @@ describe('Residential node evacuation', function () {
     env = await bootResidentialFleet(this, { nodes: 3 });
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await clearSystemSecure().catch(() => {});
     await stopTicker().catch(() => {});
     if (env) await env.teardown();
@@ -494,8 +493,7 @@ describe('Residential node evacuation: one holder at a time', function () {
     env = await bootResidentialFleet(this, { nodes: 3 });
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await clearSystemSecure().catch(() => {});
     await stopTicker().catch(() => {});
     if (env) await env.teardown();
@@ -591,8 +589,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     env = await bootResidentialFleet(this, { nodes: 3 });
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await clearSystemSecure().catch(() => {});
     await stopTicker().catch(() => {});
     if (env) await env.teardown();
@@ -863,8 +860,7 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
     env = await bootResidentialFleet(this, { nodes: 3 });
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await clearSystemSecure().catch(() => {});
     await stopTicker().catch(() => {});
     if (env) await env.teardown();

@@ -30,7 +30,7 @@
  * Triggered and driven exactly as suite 85: the app's global row is replaced by a
  * seeded update, and blocks drive the periodic reinstall pass.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
@@ -41,6 +41,7 @@ import { execInContainer, getAppContainerId } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const APP_USER = '10000';
 const ADDED = [
@@ -120,8 +121,7 @@ describe('a mount directory a specification update adds is writable by the app\'
     await stopTicker();
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

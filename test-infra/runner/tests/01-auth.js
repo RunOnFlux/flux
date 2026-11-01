@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { authenticate, signBtcMessage } from '../auth.js';
 import { nodeKey, appOwnerKey, fluxTeamKey, userKey } from '../framework/keys.js';
@@ -6,6 +6,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { restartFluxos } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 let env;
 let node;
@@ -18,8 +19,7 @@ describe('Authentication', function () {
     await waitForDaemonReady(node);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -96,8 +96,7 @@ describe('Privilege enforcement', function () {
     userAuth = await authenticate(node.url, userKey());
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -181,8 +180,7 @@ describe('A login across a FluxOS restart', function () {
     login = await authenticate(node.url, nodeKey(1));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

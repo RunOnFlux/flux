@@ -7,12 +7,13 @@
  * empty, takes the messages from a peer again and verifies them; the stage is gone once it is
  * done.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { waitFor, waitForOrchestratorState } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { fleetMissingALog, startJoiner, messagesNotKept } from '../framework/message-log.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const STAGE = 'zelappsmessagesstaging';
 
@@ -45,8 +46,7 @@ describe('a node restarted while verifying fetched messages fetches them again',
     await waitForOrchestratorState(env.clients[joiner], 'READY', 600000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

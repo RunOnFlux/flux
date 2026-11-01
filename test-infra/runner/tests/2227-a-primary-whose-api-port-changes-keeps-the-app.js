@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { restartFluxos, setNodeApiPort } from '../framework/container.js';
@@ -14,6 +14,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { placeSilentPrimaryApp, A, B, C } from '../framework/silent-primary.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The primary's operator moves its api port on the same IP, 16127 to 16157, and
 // restarts FluxOS; a node on any port but 16127 runs only behind a UPnP gateway,
@@ -53,8 +54,7 @@ describe('a primary whose api port changes keeps the app', function () {
     nodeIp = client(B).ip;
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await clearNodeAddress(nodeIp).catch(() => {});
     await resetFdm().catch(() => {});

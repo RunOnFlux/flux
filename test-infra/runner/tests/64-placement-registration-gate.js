@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -7,6 +7,7 @@ import { pushTestApp } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { assignPorts } from '../framework/port-allocator.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The registration front door and the placement advice endpoint, against a
 // fleet whose geography the location table actually describes.
@@ -120,8 +121,7 @@ describe('placement gate at registration and the advice endpoint', function () {
     await waitForLocationTable(node, { domains: 3 });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await fetch(`${env?.stubControl}/iplocation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

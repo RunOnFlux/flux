@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -9,6 +9,7 @@ import { dbClient } from '../framework/db-client.js';
 import { confirmTwoUpdatesInOneBlock } from '../framework/same-block-updates.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { createRequire } from 'node:module';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { UNPOSITIONED } = createRequire(import.meta.url)('../../../ZelBack/src/services/utils/unpositionedPayments.js');
 
@@ -40,8 +41,7 @@ describe('payment positions a node never recorded are recovered from the chain a
     db = dbClient(NODE + 1);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

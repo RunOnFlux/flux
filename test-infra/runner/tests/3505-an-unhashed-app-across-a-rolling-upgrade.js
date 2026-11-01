@@ -2,7 +2,7 @@
 // weight: medium
 import { fileURLToPath } from 'node:url';
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import { dbClient } from '../framework/db-client.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { upgradeBase } from '../framework/upgrade-base.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A network part way through an upgrade. Node 0 runs the release the others
 // upgrade from, which refuses a whole apprunning message for one entry without a
@@ -83,8 +84,7 @@ describe('an app installed without a hash, across a rolling upgrade', function (
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

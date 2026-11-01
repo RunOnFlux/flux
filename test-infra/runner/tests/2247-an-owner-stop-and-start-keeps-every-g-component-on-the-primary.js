@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, crashFluxos, releaseFluxos } from '../framework/container.js';
@@ -14,6 +14,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An owner stops and starts an app with two single-writer (g:) components, on real
 // syncthing daemons: the whole app on every node at once, and one component alone
@@ -131,8 +132,7 @@ describe('an owner stop and start keeps every g: component on the primary', func
     })));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

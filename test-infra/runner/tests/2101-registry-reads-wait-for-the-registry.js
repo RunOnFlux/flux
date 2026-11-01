@@ -14,6 +14,7 @@ import {
 import { dbClient } from '../framework/db-client.js';
 import { waitFor, waitForInstallSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A restarting node rebuilds its application registry once its boot hash sync
 // completes, and refills its location store from the orchestrator's state sync.
@@ -69,8 +70,7 @@ describe('registry and location reads wait for their store after a restart', fun
     }, { timeout: 180000, interval: 3000, label: 'every app in the restarted node\'s registry before the restart' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

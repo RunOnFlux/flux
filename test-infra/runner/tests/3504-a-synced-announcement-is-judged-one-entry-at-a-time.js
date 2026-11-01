@@ -1,6 +1,6 @@
 // weight: medium
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -9,6 +9,7 @@ import { apprunningEvent, socketAddr } from '../framework/state-events.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitForDaemonReady, waitForNodeStatus, waitForOrchestratorState } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node joining the network learns where apps run from its peers' event logs,
 // and judges each announcement there one entry at a time, as it judges one that
@@ -94,8 +95,7 @@ describe('a synced announcement is judged one entry at a time', function () {
       .flatMap((e) => e.data.refusals);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

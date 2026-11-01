@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dbClient } from '../framework/db-client.js';
@@ -6,6 +6,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, waitForLocationTable } from '../framework/reconciler-suite.js';
 import { dnsRecordsServed } from '../framework/external-http-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node whose DNS server answers a host's A query and fails its AAAA query with SERVFAIL
 // reaches that host at its IPv4 address.
@@ -50,8 +51,7 @@ describe('a host whose AAAA query fails is reached at its IPv4 address', functio
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

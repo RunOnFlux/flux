@@ -12,7 +12,7 @@
  * whatever held its name. A second hard redeploy, sent before the removal runs again,
  * removes the app and is refused the install.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -25,6 +25,7 @@ import { failCommands } from '../framework/mongo-control.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const HOLDER = 0;
 // each run of the removal waits 15s after the last, and the node announces every ~30s
@@ -89,8 +90,7 @@ describe('a removal that stops part way is finished', function () {
     step('redeploy returned');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await release?.().catch(() => {});
     await env?.teardown();
   });
@@ -168,8 +168,7 @@ describe('an app whose removal is pending takes no install', function () {
     step('second redeploy returned');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await release?.().catch(() => {});
     await env?.teardown();
   });

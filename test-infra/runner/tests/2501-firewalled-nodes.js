@@ -6,7 +6,7 @@
 // FluxOS's own rules are what make the switch worth having: each firewalled node
 // must end up with a rule only FluxOS writes, so a firewall that came up but that
 // FluxOS never saw as active fails here.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
@@ -15,6 +15,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { waitFor } from '../framework/wait.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const LEGACY = 0;
 const ARCANE = 1;
@@ -69,7 +70,7 @@ describe('2501 firewalled nodes', function suite() {
     });
   });
 
-  after(async () => {
+  afterTeardown(async () => {
     await env?.teardown();
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, restartDockerd } from '../framework/container.js';
@@ -7,6 +7,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitForUp } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // B2 end-to-end: enterprise apps (spec stored encrypted - version 8, compose
 // empty, AES blob) must be covered by the reconnect sweep exactly like plain
@@ -35,8 +36,7 @@ describe('reconnect sweep covers enterprise apps (encrypted at rest)', function 
     identifier = `${appName}_${appName}`;
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

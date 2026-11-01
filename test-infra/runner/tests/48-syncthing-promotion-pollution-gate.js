@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus } from '../framework/container.js';
@@ -9,6 +9,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // MUST-PASS data-safety gate: a receiveonly follower whose folder carries LOCAL
 // foreign files must not be promoted to sendreceive - promotion broadcasts the
@@ -44,8 +45,7 @@ describe('syncthing promotion gate reverts local pollution before flipping to se
     await setLocalChanges({ ip: subnet.nodeIp(1), folder: app.folder, files: 2 });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

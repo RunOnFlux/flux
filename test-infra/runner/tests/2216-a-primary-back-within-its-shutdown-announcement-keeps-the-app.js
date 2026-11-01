@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { releaseFluxos, shutdownFluxosGracefully } from '../framework/container.js';
@@ -9,6 +9,7 @@ import { waitFor, waitForUp } from '../framework/wait.js';
 import { startDaemon } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { placeSilentPrimaryApp, A, B } from '../framework/silent-primary.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A primary that announced its shutdown is rebooting until the announcement
 // expires (sigtermExpiryS): its closed connection is the reboot. One back within
@@ -27,8 +28,7 @@ describe('a primary back within its shutdown announcement keeps the app', functi
     fleet = await placeSilentPrimaryApp({ hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await resetFdm().catch(() => {});
     await fleet?.env.teardown();

@@ -10,7 +10,7 @@
  * `blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0`, every 16 to 36
  * blocks here, so the drive is budgeted in blocks.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -22,6 +22,7 @@ import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { failWrites } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // four passes at the longest period: the one whose write is refused, and others after it
 const PASS_BLOCKS = 144;
@@ -89,8 +90,7 @@ describe('a redeploy whose record write fails keeps the app', function () {
     release = await failWrites(HOLDER + 1, 'localzelapps', 'zelappsinformation', { times: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await release?.().catch(() => {});
     await env?.teardown();
   });

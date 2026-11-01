@@ -30,7 +30,7 @@
  * app's data volume survives. A change to hdd takes the hard path and reformats
  * it, which is a different suite.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -41,6 +41,7 @@ import { getAppContainerId } from '../framework/container.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('an app whose specification changed is reinstalled at the new specification', function () {
   let env;
@@ -96,8 +97,7 @@ describe('an app whose specification changed is reinstalled at the new specifica
     }, { timeout: 120000, interval: 2000, label: 'the app is running before its spec changes' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

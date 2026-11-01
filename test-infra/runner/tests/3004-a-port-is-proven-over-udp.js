@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -12,6 +12,7 @@ import { execInContainer, restartFluxos, setNodeApiPort } from '../framework/con
 import { enableUpnpGateway, setUpnpProtocolFault, upnpGatewayState } from '../framework/external-http-control.js';
 import { waitFor, waitForAppInstalled, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Every app port is published for TCP and UDP, so a node proves both before it
 // installs an app, and its availability check proves both on a port of its own.
@@ -130,8 +131,7 @@ describe('a port is proven over UDP', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -215,8 +215,7 @@ describe('a node whose first peers cannot hear UDP replies', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -266,8 +265,7 @@ describe('a node behind UPnP tests one protocol a pass', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -343,8 +341,7 @@ describe('a node whose TCP comes back while its UDP is blocked', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -399,8 +396,7 @@ describe('a port closed over UDP, under the policy that counts it and turns the 
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -443,8 +439,7 @@ describe('a node whose peers do not probe UDP', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

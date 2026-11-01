@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -9,6 +9,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Which folders a node holds writable is answered by syncthing's FOLDER
 // configuration alone. Its DEVICE configuration is a second read on the same
@@ -60,8 +61,7 @@ describe('a node that read its folders publishes them even when the device read 
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await setDeviceConfigOutage({ ip: subnet.nodeIp(1), enabled: false }).catch(() => {});
     await resetSyncState().catch(() => {});
     await env?.teardown();

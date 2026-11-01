@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
@@ -7,6 +7,7 @@ import {
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -20,8 +21,7 @@ describe('Confirmation state: confirmed boot', function () {
     await waitForDaemonReady(env.clients[0]);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -56,8 +56,7 @@ describe('Confirmation state: unconfirmed boot', function () {
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 60000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -95,8 +94,7 @@ describe('Confirmation state: runtime loss', function () {
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await clearNodeStatus(subnet.nodeIp(1));
     await env?.teardown();
   });

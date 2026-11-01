@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -13,6 +13,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node that ran an app moves, and the chain lists it at the new address before
 // its peers hear the move. Each peer's node status check then finds nothing
@@ -86,8 +87,7 @@ describe('a move heard after its old address was evicted', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (moved) await clearNodeAddress(moved).catch(() => {});
     await env?.teardown();
   });

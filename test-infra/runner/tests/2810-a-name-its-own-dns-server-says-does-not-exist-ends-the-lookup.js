@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -6,6 +6,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dnsRecordsServed } from '../framework/external-http-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A name a node's own DNS server answers does not exist (NXDOMAIN) on its A query does not
 // exist for any record type: the lookup fails with ENOTFOUND, whatever the server did with the
@@ -97,8 +98,7 @@ describe('a name its own DNS server says does not exist ends a node\'s lookup th
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

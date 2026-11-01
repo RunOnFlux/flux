@@ -1,9 +1,10 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, seedTestApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The crash ladder is driven by evidence of a fault, and Docker's exit code cannot
 // supply it in one direction: an image whose entrypoint is a wrapper script ending
@@ -78,8 +79,7 @@ describe('reconciler ceiling paces a container that restarts too fast to be heal
     ({ index: idx, identifier } = await seedTestApp(env, { name: appName, exitCode: 0, exitAfterS: 2 }));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

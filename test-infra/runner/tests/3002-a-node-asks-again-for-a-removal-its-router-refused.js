@@ -1,6 +1,6 @@
 // weight: light
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -9,6 +9,7 @@ import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -37,8 +38,7 @@ describe('a node asks again for a removal its router refused', function () {
     await giveNodeApiPort(env, 0, API_PORT);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, before, after, afterEach } from 'mocha';
+import { describe, it, before, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { fluxTeamKey } from '../framework/keys.js';
@@ -10,6 +10,7 @@ import {
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -28,8 +29,7 @@ describe('Confirmation loss consequences', function () {
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await clearNodeStatus(subnet.nodeIp(1));
     await env?.teardown();
   });
@@ -69,8 +69,7 @@ describe('DOS loginPhrase consequences', function () {
     await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

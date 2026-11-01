@@ -19,7 +19,7 @@
  * fleet: the middle of three.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -34,6 +34,7 @@ import { disableUpnpGateway, enableUpnpGateway, upnpGatewayState } from '../fram
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForAppInstalled, waitForAppRemoved } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -73,8 +74,7 @@ describe('a node maps through UPnP only when it says so, and is ready once its r
     await giveNodeApiPort(env, SUBJECT, API_PORT);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
