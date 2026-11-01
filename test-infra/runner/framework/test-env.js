@@ -623,6 +623,14 @@ function makeEnvShell(networkName) {
   let infraLogSnapshot = null; // infra logs captured at teardown when the run is void
   let tornDown = false;
 
+  // The containers whose output the failure dump keeps: the infra, and every stub
+  // peer, whose log records each link handshake and what it sealed.
+  const diagnosedContainers = () => [
+    ...infraContainers,
+    // eslint-disable-next-line no-use-before-define
+    ...[...env.stubContainers].map(([index, container]) => ({ name: `stubPeer-${index}`, container })),
+  ];
+
   const env = {
     networkName,
     containers: {},
@@ -683,7 +691,7 @@ function makeEnvShell(networkName) {
     // the caller is already reporting a failure and must not lose it to this.
     async infraDiagnostics() {
       if (infraLogSnapshot) return infraLogSnapshot;
-      return readInfraLogs(infraContainers)
+      return readInfraLogs(diagnosedContainers())
         .catch((err) => [{ name: 'infra', text: '', error: err.message }]);
     },
 
@@ -721,7 +729,7 @@ function makeEnvShell(networkName) {
       // removes it, taking its logs with it. Snapshot them first - exactly why
       // the SSE buffers are snapshotted below.
       if (infraDeathError()) {
-        infraLogSnapshot = await readInfraLogs(infraContainers).catch(() => null);
+        infraLogSnapshot = await readInfraLogs(diagnosedContainers()).catch(() => null);
       }
       step('infra-snapshot');
       // disconnectEventStream wipes the client's event buffer — snapshot first so
