@@ -11,7 +11,8 @@ const TEMPORARY_MESSAGE_LIFETIME_MS = 60 * 60 * 1000;
  * @param {object} message type, version, appSpecifications (formatted), hash,
  *   timestamp, signature, arcaneSender.
  * @param {object} [admissionFields] What admission recorded: clientTag,
- *   clientTagHeight, origin, originKey.
+ *   clientTagHeight, clientTagCap when a submitter range granted one, origin,
+ *   originKey.
  * @returns {Promise<void>}
  */
 async function insertTemporaryMessage(message, admissionFields = {}) {

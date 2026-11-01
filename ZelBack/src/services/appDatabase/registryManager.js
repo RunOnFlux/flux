@@ -2268,7 +2268,7 @@ async function registerAppGlobalyApi(req, res) {
         return;
       }
 
-      const { clientTag, clientTagHeight } = await unpaidAdmission.tagSubmission(
+      const tag = await unpaidAdmission.tagSubmission(
         { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
         daemonHeight,
       );
@@ -2282,8 +2282,7 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
         arcaneSender: isArcane,
-        clientTag,
-        clientTagHeight,
+        ...tag,
       });
       await admissionQuorum.admit(temporaryAppMessage, { daemonHeight });
       res.json(messageHelper.createDataMessage(messageHASH));

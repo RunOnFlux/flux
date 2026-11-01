@@ -672,9 +672,11 @@ module.exports = {
     // How many unpaid app messages a node holds, within tempMsgTtlS, from one
     // client (by its client tag) and from one admitting operator (by the key that
     // signed the frame admitting them). A message without a client tag is not
-    // counted.
-    clientTagCap: 10,
-    originKeyCap: 60,
+    // counted. The network policy's `unpaidallowances` document sets both, and
+    // grants submitter ranges caps of their own (utils/unpaidAllowances.js);
+    // these apply while a node holds no readable copy of it.
+    clientTagCap: 20,
+    originKeyCap: 100,
     // Authenticated Arcane links (services/arcaneLink.js). Each handshake costs one
     // node-auth fluxbench call, so: at most linkHandshakesPerIp per peer IP in
     // linkHandshakeWindowMs, none from an IP for linkHandshakeBackoffMs after one

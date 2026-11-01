@@ -5,6 +5,7 @@ const dbHelper = require('../dbHelper');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { clientTagFor, tagHeightIsCurrent } = require('../utils/clientTag');
+const unpaidAllowances = require('../utils/unpaidAllowances');
 const { globalAppsTempMessages, appsHashesCollection } = require('../utils/appConstants');
 
 // Whether a node takes an unpaid app message, by how many it already holds from
@@ -41,10 +42,20 @@ const ORIGIN_SIGNATURE_MAX = 100;
  * @returns {object}
  */
 function admittedMessage({
-  type, version, appSpecifications, hash, timestamp, signature, arcaneSender, clientTag, clientTagHeight,
+  type, version, appSpecifications, hash, timestamp, signature, arcaneSender, clientTag, clientTagHeight, clientTagCap,
 }) {
   return {
-    type, version, appSpecifications, hash, timestamp, signature, arcaneSender, clientTag, clientTagHeight,
+    type,
+    version,
+    appSpecifications,
+    hash,
+    timestamp,
+    signature,
+    arcaneSender,
+    clientTag,
+    clientTagHeight,
+    // only where a submitter range granted one
+    ...(clientTagCap !== undefined && { clientTagCap }),
   };
 }
 
@@ -177,12 +188,15 @@ async function storedFor({ clientTag, originKey }) {
  * Why a client or an operator may not admit another unpaid message, or null.
  * Synchronous, so that no admission can be let past between this count and the
  * reservation its caller makes on it.
- * @param {{clientTag?: string, originKey?: string}} sender
+ * @param {{clientTag?: string, originKey?: string, clientTagCap?: number}} sender
+ *   clientTagCap is the cap a submitter range grants the client, when one does.
  * @param {{byTag: string[], byKey: string[]}} stored
  * @returns {string|null}
  */
-function allowanceRefusal({ clientTag, originKey }, { byTag, byKey }) {
-  const { clientTagCap, originKeyCap } = config.fluxapps;
+function allowanceRefusal({ clientTag, originKey, clientTagCap: granted }, { byTag, byKey }) {
+  const allowed = unpaidAllowances.allowances();
+  const clientTagCap = Math.max(granted ?? 0, allowed.clientTagCap);
+  const { originKeyCap } = allowed;
   if (clientTag && pendingCount(byTag, 'clientTag', clientTag) >= clientTagCap) {
     return `its client already has ${clientTagCap} unpaid app messages pending`;
   }
@@ -245,42 +259,56 @@ function reserve(hash, sender) {
  *   caller calls `release`, once the message is written, refused or let go.
  */
 async function admitUnpaid(message, { frame, daemonHeight }) {
-  const { clientTag, clientTagHeight, arcaneSender } = message;
+  const {
+    clientTag, clientTagHeight, clientTagCap, arcaneSender,
+  } = message;
   if (clientTag === undefined) return { fields: {} };
 
   if (typeof clientTag !== 'string' || !TAG_PATTERN.test(clientTag)) return { refused: 'its client tag is malformed' };
   if (!tagHeightIsCurrent(clientTagHeight, daemonHeight)) return { refused: `its client tag height ${clientTagHeight} is not current` };
   if (typeof arcaneSender !== 'boolean') return { refused: 'its arcaneSender is not a boolean' };
+  if (clientTagCap !== undefined) {
+    if (!Number.isInteger(clientTagCap) || clientTagCap <= 0) return { refused: 'its client cap is malformed' };
+    const { largestClientCap } = unpaidAllowances.allowances();
+    if (clientTagCap > largestClientCap) return { refused: `its client cap ${clientTagCap} is above the largest the network policy grants (${largestClientCap})` };
+  }
 
   const resolved = await resolveOrigin(message, frame);
   if (resolved.refused) return { refused: resolved.refused };
 
-  const place = await reserve(message.hash, { clientTag, originKey: resolved.originKey });
+  const place = await reserve(message.hash, { clientTag, originKey: resolved.originKey, clientTagCap });
   if (place.refused) return { refused: place.refused };
 
   return {
     fields: {
-      clientTag, clientTagHeight, origin: resolved.origin, originKey: resolved.originKey,
+      clientTag,
+      clientTagHeight,
+      // present only when its admitting node wrote one: the origin signature covers it
+      ...(clientTagCap !== undefined && { clientTagCap }),
+      origin: resolved.origin,
+      originKey: resolved.originKey,
     },
     release: place.release,
   };
 }
 
 /**
- * The client tag for a message this node is about to admit. Refuses when its
- * client, or this node's operator, has no allowance left, because every peer
- * would refuse the message.
+ * The client tag for a message this node is about to admit, and the cap a
+ * submitter range grants its caller when one does. Refuses when its client, or
+ * this node's operator, has no allowance left, because every peer would refuse
+ * the message.
  * @param {{remoteAddress?: string, headers?: object}} client The request's socket
  *   peer and headers.
  * @param {number} daemonHeight
- * @returns {Promise<{clientTag: string, clientTagHeight: number}>}
+ * @returns {Promise<{clientTag: string, clientTagHeight: number, clientTagCap?: number}>}
  */
 async function tagSubmission(client, daemonHeight) {
   const tag = await clientTagFor(client, daemonHeight);
+  const granted = unpaidAllowances.submitterCap(client);
   const originKey = await fluxNetworkHelper.getFluxNodePublicKey();
-  const over = await overAllowance({ clientTag: tag.clientTag, originKey });
+  const over = await overAllowance({ clientTag: tag.clientTag, originKey, clientTagCap: granted ?? undefined });
   if (over) throw new Error(`The network will not take this app message: ${over}. Pending messages expire after an hour.`);
-  return tag;
+  return granted === null ? tag : { ...tag, clientTagCap: granted };
 }
 
 module.exports = {

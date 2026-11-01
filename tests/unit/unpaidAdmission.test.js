@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const { tagHeightIsCurrent } = require('../../ZelBack/src/services/utils/clientTag');
+const realAllowances = require('../../ZelBack/src/services/utils/unpaidAllowances');
 
 const TIP = 3081700;
 const TAG_HEIGHT = 3081600;
@@ -21,6 +22,8 @@ describe('unpaidAdmission tests', () => {
   let verifyBroadcasts;
   let clientTagFor;
   let getFluxNodePublicKey;
+  let allowed;
+  let submitterCap;
   let unpaidAdmission;
 
   // An app message in the order its admitting node signs it.
@@ -54,11 +57,13 @@ describe('unpaidAdmission tests', () => {
     verifyBroadcasts = sinon.stub().resolves([{ result: VerifyResult.OK }]);
     clientTagFor = sinon.stub().resolves({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
     getFluxNodePublicKey = sinon.stub().resolves(ENTRY_KEY);
+    allowed = { clientTagCap: 3, originKeyCap: 5, largestClientCap: 3 };
+    submitterCap = sinon.stub().returns(null);
     unpaidAdmission = proxyquire('../../ZelBack/src/services/appMessaging/unpaidAdmission', {
       config: {
         database: { appsglobal: { database: 'appsglobal' }, daemon: { database: 'daemon' } },
-        fluxapps: { clientTagCap: 3, originKeyCap: 5 },
       },
+      '../utils/unpaidAllowances': { allowances: () => allowed, submitterCap },
       '../dbHelper': dbHelper,
       '../fluxCommunicationUtils': { verifyBroadcasts, VerifyResult },
       '../fluxNetworkHelper': { getFluxNodePublicKey },
@@ -75,6 +80,11 @@ describe('unpaidAdmission tests', () => {
     held.set(JSON.stringify(query), hashes.map((hash) => ({ hash })));
   };
 
+  it('should stub only names the real modules export', () => {
+    expect(realAllowances.allowances).to.be.a('function');
+    expect(realAllowances.submitterCap).to.be.a('function');
+  });
+
   describe('admittedMessage', () => {
     it('is the fields an admitting node signs, in the order it signs them, and nothing else', () => {
       const { clientTag, ...rest } = tagged();
@@ -87,6 +97,13 @@ describe('unpaidAdmission tests', () => {
         'type', 'version', 'appSpecifications', 'hash', 'timestamp', 'signature', 'arcaneSender', 'clientTag', 'clientTagHeight',
       ]);
       expect(JSON.stringify(built)).to.equal(JSON.stringify(tagged()));
+    });
+
+    it('carries a client cap last, and only where a submitter range granted one', () => {
+      const built = unpaidAdmission.admittedMessage({ clientTagCap: 40, ...tagged() });
+
+      expect(Object.keys(built).at(-1)).to.equal('clientTagCap');
+      expect(JSON.stringify(built)).to.equal(JSON.stringify(tagged({ clientTagCap: 40 })));
     });
   });
 
@@ -189,6 +206,57 @@ describe('unpaidAdmission tests', () => {
         .to.deep.equal({ refused: 'its client tag is malformed' });
       expect(await unpaidAdmission.admitUnpaid(stale, { frame: frameOf(stale), daemonHeight: TIP }))
         .to.deep.equal({ refused: `its client tag height ${TAG_HEIGHT - 240} is not current` });
+    });
+  });
+
+  describe('admitUnpaid: a client cap a submitter range granted', () => {
+    const admitWithCap = (clientTagCap, fields = {}) => {
+      const data = tagged({ clientTagCap, ...fields });
+      return unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+    };
+
+    beforeEach(() => {
+      allowed = { clientTagCap: 3, originKeyCap: 5, largestClientCap: 4 };
+    });
+
+    it('holds the client to the cap its message carries, and stores it beside the message', async () => {
+      holding({ clientTag: TAG }, 3);
+
+      const admission = await admitWithCap(4);
+
+      expect(admission.fields).to.include({ clientTagCap: 4 });
+      holding({ clientTag: TAG }, 4);
+      expect(await admitWithCap(4, { hash: 'hash2' })).to.deep.equal({ refused: 'its client already has 4 unpaid app messages pending' });
+    });
+
+    it('stores no cap beside a message that carries none', async () => {
+      const data = tagged();
+
+      const { fields } = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(fields).to.not.have.property('clientTagCap');
+    });
+
+    it('holds a client to the policy\'s cap when its message carries a lower one', async () => {
+      holding({ clientTag: TAG }, 2);
+
+      expect(await admitWithCap(1)).to.not.have.property('refused');
+    });
+
+    it('refuses a cap above the largest the network policy grants', async () => {
+      expect(await admitWithCap(5)).to.deep.equal({ refused: 'its client cap 5 is above the largest the network policy grants (4)' });
+    });
+
+    [['a fraction', 2.5], ['zero', 0], ['text', '4']].forEach(([label, cap]) => {
+      it(`refuses a cap that is ${label}`, async () => {
+        expect(await admitWithCap(cap)).to.deep.equal({ refused: 'its client cap is malformed' });
+      });
+    });
+
+    it('still holds the operator to its allowance', async () => {
+      holding({ originKey: ENTRY_KEY }, 5);
+
+      expect(await admitWithCap(4)).to.deep.equal({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
     });
   });
 
@@ -401,6 +469,21 @@ describe('unpaidAdmission tests', () => {
     it('gives the tag for a client under both allowances', async () => {
       expect(await unpaidAdmission.tagSubmission(client, TIP)).to.deep.equal({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
       sinon.assert.calledOnceWithExactly(clientTagFor, client, TIP);
+    });
+
+    it('gives the cap a submitter range grants its caller, and holds the caller to it', async () => {
+      submitterCap.returns(4);
+      allowed = { clientTagCap: 3, originKeyCap: 5, largestClientCap: 4 };
+      holding({ clientTag: TAG }, 3);
+
+      expect(await unpaidAdmission.tagSubmission(client, TIP)).to.deep.equal({ clientTag: TAG, clientTagHeight: TAG_HEIGHT, clientTagCap: 4 });
+      sinon.assert.calledWithExactly(submitterCap, client);
+
+      holding({ clientTag: TAG }, 4);
+      await unpaidAdmission.tagSubmission(client, TIP).then(
+        () => expect.fail('should have refused'),
+        (error) => expect(error.message).to.include('its client already has 4'),
+      );
     });
 
     it('refuses a client the network would refuse', async () => {

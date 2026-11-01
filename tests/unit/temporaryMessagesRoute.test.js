@@ -17,6 +17,7 @@ describe('the temporary messages route', () => {
     signature: 'sig',
     clientTag: 'd'.repeat(64),
     clientTagHeight: 3081600,
+    clientTagCap: 100,
     originKey: '04aa',
   };
   let collection;
@@ -42,6 +43,6 @@ describe('the temporary messages route', () => {
     const [served] = response.data;
     expect(served.hash).to.equal(hash);
     expect(served.originKey).to.equal('04aa');
-    expect(served).to.not.have.any.keys('clientTag', 'clientTagHeight', '_id');
+    expect(served).to.not.have.any.keys('clientTag', 'clientTagHeight', 'clientTagCap', '_id');
   });
 });

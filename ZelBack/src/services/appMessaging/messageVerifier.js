@@ -671,7 +671,11 @@ async function getAppsTemporaryMessages(req, res) {
     }
     // A client tag stays between the nodes that count it: published, it would let
     // anyone match a guess against it.
-    const projection = { projection: { _id: 0, clientTag: 0, clientTagHeight: 0 } };
+    const projection = {
+      projection: {
+        _id: 0, clientTag: 0, clientTagHeight: 0, clientTagCap: 0,
+      },
+    };
     const results = await dbHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
