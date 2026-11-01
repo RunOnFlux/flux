@@ -44,6 +44,7 @@ describe('appInstaller tests', () => {
   // The same stub map the default instance is built from, so a test that needs one
   // more seam spreads it rather than restating eighty lines of it.
   let baseStubs;
+  let swapPoolStub;
   let verificationHelperStub;
   let messageHelperStub;
   let dbHelperStub;
@@ -146,8 +147,11 @@ describe('appInstaller tests', () => {
       warn: sinon.stub(),
     };
 
+    swapPoolStub = { reconcile: sinon.stub().resolves() };
+
     // Proxy require
     baseStubs = {
+      './appSwapPoolService': swapPoolStub,
       '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../verificationHelper': verificationHelperStub,
@@ -313,6 +317,39 @@ describe('appInstaller tests', () => {
 
         expect(appDockerStart.calledWith('web_myapp'), 'the soft install reached its start step').to.equal(start);
       });
+    });
+
+    it('reconciles the swap pool before the container is created', async () => {
+      const installer = softInstaller({ ensureMountPathsExist: sinon.stub().resolves() }, { ensureStignoreCovers: sinon.stub().resolves() });
+      const { appDockerCreate } = baseStubs['../dockerService'];
+      appDockerCreate.resetHistory();
+      const spec = {
+        name: 'web', repotag: 'a/b:1', containerData: 'r:/data', ports: [], domains: [], environmentParameters: [], commands: [],
+      };
+
+      await installer.installApplicationSoft(spec, 'myapp', true, null, { name: 'myapp', compose: [spec] }, { start: false });
+
+      sinon.assert.calledOnce(swapPoolStub.reconcile);
+      sinon.assert.calledOnce(appDockerCreate);
+      sinon.assert.callOrder(swapPoolStub.reconcile, appDockerCreate);
+    });
+
+    it('reconciles the swap pool before the container is created, on a hard install', async () => {
+      const installer = softInstaller(
+        { ensureMountPathsExist: sinon.stub().resolves(), verifyAppVolumeMount: sinon.stub().resolves() },
+        { ensureStignoreCovers: sinon.stub().resolves() },
+      );
+      const { appDockerCreate } = baseStubs['../dockerService'];
+      appDockerCreate.resetHistory();
+      const spec = {
+        name: 'web', repotag: 'a/b:1', containerData: 'r:/data', ports: [], domains: [], environmentParameters: [], commands: [],
+      };
+
+      await installer.installApplicationHard(spec, 'myapp', true, null, { name: 'myapp', version: 8, compose: [spec] }, true);
+
+      sinon.assert.calledOnce(swapPoolStub.reconcile);
+      sinon.assert.calledOnce(appDockerCreate);
+      sinon.assert.callOrder(swapPoolStub.reconcile, appDockerCreate);
     });
 
     it('asserts the ignore policy before the directory is created', async () => {

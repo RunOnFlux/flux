@@ -20,10 +20,12 @@ describe('appStartupManager tests', () => {
   let appPlacementsStub;
   let portManagerStub;
   let appSliceStub;
+  let swapPoolStub;
   let nodeStatusMonitor;
 
   beforeEach(() => {
     appSliceStub = { stopEmptySlices: sinon.stub().resolves(0) };
+    swapPoolStub = { reconcile: sinon.stub().resolves() };
     logStub = {
       info: sinon.stub(),
       warn: sinon.stub(),
@@ -113,6 +115,7 @@ describe('appStartupManager tests', () => {
       '../appMonitoring/appReconciler': appReconcilerStub,
       './appUninstaller': appUninstallerStub,
       './appSlice': appSliceStub,
+      './appSwapPoolService': swapPoolStub,
       '../appMonitoring/nodeStatusMonitor': nodeStatusMonitor,
       '../appManagement/appPlacements': appPlacementsStub,
       '../utils/globalState': globalStateStub,
@@ -755,6 +758,16 @@ describe('appStartupManager tests', () => {
 
       sinon.assert.calledOnce(appSliceStub.stopEmptySlices);
       sinon.assert.callOrder(appSliceStub.stopEmptySlices, globalStateStub.waitForDbReady);
+    });
+
+    it('reconciles the swap pool after the empty slices are stopped and before any app is touched', async () => {
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves([]);
+
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
+
+      sinon.assert.calledOnce(swapPoolStub.reconcile);
+      sinon.assert.callOrder(appSliceStub.stopEmptySlices, swapPoolStub.reconcile, globalStateStub.waitForDbReady);
     });
 
     it('should reconcile on FluxOS-only restart (no stopped containers)', async () => {

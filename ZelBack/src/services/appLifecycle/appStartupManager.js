@@ -17,6 +17,7 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const appSlice = require('./appSlice');
+const appSwapPoolService = require('./appSwapPoolService');
 const nodeStatusMonitor = require('../appMonitoring/nodeStatusMonitor');
 const appPlacements = require('../appManagement/appPlacements');
 const { TIMED_OUT } = require('../utils/withinDeadline');
@@ -413,6 +414,8 @@ async function manageAppsOnBoot(bootContext) {
     await tidyPlacementsOnBoot();
     // ahead of every container start, so no slice in use can be empty here
     await appSlice.stopEmptySlices();
+    // FluxOS starts every app container itself (restart policy 'no'), after this
+    await appSwapPoolService.reconcile();
     if (bootContext.firstBoot) {
       log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
     } else if (bootContext.unreadable) {
