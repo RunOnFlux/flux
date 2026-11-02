@@ -680,7 +680,7 @@ describe('explorerService tests', () => {
 
         const step = await explorerService.processBlock(base + 2, true);
 
-        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'utxoindex', { height: { $gt: base } });
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { height: { $gt: base } });
         sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
           { $set: { generalScannedHeight: base, generalScannedHash: 'a100' } });
         expect(step).to.deep.equal({ next: explorerService.Step.block(base + 1), waitMs: 0 });
@@ -695,7 +695,7 @@ describe('explorerService tests', () => {
 
         await explorerService.processBlock(base + 2, true);
 
-        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'utxoindex', { height: { $gt: base + 1 - deep } });
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { height: { $gt: base + 1 - deep } });
         sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
           { $set: { generalScannedHeight: base + 1 - deep }, $unset: { generalScannedHash: '' } });
       });
@@ -708,7 +708,7 @@ describe('explorerService tests', () => {
 
         await explorerService.processBlock(base + 2, true);
 
-        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'utxoindex', { height: { $gt: base } });
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { height: { $gt: base } });
       });
 
       it('processes the first block after a restart unchecked when the stored scanned height has no hash', async () => {
