@@ -206,6 +206,8 @@ export function nodeClient(nodeNum) {
         'daemon:unreachable',
         'dos:changed',
         'explorer:ready',
+        // a block that did not follow the last processed one, and the height the records were restored to
+        'explorer:reorganised',
         'firewall:adjusted',
         'firewall:locked',
         'firewall:purged',
