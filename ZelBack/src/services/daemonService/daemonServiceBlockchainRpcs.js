@@ -204,29 +204,6 @@ async function getBlockHeader(req, res) {
 }
 
 /**
- * To get chain tips.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function getChainTips(req, res) {
-  let { minheight } = req?.params || {};
-  minheight = minheight || req?.query?.minheight;
-
-  const rpccall = 'getChainTips';
-  const rpcparameters = [];
-
-  if (minheight !== undefined && minheight !== null) {
-    minheight = serviceHelper.ensureNumber(minheight);
-    rpcparameters.push(minheight);
-  }
-
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
-  return res ? res.json(response) : response;
-}
-
-/**
  * To get block hash algorithm difficulty.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -448,7 +425,6 @@ module.exports = {
   getBlockHashesPost, // experimental feataure, insight explorer
   getBlockHash,
   getBlockHeader,
-  getChainTips,
   getDifficulty,
   getMempoolInfo,
   getRawMemPool,
