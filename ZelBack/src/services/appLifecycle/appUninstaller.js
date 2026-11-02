@@ -261,7 +261,7 @@ async function unmountVolume(appId, entityName, res) {
   // true, and the stream is the only account an operator gets of what is still
   // mounted.
   const unmount = await serviceHelper.runCommand('umount', {
-    runAsRoot: true, params: [appsFolder + appId], logError: false,
+    runAsRoot: true, hostMountNamespace: true, params: [appsFolder + appId], logError: false,
   });
   if (unmount.error) {
     log.error(unmount.error);

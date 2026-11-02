@@ -785,7 +785,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(mountingStatus));
       if (res.flush) res.flush();
     }
-    await execAsRoot('mount', ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, appDir]);
+    const mounted = await serviceHelper.runCommand('mount', {
+      runAsRoot: true, hostMountNamespace: true, params: ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, appDir],
+    });
+    if (mounted.error) throw mounted.error;
     await volumeService.useDirectIo(appDir);
     const mountingStatus2 = {
       status: 'Volume mounted',
@@ -1008,7 +1011,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
     const appDir = path.join(appsFolder, appId);
     // Unmount the volume if it's mounted (failure = was not mounted, fine)
-    const unmount = await serviceHelper.runCommand('umount', { runAsRoot: true, params: [appDir], logError: false });
+    const unmount = await serviceHelper.runCommand('umount', {
+      runAsRoot: true, hostMountNamespace: true, params: [appDir], logError: false,
+    });
     if (unmount.error) {
       log.warn('Volume not mounted or already unmounted during cleanup');
     }
