@@ -334,13 +334,14 @@ export async function setNodeTier(ip, tier) {
 // -- ArcaneOS attestation --
 
 /**
- * Set whether a node's benchmark reports it as attested (ArcaneOS). Nodes are
- * attested by default, so only a suite that cares has to say anything.
+ * Set whether a node's benchmark reports it as attested (ArcaneOS). A node is
+ * attested unless it is one of the fleet's legacy nodes.
  */
 export async function setSystemSecure(ip, secure) {
   return post(`/system-secure/${ip}`, { secure });
 }
 
+/** Every node back to its default: attested unless it is a legacy node. */
 export async function clearSystemSecure() {
   return del('/system-secure');
 }

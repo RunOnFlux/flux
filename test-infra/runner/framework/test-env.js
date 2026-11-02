@@ -1010,6 +1010,7 @@ export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STAR
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], unprivilegedNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
   unverifiableSyncPeers = [], answeringSyncPeers = [], policyUnawarePeers = [], arcaneStubPeers = [], stubPeeredWith = null,
+  attestedLegacyNodes = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   // How many blocks after its last confirmation each node confirms again: 1, or
@@ -1219,6 +1220,14 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: stub ${index} cannot be both silent and unverifiable`);
     }
   }
+  // A legacy node's benchmark reports it not attested, as a legacy node's
+  // fluxbench does. One named here boots attested, for a suite that marks it
+  // legacy itself (daemon-control.setSystemSecure) once its fixture is in place.
+  for (const index of attestedLegacyNodes) {
+    if (!legacyNodes.includes(index)) {
+      throw new Error(`createTestEnv: attestedLegacyNodes index ${index} is not one of legacyNodes [${legacyNodes.join(', ')}]`);
+    }
+  }
   // A stub that answers a state sync with the events a suite gives it
   // (stubPeerClient.answerSyncWith), signed as a real responder signs.
   for (const index of answeringSyncPeers) {
@@ -1363,6 +1372,7 @@ export async function createTestEnv({
   env.rejoinOnRestart = rejoinOnRestart;
   env.arcaneStubPeers = arcaneStubPeers;
   env.answeringSyncPeers = answeringSyncPeers;
+  env.attestedLegacyNodes = attestedLegacyNodes;
   activeEnvs.add(env);
   // A previous env's death must not fail this one's waits.
   clearInfraDeath();
@@ -1459,6 +1469,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       NODE_COUNT: String(nodes),
       INITIAL_HEIGHT: String(initialHeight),
       CONFIRMATION_INTERVAL_BLOCKS: String(confirmationIntervalBlocks),
+      LEGACY_NODE_IPS: legacyNodes.filter((i) => !env.attestedLegacyNodes.includes(i)).map((i) => subnet.nodeIp(i + 1)).join(','),
     })
     .withBindMounts([{
       source: fixturesDir,
