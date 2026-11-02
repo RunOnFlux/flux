@@ -144,7 +144,7 @@ async function runRound(hash, envelope) {
     const proposal = JSON.stringify({ type: PROPOSAL, envelope });
     peerManager.getAuthenticatedPeers().forEach((peer) => {
       const member = {
-        peer, ip: peer.ip, state: 'sent', timer: null,
+        peer, ip: peer.ip, state: 'sent', timer: null, sentAt: Date.now(), receivedMs: null, answeredMs: null,
       };
       round.members.set(peer.connectionId, member);
       if (peer.send(proposal)) armSilence(round, member);
@@ -192,8 +192,15 @@ async function admitOnce(message, { daemonHeight }) {
   try {
     const outcome = await runRound(message.hash, envelope);
     const heldBy = [...outcome.members.values()].filter((member) => member.state === RECEIPT_STATE.HELD).length;
+    // Each peer's state when the round settled, and how long after the proposal
+    // its receipt and its answer arrived (ms; null when none did).
+    const members = [...outcome.members.values()].map(({
+      ip, state, receivedMs, answeredMs,
+    }) => ({
+      ip, state, receivedMs, answeredMs,
+    }));
     fluxEventBus.publish('appmessage:quorum', {
-      hash: message.hash, committed: outcome.ok, heldBy, reasons: outcome.reasons ?? [],
+      hash: message.hash, committed: outcome.ok, heldBy, reasons: outcome.reasons ?? [], members,
     });
     if (!outcome.ok) throw new Error(failureMessage(outcome));
 
@@ -234,14 +241,17 @@ function onReceipt(peer, receipt) {
   if (!member) return;
   if (member.state === RECEIPT_STATE.HELD || member.state === RECEIPT_STATE.REFUSED) return;
   if (receipt.state === RECEIPT_STATE.RECEIVED && member.state === 'sent') {
+    member.receivedMs = Date.now() - member.sentAt;
     member.state = RECEIPT_STATE.RECEIVED;
     armSilence(round, member);
   } else if (receipt.state === RECEIPT_STATE.HELD) {
     clearTimeout(member.timer);
+    member.answeredMs = Date.now() - member.sentAt;
     member.state = RECEIPT_STATE.HELD;
     round.heldIps.add(member.ip);
   } else if (receipt.state === RECEIPT_STATE.REFUSED) {
     clearTimeout(member.timer);
+    member.answeredMs = Date.now() - member.sentAt;
     member.state = RECEIPT_STATE.REFUSED;
     round.reasons.push(typeof receipt.reason === 'string' ? receipt.reason.slice(0, REASON_MAX) : 'no reason given');
   }
