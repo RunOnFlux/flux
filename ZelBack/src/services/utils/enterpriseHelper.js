@@ -3,8 +3,33 @@ const config = require('config');
 const dbHelper = require('../dbHelper');
 const benchmarkService = require('../benchmarkService');
 const log = require('../../lib/log');
+const { verifyAppNameAndOwner } = require('./appIdentity');
+const { MAX_ENTERPRISE_LENGTH } = require('./appConstants');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+const isEmptyList = (value) => value === undefined || (Array.isArray(value) && value.length === 0);
+
+/**
+ * Throws unless an encrypted v8 spec has the form a client sends: a well formed
+ * name and owner, an `enterprise` string no longer than MAX_ENTERPRISE_LENGTH,
+ * and no plain `compose` or `contacts` - those travel only inside `enterprise`.
+ * Checked on the encrypted form, before decrypting, so a node that cannot
+ * decrypt applies it too. A spec that is not encrypted passes.
+ * @param {object} appSpec - Application specifications as received
+ * @returns {void}
+ * @throws {Error} If the encrypted form is not one a client sends
+ */
+function verifyEncryptedSpec(appSpec) {
+  if (!(appSpec?.version >= 8 && appSpec.enterprise)) return;
+  verifyAppNameAndOwner(appSpec.name, appSpec.owner);
+  if (typeof appSpec.enterprise !== 'string' || appSpec.enterprise.length > MAX_ENTERPRISE_LENGTH) {
+    throw new Error(`Enterprise specification is too long. Maximum of ${MAX_ENTERPRISE_LENGTH} characters is allowed`);
+  }
+  if (!isEmptyList(appSpec.compose) || !isEmptyList(appSpec.contacts)) {
+    throw new Error('An encrypted specification carries its compose and contacts only inside enterprise');
+  }
+}
 
 /**
  * Decrypts AES key with RSA key
@@ -266,6 +291,7 @@ async function encryptEnterpriseFromSession(appSpec, daemonHeight, enterpriseKey
 }
 
 module.exports = {
+  verifyEncryptedSpec,
   checkAndDecryptAppSpecs,
   encryptEnterpriseFromSession,
   decryptEnterpriseFromSession,

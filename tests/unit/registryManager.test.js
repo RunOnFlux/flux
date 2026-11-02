@@ -18,6 +18,7 @@ const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/local
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { requireMongo } = require('./dbTestHelper');
+const { verifyEncryptedSpec } = require('../../ZelBack/src/services/utils/enterpriseHelper');
 
 describe('registryManager tests', () => {
   before(requireMongo);
@@ -895,7 +896,7 @@ describe('registryManager tests', () => {
       // two substitutions; everything else is the real module.
       const verifyPrivilege = sinon.stub().resolves(false);
       const subject = proxyquire('../../ZelBack/src/services/appDatabase/registryManager', {
-        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec },
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec, verifyEncryptedSpec },
         '../utils/appUtilities': { specificationFormatter: (spec) => spec },
         '../verificationHelper': { verifyPrivilege },
       });
@@ -939,7 +940,7 @@ describe('registryManager tests', () => {
 
     function subjectWithPrivilege(verifyPrivilege) {
       return proxyquire('../../ZelBack/src/services/appDatabase/registryManager', {
-        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec },
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec, verifyEncryptedSpec },
         '../utils/appUtilities': { specificationFormatter: (spec) => spec },
         '../verificationHelper': { verifyPrivilege },
       });

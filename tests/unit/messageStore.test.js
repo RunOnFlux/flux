@@ -3,7 +3,7 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const fluxService = require('../../ZelBack/src/services/fluxService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
-const { verifyEnterpriseLength } = require('../../ZelBack/src/services/appRequirements/appValidator');
+const { verifyEncryptedSpec } = require('../../ZelBack/src/services/utils/enterpriseHelper');
 const { MAX_ENTERPRISE_LENGTH, INSTALL_ERROR_MAX_LENGTH } = require('../../ZelBack/src/services/utils/appConstants');
 
 describe('messageStore tests', () => {
@@ -92,7 +92,6 @@ describe('messageStore tests', () => {
       },
       '../appRequirements/appValidator': {
         verifyAppSpecifications: sinon.stub().resolves(),
-        verifyEnterpriseLength,
       },
       '../appDatabase/registryManager': {
         // no node in these tests has moved
@@ -104,6 +103,7 @@ describe('messageStore tests', () => {
         validateApplicationUpdateCompatibility: sinon.stub().resolves(),
       },
       '../utils/enterpriseHelper': {
+        verifyEncryptedSpec,
         checkAndDecryptAppSpecs: checkAndDecryptStub,
       },
       '../utils/appConstants': {
@@ -544,7 +544,6 @@ describe('messageStore tests', () => {
         },
         '../appRequirements/appValidator': {
           verifyAppSpecifications: sinon.stub().resolves(),
-          verifyEnterpriseLength,
         },
         '../appDatabase/registryManager': {
           // no node in these tests has moved
@@ -556,6 +555,7 @@ describe('messageStore tests', () => {
           validateApplicationUpdateCompatibility: sinon.stub().resolves(),
         },
         '../utils/enterpriseHelper': {
+          verifyEncryptedSpec,
           checkAndDecryptAppSpecs: sinon.stub().resolves({}),
         },
         '../utils/appConstants': {
@@ -614,7 +614,6 @@ describe('messageStore tests', () => {
           },
           '../appRequirements/appValidator': {
             verifyAppSpecifications: sinon.stub().resolves(),
-            verifyEnterpriseLength,
           },
           '../appDatabase/registryManager': {
             // no node in these tests has moved
@@ -626,6 +625,7 @@ describe('messageStore tests', () => {
             validateApplicationUpdateCompatibility: sinon.stub().resolves(),
           },
           '../utils/enterpriseHelper': {
+            verifyEncryptedSpec,
             checkAndDecryptAppSpecs: sinon.stub().resolves({}),
           },
           '../utils/appConstants': {

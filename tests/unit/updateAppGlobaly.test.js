@@ -112,9 +112,10 @@ describe('updateAppGlobaly tests', () => {
   });
 
   [
-    ['an invalid app name', { name: 'Submit-App!' }],
-    ['an invalid owner', { owner: 'my-owner' }],
-  ].forEach(([description, change]) => {
+    ['an invalid app name', { name: 'Submit-App!' }, 'Invalid app name or owner'],
+    ['an invalid owner', { owner: 'my-owner' }, 'Invalid app name or owner'],
+    ['a plain compose', { compose: [{ name: 'web' }] }, 'An encrypted specification carries its compose and contacts only inside enterprise'],
+  ].forEach(([description, change, refusal]) => {
     it(`should refuse an enterprise update with ${description} before reading the spec`, async () => {
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003100 } });
 
@@ -128,7 +129,7 @@ describe('updateAppGlobaly tests', () => {
         version: 1,
       }).then(
         () => expect.fail('should have refused'),
-        (error) => expect(error.message).to.equal('Invalid app name or owner'),
+        (error) => expect(error.message).to.equal(refusal),
       );
       sinon.assert.notCalled(appValidator.verifyAppSpecifications);
       expect(signatureCheck.called).to.equal(false);
