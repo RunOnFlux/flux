@@ -126,6 +126,20 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Open one connection to `target` (ip:port) per path port, claiming the link
+    // protocol and never answering its handshake, and hold them for holdMs. Answers
+    // how each ended: [{ port, closeCode, closedAfterMs }], closeCode null when the
+    // node still held it.
+    async dialAndHold(target, ports, { holdMs = 3000 } = {}) {
+      const res = await controlFetch(`${controlUrl}/dial-and-hold`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target, ports, holdMs }),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not dial ${target}: ${res.status} ${await res.text()}`);
+      return (await res.json()).results;
+    },
+
     // The events this peer answers each state-sync request with, by response type
     // ({ fluxapptempsync: [...] }), for a stub declared in answeringSyncPeers. A
     // type left out is answered with none.
