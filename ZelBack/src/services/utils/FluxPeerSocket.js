@@ -46,8 +46,10 @@ function arrivedAuthenticated(msgObj) {
   return typeof msgObj === 'object' && msgObj !== null && arrivedOverAuthenticatedLink.has(msgObj);
 }
 
-// The most frames a connection takes while its link handshake runs.
+// The most frames, and bytes of frames, a connection takes while its link
+// handshake runs.
 const HANDSHAKE_QUEUE_MAX = 256;
+const HANDSHAKE_QUEUE_MAX_BYTES = 1024 * 1024;
 
 // The admission protocol (services/appMessaging/admissionQuorum.js), and an
 // Arcane node's report of its authenticated links, taken only from a frame
@@ -100,6 +102,9 @@ const CLOSE_CODES = Object.freeze({
   // Dialled for an authenticated Arcane link, and its handshake did not
   // authenticate: not a fault of the peer, and not redialled
   NOT_ARCANE_LINK: 4020,
+
+  // Inbound on a path port that is not one of config.server.allowedPorts
+  PORT_NOT_ALLOWED: 4021,
 });
 
 const PEER_SOURCE = Object.freeze({
@@ -131,6 +136,8 @@ class FluxPeerSocket {
 
   /** Frames that arrived while the link handshake ran, waiting for the connection to join. */
   #queuedFrames = [];
+
+  #queuedBytes = 0;
 
   /**
    * @param {WebSocket} ws - raw WebSocket
@@ -496,12 +503,14 @@ class FluxPeerSocket {
       // Until the link handshake settles only its own two messages are handled;
       // everything else waits on the socket, in order, for the connection to join.
       if (this.handshaking && !this.#isHandshakeFrame(evt.data)) {
-        if (this.#queuedFrames.length >= HANDSHAKE_QUEUE_MAX) {
-          log.warn(`Closing ${this.direction} connection ${this.key}: ${HANDSHAKE_QUEUE_MAX} frames arrived before its link handshake settled`);
-          this.close(this.closeCodes.invalidMsg, 'too many frames before the link settled');
+        const bytes = Buffer.isBuffer(evt.data) ? evt.data.length : Buffer.byteLength(evt.data, 'utf8');
+        if (this.#queuedFrames.length >= HANDSHAKE_QUEUE_MAX || this.#queuedBytes + bytes > HANDSHAKE_QUEUE_MAX_BYTES) {
+          log.warn(`Closing ${this.direction} connection ${this.key}: more than ${HANDSHAKE_QUEUE_MAX} frames or ${HANDSHAKE_QUEUE_MAX_BYTES} bytes arrived before its link handshake settled`);
+          this.close(this.closeCodes.invalidMsg, 'too much arrived before the link settled');
           return;
         }
         this.#queuedFrames.push(evt);
+        this.#queuedBytes += bytes;
         return;
       }
       this.#handleFrame(evt);
@@ -532,6 +541,7 @@ class FluxPeerSocket {
   flushQueuedFrames() {
     const queued = this.#queuedFrames;
     this.#queuedFrames = [];
+    this.#queuedBytes = 0;
     queued.forEach((evt) => this.#handleFrame(evt));
   }
 

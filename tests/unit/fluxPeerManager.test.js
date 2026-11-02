@@ -1234,6 +1234,23 @@ describe('FluxPeerManager tests', () => {
       sinon.assert.calledOnce(peer.ws.close);
     });
 
+    // Bytes, not only frames: four frames of a quarter MiB fill the queue, and one byte more closes it.
+    it('should close a connection whose queued frames pass 1 MiB before its handshake settles', () => {
+      const peer = addHandshaking();
+      const quarter = (n) => {
+        const shell = frame('fluxapprunning').length;
+        return JSON.stringify({ version: 1, data: { type: 'fluxapprunning', pad: 'x'.repeat(n - shell - 10) } });
+      };
+      const sized = quarter(256 * 1024);
+      const fill = sized + ' '.repeat(256 * 1024 - Buffer.byteLength(sized));
+      for (let i = 0; i < 4; i += 1) peer.ws.onmessage({ data: fill });
+      sinon.assert.notCalled(peer.ws.close);
+
+      peer.ws.onmessage({ data: ' ' });
+
+      sinon.assert.calledOnce(peer.ws.close);
+    });
+
     it('should forget a connection that closes before its handshake settles, with no disconnect and no reconnect', async () => {
       const disconnected = sinon.spy();
       manager.on('peerDisconnected', disconnected);
@@ -2273,6 +2290,48 @@ describe('FluxPeerManager tests', () => {
         sinon.assert.calledWith(ws.close, 4000, sinon.match(/Max number/));
         done();
       }, 1100);
+    });
+
+    // Valter's case: a caller claiming arcaneLink holds a socket in the handshake,
+    // and the handshake never settles. Those sockets count toward maxCon.
+    it('should refuse an inbound connection beyond maxCon while the earlier ones are still handshaking', () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      manager.numberOfFluxNodes = 0;
+      manager.linkHandshake = () => new Promise(() => {});
+      const maxCon = 4 * config.fluxapps.minIncoming;
+      const arcane = (ip) => createMockReq(ip, { 'x-flux-capabilities': 'arcaneLink' });
+      const sockets = [];
+      for (let i = 0; i <= maxCon; i += 1) {
+        const ip = `8.8.${Math.floor(i / 250)}.${(i % 250) + 1}`;
+        const ws = createMockWs(ip);
+        sockets.push(ws);
+        manager.validateAndAddInbound(ws, '16127', arcane(ip));
+      }
+      expect(manager.inboundCount, 'none has joined').to.equal(0);
+      expect(manager.connectionTo('8.8.0.1:16127'), 'the first is held, handshaking').to.not.equal(undefined);
+
+      const extra = createMockWs('9.9.9.9');
+      manager.validateAndAddInbound(extra, '16127', arcane('9.9.9.9'));
+      clock.tick(1000);
+
+      sinon.assert.calledWith(extra.close, CLOSE_CODES.MAX_CONNECTIONS, sinon.match(/Max number/));
+      expect(manager.connectionTo('9.9.9.9:16127')).to.equal(undefined);
+      sockets.forEach((ws) => sinon.assert.notCalled(ws.close));
+      clock.restore();
+    });
+
+    it('should refuse a path port that is not one of allowedPorts, or not written as one', () => {
+      manager.numberOfFluxNodes = 10000;
+      ['16128', '016127', '16127 ', '+16127', '0'].forEach((port) => {
+        const ws = createMockWs('8.8.8.8');
+        manager.validateAndAddInbound(ws, port, createMockReq('8.8.8.8'));
+        sinon.assert.calledWith(ws.close, CLOSE_CODES.PORT_NOT_ALLOWED, 'port not allowed');
+      });
+      expect(manager.inboundCount).to.equal(0);
+
+      const allowed = createMockWs('8.8.8.8');
+      manager.validateAndAddInbound(allowed, '16197', createMockReq('8.8.8.8'));
+      expect(manager.has('8.8.8.8:16197')).to.equal(true);
     });
 
     it('should reject private IPs', (done) => {

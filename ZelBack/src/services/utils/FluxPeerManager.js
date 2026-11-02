@@ -263,6 +263,17 @@ class FluxPeerManager extends EventEmitter {
   }
 
   /**
+   * Inbound connections whose link handshake has not settled.
+   * @returns {number}
+   * @private
+   */
+  #handshakingInboundCount() {
+    let count = 0;
+    this.#handshaking.forEach((peer) => { if (peer.direction === DIRECTION.INBOUND) count += 1; });
+    return count;
+  }
+
+  /**
    * A handshaking connection closed before it joined.
    * @param {FluxPeerSocket} peer
    */
@@ -1287,6 +1298,14 @@ class FluxPeerManager extends EventEmitter {
       ws.close(CLOSE_CODES.NODE_UNCONFIRMED, 'node not confirmed');
       return;
     }
+    // The path port is the caller's to choose, and a connection is one per
+    // ip:port: held to the ports a node can serve on, one address holds at most
+    // as many connections as there are of them.
+    if (typeof optionalPort === 'string'
+      && (!allowedPortsSet.has(Number(optionalPort)) || String(Number(optionalPort)) !== optionalPort)) {
+      ws.close(CLOSE_CODES.PORT_NOT_ALLOWED, 'port not allowed');
+      return;
+    }
     try {
       let port;
       let req;
@@ -1322,7 +1341,9 @@ class FluxPeerManager extends EventEmitter {
         ? this.numberOfFluxNodes / 160
         : 9 * config.fluxapps.minIncoming;
       const maxCon = Math.max(maxPeers, maxNumberOfConnections);
-      if (this.inboundCount > maxCon) {
+      // An inbound connection still in its link handshake holds a socket and
+      // its queued frames as surely as one that has joined.
+      if (this.inboundCount + this.#handshakingInboundCount() > maxCon) {
         setTimeout(() => {
           ws.close(CLOSE_CODES.MAX_CONNECTIONS, `Max number of incomming connections ${maxCon} reached`);
         }, 1000);
