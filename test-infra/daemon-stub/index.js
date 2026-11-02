@@ -581,14 +581,13 @@ const benchHandlers = {
   stop: () => 'Flux benchmark stopping (stub)',
 };
 
-// One JSON-RPC request's response object. `status` is the HTTP status the
-// request gets when it is sent alone.
+// One JSON-RPC request's response object.
 async function answerRpc(handlers, request, sourceIp) {
   const { method, params, id } = request ?? {};
   const cleanIp = sourceIp.replace('::ffff:', '');
 
   if (!method) {
-    return { status: 400, body: { result: null, error: { code: -32600, message: 'Missing method' }, id } };
+    return { body: { result: null, error: { code: -32600, message: 'Missing method' }, id } };
   }
 
   requestJournal.push({ method, sourceIp: cleanIp, timestamp: Date.now() });
@@ -616,7 +615,7 @@ async function answerRpc(handlers, request, sourceIp) {
 
   if (!handler) {
     console.log(`Unhandled RPC method: ${method} from ${sourceIp}`);
-    return { body: { result: null, error: { code: -32601, message: `Method not found: ${method}` }, id } };
+    return { body: { result: null, error: { code: -32601, message: 'Method not found' }, id } };
   }
 
   try {
@@ -628,15 +627,24 @@ async function answerRpc(handlers, request, sourceIp) {
   }
 }
 
-// A JSON-RPC batch is an array of requests, answered by an array of their
-// responses in the same order, as fluxd answers it.
-async function handleRpc(handlers, req, res) {
+// fluxd's HTTP status for a request sent alone: 200 for a result, 400 for an
+// invalid request, 404 for an unknown method, 500 for any other error.
+function fluxdStatus({ error }) {
+  if (!error) return 200;
+  if (error.code === -32600) return 400;
+  if (error.code === -32601) return 404;
+  return 500;
+}
+
+// Answered as fluxd answers. A batch is an array of requests, answered 200 by an
+// array of their responses in order, each with its own error; an empty batch by
+// an empty array. The bench port answers every request sent alone 200, except one
+// without a method (400).
+async function handleRpc(handlers, req, res, { statusFor } = {}) {
   if (!Array.isArray(req.body)) {
-    const { status = 200, body } = await answerRpc(handlers, req.body, req.ip);
+    const { body } = await answerRpc(handlers, req.body, req.ip);
+    const status = statusFor ? statusFor(body) : (body.error?.code === -32600 ? 400 : 200);
     return res.status(status).json(body);
-  }
-  if (req.body.length === 0) {
-    return res.status(400).json({ result: null, error: { code: -32600, message: 'Empty batch' }, id: null });
   }
   const answers = await Promise.all(req.body.map((request) => answerRpc(handlers, request, req.ip)));
   return res.json(answers.map(({ body }) => body));
@@ -645,7 +653,7 @@ async function handleRpc(handlers, req, res) {
 // -- Fluxd RPC server --
 const fluxd = express();
 fluxd.use(express.json());
-fluxd.post('/', (req, res) => { handleRpc(rpcHandlers, req, res).catch((err) => { console.error('fluxd rpc:', err); }); });
+fluxd.post('/', (req, res) => { handleRpc(rpcHandlers, req, res, { statusFor: fluxdStatus }).catch((err) => { console.error('fluxd rpc:', err); }); });
 fluxd.listen(FLUXD_PORT, () => console.log(`Fluxd stub listening on port ${FLUXD_PORT}`));
 
 // -- Fluxbenchd RPC server --
