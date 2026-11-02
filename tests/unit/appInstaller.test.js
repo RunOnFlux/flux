@@ -1475,7 +1475,9 @@ describe('appInstaller tests', () => {
     // has: the row is written before the image is fetched, so the claim exists by
     // the time the install gives up. `failBeforeRow` moves the failure ahead of
     // the row instead.
-    function buildFailingInstaller(removeAppLocallyStub, { failBeforeRow = false, alreadyInstalled = false } = {}) {
+    function buildFailingInstaller(removeAppLocallyStub, {
+      failBeforeRow = false, alreadyInstalled = false, broadcastMessageToAll = sinon.stub().resolves(), volumeError = new Error('volume creation failed'),
+    } = {}) {
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
         findInDatabase: sinon.stub().resolves([]),
@@ -1532,11 +1534,12 @@ describe('appInstaller tests', () => {
         './advancedWorkflows': {
           // The volume is built after the row, so this is the failure a real
           // placement has: the app is claimed, then the install gives up.
-          createAppVolume: sinon.stub().rejects(new Error('volume creation failed')),
+          createAppVolume: sinon.stub().rejects(volumeError),
         },
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
           broadcastMessageToIncoming: sinon.stub().resolves(),
+          broadcastMessageToAll,
         },
         '../appMessaging/messageStore': {
           storeAppRunningMessage: sinon.stub().resolves(),
@@ -1611,6 +1614,20 @@ describe('appInstaller tests', () => {
       // failed and tore the app down - a caller acting on the second when it
       // got the first destroys a running app.
       expect(result).to.equal(InstallOutcome.FAILED);
+    });
+
+    it('tells the network the first 1000 characters of an install error', async () => {
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+      const broadcastMessageToAll = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), {
+        broadcastMessageToAll, volumeError: new Error('e'.repeat(5000)),
+      });
+
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
+
+      const [sent] = broadcastMessageToAll.getCalls().map((c) => c.args[0]).filter((m) => m.type === 'fluxappinstallingerror');
+      expect(sent, 'no install error was told').to.exist;
+      expect(sent.error).to.have.lengthOf(1000);
     });
 
     // A caller that already holds the app keeps its claim: a redeploy's teardown
