@@ -416,7 +416,7 @@ async function broadcastMessageFromUserPost(req, res) {
 /**
  * Sends a sync answer as it is read: messages of at most syncAnswerBatchSize
  * events and syncAnswerBatchBytes bytes of events, the last marked done. An event
- * larger than a whole batch goes in a message of its own.
+ * over gossipMessageMaxBytes is not sent: no node takes one.
  * @param {object} peer
  * @param {function(Array, boolean): Promise<void>} send Sends one message.
  * @param {string} label For the log.
@@ -425,6 +425,7 @@ async function broadcastMessageFromUserPost(req, res) {
 function syncAnswerBatches(peer, send, label) {
   const maxCount = config.fluxapps.syncAnswerBatchSize;
   const maxBytes = config.fluxapps.syncAnswerBatchBytes;
+  const maxEventBytes = config.fluxapps.gossipMessageMaxBytes;
   let batch = [];
   let bytes = 0;
   let total = 0;
@@ -438,6 +439,10 @@ function syncAnswerBatches(peer, send, label) {
   return {
     async add(event) {
       const eventBytes = Buffer.byteLength(JSON.stringify(event));
+      if (eventBytes > maxEventBytes) {
+        log.warn(`${label} - Not sending a ${eventBytes} byte event to ${peer.key}: over ${maxEventBytes} bytes`);
+        return;
+      }
       if (batch.length && bytes + eventBytes > maxBytes) await flush(false);
       batch.push(event);
       bytes += eventBytes;

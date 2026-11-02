@@ -2,6 +2,7 @@
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
+const config = require('config');
 const WebSocket = require('ws');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
 const { PassThrough } = require('stream');
@@ -350,6 +351,23 @@ describe('fluxCommunicationMessagesSender tests', () => {
           [['a', 'b'], false],
           [['c'], true],
         ]);
+      });
+
+      it(`${fn} does not send an event over gossipMessageMaxBytes, and sends the rest`, async () => {
+        globalState.appStateAuthoritative = true;
+        const event = (hash, description) => ({
+          type: 'fluxappregister', version: 1, appSpecifications: { name: hash, description }, hash, timestamp: 1, signature: 's', arcaneSender: true,
+        });
+        const exactly = (hash) => {
+          const shell = Buffer.byteLength(JSON.stringify(event(hash, '')));
+          return event(hash, 'x'.repeat(config.fluxapps.gossipMessageMaxBytes - shell));
+        };
+        const over = event('b', 'x'.repeat(config.fluxapps.gossipMessageMaxBytes));
+        findStub.returns({ sort: () => [exactly('a'), over, event('c', '')] });
+
+        await fluxCommunicationMessagesSender[fn](peer, 0);
+
+        expect(sent().flatMap(({ messages }) => messages.map((m) => m.hash))).to.deep.equal(['a', 'c']);
       });
     });
   });
