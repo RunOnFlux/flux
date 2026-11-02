@@ -30,6 +30,7 @@ const { expect } = chai;
 describe('explorerService tests', () => {
   beforeEach(() => {
     explorerService.resetBlockCadenceForTests();
+    explorerService.forgetScannedBlockForTests();
   });
 
   before(requireMongo);
@@ -613,6 +614,112 @@ describe('explorerService tests', () => {
 
       sinon.assert.calledOnceWithExactly(checkAndRemoveApplicationInstanceStub, {
         height: tip, period, time: timeOf(multiple), previousTime: timeOf(multiple - period),
+      });
+    });
+
+    describe('a chain reorganisation', () => {
+      // Heights past the insight explorer's skip, processed behind the tip so no
+      // tip work runs.
+      const base = 900100;
+      let chain;
+      let getBlockHashStub;
+      let getBlockHeaderStub;
+      let removeDocumentsStub;
+
+      const blockAt = (height, hash, previousblockhash) => ({
+        tx: [], height, hash, previousblockhash, confirmations: 2, time: 1700000000 + (height * 30),
+      });
+
+      beforeEach(() => {
+        daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+        chain = {};
+        daemonServiceBlockchainRpcsStub.callsFake(async (req) => ({ status: 'success', data: chain[Number(req.params.hashheight)] }));
+        getBlockHashStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockHash');
+        getBlockHeaderStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockHeader');
+        removeDocumentsStub = sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+        sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+        sinon.stub(fluxnodeAddressRecord, 'restoreToHeight').resolves();
+      });
+
+      // Processes `base` and `base + 1` on the a-branch.
+      async function processBranchA() {
+        chain[base] = blockAt(base, 'a100', 'a099');
+        chain[base + 1] = blockAt(base + 1, 'a101', 'a100');
+        await explorerService.processBlock(base, true);
+        await explorerService.processBlock(base + 1, true);
+      }
+
+      it('processes a block that names the last processed block as its parent without asking fluxd about the chain', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'a102', 'a101');
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(daemonServiceBlockchainRpcsStub, { params: { hashheight: base + 2 } });
+        sinon.assert.notCalled(getBlockHashStub);
+        sinon.assert.notCalled(getBlockHeaderStub);
+        sinon.assert.notCalled(removeDocumentsStub);
+      });
+
+      it('writes a processed block\'s hash with its height', async () => {
+        const height = 900500;
+        chain[height] = blockAt(height, 'a500', 'a499');
+
+        await explorerService.processBlock(height, true);
+
+        sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
+          { $set: { generalScannedHeight: height, generalScannedHash: 'a500' } });
+      });
+
+      it('restores to the last processed block still on the active chain', async () => {
+        await processBranchA();
+        // fluxd now has b101 at base + 1 on top of a100.
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+        getBlockHeaderStub.callsFake(async ({ params }) => ({ status: 'success', data: { a101: { previousblockhash: 'a100' } }[params.hash] }));
+
+        const step = await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'utxoindex', { height: { $gt: base } });
+        sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
+          { $set: { generalScannedHeight: base, generalScannedHash: 'a100' } });
+        expect(step).to.deep.equal({ next: explorerService.Step.block(base + 1), waitMs: 0 });
+      });
+
+      it('restores explorerDeepRestoreBlocks when fluxd does not know the branch the last block was on', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.resolves({ status: 'success', data: 'b101' });
+        getBlockHeaderStub.resolves({ status: 'error', data: { code: -5, message: 'Block not found' } });
+        const deep = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'utxoindex', { height: { $gt: base + 1 - deep } });
+        sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
+          { $set: { generalScannedHeight: base + 1 - deep }, $unset: { generalScannedHash: '' } });
+      });
+
+      it('checks the first block after a restart against the stored scanned block', async () => {
+        dbHelper.findOneInDatabase.resolves({ generalScannedHeight: base + 1, generalScannedHash: 'a101' });
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+        getBlockHeaderStub.callsFake(async ({ params }) => ({ status: 'success', data: { a101: { previousblockhash: 'a100' } }[params.hash] }));
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'utxoindex', { height: { $gt: base } });
+      });
+
+      it('processes the first block after a restart unchecked when the stored scanned height has no hash', async () => {
+        dbHelper.findOneInDatabase.resolves({ generalScannedHeight: base + 1 });
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(daemonServiceBlockchainRpcsStub, { params: { hashheight: base + 2 } });
+        sinon.assert.notCalled(getBlockHashStub);
+        sinon.assert.notCalled(removeDocumentsStub);
       });
     });
   });

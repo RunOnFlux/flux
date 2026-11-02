@@ -7,7 +7,6 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -42,7 +41,10 @@ let explorerReadyEmitted = false;
 let operationBlocked = false;
 let appsTransactions = [];
 let isSynced = false;
-let cachedDaemonVersion = null;
+// The last block the explorer processed: the explorer's records hold the chain up
+// to it, so the next block must name its hash as parent. Null when no block has
+// been processed since the scanned height was last set without a hash.
+let lastScannedBlock = null;
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
@@ -68,29 +70,6 @@ function getBlockEmitter() {
   return blockEmitter;
 }
 
-/**
- * To get and cache the daemon version
- * @returns {Promise<number>} Daemon version number
- */
-async function getDaemonVersion() {
-  if (cachedDaemonVersion !== null) {
-    return cachedDaemonVersion;
-  }
-
-  try {
-    const daemonInfo = await daemonServiceControlRpcs.getInfo();
-    if (daemonInfo.status === 'success' && daemonInfo.data && daemonInfo.data.version) {
-      cachedDaemonVersion = daemonInfo.data.version;
-      return cachedDaemonVersion;
-    }
-  } catch (error) {
-    log.warn(`Failed to get daemon version: ${error.message}`);
-  }
-
-  // Default to 0 if unable to get version
-  cachedDaemonVersion = 0;
-  return cachedDaemonVersion;
-}
 
 /**
  * To get the details of a verbose block.
@@ -525,6 +504,11 @@ async function processBlock(blockHeight) {
     // get Block information
     const verbosity = 2;
     const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
+    const parent = await scannedBlockAt(database, blockDataVerbose.height - 1);
+    if (parent && blockDataVerbose.previousblockhash !== parent.hash) {
+      const restoredHeight = await rewindToFork(database, parent);
+      return after(Step.block(restoredHeight + 1));
+    }
     cadence.processed(blockDataVerbose.height);
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
@@ -541,7 +525,7 @@ async function processBlock(blockHeight) {
     const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection
     const query = { generalScannedHeight: { $gte: 0 } };
-    const update = { $set: { generalScannedHeight: scannedHeight } };
+    const update = { $set: { generalScannedHeight: scannedHeight, generalScannedHash: blockDataVerbose.hash } };
     const options = {
       upsert: true,
     };
@@ -598,6 +582,7 @@ async function processBlock(blockHeight) {
       fluxEventBus.publish('block:processed', { height: scannedHeight });
       blockEmitter.emit('syncProgress', scannedHeight);
     }
+    lastScannedBlock = { height: scannedHeight, hash: blockDataVerbose.hash };
     if (blockDataVerbose.confirmations > 1) return after(Step.block(blockDataVerbose.height + 1));
     const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
     if (daemonBlockCount.status !== 'success') {
@@ -731,7 +716,6 @@ async function restoreDatabaseToBlockheightState(height) {
   return true;
 }
 
-let lastchainTipCheck = 0;
 /**
  * Removes duplicate scannedheight documents, keeping only the one with the highest block height.
  * This cleans up legacy seeded documents that may exist on nodes.
@@ -974,9 +958,7 @@ async function bootstrapAppHashes(currentDaemonHeight) {
     }
   }
 
-  const query = { generalScannedHeight: { $gte: 0 } };
-  const update = { $set: { generalScannedHeight: currentDaemonHeight } };
-  await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, { upsert: true });
+  await setScannedHeight(database, currentDaemonHeight);
 
   log.info(`Bootstrap complete: ${totalHashes} app hashes, scanned to height ${currentDaemonHeight}`);
 }
@@ -999,60 +981,90 @@ async function getScannedBlockHeightFromDb(database) {
   return current?.generalScannedHeight ?? 0;
 }
 
-async function checkAndHandleReorgs(database, scannedBlockHeight) {
-  if (scannedBlockHeight < config.daemon.chainValidHeight || lastchainTipCheck === 0 || lastchainTipCheck + 100 >= scannedBlockHeight) {
-    if (lastchainTipCheck === 0) {
-      lastchainTipCheck = scannedBlockHeight - 1;
-    }
-    return scannedBlockHeight;
-  }
+/**
+ * Sets the height the explorer's collections are complete to, from anywhere but
+ * the processing of that block. Its hash is not known here, so the stored hash is
+ * removed with it and the next block is processed without a parent check.
+ * @param {object} database The daemon database.
+ * @param {number} height
+ * @returns {Promise<void>}
+ */
+async function setScannedHeight(database, height) {
+  await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
+    { generalScannedHeight: { $gte: 0 } },
+    { $set: { generalScannedHeight: height }, $unset: { generalScannedHash: '' } },
+    { upsert: true });
+  lastScannedBlock = null;
+}
 
-  log.info(`Explorer - Checking for chain reorganisations - lastchainTipCheck: ${lastchainTipCheck} scannedBlockHeight: ${scannedBlockHeight}`);
-  const daemonVersion = await getDaemonVersion();
-  let daemonGetChainTips;
-  if (daemonVersion > 7020050) {
-    daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips({ params: { minheight: lastchainTipCheck + 1 } });
-  } else {
-    daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+/**
+ * The block the explorer processed at `height`, when its hash is known: the last
+ * block processed, or the stored scanned height's.
+ * @param {object} database The daemon database.
+ * @param {number} height
+ * @returns {Promise<{height: number, hash: string}|null>}
+ */
+async function scannedBlockAt(database, height) {
+  if (lastScannedBlock?.height === height) return lastScannedBlock;
+  const stored = await dbHelper.findOneInDatabase(database, scannedHeightCollection,
+    { generalScannedHeight: { $gte: 0 } },
+    { projection: { _id: 0, generalScannedHeight: 1, generalScannedHash: 1 } });
+  if (stored?.generalScannedHeight === height && stored.generalScannedHash) {
+    return { height, hash: stored.generalScannedHash };
   }
-  if (daemonGetChainTips.status !== 'success') {
-    throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
-  }
+  return null;
+}
 
-  const reorganisations = daemonGetChainTips.data;
-  let reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height >= lastchainTipCheck + 1);
-  if (reorgs.length > 1) {
-    reorgs = reorgs.sort((a, b) => a.height - b.height);
+/**
+ * The highest block the explorer processed that is still on fluxd's active chain,
+ * found by walking back from `block` along the branch it was on: one getblockhash
+ * per height, and one getblockheader per block left behind.
+ * @param {{height: number, hash: string}} block A processed block no longer on the active chain.
+ * @returns {Promise<{height: number, hash: string}|null>} Null when fluxd does not
+ *   know a block of the branch.
+ */
+async function forkPoint(block) {
+  let { height, hash } = block;
+  while (height > 0) {
+    // eslint-disable-next-line no-await-in-loop
+    const active = await daemonServiceBlockchainRpcs.getBlockHash({ params: { index: height } });
+    if (active.status !== 'success') return null;
+    if (active.data === hash) return { height, hash };
+    // eslint-disable-next-line no-await-in-loop
+    const header = await daemonServiceBlockchainRpcs.getBlockHeader({ params: { hash, verbose: true } });
+    if (header.status !== 'success' || !header.data?.previousblockhash) return null;
+    hash = header.data.previousblockhash;
+    height -= 1;
   }
+  return null;
+}
 
-  let reorgBlockHeight;
-  let rescanDepth = 0;
-  let finished = false;
-  let index = 0;
-  while (!finished && index < reorgs.length) {
-    const reorg = reorgs[index];
-    if (!reorgBlockHeight || (reorg.height === reorgBlockHeight && reorg.branchlen > rescanDepth)) {
-      rescanDepth = reorg.branchlen;
-      reorgBlockHeight = reorg.height;
-    } else {
-      finished = true;
-    }
-    index += 1;
-  }
-
-  let height = scannedBlockHeight;
-  if (rescanDepth > 0) {
-    rescanDepth += 2;
-    log.warn(`Potential chain reorganisation spotted at height ${reorgBlockHeight}. Rescanning last ${rescanDepth} blocks...`);
-    height = Math.max(reorgBlockHeight - rescanDepth, 0);
-    await restoreDatabaseToBlockheightState(height);
+/**
+ * Restores the explorer's collections to the last processed block still on
+ * fluxd's active chain, or explorerDeepRestoreBlocks below `parent` when that
+ * block is not found.
+ * @param {object} database The daemon database.
+ * @param {{height: number, hash: string}} parent The processed block the next block does not follow.
+ * @returns {Promise<number>} The height restored to.
+ */
+async function rewindToFork(database, parent) {
+  const deepRestoreBlocks = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
+  const fork = await forkPoint(parent);
+  const height = fork ? fork.height : Math.max(parent.height - deepRestoreBlocks, 0);
+  log.warn(`Explorer - block ${parent.height + 1} does not follow ${parent.hash}: chain reorganised, `
+    + `${fork ? `restoring to ${fork.height}` : `fork not found, restoring to ${height}`}`);
+  await restoreDatabaseToBlockheightState(height);
+  fluxEventBus.publish('explorer:reorganised', { parentHeight: parent.height, restoredTo: height, forkFound: Boolean(fork) });
+  if (fork) {
     await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
       { generalScannedHeight: { $gte: 0 } },
-      { $set: { generalScannedHeight: height } },
+      { $set: { generalScannedHeight: fork.height, generalScannedHash: fork.hash } },
       { upsert: true });
-    log.info('Database restored OK');
+    lastScannedBlock = fork;
+  } else {
+    await setScannedHeight(database, height);
   }
-  lastchainTipCheck = scannedBlockHeight;
+  log.info('Database restored OK');
   return height;
 }
 
@@ -1082,9 +1094,6 @@ async function pollForNewBlocks() {
     const scannedBlockHeight = await getScannedBlockHeightFromDb(database);
 
     if (daemonHeight > scannedBlockHeight) return after(Step.block(scannedBlockHeight + 1));
-
-    const restoredHeight = await checkAndHandleReorgs(database, scannedBlockHeight);
-    if (restoredHeight < scannedBlockHeight) return after(Step.block(restoredHeight + 1));
 
     return after(Step.poll(), POLL_INTERVAL_MS);
   } catch (error) {
@@ -1119,10 +1128,7 @@ async function recoverAndRestart(restoreDatabase, deepRestore) {
         log.info('Deep restoring of database...');
         scannedBlockHeight = Math.max(scannedBlockHeight - deepRestoreBlocks, 0);
         await restoreDatabaseToBlockheightState(scannedBlockHeight);
-        await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
-          { generalScannedHeight: { $gte: 0 } },
-          { $set: { generalScannedHeight: scannedBlockHeight } },
-          { upsert: true });
+        await setScannedHeight(database, scannedBlockHeight);
       } else {
         log.info('Restoring database...');
         await restoreDatabaseToBlockheightState(scannedBlockHeight);
@@ -1186,10 +1192,7 @@ async function initialiseBlockProcessor(restoreDatabase, deepRestore) {
           log.info('Deep restoring of database...');
           scannedBlockHeight = Math.max(scannedBlockHeight - deepRestoreBlocks, 0);
           await restoreDatabaseToBlockheightState(scannedBlockHeight);
-          await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
-            { generalScannedHeight: { $gte: 0 } },
-            { $set: { generalScannedHeight: scannedBlockHeight } },
-            { upsert: true });
+          await setScannedHeight(database, scannedBlockHeight);
           log.info('Database restored OK');
         } else if (!deepRestore) {
           log.info('Restoring database...');
@@ -1218,9 +1221,6 @@ async function initialiseBlockProcessor(restoreDatabase, deepRestore) {
     }
 
     if (daemonHeight <= scannedBlockHeight) {
-      if (lastchainTipCheck === 0) {
-        lastchainTipCheck = scannedBlockHeight - 1;
-      }
       return after(Step.poll());
     }
 
@@ -1611,8 +1611,7 @@ async function rescanExplorer(req, res) {
       operationBlocked = true;
       await stopBlockProcessor();
       try {
-        // update scanned Height in scannedBlockHeightCollection
-        await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, { $set: { generalScannedHeight: blockheight } }, { upsert: true });
+        await setScannedHeight(database, blockheight);
       } catch (error) {
         log.error(error);
         res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
@@ -1692,6 +1691,7 @@ module.exports = {
   scheduleUpnpBench,
   // Test seam: each unit test starts from a node that has processed no block.
   resetBlockCadenceForTests: () => { cadence = new BlockCadence(); },
+  forgetScannedBlockForTests: () => { lastScannedBlock = null; },
   reindexExplorer,
   rescanExplorer,
   stopBlockProcessing,
