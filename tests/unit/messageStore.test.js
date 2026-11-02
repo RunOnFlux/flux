@@ -4,7 +4,7 @@ const proxyquire = require('proxyquire').noCallThru();
 const fluxService = require('../../ZelBack/src/services/fluxService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const { verifyEnterpriseLength } = require('../../ZelBack/src/services/appRequirements/appValidator');
-const { MAX_ENTERPRISE_LENGTH } = require('../../ZelBack/src/services/utils/appConstants');
+const { MAX_ENTERPRISE_LENGTH, INSTALL_ERROR_MAX_LENGTH } = require('../../ZelBack/src/services/utils/appConstants');
 
 describe('messageStore tests', () => {
   // The pending-message writer, on the same database stub as messageStore.
@@ -121,6 +121,7 @@ describe('messageStore tests', () => {
         INSTALLING_ERRORS_EXPIRY_MS: 24 * 60 * 60 * 1000,
         SIGTERM_EXPIRY_MS: 420 * 1000,
         EVICTED_EXPIRY_MS: 125 * 60 * 1000,
+        INSTALL_ERROR_MAX_LENGTH,
       },
       '../utils/appSpecHelpers': {
         specificationFormatter: sinon.stub().returnsArg(0),
@@ -1133,6 +1134,26 @@ describe('messageStore tests', () => {
       expect(result).to.be.true;
       expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(2);
     });
+
+    [
+      [INSTALL_ERROR_MAX_LENGTH, true],
+      [INSTALL_ERROR_MAX_LENGTH + 1, false],
+    ].forEach(([length, stored]) => {
+      it(`${stored ? 'stores' : 'refuses'} an error of ${length} characters`, async () => {
+        dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+        dbHelperStub.findOneInDatabase.resolves(null);
+        dbHelperStub.updateOneInDatabase.resolves();
+        dbHelperStub.removeDocumentsFromCollection.resolves();
+        dbHelperStub.countInDatabase.resolves(1);
+
+        const result = await messageStore.storeAppInstallingErrorMessage({
+          type: 'fluxappinstallingerror', version: 1, name: 'testapp', hash: 'hash123', ip: '192.168.1.1', error: 'e'.repeat(length), broadcastedAt: Date.now(),
+        });
+
+        expect(result === true).to.equal(stored);
+        expect(dbHelperStub.updateOneInDatabase.called).to.equal(stored);
+      });
+    });
   });
 
   describe('storeIPChangedMessage', () => {
@@ -1386,6 +1407,20 @@ describe('messageStore tests', () => {
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.equal(true);
     });
 
+    [
+      [INSTALL_ERROR_MAX_LENGTH, true],
+      [INSTALL_ERROR_MAX_LENGTH + 1, false],
+    ].forEach(([length, stored]) => {
+      it(`${stored ? 'stores' : 'refuses'} an install-error broadcast whose error is ${length} characters`, () => {
+        const broadcast = installingBroadcast(60 * 1000);
+        broadcast.data.error = 'e'.repeat(length);
+
+        messageStore.storeSignedAppInstallingErrorBroadcast(broadcast);
+
+        expect(dbHelperStub.updateOneInDatabase.called).to.equal(stored);
+      });
+    });
+
     it('refuses an install-error broadcast older than the window', () => {
       // INSTALLING_ERRORS_EXPIRY_MS is stubbed at 24 hours above.
       messageStore.storeSignedAppInstallingErrorBroadcast(installingBroadcast(25 * 60 * 60 * 1000));
@@ -1454,6 +1489,25 @@ describe('messageStore tests', () => {
 
       expect(installing.writeFailed).to.equal(true);
       expect(errors.writeFailed).to.equal(true);
+    });
+
+    // A write is attempted, and so fails here, only for an error a node may store.
+    [
+      [INSTALL_ERROR_MAX_LENGTH, true],
+      [INSTALL_ERROR_MAX_LENGTH + 1, false],
+    ].forEach(([length, written]) => {
+      it(`${written ? 'writes' : 'does not write'} a synced install error of ${length} characters`, async () => {
+        const broadcast = {
+          version: 1, timestamp: now(), pubKey: 'k', signature: 's',
+          data: {
+            ip: '1.2.3.4:16127', name: 'a', hash: 'h', error: 'e'.repeat(length), broadcastedAt: now(),
+          },
+        };
+
+        const { writeFailed } = await messageStore.storeBatchAppInstallingErrorMessages([broadcast]);
+
+        expect(writeFailed).to.equal(written);
+      });
     });
 
     it('rejects a signed claim it could not record', async () => {
