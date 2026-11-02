@@ -209,6 +209,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
       verifyEnterpriseCarriesNoPlainSpec(specifications);
 
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        appValidator.verifyEnterpriseLength(appSpecFormatted);
         // eslint-disable-next-line global-require
         const fluxService = require('../fluxService');
         if (await fluxService.isSystemSecure()) {
