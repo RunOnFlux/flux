@@ -3,6 +3,7 @@
 const util = require('node:util');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const execFile = util.promisify(require('node:child_process').execFile);
 const { spawn } = require('node:child_process');
 
@@ -652,20 +653,42 @@ async function runStreamingCommand(userCmd, options = {}) {
 }
 
 /**
+ * Whether this process has a mount namespace of its own (a systemd unit with
+ * PrivateMounts=, PrivateTmp=, ExtensionImages= and the like). Mounts made in
+ * such a namespace are invisible to the host and to the container engine.
+ * @returns {boolean}
+ */
+function inPrivateMountNamespace() {
+  try {
+    return fsSync.readlinkSync('/proc/self/ns/mnt') !== fsSync.readlinkSync('/proc/1/ns/mnt');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Runs a command as a child process, without a shell by default.
- * Using a shell is possible with the `shell` option.
+ * Using a shell is possible with the `shell` option. `hostMountNamespace`
+ * runs it in PID 1's mount namespace when this process has its own, so a mount
+ * or unmount it makes is the host's and the container engine sees it.
  * @param {string} cmd The binary to run. Must be in PATH
- * @param {{params?: string[], runAsRoot?: Boolean, exclusive?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
+ * @param {{params?: string[], runAsRoot?: Boolean, hostMountNamespace?: Boolean, exclusive?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
   const res = { error: null, stdout: '', stderr: '' };
   const {
-    runAsRoot, logError, exclusive, ...execOptions
+    runAsRoot, logError, exclusive, hostMountNamespace, ...execOptions
   } = options;
 
   const params = options.params || [];
   delete execOptions.params;
+
+  if (hostMountNamespace && inPrivateMountNamespace()) {
+    params.unshift('--mount=/proc/1/ns/mnt', '--', userCmd);
+    // eslint-disable-next-line no-param-reassign
+    userCmd = 'nsenter';
+  }
 
   // Default max of 15 minutes
   if (!Object.prototype.hasOwnProperty.call(execOptions, 'timeout')) {
@@ -888,6 +911,7 @@ module.exports = {
   parseSemver,
   randomDelayMs,
   runCommand,
+  inPrivateMountNamespace,
   runStreamingCommand,
   semverAtLeast,
   validIpv4Address,

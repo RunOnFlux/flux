@@ -944,7 +944,7 @@ async function ensureAppVolumeMounted(identifier) {
   }
 
   const mountRes = await serviceHelper.runCommand('mount', {
-    runAsRoot: true, params: ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, mountPoint], logError: false,
+    runAsRoot: true, hostMountNamespace: true, params: ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, mountPoint], logError: false,
   });
   if (mountRes.error) {
     // another actor (e.g. a legacy @reboot job on its last boot) may have
