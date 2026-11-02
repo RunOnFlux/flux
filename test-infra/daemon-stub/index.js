@@ -581,20 +581,21 @@ const benchHandlers = {
   stop: () => 'Flux benchmark stopping (stub)',
 };
 
-async function handleRpc(handlers, req, res) {
-  const { method, params, id } = req.body;
-  const sourceIp = req.ip;
+// One JSON-RPC request's response object. `status` is the HTTP status the
+// request gets when it is sent alone.
+async function answerRpc(handlers, request, sourceIp) {
+  const { method, params, id } = request ?? {};
   const cleanIp = sourceIp.replace('::ffff:', '');
 
   if (!method) {
-    return res.status(400).json({ result: null, error: { code: -32600, message: 'Missing method' }, id });
+    return { status: 400, body: { result: null, error: { code: -32600, message: 'Missing method' }, id } };
   }
 
   requestJournal.push({ method, sourceIp: cleanIp, timestamp: Date.now() });
   if (requestJournal.length > MAX_JOURNAL_SIZE) requestJournal.shift();
 
   if (rpcFailures.has(cleanIp)) {
-    return res.json({ result: null, error: { code: -28, message: 'Loading block index...' }, id });
+    return { body: { result: null, error: { code: -28, message: 'Loading block index...' }, id } };
   }
 
   const lowerMethod = method.toLowerCase();
@@ -602,7 +603,7 @@ async function handleRpc(handlers, req, res) {
   const failing = rpcMethodFailures.get(cleanIp);
   if (failing && failing.get(lowerMethod) > 0) {
     failing.set(lowerMethod, failing.get(lowerMethod) - 1);
-    return res.json({ result: null, error: { code: -1, message: `${lowerMethod} failed by the harness` }, id });
+    return { body: { result: null, error: { code: -1, message: `${lowerMethod} failed by the harness` }, id } };
   }
 
   const heldMethods = rpcHolds.get(cleanIp);
@@ -615,16 +616,30 @@ async function handleRpc(handlers, req, res) {
 
   if (!handler) {
     console.log(`Unhandled RPC method: ${method} from ${sourceIp}`);
-    return res.json({ result: null, error: { code: -32601, message: `Method not found: ${method}` }, id });
+    return { body: { result: null, error: { code: -32601, message: `Method not found: ${method}` }, id } };
   }
 
   try {
     const result = typeof handler === 'function' ? handler.call(handlers, params || [], sourceIp) : handler;
-    return res.json({ result, error: null, id });
+    return { body: { result, error: null, id } };
   } catch (e) {
     console.error(`RPC error for ${method} from ${sourceIp}:`, e.message);
-    return res.json({ result: null, error: { code: -1, message: e.message }, id });
+    return { body: { result: null, error: { code: -1, message: e.message }, id } };
   }
+}
+
+// A JSON-RPC batch is an array of requests, answered by an array of their
+// responses in the same order, as fluxd answers it.
+async function handleRpc(handlers, req, res) {
+  if (!Array.isArray(req.body)) {
+    const { status = 200, body } = await answerRpc(handlers, req.body, req.ip);
+    return res.status(status).json(body);
+  }
+  if (req.body.length === 0) {
+    return res.status(400).json({ result: null, error: { code: -32600, message: 'Empty batch' }, id: null });
+  }
+  const answers = await Promise.all(req.body.map((request) => answerRpc(handlers, request, req.ip)));
+  return res.json(answers.map(({ body }) => body));
 }
 
 // -- Fluxd RPC server --
