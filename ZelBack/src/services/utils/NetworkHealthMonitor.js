@@ -1,3 +1,4 @@
+const config = require('config');
 const WebSocket = require('ws');
 const log = require('../../lib/log');
 const { CLOSE_CODES } = require('./FluxPeerSocket');
@@ -296,6 +297,7 @@ class NetworkHealthMonitor {
       try {
         const ws = new WebSocket(`ws://${target}/ws/flux`, {
           handshakeTimeout: PROBE_CONNECT_TIMEOUT_MS,
+          maxPayload: config.fluxapps.wsMaxPayloadBytes,
         });
         const timer = setTimeout(() => {
           try { ws.close(); } catch (_) { /* noop */ }

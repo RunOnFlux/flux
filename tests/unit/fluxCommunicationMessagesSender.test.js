@@ -334,6 +334,23 @@ describe('fluxCommunicationMessagesSender tests', () => {
         });
         expect(messages[0]).to.not.have.property('refused');
       });
+
+      // Three events of 3 MiB: two fit in syncAnswerBatchBytes (8 MiB) and the
+      // third starts the next message, though all three are under the count.
+      it(`${fn} closes a message before its events would pass syncAnswerBatchBytes`, async () => {
+        globalState.appStateAuthoritative = true;
+        const stored = ['a', 'b', 'c'].map((hash) => ({
+          type: 'fluxappregister', version: 1, appSpecifications: { name: hash, description: 'x'.repeat(3 * 1024 * 1024) }, hash, timestamp: 1, signature: 's', arcaneSender: true,
+        }));
+        findStub.returns({ sort: () => stored });
+
+        await fluxCommunicationMessagesSender[fn](peer, 0);
+
+        expect(sent().map(({ messages, done }) => [messages.map((m) => m.hash), done])).to.deep.equal([
+          [['a', 'b'], false],
+          [['c'], true],
+        ]);
+      });
     });
   });
 

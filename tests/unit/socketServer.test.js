@@ -16,6 +16,11 @@ describe('FluxSocketServer tests', () => {
     sinon.restore();
   });
 
+  it('takes no websocket message larger than wsMaxPayloadBytes', () => {
+    const server = new socketServer.FluxWebsocketServer({ routes });
+    expect(server.wsServer.options.maxPayload).to.equal(32 * 1024 * 1024);
+  });
+
   it('should build route matchers from route parameters', () => {
     const server = new socketServer.FluxWebsocketServer({ routes });
     expect(server.routeMatchers.length).to.be.equal(Object.keys(routes).length);

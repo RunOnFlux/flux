@@ -422,6 +422,9 @@ module.exports = {
     pullStallMs: 90000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
+    syncAnswerBatchBytes: 8 * 1024 * 1024,
+    gossipMessageMaxBytes: 8 * 1024 * 1024,
+    wsMaxPayloadBytes: 32 * 1024 * 1024,
     residentialCheckIntervalMs: 21600000,
     residentialSettleMs: 86400000,
     residentialEvacuationIntervalMs: 21600000,

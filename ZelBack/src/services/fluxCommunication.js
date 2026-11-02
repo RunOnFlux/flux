@@ -1161,6 +1161,17 @@ async function processSyncChunk(msgObj, peerSocket) {
     log.warn(`Unknown sync response type: ${msgObj.data.type}`);
     return;
   }
+  // Each event in an answer is held to the limit a broadcast is held to. The
+  // answer is filtered in place: it is the object its link marked authenticated.
+  const { messages } = msgObj.data;
+  if (Array.isArray(messages)) {
+    const limit = config.fluxapps.gossipMessageMaxBytes;
+    const within = messages.filter((m) => Buffer.byteLength(JSON.stringify(m) ?? '') <= limit);
+    if (within.length !== messages.length) {
+      log.warn(`Dropping ${messages.length - within.length} events over ${limit} bytes from a ${msgObj.data.type} from ${peerSocket.key}`);
+      msgObj.data.messages = within;
+    }
+  }
   await handler(msgObj, peerSocket);
 }
 
@@ -1670,6 +1681,7 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
     }
     const options = {
       handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,
+      maxPayload: config.fluxapps.wsMaxPayloadBytes,
       perMessageDeflate: {
         zlibDeflateOptions: {
         // See zlib defaults.
@@ -1748,6 +1760,7 @@ function openEphemeralConnection(connection) {
       }
       const options = {
         handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,
+        maxPayload: config.fluxapps.wsMaxPayloadBytes,
         headers: {
           'X-Flux-Capabilities': FLUX_CAPABILITIES.join(','),
           'X-Flux-Version': FLUX_VERSION,

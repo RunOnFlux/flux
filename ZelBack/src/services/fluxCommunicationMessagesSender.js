@@ -413,6 +413,40 @@ async function broadcastMessageFromUserPost(req, res) {
   });
 }
 
+/**
+ * Sends a sync answer as it is read: messages of at most syncAnswerBatchSize
+ * events and syncAnswerBatchBytes bytes of events, the last marked done. An event
+ * larger than a whole batch goes in a message of its own.
+ * @param {object} peer
+ * @param {function(Array, boolean): Promise<void>} send Sends one message.
+ * @param {string} label For the log.
+ * @returns {{add: function(object): Promise<void>, finish: function(): Promise<void>}}
+ */
+function syncAnswerBatches(peer, send, label) {
+  const maxCount = config.fluxapps.syncAnswerBatchSize;
+  const maxBytes = config.fluxapps.syncAnswerBatchBytes;
+  let batch = [];
+  let bytes = 0;
+  let total = 0;
+  const flush = async (done) => {
+    log.info(`${label} - Sending ${done ? 'final' : 'chunk of'} ${batch.length} to ${peer.key}${done ? ` (total: ${total + batch.length})` : ''}`);
+    await send(batch, done);
+    total += batch.length;
+    batch = [];
+    bytes = 0;
+  };
+  return {
+    async add(event) {
+      const eventBytes = Buffer.byteLength(JSON.stringify(event));
+      if (batch.length && bytes + eventBytes > maxBytes) await flush(false);
+      batch.push(event);
+      bytes += eventBytes;
+      if (batch.length >= maxCount) await flush(false);
+    },
+    finish: () => flush(true),
+  };
+}
+
 async function respondWithTempMessages(peer, sinceTimestamp = 0) {
   try {
     // THE SAME INCOMPLETENESS, ON A DIFFERENT COLLECTION. A node still catching
@@ -441,11 +475,15 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
       .find(query, { projection: { _id: 0, receivedAt: 0, expireAt: 0 } })
       .sort({ receivedAt: 1 });
 
-    const batchSize = config.fluxapps.syncAnswerBatchSize;
-    let batch = [];
-    let total = 0;
+    const answer = syncAnswerBatches(
+      peer,
+      (messages, done) => sendSignedMessage({
+        type: 'fluxapptempsync', version: 1, messages, done,
+      }, peer, { awaitDrain: true }),
+      'respondWithTempMessages',
+    );
     for await (const msg of cursor) {
-      batch.push({
+      await answer.add({
         type: msg.type,
         version: msg.version,
         appSpecifications: msg.appSpecifications,
@@ -460,15 +498,8 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
           origin: msg.origin,
         }),
       });
-      if (batch.length >= batchSize) {
-        log.info(`respondWithTempMessages - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: false }, peer, { awaitDrain: true });
-        total += batch.length;
-        batch = [];
-      }
     }
-    log.info(`respondWithTempMessages - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: true }, peer, { awaitDrain: true });
+    await answer.finish();
   } catch (error) {
     log.error(error);
   }
@@ -508,20 +539,15 @@ async function streamBatchedSync(peer, { sinceTimestamp, collectionName, validit
       .find(finalQuery, { projection: finalProjection })
       .sort({ broadcastedAt: 1 });
 
-    const batchSize = config.fluxapps.syncAnswerBatchSize;
-    let batch = [];
-    let total = 0;
+    const answer = syncAnswerBatches(
+      peer,
+      (messages, done) => sendSignedMessage({ type: messageType, messages, done }, peer, { awaitDrain: true }),
+      label,
+    );
     for await (const doc of cursor) {
-      batch.push(doc);
-      if (batch.length >= batchSize) {
-        log.info(`${label} - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: messageType, messages: batch, done: false }, peer, { awaitDrain: true });
-        total += batch.length;
-        batch = [];
-      }
+      await answer.add(doc);
     }
-    log.info(`${label} - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: messageType, messages: batch, done: true }, peer, { awaitDrain: true });
+    await answer.finish();
   } catch (error) {
     log.error(error);
   }
