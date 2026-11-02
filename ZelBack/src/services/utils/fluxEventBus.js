@@ -140,6 +140,9 @@ const Checkpoint = Object.freeze({
   // Boot has wanted every installed app's ports and has not yet mapped any of
   // them. Keyed 'boot'.
   BOOT_AFTER_PORTS_DECLARED: 'boot:afterPortsDeclared',
+  // A peer has checked an unpaid app message another node proposed and has not
+  // yet answered held. Keyed by the message hash.
+  ADMISSION_BEFORE_HELD: 'admission:beforeHeld',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.
