@@ -139,7 +139,8 @@ async function handleAppProposal(msg, peer) {
     const stored = await messageStore.storeAppTemporaryMessage(envelope.data, {
       frame: envelope,
       authenticated: true,
-      beforeWrite: () => {
+      beforeWrite: async () => {
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.ADMISSION_BEFORE_HELD, appHash);
         held = true;
         return admissionQuorum.hold(appHash);
       },

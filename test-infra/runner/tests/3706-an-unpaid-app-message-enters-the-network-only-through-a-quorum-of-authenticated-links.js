@@ -42,6 +42,11 @@ const ENTRY = 3;
 const PLAIN_ADMITTER = 5;
 const ARCANE_ADMITTER = 6;
 const QUORUM = 2;
+// An entry node whose admitting-operator allowance no other test uses.
+const SLOW_ENTRY = 4;
+const BEFORE_HELD = 'admission:beforeHeld';
+// Past the per-peer silence bound (1 s) and past 2 s, within admissionTimeoutMs.
+const PEER_CHECK_MS = 3000;
 
 describe('an unpaid app message enters the network only through a quorum of authenticated links', function () {
   let env;
@@ -132,6 +137,44 @@ describe('an unpaid app message enters the network only through a quorum of auth
     // the first test's message is still read where it is held
     expect(await holders(admitted)).to.have.length(REAL.length);
     expect(await holders(quorum.data.hash), 'nodes holding the refused message').to.deep.equal([]);
+  });
+
+  // Peers that take longer to check a message than the silence bound (1 s) and
+  // the old round (2 s), within admissionTimeoutMs: each has answered received,
+  // so each still counts. SLOW_ENTRY's operator allowance is its own.
+  it('admits a registration whose peers take seconds to check it', async function () {
+    this.timeout(120000);
+    const slowEntry = env.clients[SLOW_ENTRY];
+    const peers = ARCANE.filter((i) => i !== SLOW_ENTRY);
+    const marks = Object.fromEntries(peers.map((i) => [i, env.clients[i].getLastEventId()]));
+    const mark = slowEntry.getLastEventId();
+    await Promise.all(peers.map((i) => env.clients[i].holdCheckpoint(BEFORE_HELD, '*')));
+    try {
+      const registration = register(SLOW_ENTRY, `e2equorumslow${stamp}`);
+      let pausedAt = null;
+      await waitFor(() => {
+        const paused = peers.filter((i) => env.clients[i].getEventBuffer()
+          .some((e) => e.id > marks[i] && e.event === 'checkpoint:held' && e.data.name === BEFORE_HELD));
+        if (paused.length >= QUORUM && pausedAt === null) pausedAt = Date.now();
+        return pausedAt !== null;
+      }, { timeout: 60000, interval: 200, label: 'peers on the quorum paused before answering held' });
+      // The controlled delay this test is about: the peers stay paused for
+      // PEER_CHECK_MS before they answer.
+      await waitFor(() => Date.now() - pausedAt >= PEER_CHECK_MS, {
+        timeout: PEER_CHECK_MS + 5000, interval: 100, label: `${PEER_CHECK_MS} ms of peer checks`,
+      });
+      await Promise.all(peers.map((i) => env.clients[i].releaseCheckpoint(BEFORE_HELD, '*')));
+
+      const result = await registration;
+      expect(result.status, JSON.stringify(result)).to.equal('success');
+      const quorum = await slowEntry.waitForEvent('appmessage:quorum', (d) => d.hash === result.data, 30000, { afterId: mark });
+      expect(quorum.data.committed, JSON.stringify(quorum.data)).to.equal(true);
+      const answered = quorum.data.members.filter((m) => m.state === 'held').map((m) => m.answeredMs);
+      expect(answered.length, JSON.stringify(quorum.data)).to.be.at.least(QUORUM);
+      answered.forEach((ms) => expect(ms, JSON.stringify(quorum.data)).to.be.at.least(PEER_CHECK_MS));
+    } finally {
+      await Promise.all(peers.map((i) => env.clients[i].releaseCheckpoint(BEFORE_HELD, '*').catch(() => {})));
+    }
   });
 
   it('refuses at the door, with 503, on a node that cannot authenticate a link', async function () {
