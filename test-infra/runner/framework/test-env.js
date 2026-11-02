@@ -1009,7 +1009,7 @@ export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STAR
 // nothing else should.
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], unprivilegedNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
-  unverifiableSyncPeers = [], policyUnawarePeers = [], arcaneStubPeers = [], stubPeeredWith = null,
+  unverifiableSyncPeers = [], answeringSyncPeers = [], policyUnawarePeers = [], arcaneStubPeers = [], stubPeeredWith = null,
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   // How many blocks after its last confirmation each node confirms again: 1, or
@@ -1219,6 +1219,16 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: stub ${index} cannot be both silent and unverifiable`);
     }
   }
+  // A stub that answers a state sync with the events a suite gives it
+  // (stubPeerClient.answerSyncWith), signed as a real responder signs.
+  for (const index of answeringSyncPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: answeringSyncPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+    if (silentSyncPeers.includes(index) || unverifiableSyncPeers.includes(index)) {
+      throw new Error(`createTestEnv: stub ${index} cannot both answer and be silent or unverifiable`);
+    }
+  }
   // A stub from before the policy protocol: it advertises no policyBundle capability, so a
   // node neither asks it for policy nor announces an adoption to it. Only a stub can be one -
   // the fleet runs a single image, so every real node advertises what that image speaks.
@@ -1352,6 +1362,7 @@ export async function createTestEnv({
   const env = makeEnvShell(networkName);
   env.rejoinOnRestart = rejoinOnRestart;
   env.arcaneStubPeers = arcaneStubPeers;
+  env.answeringSyncPeers = answeringSyncPeers;
   activeEnvs.add(env);
   // A previous env's death must not fail this one's waits.
   clearInfraDeath();
@@ -1969,6 +1980,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         NODE_IP: nodeIp,
         SILENT_APP_STATE_SYNC: String(silentSyncPeers.includes(stubIdx)),
         UNVERIFIABLE_APP_STATE_SYNC: String(unverifiableSyncPeers.includes(stubIdx)),
+        ANSWERING_APP_STATE_SYNC: String(env.answeringSyncPeers.includes(stubIdx)),
         POLICY_UNAWARE: String(policyUnawarePeers.includes(stubIdx)),
         ARCANE_LINK: String(arcaneStubPeers.includes(stubIdx)),
         // Where the stub asks for the node-auth encryption, as FluxOS asks.
