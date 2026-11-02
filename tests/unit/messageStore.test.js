@@ -3,6 +3,8 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const fluxService = require('../../ZelBack/src/services/fluxService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+const { verifyEnterpriseLength } = require('../../ZelBack/src/services/appRequirements/appValidator');
+const { MAX_ENTERPRISE_LENGTH } = require('../../ZelBack/src/services/utils/appConstants');
 
 describe('messageStore tests', () => {
   // The pending-message writer, on the same database stub as messageStore.
@@ -90,6 +92,7 @@ describe('messageStore tests', () => {
       },
       '../appRequirements/appValidator': {
         verifyAppSpecifications: sinon.stub().resolves(),
+        verifyEnterpriseLength,
       },
       '../appDatabase/registryManager': {
         // no node in these tests has moved
@@ -481,6 +484,26 @@ describe('messageStore tests', () => {
         });
       });
 
+      it('should refuse an enterprise string over the limit, on a node that cannot decrypt it', async () => {
+        fluxService.isSystemSecure.resolves(false);
+
+        await messageStore.storeAppTemporaryMessage(enterpriseMessage({ enterprise: 'A'.repeat(MAX_ENTERPRISE_LENGTH + 1) })).then(
+          () => expect.fail('should have refused'),
+          (error) => expect(error.message).to.include('Enterprise specification is too long'),
+        );
+        sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+      });
+
+      it('should store an enterprise string of exactly the limit on a node that cannot decrypt it', async () => {
+        fluxService.isSystemSecure.resolves(false);
+        messageVerifierStub.verifyAppHash = sinon.stub().resolves(true);
+        messageVerifierStub.verifyAppMessageSignature = sinon.stub().resolves(true);
+        dbHelperStub.insertOneToDatabase.resolves();
+
+        await messageStore.storeAppTemporaryMessage(enterpriseMessage({ enterprise: 'A'.repeat(MAX_ENTERPRISE_LENGTH) }));
+        sinon.assert.calledOnce(dbHelperStub.insertOneToDatabase);
+      });
+
       it('should decrypt a message with a valid app name and owner', async () => {
         // The stubs end the message after the decrypt; only reaching it matters here.
         await messageStore.storeAppTemporaryMessage(enterpriseMessage({})).catch(() => {});
@@ -520,6 +543,7 @@ describe('messageStore tests', () => {
         },
         '../appRequirements/appValidator': {
           verifyAppSpecifications: sinon.stub().resolves(),
+          verifyEnterpriseLength,
         },
         '../appDatabase/registryManager': {
           // no node in these tests has moved
@@ -589,6 +613,7 @@ describe('messageStore tests', () => {
           },
           '../appRequirements/appValidator': {
             verifyAppSpecifications: sinon.stub().resolves(),
+            verifyEnterpriseLength,
           },
           '../appDatabase/registryManager': {
             // no node in these tests has moved

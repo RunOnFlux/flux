@@ -62,6 +62,10 @@ const APP_NAME_REGEX_LEGACY = /^[a-zA-Z0-9]+$/;
 const MAX_APP_NAME_LENGTH = 63;
 const MAX_COMPONENT_NAME_LENGTH = 63;
 const MAX_APP_COMPONENTS = 10;
+// The longest v8 `enterprise` string: the base64 of an RSA-wrapped AES key
+// (256 bytes), a nonce (12), the AES-GCM ciphertext of the largest contacts and
+// compose the validator allows, and a tag (16).
+const MAX_ENTERPRISE_LENGTH = 2646396;
 
 // Mount options for an app's FLUXFSVOL. An app volume holds data its owner
 // writes, so nothing stored there should be able to confer privilege on
@@ -193,6 +197,7 @@ module.exports = {
   MAX_APP_NAME_LENGTH,
   MAX_COMPONENT_NAME_LENGTH,
   MAX_APP_COMPONENTS,
+  MAX_ENTERPRISE_LENGTH,
 
   // Volumes
   APP_VOLUME_MOUNT_OPTIONS,
