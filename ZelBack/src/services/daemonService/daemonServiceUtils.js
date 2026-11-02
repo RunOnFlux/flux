@@ -20,19 +20,15 @@ let fluxdClient = null;
 // read, and fluxd is asked about itself (see fluxdCredentials).
 let fluxdReportsItself = false;
 let nodeKey = null;
-// What fluxd reports about itself, each kept as soon as fluxd gives it:
-// fluxdIndexes {name: info} from getindexinfo, fluxdZmq {type: address} from
-// getzmqnotifications. Null until fluxd reports it, and again after fluxd restarts.
+// What fluxd reports about itself: fluxdIndexes {name: info} from getindexinfo,
+// fluxdZmq {type: address} from getzmqnotifications. Null until fluxd first
+// reports them; each later report replaces them, so once known they stay known.
 let fluxdIndexes = null;
 let fluxdZmq = null;
-let fluxdFactsLoading = null;
-// When a fetch last left a fact unknown (Date.now()); 0 when none has.
-let fluxdFactsFailedAt = 0;
-// A fetch makes up to FACTS_ATTEMPTS attempts FACTS_RETRY_MS apart, and one that
-// leaves a fact unknown is not repeated within FACTS_REFETCH_MS.
-const FACTS_ATTEMPTS = 3;
-const FACTS_RETRY_MS = 2000;
-const FACTS_REFETCH_MS = 30_000;
+let fluxdWait = null;
+const FLUXD_POLL_MS = 5000;
+const FLUXD_LOG_MS = 60000;
+const RPC_IN_WARMUP = -28;
 let previousTestnetValue = isTestnet();
 
 // Listen for config changes and rebuild RPC client if testnet mode changes
@@ -146,8 +142,8 @@ async function buildFluxdClient() {
 /**
  * Runs `call` with the client. fluxd writes a new cookie at each start, so a 401
  * on a node that logs in with the cookie means fluxd restarted: the cookie is read
- * again, what fluxd reported about itself is forgotten, and the call is made once
- * more.
+ * again, the call is made once more, and fluxd is asked about itself again
+ * (waitForFluxd) without holding up the call.
  * @template T
  * @param {function(fluxRpc.FluxRpc): Promise<T>} call
  * @returns {Promise<T>}
@@ -157,69 +153,59 @@ async function callFluxd(call) {
     return await call(fluxdClient);
   } catch (error) {
     if (!usesRpcCookie() || error.status !== 401) throw error;
-    forgetFluxdFacts();
     await buildFluxdClient();
+    // eslint-disable-next-line no-use-before-define
+    if (fluxdReportsItself) waitForFluxd();
     return call(fluxdClient);
   }
 }
 
 /**
- * Forgets what fluxd reported about itself: it restarted.
- * @returns {void}
+ * Waits until fluxd answers and, where fluxd reports itself, has reported its
+ * indexes and ZMQ notifications, asking every FLUXD_POLL_MS. What it reports
+ * replaces what was held. Boot waits on this before the daemon is ready; a fluxd
+ * restart starts it again. Concurrent callers share one wait.
+ * @returns {Promise<number>} fluxd's block height.
  */
-function forgetFluxdFacts() {
-  fluxdIndexes = null;
-  fluxdZmq = null;
-  fluxdFactsFailedAt = 0;
-}
-
-/**
- * Asks fluxd for whichever of its indexes and ZMQ notifications is not yet known,
- * once per start of fluxd. Each answer is kept as soon as fluxd gives it. A fetch
- * makes up to FACTS_ATTEMPTS attempts, so the address-index check made right after
- * fluxd's first answer is not decided by one transient failure; a fetch that still
- * leaves a fact unknown is not repeated for FACTS_REFETCH_MS. Concurrent callers
- * share one fetch.
- * @returns {Promise<void>}
- */
-async function ensureFluxdFacts() {
-  if (!fluxdReportsItself || (fluxdIndexes && fluxdZmq)) return;
-  if (fluxdFactsFailedAt && Date.now() - fluxdFactsFailedAt < FACTS_REFETCH_MS) return;
-  if (!fluxdFactsLoading) {
-    fluxdFactsLoading = (async () => {
-      let lastError = null;
-      for (let attempt = 1; attempt <= FACTS_ATTEMPTS; attempt += 1) {
-        const calls = [];
-        if (!fluxdIndexes) calls.push({ method: 'getindexinfo' });
-        if (!fluxdZmq) calls.push({ method: 'getzmqnotifications' });
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const answers = await callFluxd((client) => client.runBatch(calls));
-          answers.forEach((answer, i) => {
-            if (answer.error) {
-              lastError = new Error(`${calls[i].method}: ${answer.error.message}`);
-            } else if (calls[i].method === 'getindexinfo') {
-              fluxdIndexes = answer.result;
-            } else {
-              fluxdZmq = Object.fromEntries(answer.result.map(({ type, address }) => [type, address]));
-            }
-          });
-        } catch (error) {
-          lastError = error;
-        }
-        if (fluxdIndexes && fluxdZmq) break;
+function waitForFluxd() {
+  fluxdWait ??= (async () => {
+    let lastLogAt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let reason;
+      try {
         // eslint-disable-next-line no-await-in-loop
-        if (attempt < FACTS_ATTEMPTS) await serviceHelper.delay(FACTS_RETRY_MS);
+        if (!fluxdClient) await buildFluxdClient();
+        const calls = [{ method: 'getblockcount' }];
+        if (fluxdReportsItself) calls.push({ method: 'getindexinfo' }, { method: 'getzmqnotifications' });
+        // eslint-disable-next-line no-await-in-loop
+        const answers = await callFluxd((client) => client.runBatch(calls));
+        const failed = answers.find((answer) => answer.error);
+        if (!failed) {
+          const height = answers[0].result;
+          if (fluxdReportsItself) {
+            fluxdIndexes = answers[1].result;
+            fluxdZmq = Object.fromEntries(answers[2].result.map(({ type, address }) => [type, address]));
+          }
+          log.info(`Daemon RPC available at block height ${height}`);
+          return height;
+        }
+        reason = failed.error.code === RPC_IN_WARMUP
+          ? failed.error.message
+          : `${calls[failed.id].method}: ${failed.error.message}`;
+      } catch (error) {
+        reason = error.code === RPC_IN_WARMUP ? error.message : `daemon not reachable: ${error.message}`;
       }
-      if (fluxdIndexes && fluxdZmq) {
-        fluxdFactsFailedAt = 0;
-      } else {
-        fluxdFactsFailedAt = Date.now();
-        log.error(`fluxd did not report ${fluxdIndexes ? 'its ZMQ notifications' : 'its indexes'}: ${lastError?.message}`);
+      const now = Date.now();
+      if (!lastLogAt || now - lastLogAt >= FLUXD_LOG_MS) {
+        log.info(`Waiting for daemon RPC... (${reason})`);
+        lastLogAt = now;
       }
-    })().finally(() => { fluxdFactsLoading = null; });
-  }
-  await fluxdFactsLoading;
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(FLUXD_POLL_MS);
+    }
+  })().finally(() => { fluxdWait = null; });
+  return fluxdWait;
 }
 
 /**
@@ -265,9 +251,6 @@ async function executeCall(rpc, params, options = {}) {
   } finally {
     lock.disable();
   }
-  // fluxd answered: before any caller acts on the answer, learn what fluxd keeps,
-  // so a check made right after its first answer reads fluxd's facts.
-  if (response.status === 'success') await ensureFluxdFacts();
   return response;
 }
 
@@ -378,23 +361,12 @@ function getConfigValue(parameter) {
 /**
  * Whether fluxd keeps the insight explorer's indexes (address, spent, timestamp).
  * @returns {boolean|null} Null while not known: flux.conf not yet read, or fluxd
- *   not yet asked.
+ *   not yet reported its indexes (waitForFluxd).
  */
 function insightIndexes() {
   if (!fluxdConfig) return null;
   if (fluxdReportsItself) return fluxdIndexes ? Boolean(fluxdIndexes.addressindex) : null;
   const value = fluxdConfig.get('insightexplorer');
-  return value === 1 || value === '1';
-}
-
-/**
- * Whether fluxd keeps the address index.
- * @returns {boolean|null} Null while not known, as insightIndexes.
- */
-function addressIndex() {
-  if (!fluxdConfig) return null;
-  if (fluxdReportsItself) return fluxdIndexes ? Boolean(fluxdIndexes.addressindex) : null;
-  const value = fluxdConfig.get('addressindex');
   return value === 1 || value === '1';
 }
 
@@ -486,7 +458,6 @@ function setFluxdClient(testClient) {
 }
 
 module.exports = {
-  addressIndex,
   buildFluxdClient,
   createBackupFluxdConfig,
   executeCall,
@@ -501,6 +472,7 @@ module.exports = {
   readDaemonConfig,
   ensureConfigLoaded,
   setConfigValue,
+  waitForFluxd,
   writeFluxdConfig,
 
   // exports for testing purposes

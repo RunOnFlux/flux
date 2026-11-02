@@ -422,11 +422,11 @@ async function startFluxFunctions() {
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
 
-    // Wait for daemon RPC — manageAppsOnBoot (above) is fire-and-forget and gates
-    // on waitForDaemonReady() internally with a 5-min timeout. It must be running
-    // before daemonReady is set so its timeout/removal logic can trigger.
-    await daemonServiceUtils.buildFluxdClient();
-    await daemonServiceMiscRpcs.waitForDaemonRpc();
+    // Wait for fluxd, and for what it reports about itself — manageAppsOnBoot
+    // (above) is fire-and-forget and gates on waitForDaemonReady() internally
+    // with a 5-min timeout. It must be running before daemonReady is set so its
+    // timeout/removal logic can trigger.
+    await daemonServiceUtils.waitForFluxd();
     // awaited so isDaemonSynced cache is populated before hash sync reads it
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
@@ -434,10 +434,6 @@ async function startFluxFunctions() {
     // App payments are placed in chain order from the daemon's address index: it
     // positions the payments recorded before the scan recorded positions, and a
     // node with no app history yet fetches its payments through it.
-    if (!daemonServiceMiscRpcs.isAddressIndex()) {
-      log.error('fluxd is running without addressindex=1. FluxOS needs the address index to order app messages. Set addressindex=1 in flux.conf and reindex the daemon, or reinstall the node. FluxOS is stopping.');
-      process.exit(1);
-    }
     await untilSucceeds('Payment position backfill', () => paymentPositions.backfillPaymentPositions());
     // Before the hash sync reads the flags and the retry windows.
     await untilSucceeds('App message flag repair', () => appMessageHashes.repairLostMessageFlags());

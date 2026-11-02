@@ -12,30 +12,10 @@ const generateResponse = () => {
 };
 
 describe('daemonServiceMiscRpcs tests', () => {
-  describe('isAddressIndex', () => {
-    let addressIndex;
-
-    beforeEach(() => {
-      addressIndex = sinon.stub(daemonServiceUtils, 'addressIndex');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    [[true, true], [false, false], [null, false]].forEach(([known, expected]) => {
-      it(`answers ${expected} when fluxd's address index is ${known}`, () => {
-        addressIndex.returns(known);
-        expect(daemonServiceMiscRpcs.isAddressIndex()).to.equal(expected);
-      });
-    });
-  });
-
   describe('isInsightExplorer tests', () => {
     let insightIndexes;
 
     beforeEach(() => {
-      daemonServiceMiscRpcs.setIsDaemonInsightExplorer(null);
       insightIndexes = sinon.stub(daemonServiceUtils, 'insightIndexes');
     });
 
@@ -43,36 +23,18 @@ describe('daemonServiceMiscRpcs tests', () => {
       sinon.restore();
     });
 
-    it('should return the isDaemonInsightExplorer value if it is already set', () => {
-      daemonServiceMiscRpcs.setIsDaemonInsightExplorer(1);
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(1);
-      sinon.assert.notCalled(insightIndexes);
-    });
-
-    [true, false].forEach((known) => {
-      it(`keeps a known answer: ${known}`, () => {
+    [[true, true], [false, false], [null, false]].forEach(([known, expected]) => {
+      it(`answers ${expected} when fluxd's insight indexes are ${known}`, () => {
         insightIndexes.returns(known);
-
-        expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(known);
-        expect(daemonServiceMiscRpcs.getIsDaemonInsightExplorer()).to.equal(known);
-        expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(known);
-        sinon.assert.calledOnce(insightIndexes);
+        expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(expected);
       });
     });
 
-    it('answers false while not known, and asks again until it is', () => {
-      // A request before fluxd first answers must not turn the explorer's routes
-      // off until the next restart.
-      insightIndexes.returns(null);
-      expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(false);
-      expect(daemonServiceMiscRpcs.getIsDaemonInsightExplorer()).to.equal(null);
-
+    it('answers fluxd\'s latest report, so a fluxd restart reaches it', () => {
       insightIndexes.returns(true);
       expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(true);
-      sinon.assert.calledTwice(insightIndexes);
+      insightIndexes.returns(false);
+      expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(false);
     });
   });
 

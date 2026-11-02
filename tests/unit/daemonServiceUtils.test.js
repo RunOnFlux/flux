@@ -87,7 +87,7 @@ describe('daemonServiceUtils tests', () => {
         async parseConfig() {
           state.parsed += 1;
           this.configElements = conf ?? {
-            zelnodeprivkey: 'filekey', insightexplorer: '1', addressindex: '0', rpcuser: 'u', rpcpassword: 'p',
+            zelnodeprivkey: 'filekey', insightexplorer: '1', rpcuser: 'u', rpcpassword: 'p',
           };
           return true;
         }
@@ -122,17 +122,27 @@ describe('daemonServiceUtils tests', () => {
 
         async runBatch(calls) {
           state.batches.push(calls.map((c) => c.method));
+          if (state.batchGate) await state.batchGate;
+          if (state.refuse && state.refuse(this)) {
+            const error = new Error('Request failed with status code 401');
+            error.status = 401;
+            throw error;
+          }
           if (state.batchFails) {
             state.batchFails -= 1;
             throw new Error('batch refused');
           }
           return calls.map(({ method }, id) => {
             if (state.methodFails?.[method]) {
+              state.methodFails[method] -= 1;
               return { id, result: null, error: { code: -32601, message: 'Method not found' } };
             }
-            const result = method === 'getindexinfo'
-              ? (state.indexes ?? { txindex: {}, addressindex: {} })
-              : [{ type: 'pubhashblock', address: 'tcp://127.0.0.1:16123' }];
+            const results = {
+              getblockcount: 1234,
+              getindexinfo: state.indexes ?? { txindex: {}, addressindex: {} },
+              getzmqnotifications: [{ type: 'pubhashblock', address: 'tcp://127.0.0.1:16123' }],
+            };
+            const result = results[method];
             return { id, result, error: null };
           });
         }
@@ -140,8 +150,14 @@ describe('daemonServiceUtils tests', () => {
       const module = proxyquire('../../ZelBack/src/services/daemonService/daemonServiceUtils', {
         '../utils/daemonConfig': { DaemonConfig },
         '../utils/fluxRpc': { FluxRpc },
-        // The retry delay is instant; the refetch spacing reads state.now.
-        '../serviceHelper': { ...serviceHelper, delay: async () => { state.delays += 1; } },
+        // The wait's poll delay is one turn of the event loop.
+        '../serviceHelper': {
+          ...serviceHelper,
+          delay: () => {
+            state.delays += 1;
+            return new Promise((resolve) => { setImmediate(resolve); });
+          },
+        },
         './fluxdCredentials': {
           loadNodeKey: async () => credential,
           RPC_COOKIE_FILE: '/run/fluxd/rpc.cookie',
@@ -160,16 +176,14 @@ describe('daemonServiceUtils tests', () => {
     it('reads flux.conf when the unit passes no node key', async () => {
       const { module, state } = node();
       expect(module.insightIndexes()).to.equal(null);
-      expect(module.addressIndex()).to.equal(null);
       await module.buildFluxdClient();
       expect(state.parsed).to.equal(1);
       expect(module.isFluxdSelfReporting()).to.equal(false);
       expect(module.getConfigValue('zelnodeprivkey')).to.equal('filekey');
       expect(state.clients[0].auth).to.eql({ username: 'u', password: 'p' });
       expect(module.insightIndexes()).to.equal(true);
-      expect(module.addressIndex()).to.equal(false);
-      await module.executeCall('getblockcount', [], { useCache: false });
-      expect(state.batches, 'fluxd is asked about itself only when it reports itself').to.eql([]);
+      expect(await module.waitForFluxd()).to.equal(1234);
+      expect(state.batches, 'fluxd is asked about itself only when it reports itself').to.eql([['getblockcount']]);
     });
 
     it('never reads flux.conf when the unit passes the node key', async () => {
@@ -185,54 +199,65 @@ describe('daemonServiceUtils tests', () => {
       expect(state.written).to.equal(undefined);
     });
 
-    it('learns fluxd\'s indexes and ZMQ notifications before its first answer returns', async () => {
+    it('waits for fluxd\'s indexes and ZMQ notifications along with its first answer', async () => {
       const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
       await module.buildFluxdClient();
-      expect(module.addressIndex()).to.equal(null);
       expect(module.insightIndexes()).to.equal(null);
 
-      const answer = await module.executeCall('getblockcount', [], { useCache: false });
-      expect(answer.status).to.equal('success');
-      expect(state.batches).to.eql([['getindexinfo', 'getzmqnotifications']]);
-      expect(module.addressIndex()).to.equal(true);
+      expect(await module.waitForFluxd()).to.equal(1234);
+      expect(state.batches).to.eql([['getblockcount', 'getindexinfo', 'getzmqnotifications']]);
       expect(module.insightIndexes()).to.equal(true);
       expect(module.getConfigValue('zmqpubhashblock')).to.equal('tcp://127.0.0.1:16123');
       expect(module.getConfigValue('zmqpubrawtx')).to.equal(undefined);
 
       await module.executeCall('getblockcount', [], { useCache: false });
-      expect(state.batches, 'asked once per start of fluxd').to.have.length(1);
+      expect(state.batches, 'a call does not ask fluxd about itself').to.have.length(1);
     });
 
     it('answers no index when fluxd keeps none', async () => {
       const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
       state.indexes = { txindex: {} };
-      await module.executeCall('getblockcount', [], { useCache: false });
-      expect(module.addressIndex()).to.equal(false);
+      await module.waitForFluxd();
       expect(module.insightIndexes()).to.equal(false);
     });
 
-    it('reads the cookie again on a 401, and asks fluxd about itself again', async () => {
+    it('reads the cookie again on a 401, and asks fluxd about itself again, keeping the last answer meanwhile', async () => {
       const { module, state } = node({ credential: 'credkey', cookies: [cookieA, cookieB] });
-      await module.executeCall('getblockcount', [], { useCache: false });
-      expect(state.batches).to.have.length(1);
+      await module.waitForFluxd();
+      expect(module.insightIndexes()).to.equal(true);
 
-      // fluxd restarted: the old cookie is refused.
+      // fluxd restarted, without the indexes: the old cookie is refused.
+      let release;
+      state.batchGate = new Promise((resolve) => { release = resolve; });
+      state.indexes = { txindex: {} };
       state.refuse = (client) => client.auth?.password === 'a';
       const answer = await module.executeCall('getblockcount', [], { useCache: false });
       expect(answer.status).to.equal('success');
       expect(state.cookieReads).to.equal(2);
       expect(state.clients.at(-1).auth).to.eql(cookieB);
-      expect(state.batches, 'what fluxd reported before it restarted is asked again').to.have.length(2);
+      expect(state.batches, 'fluxd is asked about itself again').to.have.length(2);
+      expect(module.insightIndexes(), 'the last answer stands until fluxd gives a new one').to.equal(true);
+
+      release();
+      await module.waitForFluxd();
+      expect(module.insightIndexes()).to.equal(false);
     });
 
     it('reads the cookie once per refusal, and reports a second refusal', async () => {
       const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
       await module.buildFluxdClient();
+      // The refusal starts a wait for fluxd; held, so the cookie reads counted are the call's.
+      let release;
+      state.batchGate = new Promise((resolve) => { release = resolve; });
       state.refuse = () => true;
       const answer = await module.executeCall('getblockcount', [], { useCache: false });
       expect(answer.status).to.equal('error');
       expect(state.cookieReads).to.equal(2);
-      expect(module.addressIndex()).to.equal(null);
+      expect(state.batches, 'the refusal started a wait for fluxd').to.have.length(1);
+
+      state.refuse = null;
+      release();
+      expect(await module.waitForFluxd()).to.equal(1234);
     });
 
     it('does not read the cookie again for an error that is not a refused login', async () => {
@@ -242,7 +267,6 @@ describe('daemonServiceUtils tests', () => {
       const answer = await module.executeCall('getblockcount', [], { useCache: false });
       expect(answer.status).to.equal('error');
       expect(state.cookieReads).to.equal(1);
-      expect(state.batches, 'fluxd is asked about itself only once it answers').to.eql([]);
     });
 
     describe('a flux.conf that sets no rpcpassword', () => {
@@ -312,69 +336,37 @@ describe('daemonServiceUtils tests', () => {
     });
 
     describe('when fluxd does not report its facts', () => {
-      let now;
-      beforeEach(() => {
-        now = 1_000_000;
-        sinon.stub(Date, 'now').callsFake(() => now);
-      });
-      afterEach(() => sinon.restore());
-
-      it('retries before fluxd\'s first answer returns, so one failure does not decide the address-index check', async () => {
+      it('keeps asking until fluxd answers', async () => {
         const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
         state.batchFails = 2;
-        await module.executeCall('getblockcount', [], { useCache: false });
+        expect(await module.waitForFluxd()).to.equal(1234);
         expect(state.batches).to.have.length(3);
         expect(state.delays).to.equal(2);
-        expect(module.addressIndex()).to.equal(true);
+        expect(module.insightIndexes()).to.equal(true);
       });
 
-      it('keeps the indexes when only the ZMQ notifications fail, and asks only for those again', async () => {
+      ['getindexinfo', 'getzmqnotifications'].forEach((method) => {
+        it(`does not end the wait while ${method} fails`, async () => {
+          const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+          state.methodFails = { [method]: 2 };
+          await module.waitForFluxd();
+          expect(state.batches).to.have.length(3);
+          expect(module.insightIndexes()).to.equal(true);
+          expect(module.getConfigValue('zmqpubhashblock')).to.equal('tcp://127.0.0.1:16123');
+        });
+      });
+
+      it('keeps waiting through fluxd\'s warmup', async () => {
         const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
-        state.methodFails = { getzmqnotifications: true };
-        await module.executeCall('getblockcount', [], { useCache: false });
-        expect(module.addressIndex(), 'the index answer is kept').to.equal(true);
-        expect(module.getConfigValue('zmqpubhashblock')).to.equal(undefined);
-        expect(state.batches.slice(1)).to.eql([['getzmqnotifications'], ['getzmqnotifications']]);
-
-        state.methodFails = {};
-        now += 30_000;
-        await module.executeCall('getblockcount', [], { useCache: false });
-        expect(state.batches.at(-1)).to.eql(['getzmqnotifications']);
-        expect(module.getConfigValue('zmqpubhashblock')).to.equal('tcp://127.0.0.1:16123');
-      });
-
-      it('does not ask again within 30 s of a fetch that left a fact unknown', async () => {
-        const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
-        state.batchFails = 10;
-        await module.executeCall('getblockcount', [], { useCache: false });
-        expect(module.addressIndex()).to.equal(null);
-        const asked = state.batches.length;
-
-        now += 29_999;
-        await module.executeCall('getblockcount', [], { useCache: false });
-        await module.executeCall('getblockcount', [], { useCache: false });
-        expect(state.batches, 'no fetch inside 30 s').to.have.length(asked);
-
-        state.batchFails = 0;
-        now += 1;
-        await module.executeCall('getblockcount', [], { useCache: false });
-        expect(module.addressIndex()).to.equal(true);
-      });
-
-      it('asks again at once after fluxd restarts, whatever failed before', async () => {
-        const { module, state } = node({ credential: 'credkey', cookies: [cookieA, cookieB] });
-        state.batchFails = 10;
-        await module.executeCall('getblockcount', [], { useCache: false });
-        state.batchFails = 0;
-        state.refuse = (client) => client.auth?.password === 'a';
-        await module.executeCall('getblockcount', [], { useCache: false });
-        expect(module.addressIndex()).to.equal(true);
+        state.methodFails = { getblockcount: 3 };
+        expect(await module.waitForFluxd()).to.equal(1234);
+        expect(state.batches).to.have.length(4);
       });
     });
 
-    it('shares one request among callers arriving together', async () => {
+    it('shares one wait among callers arriving together', async () => {
       const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
-      await Promise.all([1, 2, 3].map(() => module.executeCall('getblockcount', [], { useCache: false })));
+      await Promise.all([1, 2, 3].map(() => module.waitForFluxd()));
       expect(state.batches).to.have.length(1);
     });
   });

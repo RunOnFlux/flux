@@ -1,8 +1,6 @@
 const config = require('config');
 const messageHelper = require('../messageHelper');
-const serviceHelper = require('../serviceHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
-const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
 const log = require('../../lib/log');
 const configManager = require('../utils/configManager');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -18,7 +16,6 @@ function getDefaultDaemonHeader() {
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = getDefaultDaemonHeader();
-let isDaemonInsightExplorer = null;
 let previousTestnetValue = globalThis.userconfig.initial?.testnet;
 let lastSuccessfulRpcCall = null; // Track last successful getBlockchainInfo call
 // Called with the daemon's height after each poll that reads it.
@@ -35,28 +32,12 @@ configManager.on('configReloaded', (newConfig) => {
 });
 
 /**
- * Whether fluxd keeps the insight explorer's indexes. The answer is kept once
- * known; while it is not (flux.conf not yet read, or fluxd not yet asked) this
- * answers false and asks again next time.
+ * Whether fluxd keeps the insight explorer's indexes. False only before fluxd
+ * first reports them; from boot on (waitForFluxd), fluxd's latest answer.
  * @returns {boolean}
  */
 function isInsightExplorer() {
-  if (isDaemonInsightExplorer != null) {
-    return isDaemonInsightExplorer;
-  }
-  const known = daemonServiceUtils.insightIndexes();
-  if (known === null) return false;
-  isDaemonInsightExplorer = known;
-  return known;
-}
-
-/**
- * Whether fluxd keeps the address index, which answers getaddressdeltas and
- * getaddresstxids. False while not known.
- * @returns {boolean}
- */
-function isAddressIndex() {
-  return daemonServiceUtils.addressIndex() === true;
+  return daemonServiceUtils.insightIndexes() === true;
 }
 
 // == NON Daemon ==
@@ -138,38 +119,6 @@ async function daemonBlockchainInfoService() {
   scheduleNext();
 }
 
-const RPC_IN_WARMUP = -28;
-
-/**
- * Wait for the daemon RPC to become available.
- * Polls getblockcount every 5 seconds until a successful response.
- * @returns {Promise<number>} The block height once RPC is available.
- */
-async function waitForDaemonRpc() {
-  const POLL_INTERVAL_MS = 5000;
-  const LOG_INTERVAL_MS = 60000;
-  let lastLogAt = 0;
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const result = await daemonServiceBlockchainRpcs.getBlockCount();
-    if (result.status === 'success') {
-      log.info(`Daemon RPC available at block height ${result.data}`);
-      return result.data;
-    }
-    const now = Date.now();
-    if (!lastLogAt || now - lastLogAt >= LOG_INTERVAL_MS) {
-      const reason = result.data?.code === RPC_IN_WARMUP
-        ? result.data.message
-        : 'daemon not reachable';
-      log.info(`Waiting for daemon RPC... (${reason})`);
-      lastLogAt = now;
-    }
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(POLL_INTERVAL_MS);
-  }
-}
-
 /**
  * Calls `listener` with the daemon's height after each poll that reads it.
  * @param {function(number): (void|Promise<void>)} listener
@@ -178,14 +127,6 @@ async function waitForDaemonRpc() {
 function onDaemonHeight(listener) {
   heightListeners.add(listener);
   return () => { heightListeners.delete(listener); };
-}
-
-function getIsDaemonInsightExplorer() {
-  return isDaemonInsightExplorer;
-}
-
-function setIsDaemonInsightExplorer(newValue) {
-  isDaemonInsightExplorer = newValue;
 }
 
 function setCurrentDaemonHeight(newValue) {
@@ -213,18 +154,14 @@ function setLastSuccessfulRpcCall(newValue) {
 }
 
 module.exports = {
-  isAddressIndex,
   isInsightExplorer,
   // == NON Daemon ==
   isDaemonSynced,
   daemonBlockchainInfoService,
-  waitForDaemonRpc,
   onDaemonHeight,
 
   // exports for testing purposes
   fluxDaemonBlockchainInfo,
-  getIsDaemonInsightExplorer,
-  setIsDaemonInsightExplorer,
   setCurrentDaemonHeight,
   setCurrentDaemonHeader,
   getCurrentDaemonHeight,
