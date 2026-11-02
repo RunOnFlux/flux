@@ -1,7 +1,9 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer, releaseFluxos, shutdownFluxosGracefully } from '../framework/container.js';
+import {
+  execInContainer, fluxosPid, releaseFluxos, shutdownFluxosGracefully, signalFluxos,
+} from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -25,7 +27,6 @@ describe('FluxOS publishes the ports it serves on', function () {
 
   const node = () => env.clients[0].container;
   const sh = async (command) => execInContainer(node(), command);
-  const fluxosPid = async () => Number((await sh('cat /tmp/fluxos.pid')).stdout.trim());
   const readPortFile = async () => {
     const r = await sh(`cat ${PORT_FILE}`);
     return r.exitCode === 0 ? JSON.parse(r.stdout) : null;
@@ -34,16 +35,7 @@ describe('FluxOS publishes the ports it serves on', function () {
   const waitForPortFile = async (label) => waitFor(portFilePresent, { timeout: 60000, interval: 500, label });
 
   // Stop FluxOS with a signal and keep it down; resolves once the process has exited.
-  const stopHeld = async (signal) => {
-    const pid = await fluxosPid();
-    expect(pid, 'fixture: a FluxOS pid').to.be.above(0);
-    await sh('touch /tmp/fluxos.hold');
-    const signalled = await sh(`kill -${signal} ${pid}`);
-    expect(signalled.exitCode, `fixture: ${signal} delivered to ${pid}`).to.equal(0);
-    await waitFor(async () => (await sh(`kill -0 ${pid} 2>/dev/null`)).exitCode !== 0, {
-      timeout: 120000, interval: 250, label: `FluxOS ${pid} to exit on ${signal}`,
-    });
-  };
+  const stopHeld = (signal) => signalFluxos(node(), signal, { hold: true, exitTimeoutMs: 120000 });
 
   before(async function () {
     this.timeout(180000);
@@ -53,13 +45,13 @@ describe('FluxOS publishes the ports it serves on', function () {
 
   after(async function () {
     this.timeout(60000);
-    await sh('rm -f /tmp/fluxos.hold /run/nologin').catch(() => {});
     await env?.teardown();
   });
 
   it('names the three ports FluxOS is listening on and its process id, world-readable', async function () {
     this.timeout(60000);
-    const pid = await fluxosPid();
+    const pid = await fluxosPid(node());
+    expect(pid, 'fixture: a FluxOS pid').to.be.above(0);
     const ports = await readPortFile();
     console.log(`# ${PORT_FILE}: ${JSON.stringify(ports)}; FluxOS pid ${pid}`);
     expect(ports).to.deep.equal({
@@ -93,7 +85,7 @@ describe('FluxOS publishes the ports it serves on', function () {
     await releaseFluxos(node());
     await waitForPortFile('the port file after the restart');
     expect(await readPortFile()).to.deep.equal({
-      apiPort: API_PORT, apiPortHttps: API_PORT + 1, uiPort: API_PORT - 1, pid: await fluxosPid(),
+      apiPort: API_PORT, apiPortHttps: API_PORT + 1, uiPort: API_PORT - 1, pid: await fluxosPid(node()),
     });
   });
 
