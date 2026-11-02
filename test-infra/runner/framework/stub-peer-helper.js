@@ -126,6 +126,19 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // The events this peer answers each state-sync request with, by response type
+    // ({ fluxapptempsync: [...] }), for a stub declared in answeringSyncPeers. A
+    // type left out is answered with none.
+    async answerSyncWith(answers) {
+      const res = await controlFetch(`${controlUrl}/sync-answers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answers),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not take its sync answers: ${res.status} ${await res.text()}`);
+      return res.json();
+    },
+
     // Answer this node's policy asks with a sequence, the way a real peer does -
     // echoing the id of the ask it settles and marking itself an answer. `null`
     // is a peer that holds no policy, which is an answer rather than silence.

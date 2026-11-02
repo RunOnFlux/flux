@@ -60,6 +60,25 @@ export async function waitFor(condition, { timeout = 60000, interval = 2000, lab
   );
 }
 
+/**
+ * The first of several events a node publishes after `afterId`: for an action
+ * whose outcome is one event or another (taken or refused), so a suite asserts
+ * on which one came rather than waiting for the one it expects.
+ * @param {object} client
+ * @param {{event: string, matches?: function(object): boolean}[]} outcomes
+ * @param {{afterId: number, timeout?: number, label?: string}} options
+ * @returns {Promise<{event: string, data: object}>}
+ */
+export async function waitForFirstEvent(client, outcomes, { afterId, timeout = 60000, label = '' }) {
+  let first = null;
+  await waitFor(() => {
+    first = client.getEventBuffer().find((e) => e.id > afterId
+      && outcomes.some(({ event, matches = () => true }) => e.event === event && matches(e.data))) ?? null;
+    return first !== null;
+  }, { timeout, interval: 500, label: label || `one of ${outcomes.map((o) => o.event).join(', ')} on node ${client.num}` });
+  return { event: first.event, data: first.data };
+}
+
 // waitFor, for a poll that also asserts an invariant. waitFor retries a poll
 // that throws, so an assertion inside one passes if a later poll succeeds - a
 // breach that lasts one poll goes unseen. Here an assertion failure ends the

@@ -21,6 +21,10 @@ const SILENT_APP_STATE_SYNC = process.env.SILENT_APP_STATE_SYNC === 'true';
 // this the fleet has no way to reach the path a node takes when a peer's
 // envelope cannot be attributed to it.
 const UNVERIFIABLE_APP_STATE_SYNC = process.env.UNVERIFIABLE_APP_STATE_SYNC === 'true';
+// A PEER THAT ANSWERS A STATE SYNC WITH WHAT THE SUITE GIVES IT, signed as a real
+// responder signs: each request type is answered in one message, done, holding
+// the events set through /sync-answers (none until then).
+const ANSWERING_APP_STATE_SYNC = process.env.ANSWERING_APP_STATE_SYNC === 'true';
 // A PEER FROM BEFORE THE POLICY PROTOCOL. It advertises no policyBundle capability, so a node
 // neither asks it for policy nor announces an adoption to it - the state of every peer on a
 // node in the first wave of a rollout.
@@ -48,6 +52,12 @@ const SYNC_REQUEST_RESPONSES = Object.freeze({
 });
 
 const messages = new Map();
+// Events this peer answers each sync request type with, by response type.
+let syncAnswers = {};
+let syncAnswersSent = 0;
+// Each connection that has closed: the node's address and the close code it
+// arrived with, which is the code the closing side chose.
+const closes = [];
 
 let connectionsReceived = 0;
 let requestsReceived = 0;
@@ -270,6 +280,20 @@ async function handleSyncRequest(ws, rawData) {
   }
 }
 
+async function answerSyncRequest(ws, rawData) {
+  const type = SYNC_REQUEST_RESPONSES[rawData[0]];
+  if (!type) return;
+  try {
+    const data = {
+      type, ...(type === 'fluxapptempsync' && { version: 1 }), messages: syncAnswers[type] ?? [], done: true,
+    };
+    sendTo(ws, await serialiseAndSignBroadcast(data));
+    syncAnswersSent += 1;
+  } catch (e) {
+    console.error('Error answering sync request:', e.message);
+  }
+}
+
 async function handleMessage(ws, received) {
   let rawData = received;
   // A frame under a link MAC is taken only when the MAC is the node's.
@@ -284,6 +308,7 @@ async function handleMessage(ws, received) {
   // and a JSON parse error per incoming request is noise rather than a finding.
   if (rawData[0] !== 0x7b) {
     if (UNVERIFIABLE_APP_STATE_SYNC) await handleSyncRequest(ws, rawData);
+    else if (ANSWERING_APP_STATE_SYNC) await answerSyncRequest(ws, rawData);
     return;
   }
   try {
@@ -376,7 +401,7 @@ wss.on('headers', (headers) => {
   // POLICY_UNAWARE is the peer that predates the protocol, which is every peer on the first
   // day of a rollout. A node does not ask it and does not announce to it, and a node whose
   // peers are all this must still reach the published source.
-  const answersAppStateSync = SILENT_APP_STATE_SYNC || UNVERIFIABLE_APP_STATE_SYNC;
+  const answersAppStateSync = SILENT_APP_STATE_SYNC || UNVERIFIABLE_APP_STATE_SYNC || ANSWERING_APP_STATE_SYNC;
   const capabilities = [
     'peerExchange',
     ...(answersAppStateSync ? ['appStateSync'] : []),
@@ -408,8 +433,10 @@ wss.on('connection', (ws, req) => {
   }
   linkLog(links.get(ws) ?? { peerIp: (req.socket.remoteAddress || '').replace('::ffff:', '') }, `connected (${links.has(ws) ? 'speaks the link protocol' : 'no link protocol'})`);
   connectedNodes.add(ws);
+  const peerIp = (req.socket.remoteAddress || '').replace('::ffff:', '');
   ws.on('close', (code) => {
     connectedNodes.delete(ws);
+    closes.push({ ip: peerIp, code, at: Date.now() });
     const link = links.get(ws);
     if (link) linkLog(link, `closed ${code} (${link.authenticated ? 'authenticated' : 'not authenticated'})`);
   });
@@ -691,6 +718,8 @@ const controlServer = http.createServer(async (req, res) => {
         requestsReceived,
         messagesServed,
         unverifiableResponsesSent,
+        syncAnswersSent,
+        closes,
         messagesLoaded: messages.size,
         requestLog,
         promotedFolderRequests,
@@ -700,6 +729,14 @@ const controlServer = http.createServer(async (req, res) => {
         connectedNodes: connectedNodes.size,
         availabilityAsks,
       }));
+      return;
+    }
+
+    // The events this peer answers each sync request type with: { <response type>: [events] }.
+    if (req.method === 'POST' && req.url === '/sync-answers') {
+      syncAnswers = JSON.parse(await readBody(req));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', types: Object.keys(syncAnswers) }));
       return;
     }
 

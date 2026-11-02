@@ -11,7 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { dbClient } from './db-client.js';
 import { signBtcMessage } from '../auth.js';
 import { getState, advanceBlocks } from './daemon-control.js';
-import { waitForBlockProcessed } from './wait.js';
+import { waitFor, waitForBlockProcessed } from './wait.js';
 
 // ZelBack/src/services/utils/clientTag.js: the salt is the block at the newest
 // multiple of TAG_EPOCH_BLOCKS at least TAG_DEPTH_BLOCKS below the tip.
@@ -129,4 +129,28 @@ export async function pendingCountOn(client, query) {
 export async function admissionOf(client, hash, afterId, timeout = 60000) {
   const event = await client.waitForEvent('appmessage:admission', (d) => d.hash === hash, timeout, { afterId });
   return event.data;
+}
+
+/**
+ * A node's verdict on a pending message it was sent: stored, or refused by a
+ * decision event that names a refusal - whichever the node reaches first. A
+ * suite asserts on the verdict, so a node that takes what it should refuse
+ * fails at that assertion rather than at a wait for an event it never publishes.
+ * @param {object} client
+ * @param {string} hash The message's hash.
+ * @param {{event: string, matches: function(object): boolean}|object[]} refusals One, or any of several.
+ * @param {{afterId: number, timeout?: number, label?: string}} options afterId is taken before the message was sent.
+ * @returns {Promise<{stored: true}|{refused: object, event: string}>}
+ */
+export async function pendingVerdict(client, hash, refusals, { afterId, timeout = 60000, label = '' }) {
+  const any = [].concat(refusals);
+  let verdict = null;
+  await waitFor(async () => {
+    const refused = client.getEventBuffer()
+      .find((e) => e.id > afterId && any.some((r) => e.event === r.event && r.matches(e.data)));
+    if (refused) verdict = { refused: refused.data, event: refused.event };
+    else if (await pendingMessageOn(client, hash) !== null) verdict = { stored: true };
+    return verdict !== null;
+  }, { timeout, interval: 1000, label: label || `node ${client.num}'s verdict on ${hash}` });
+  return verdict;
 }

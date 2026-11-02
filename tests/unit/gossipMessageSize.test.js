@@ -4,8 +4,9 @@ const { expect } = require('chai');
 const config = require('../../ZelBack/config/default');
 const appValidator = require('../../ZelBack/src/services/appRequirements/appValidator');
 const { verifyEncryptedSpec } = require('../../ZelBack/src/services/utils/enterpriseSpec');
+const harnessLimits = require('../../test-infra/runner/framework/message-limits.cjs');
 const {
-  MAX_APP_COMPONENTS, MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_ENTERPRISE_LENGTH,
+  MAX_APP_COMPONENTS, MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_ENTERPRISE_LENGTH, INSTALL_ERROR_MAX_LENGTH,
 } = require('../../ZelBack/src/services/utils/appConstants');
 
 // The largest app message the validator allows, and the frame a node broadcasts it in.
@@ -171,6 +172,15 @@ describe('gossip message size tests', () => {
     const wire = encryptedForm(largestV8Decrypted());
     wire.enterprise += 'A';
     expect(() => verifyEncryptedSpec(wire)).to.throw(`Maximum of ${MAX_ENTERPRISE_LENGTH} characters`);
+  });
+
+  it('the harness sends either side of the limits the product holds', () => {
+    expect(harnessLimits).to.deep.equal({
+      GOSSIP_MESSAGE_MAX_BYTES: config.fluxapps.gossipMessageMaxBytes,
+      WS_MAX_PAYLOAD_BYTES: config.fluxapps.wsMaxPayloadBytes,
+      MAX_ENTERPRISE_LENGTH,
+      INSTALL_ERROR_MAX_LENGTH,
+    });
   });
 
   it('a sync answer batch holds any message a node takes', () => {
