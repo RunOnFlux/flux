@@ -122,6 +122,7 @@ export function stubPeerClient(ip) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
+      if (!res.ok) throw new Error(`stub ${ip} could not broadcast: ${res.status} ${await res.text()}`);
       return res.json();
     },
 
