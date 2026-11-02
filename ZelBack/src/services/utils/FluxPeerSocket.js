@@ -549,7 +549,8 @@ class FluxPeerSocket {
     }
 
     this.messagesReceived += 1;
-    this.bytesReceived += Buffer.byteLength(evt.data, 'utf8');
+    const frameBytes = Buffer.byteLength(evt.data, 'utf8');
+    this.bytesReceived += frameBytes;
 
     // Strip transmission timestamp prefix if present (T{timestamp}|{json})
     // Adjust for clock skew using exchanged NTP offsets:
@@ -624,6 +625,14 @@ class FluxPeerSocket {
         setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
         return;
       }
+    }
+
+    // No event a node takes is larger than this, so a broadcast that is goes no
+    // further: it is not verified, stored or relayed. A sync answer holds many
+    // events and each is held to it on its own (fluxCommunication).
+    if (frameBytes > config.fluxapps.gossipMessageMaxBytes) {
+      log.warn(`Dropping a ${frameBytes} byte ${msgObj.data?.type} from ${this.direction} peer ${this.key}: over ${config.fluxapps.gossipMessageMaxBytes} bytes`);
+      return;
     }
 
     // Dispatch to the manager's message handler (gossip pipeline)

@@ -765,6 +765,16 @@ module.exports = {
     nodeMonitorRemovalDelayMs: 5000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
+    // bytes of events per message of an answer to a peer's state sync. At least
+    // gossipMessageMaxBytes, so any event a node takes fits in one.
+    syncAnswerBatchBytes: 8 * 1024 * 1024,
+    // the largest event a node takes from a peer, as a broadcast or inside a sync
+    // answer. The largest app message the validator allows is under 3 MB
+    // (tests/unit/gossipMessageSize.test.js).
+    gossipMessageMaxBytes: 8 * 1024 * 1024,
+    // the largest websocket message a peer socket takes. A sync answer from a
+    // release that batches by count alone can reach it.
+    wsMaxPayloadBytes: 32 * 1024 * 1024,
     // Residential-node staging. The placement hold is immediate and is not
     // tunable; these pace only the part that moves customer data.
     residentialCheckIntervalMs: 6 * 60 * 60 * 1000, // re-evaluate the verdict

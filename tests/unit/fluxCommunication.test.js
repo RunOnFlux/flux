@@ -3498,6 +3498,17 @@ describe('fluxCommunication tests', () => {
           sinon.assert.calledTwice(messageStore.storeAppTemporaryMessage);
         });
 
+        it('is not stored when it is over the per-message limit, and the rest of the answer is', async () => {
+          sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(true);
+          const oversized = { ...temp(), hash: 'h2', appSpecifications: { name: 'a', description: 'x'.repeat(config.fluxapps.gossipMessageMaxBytes) } };
+
+          await peerManager.syncResponseDispatcher({ data: { type: 'fluxapptempsync', messages: [temp(), oversized], done: true } }, PEER_SOCKET);
+
+          sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
+          expect(messageStore.storeAppTemporaryMessage.firstCall.args[0].hash).to.equal('h1');
+          expect(completions).to.deep.equal([{ syncType: 'apptemp', peerKey: PEER }]);
+        });
+
         it('tells the store a sync answer that carried no link MAC did not arrive over an authenticated link', async () => {
           sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(true);
 

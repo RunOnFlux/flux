@@ -572,6 +572,45 @@ describe('FluxPeerSocket tests', () => {
       sinon.assert.calledOnce(manager.messageDispatcher);
     });
 
+    describe('the per-message limit', () => {
+      const limit = config.fluxapps.gossipMessageMaxBytes;
+      // A frame of exactly `bytes` bytes.
+      const frameOf = (type, bytes) => {
+        const shell = JSON.stringify({ data: { type, messages: [], pad: '' } });
+        return JSON.stringify({ data: { type, messages: [], pad: 'x'.repeat(bytes - shell.length) } });
+      };
+      const open = () => {
+        const ws = createMockWs();
+        const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+        peer.source = PEER_SOURCE.RANDOM;
+        return ws;
+      };
+
+      beforeEach(() => {
+        sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      });
+
+      it('dispatches a broadcast of exactly the limit', async () => {
+        open().onmessage({ data: frameOf('fluxappregister', limit) });
+        await new Promise(setImmediate);
+        sinon.assert.calledOnce(manager.messageDispatcher);
+      });
+
+      it('drops a broadcast one byte over the limit', async () => {
+        open().onmessage({ data: frameOf('fluxappregister', limit + 1) });
+        await new Promise(setImmediate);
+        sinon.assert.notCalled(manager.messageDispatcher);
+      });
+
+      it('hands a wanted sync answer over the limit to the sync dispatcher', async () => {
+        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        open().onmessage({ data: frameOf('fluxapptempsync', limit + 1) });
+        await new Promise(setImmediate);
+        sinon.assert.calledOnce(manager.syncResponseDispatcher);
+        sinon.assert.notCalled(manager.messageDispatcher);
+      });
+    });
+
     it('should route sync responses to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
