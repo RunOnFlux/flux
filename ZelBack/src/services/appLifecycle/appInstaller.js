@@ -36,7 +36,7 @@ const mountParser = require('../utils/mountParser');
 const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
-const { localAppsInformation } = require('../utils/appConstants');
+const { localAppsInformation, INSTALL_ERROR_MAX_LENGTH } = require('../utils/appConstants');
 const appPlacements = require('../appManagement/appPlacements');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
@@ -45,9 +45,6 @@ const config = require('config');
 const fluxEventBus = require('../utils/fluxEventBus');
 const volumeService = require('../utils/volumeService');
 const { Privilege, authOf } = require('../utils/privileges');
-
-// The longest install error a node tells the network, in characters.
-const INSTALL_ERROR_MAX_LENGTH = 1000;
 
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];

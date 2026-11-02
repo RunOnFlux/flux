@@ -67,6 +67,9 @@ const MAX_APP_COMPONENTS = 10;
 // compose the validator allows, and a tag (16).
 const MAX_ENTERPRISE_LENGTH = 2646396;
 
+// The longest install error a node tells the network, or stores from it, in characters.
+const INSTALL_ERROR_MAX_LENGTH = 1000;
+
 // Mount options for an app's FLUXFSVOL. An app volume holds data its owner
 // writes, so nothing stored there should be able to confer privilege on
 // whatever reads it back.
@@ -198,6 +201,7 @@ module.exports = {
   MAX_COMPONENT_NAME_LENGTH,
   MAX_APP_COMPONENTS,
   MAX_ENTERPRISE_LENGTH,
+  INSTALL_ERROR_MAX_LENGTH,
 
   // Volumes
   APP_VOLUME_MOUNT_OPTIONS,

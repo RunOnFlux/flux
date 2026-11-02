@@ -39,7 +39,15 @@ const {
   INSTALLING_ERRORS_EXPIRY_MS,
   EVICTED_EXPIRY_MS,
   SIGTERM_EXPIRY_MS,
+  INSTALL_ERROR_MAX_LENGTH,
 } = require('../utils/appConstants');
+
+/**
+ * Whether an install error's text is longer than a node tells the network.
+ * @param {object} data A fluxappinstallingerror message.
+ * @returns {boolean}
+ */
+const installErrorTooLong = (data) => typeof data.error === 'string' && data.error.length > INSTALL_ERROR_MAX_LENGTH;
 
 // Cap on how many location operations are handed to one bulk write. The driver
 // encodes the whole batch before sending it, and that encoding is what a large
@@ -723,6 +731,10 @@ async function storeAppInstallingErrorMessage(message) {
     return new Error(`Invalid Flux App Installing Error message for storing version ${message.version} not supported`);
   }
 
+  if (installErrorTooLong(message)) {
+    return new Error(`Invalid Flux App Installing Error message for storing: error over ${INSTALL_ERROR_MAX_LENGTH} characters`);
+  }
+
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid fluxappinstallingerror message, message:${JSON.stringify(message)}`);
     return false;
@@ -1320,6 +1332,7 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
 function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.name || !data.hash || !data.broadcastedAt) return;
+  if (installErrorTooLong(data)) return;
   if (data.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -1356,6 +1369,7 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
+    if (installErrorTooLong(data)) continue;
     const validTill = data.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS;
     if (validTill < Date.now()) continue;
 
