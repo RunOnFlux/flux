@@ -207,13 +207,12 @@ describe('admissionQuorum tests', () => {
       [a, b, c].forEach((peer) => expect(commitsTo(peer)).to.have.length(0));
     });
 
-    it('should stop counting a peer that went silent after received', async () => {
+    it('should stop counting a peer that has not answered received within its silence bound', async () => {
       const { mod, peerManager } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3']);
       const { admission } = await startAdmit(mod);
-      const [a, b, c] = peerManager.authenticated;
+      const [a, b] = peerManager.authenticated;
       receipt(mod, a, 'held');
       receipt(mod, b, 'held');
-      receipt(mod, c, 'received');
 
       clock.tick(999);
       await flush();
@@ -221,18 +220,28 @@ describe('admissionQuorum tests', () => {
       await expect(admission).to.be.rejectedWith('did not confirm');
     });
 
-    it('should give a peer that answered received a fresh silence bound from that answer', async () => {
+    it('should count a peer that answered received until admissionTimeoutMs, however long its checks take', async () => {
       const { mod, peerManager } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3']);
       const { admission } = await startAdmit(mod);
       const [a, b, c] = peerManager.authenticated;
       receipt(mod, a, 'held');
       receipt(mod, b, 'held');
-      clock.tick(900);
       receipt(mod, c, 'received');
-      clock.tick(900);
+      clock.tick(config.fluxapps.admissionTimeoutMs - 1);
       await flush();
       receipt(mod, c, 'held');
       await admission;
+    });
+
+    it('should commit at the quorum\'s third held, without waiting for admissionTimeoutMs', async () => {
+      const { mod, peerManager, deps } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4']);
+      const { admission } = await startAdmit(mod);
+      const [a, b, c] = peerManager.authenticated;
+      receipt(mod, a, 'held');
+      receipt(mod, b, 'held');
+      receipt(mod, c, 'held');
+      await admission;
+      expect(deps.insert.calledOnce).to.equal(true);
     });
 
     it('should give a peer four of its round trips before it is silent', async () => {
