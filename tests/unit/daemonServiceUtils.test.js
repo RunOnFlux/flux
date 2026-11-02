@@ -75,9 +75,11 @@ describe('daemonServiceUtils tests', () => {
   describe('where fluxd is reached from', () => {
     // A node whose unit passes the node key as a credential: flux.conf must never
     // be read, the login is fluxd's cookie, and fluxd is asked about itself.
-    const node = ({ credential = null, cookies = [], conf = null } = {}) => {
+    const node = ({
+      credential = null, cookies = [], conf = null, rpcPorts = [36124],
+    } = {}) => {
       const state = {
-        cookieReads: 0, cookiePaths: [], clients: [], batches: [], parsed: 0, resolved: 0, delays: 0,
+        cookieReads: 0, cookiePaths: [], clients: [], batches: [], parsed: 0, resolved: 0, delays: 0, portReads: 0,
       };
       class DaemonConfig {
         constructor() { this.configElements = {}; }
@@ -98,7 +100,7 @@ describe('daemonServiceUtils tests', () => {
 
         get rpcpassword() { return this.configElements.rpcpassword; }
 
-        get rpcport() { return null; }
+        get rpcport() { return this.configElements.rpcport || null; }
 
         get(name) { return this.configElements[name]; }
 
@@ -106,6 +108,7 @@ describe('daemonServiceUtils tests', () => {
       }
       class FluxRpc {
         constructor(uri, options) {
+          this.url = uri;
           this.auth = options.auth;
           state.clients.push(this);
         }
@@ -161,10 +164,16 @@ describe('daemonServiceUtils tests', () => {
         './fluxdCredentials': {
           loadNodeKey: async () => credential,
           RPC_COOKIE_FILE: '/run/fluxd/rpc.cookie',
+          FLUXD_FILE: '/run/fluxd/fluxd.json',
           readRpcCookie: async (file) => {
             state.cookiePaths.push(file);
             state.cookieReads += 1;
             return cookies[Math.min(state.cookieReads, cookies.length) - 1] ?? null;
+          },
+          // Each read takes the next published port; the last one stands.
+          readFluxdRpcPort: async () => {
+            state.portReads += 1;
+            return rpcPorts[Math.min(state.portReads, rpcPorts.length) - 1] ?? null;
           },
         },
       });
@@ -197,6 +206,47 @@ describe('daemonServiceUtils tests', () => {
       expect(state.clients[0].auth).to.eql(cookieA);
       await expect(module.writeFluxdConfig()).to.be.rejectedWith('not FluxOS');
       expect(state.written).to.equal(undefined);
+    });
+
+    it('reaches fluxd on the RPC port fluxd publishes when it reports itself', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA], rpcPorts: [36124] });
+      await module.buildFluxdClient();
+      expect(state.clients[0].url).to.equal('http://127.0.0.1:36124');
+    });
+
+    it('reaches fluxd on flux.conf\'s port otherwise, never reading what fluxd publishes', async () => {
+      const { module, state } = node({ conf: { zelnodeprivkey: 'k', rpcuser: 'u', rpcpassword: 'p', rpcport: 36124 } });
+      await module.buildFluxdClient();
+      expect(state.clients[0].url).to.equal('http://127.0.0.1:36124');
+      expect(state.portReads).to.equal(0);
+    });
+
+    it('waits while fluxd publishes no RPC port, and reaches it on the one it publishes', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA], rpcPorts: [null, null, 36124] });
+      expect(await module.waitForFluxd()).to.equal(1234);
+      expect(state.portReads).to.equal(3);
+      expect(state.delays).to.equal(2);
+      expect(state.clients.map((client) => client.url)).to.eql(['http://127.0.0.1:36124']);
+    });
+
+    it('answers a call made while fluxd publishes no RPC port with an error', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA], rpcPorts: [null] });
+      const answer = await module.executeCall('getblockcount', [], { useCache: false });
+      expect(answer.status).to.equal('error');
+      expect(answer.data.code).to.equal(module.FLUXD_RPC_PORT_UNPUBLISHED);
+      const batch = await module.executeBatchCall([{ method: 'getblockcount' }]);
+      expect(batch.status).to.equal('error');
+      expect(state.clients).to.eql([]);
+    });
+
+    it('reads the RPC port again with the cookie when fluxd restarts', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA, cookieB], rpcPorts: [36124, 36200] });
+      await module.waitForFluxd();
+      state.refuse = (client) => client.auth?.password === 'a';
+      const answer = await module.executeCall('getblockcount', [], { useCache: false });
+      expect(answer.status).to.equal('success');
+      expect(state.clients.at(-1).url).to.equal('http://127.0.0.1:36200');
+      await module.waitForFluxd();
     });
 
     it('waits for fluxd\'s indexes and ZMQ notifications along with its first answer', async () => {

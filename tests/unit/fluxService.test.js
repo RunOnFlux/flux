@@ -3074,6 +3074,26 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnce(res.end);
     });
 
+    it('takes a fluxd that publishes no RPC port for one that is not running', async () => {
+      const res = generateResponse();
+      res.setHeader = sinon.stub();
+      const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+      osStub.returns('/home/testuser');
+      fsPromisesStubs.stat.resolves({ isDirectory: () => true });
+      const dirInfoStub = sinon.stub(serviceHelper, 'dirInfo').resolves({ count: 0, size: 0 });
+      daemonServiceUtilsStub.rejects(Object.assign(new Error('unpublished'), { code: daemonServiceUtils.FLUXD_RPC_PORT_UNPUBLISHED }));
+
+      await fluxService.streamChain(req, res).catch(() => {});
+
+      sinon.assert.calledOnce(daemonServiceUtilsStub);
+      expect(res.statusMessage).to.not.equal('Flux daemon still running, unable to clone blockchain.');
+      sinon.assert.neverCalledWith(res.status, 503);
+      // Past the check: it went on to size the chain folders and announce the size.
+      sinon.assert.called(dirInfoStub);
+      sinon.assert.calledWith(res.setHeader, 'Approx-Content-Length');
+    });
+
     it('should set Approx-Content-Length response header with expected value', async () => {
       const received = [];
 

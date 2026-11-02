@@ -2130,10 +2130,16 @@ async function streamChain(req, res) {
 
     if (safe) {
       // we have to build the client here so that we can avoid the cache. We should have an option for he
-      // blockChainRpcs thing to skip cache
-      const fluxdClient = await daemonServiceUtils.buildFluxdClient();
-      const blockCountRes = await fluxdClient.run('getBlockCount', { params: [] }).catch((err) => err);
-      fluxdRunning = !(blockCountRes instanceof Error && blockCountRes.code === 'ECONNREFUSED');
+      // blockChainRpcs thing to skip cache. A fluxd that publishes no RPC port is not running.
+      const fluxdClient = await daemonServiceUtils.buildFluxdClient().catch((error) => {
+        if (error.code === daemonServiceUtils.FLUXD_RPC_PORT_UNPUBLISHED) return null;
+        throw error;
+      });
+      const blockCountRes = fluxdClient
+        ? await fluxdClient.run('getBlockCount', { params: [] }).catch((err) => err)
+        : null;
+      fluxdRunning = fluxdClient !== null
+        && !(blockCountRes instanceof Error && blockCountRes.code === 'ECONNREFUSED');
     }
 
     if (safe && fluxdRunning) {

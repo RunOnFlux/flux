@@ -102,4 +102,34 @@ describe('fluxdCredentials tests', () => {
       expect(await fluxdCredentials.readRpcCookie(path.join(dir, 'rpc.cookie'))).to.equal(null);
     });
   });
+
+  describe('readFluxdRpcPort', () => {
+    const file = () => path.join(dir, 'fluxd.json');
+
+    it('reads the RPC port fluxd published', async () => {
+      await fs.writeFile(file(), '{"address":"212.71.244.159","pid":5400,"rpcport":36124}\n');
+      expect(await fluxdCredentials.readFluxdRpcPort(file())).to.equal(36124);
+    });
+
+    it('is null while fluxd has published nothing', async () => {
+      expect(await fluxdCredentials.readFluxdRpcPort(file())).to.equal(null);
+    });
+
+    it('is null for a fluxd that publishes no port', async () => {
+      await fs.writeFile(file(), '{"address":"","pid":5400}\n');
+      expect(await fluxdCredentials.readFluxdRpcPort(file())).to.equal(null);
+    });
+
+    [['"36124"', 'a string'], ['0', 'zero'], ['65536', 'past 65535'], ['1.5', 'a fraction']].forEach(([value, what]) => {
+      it(`refuses a port that is ${what}`, async () => {
+        await fs.writeFile(file(), `{"address":"","pid":1,"rpcport":${value}}`);
+        await expect(fluxdCredentials.readFluxdRpcPort(file())).to.be.rejectedWith('names no usable rpcport');
+      });
+    });
+
+    it('refuses a file that is not JSON', async () => {
+      await fs.writeFile(file(), '{not json');
+      await expect(fluxdCredentials.readFluxdRpcPort(file())).to.be.rejectedWith('is not JSON');
+    });
+  });
 });

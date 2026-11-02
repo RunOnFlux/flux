@@ -29,6 +29,7 @@ let fluxdWait = null;
 const FLUXD_POLL_MS = 5000;
 const FLUXD_LOG_MS = 60000;
 const RPC_IN_WARMUP = -28;
+const FLUXD_RPC_PORT_UNPUBLISHED = 'FLUXD_RPC_PORT_UNPUBLISHED';
 let previousTestnetValue = isTestnet();
 
 // Listen for config changes and rebuild RPC client if testnet mode changes
@@ -37,10 +38,13 @@ configManager.on('configReloaded', async (newConfig) => {
   if (newTestnetValue !== previousTestnetValue) {
     previousTestnetValue = newTestnetValue;
     // Rebuild RPC client with new port
-    await buildFluxdClient();
-    const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
-    const rpcPort = fluxdConfig?.rpcport || config.daemon[portId];
-    log.info(`Testnet mode changed, rebuilt daemon RPC client on port ${rpcPort}`);
+    try {
+      // eslint-disable-next-line no-use-before-define
+      const client = await buildFluxdClient();
+      log.info(`Testnet mode changed, rebuilt daemon RPC client for ${client.url}`);
+    } catch (error) {
+      log.error(`Testnet mode changed, daemon RPC client not rebuilt: ${error.message}`);
+    }
   }
 });
 
@@ -116,6 +120,30 @@ function rpcCookieFile() {
   return path.isAbsolute(configured) ? configured : path.join(datadir, configured);
 }
 
+/**
+ * Where fluxd's RPC server listens: the port fluxd publishes beside a fluxd that
+ * reports itself; otherwise flux.conf's rpcport, or the network's default.
+ * @returns {Promise<number>}
+ * @throws {Error} code FLUXD_RPC_PORT_UNPUBLISHED beside a fluxd that reports
+ *   itself and publishes no port, which is while it is not running.
+ */
+async function fluxdRpcPort() {
+  if (fluxdReportsItself) {
+    const port = await fluxdCredentials.readFluxdRpcPort();
+    if (port === null) {
+      throw Object.assign(new Error(`fluxd has not published its RPC port in ${fluxdCredentials.FLUXD_FILE}`), { code: FLUXD_RPC_PORT_UNPUBLISHED });
+    }
+    return port;
+  }
+  const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
+  return fluxdConfig.rpcport || config.daemon[portId];
+}
+
+/**
+ * Builds the client fluxd is called through, from what is known about fluxd now.
+ * @returns {Promise<fluxRpc.FluxRpc>}
+ * @throws {Error} as fluxdRpcPort, or when the login cannot be read.
+ */
 async function buildFluxdClient() {
   await ensureConfigLoaded();
 
@@ -125,9 +153,7 @@ async function buildFluxdClient() {
     ? await fluxdCredentials.readRpcCookie(rpcCookieFile())
     : { username: fluxdConfig.rpcuser || 'rpcuser', password: fluxdConfig.rpcpassword };
 
-  const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
-
-  const rpcPort = fluxdConfig.rpcport || config.daemon[portId];
+  const rpcPort = await fluxdRpcPort();
 
   const rpcHost = config.daemon.host;
   const client = new fluxRpc.FluxRpc(`http://${rpcHost}:${rpcPort}`, {
@@ -219,7 +245,13 @@ async function executeCall(rpc, params, options = {}) {
   const rpcparameters = params || [];
   const useCache = options.useCache ?? true;
 
-  if (!fluxdClient) await buildFluxdClient();
+  if (!fluxdClient) {
+    try {
+      await buildFluxdClient();
+    } catch (error) {
+      return messageHelper.createErrorMessage(error.message, error.name, error.code);
+    }
+  }
 
   await lock.enable();
 
@@ -260,9 +292,8 @@ async function executeCall(rpc, params, options = {}) {
  * @returns {object} Message containing array of {id, result, error} objects.
  */
 async function executeBatchCall(calls) {
-  if (!fluxdClient) await buildFluxdClient();
-
   try {
+    if (!fluxdClient) await buildFluxdClient();
     const data = await callFluxd((client) => client.runBatch(calls));
     return messageHelper.createDataMessage(data);
   } catch (error) {
@@ -462,6 +493,7 @@ module.exports = {
   createBackupFluxdConfig,
   executeCall,
   executeBatchCall,
+  FLUXD_RPC_PORT_UNPUBLISHED,
   getConfigValue,
   getFluxdClient,
   getFluxdConfig,

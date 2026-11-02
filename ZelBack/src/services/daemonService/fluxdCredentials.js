@@ -5,14 +5,18 @@ const path = require('node:path');
  * How FluxOS reaches fluxd, and where the node key comes from.
  *
  * On an ArcaneOS image whose fluxos.service passes the node key as the systemd
- * credential `node-key`, FluxOS never opens flux.conf: it logs in to fluxd with
- * the cookie fluxd writes at each start, takes the node key from the credential,
- * and asks fluxd for its indexes and ZMQ notifications. Everywhere else -
- * legacy nodes and earlier ArcaneOS images - flux.conf holds all of it.
+ * credential `node-key`, FluxOS never opens flux.conf: it reaches fluxd on the
+ * RPC port fluxd publishes in fluxd.json, logs in with the cookie fluxd writes
+ * at each start, takes the node key from the credential, and asks fluxd for its
+ * indexes and ZMQ notifications. Everywhere else - legacy nodes and earlier
+ * ArcaneOS images - flux.conf holds all of it.
  */
 
 const NODE_KEY_CREDENTIAL = 'node-key';
 const RPC_COOKIE_FILE = '/run/fluxd/rpc.cookie';
+// fluxd's published facts, {address, pid, rpcport}: written at its start,
+// removed when it stops.
+const FLUXD_FILE = '/run/fluxd/fluxd.json';
 
 /**
  * The node key systemd passes as a credential.
@@ -75,11 +79,37 @@ async function readRpcCookie(file = RPC_COOKIE_FILE) {
   return text === null ? null : parseCookie(text);
 }
 
+/**
+ * The port fluxd's RPC server binds, as fluxd publishes it.
+ * @param {string} file
+ * @returns {Promise<number|null>} Null while fluxd publishes none: it is not
+ *   running, or is older than the field.
+ */
+async function readFluxdRpcPort(file = FLUXD_FILE) {
+  const text = await fs.readFile(file, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw new Error(`${file} cannot be read: ${error.message}`);
+  });
+  if (text === null) return null;
+  let published;
+  try {
+    published = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${file} is not JSON: ${error.message}`);
+  }
+  const port = published?.rpcport;
+  if (port === undefined) return null;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${file} names no usable rpcport: ${JSON.stringify(port)}`);
+  return port;
+}
+
 module.exports = {
+  FLUXD_FILE,
   NODE_KEY_CREDENTIAL,
   loadNodeKey,
   RPC_COOKIE_FILE,
   parseCookie,
+  readFluxdRpcPort,
   readNodeKeyCredential,
   readRpcCookie,
 };
