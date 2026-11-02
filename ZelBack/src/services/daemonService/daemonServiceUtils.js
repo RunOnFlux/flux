@@ -26,6 +26,7 @@ let nodeKey = null;
 let fluxdIndexes = null;
 let fluxdZmq = null;
 let fluxdWait = null;
+let fluxdLogin = null;
 const FLUXD_POLL_MS = 5000;
 const FLUXD_LOG_MS = 60000;
 const RPC_IN_WARMUP = -28;
@@ -166,22 +167,36 @@ async function buildFluxdClient() {
 }
 
 /**
+ * Logs in to fluxd again after it restarted: the cookie and the RPC port are read
+ * again, and fluxd is asked about itself again (waitForFluxd) without holding up
+ * the caller. Callers arriving together share one login.
+ * @returns {Promise<void>}
+ */
+function loginAgain() {
+  fluxdLogin ??= (async () => {
+    await buildFluxdClient();
+    // eslint-disable-next-line no-use-before-define
+    if (fluxdReportsItself) waitForFluxd();
+  })().finally(() => { fluxdLogin = null; });
+  return fluxdLogin;
+}
+
+/**
  * Runs `call` with the client. fluxd writes a new cookie at each start, so a 401
- * on a node that logs in with the cookie means fluxd restarted: the cookie is read
- * again, the call is made once more, and fluxd is asked about itself again
- * (waitForFluxd) without holding up the call.
+ * on a node that logs in with the cookie means fluxd restarted: the call logs in
+ * again (loginAgain) unless another call already has since this one began, and
+ * is made once more.
  * @template T
  * @param {function(fluxRpc.FluxRpc): Promise<T>} call
  * @returns {Promise<T>}
  */
 async function callFluxd(call) {
+  const client = fluxdClient;
   try {
-    return await call(fluxdClient);
+    return await call(client);
   } catch (error) {
     if (!usesRpcCookie() || error.status !== 401) throw error;
-    await buildFluxdClient();
-    // eslint-disable-next-line no-use-before-define
-    if (fluxdReportsItself) waitForFluxd();
+    if (fluxdClient === client) await loginAgain();
     return call(fluxdClient);
   }
 }

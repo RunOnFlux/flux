@@ -114,6 +114,7 @@ describe('daemonServiceUtils tests', () => {
         }
 
         async run(method) {
+          if (state.runGate && method === 'getbestblockhash') await state.runGate;
           if (state.refuse && state.refuse(this)) {
             const error = new Error('Request failed with status code 401');
             error.status = 401;
@@ -237,6 +238,45 @@ describe('daemonServiceUtils tests', () => {
       const batch = await module.executeBatchCall([{ method: 'getblockcount' }]);
       expect(batch.status).to.equal('error');
       expect(state.clients).to.eql([]);
+    });
+
+    it('logs in once for the calls fluxd refuses together after it restarts', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA, cookieB] });
+      await module.waitForFluxd();
+      // The wait the restart starts is held at its batch, so it is still the one in flight below.
+      let release;
+      state.batchGate = new Promise((resolve) => { release = resolve; });
+      state.refuse = (client) => client.auth?.password === 'a';
+      const answers = await Promise.all([1, 2, 3].map(() => module.executeCall('getblockcount', [], { useCache: false })));
+      expect(answers.map((answer) => answer.status)).to.eql(['success', 'success', 'success']);
+      expect(state.cookieReads, 'one login for the three refusals').to.equal(2);
+      expect(state.batches, 'fluxd asked about itself once more').to.have.length(2);
+      release();
+      await module.waitForFluxd();
+      expect(state.batches).to.have.length(2);
+    });
+
+    it('does not log in again for a call refused after another call already has', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA, cookieB] });
+      await module.waitForFluxd();
+      // A call in flight on the old login when fluxd restarts, and the wait the
+      // restart starts, both held.
+      let releaseCall;
+      let releaseWait;
+      state.runGate = new Promise((resolve) => { releaseCall = resolve; });
+      state.batchGate = new Promise((resolve) => { releaseWait = resolve; });
+      const held = module.executeCall('getbestblockhash', [], { useCache: false });
+      state.refuse = (client) => client.auth?.password === 'a';
+      expect((await module.executeCall('getblockcount', [], { useCache: false })).status).to.equal('success');
+      expect(state.cookieReads).to.equal(2);
+
+      releaseCall();
+      expect((await held).status, 'the held call is made again on the new login').to.equal('success');
+      expect(state.cookieReads, 'the held call does not log in again').to.equal(2);
+      expect(state.batches).to.have.length(2);
+      releaseWait();
+      await module.waitForFluxd();
+      expect(state.batches).to.have.length(2);
     });
 
     it('reads the RPC port again with the cookie when fluxd restarts', async () => {
