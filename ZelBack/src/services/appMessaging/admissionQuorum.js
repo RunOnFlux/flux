@@ -9,7 +9,9 @@
 //   1. the entry node signs the message and sends it, as `appproposal`, to each
 //      authenticated peer;
 //   2. each peer answers `received` at once, runs every check it holds a network
-//      message to, keeps it pending and answers `held`, or `refused` with why;
+//      message to, keeps it pending and answers `held`, or `refused` with why. A
+//      peer that has not answered `received` within its silence bound no longer
+//      counts; one that has may take until admissionTimeoutMs to answer;
 //   3. with `held` from admissionQuorum distinct IPs inside admissionTimeoutMs the
 //      entry node sends `appcommit`, writes its own copy, sends the message to its
 //      unauthenticated peers and answers success. Each peer writes the message on
@@ -83,7 +85,7 @@ function sendReceipt(peer, hash, state, reason) {
   peer.send(JSON.stringify(receipt));
 }
 
-// How long a proposed peer may go without answering before it no longer counts.
+// How long a proposed peer may take to answer `received` before it no longer counts.
 function silenceBoundMs(peer) {
   return Math.max(4 * (peer.latency ?? 0), 1000);
 }
@@ -115,7 +117,7 @@ function decide(round) {
 function armSilence(round, member) {
   clearTimeout(member.timer);
   member.timer = setTimeout(() => {
-    if (member.state !== 'sent' && member.state !== RECEIPT_STATE.RECEIVED) return;
+    if (member.state !== 'sent') return;
     member.state = 'silent';
     decide(round);
   }, silenceBoundMs(member.peer));
@@ -241,9 +243,9 @@ function onReceipt(peer, receipt) {
   if (!member) return;
   if (member.state === RECEIPT_STATE.HELD || member.state === RECEIPT_STATE.REFUSED) return;
   if (receipt.state === RECEIPT_STATE.RECEIVED && member.state === 'sent') {
+    clearTimeout(member.timer);
     member.receivedMs = Date.now() - member.sentAt;
     member.state = RECEIPT_STATE.RECEIVED;
-    armSilence(round, member);
   } else if (receipt.state === RECEIPT_STATE.HELD) {
     clearTimeout(member.timer);
     member.answeredMs = Date.now() - member.sentAt;

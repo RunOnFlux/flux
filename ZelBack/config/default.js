@@ -701,8 +701,8 @@ module.exports = {
     // The authenticated links on distinct IPs a node keeps: the quorum and a margin of
     // two, so a peer or two can be away and the node still admits.
     admissionLinkTarget: 5,
-    admissionTimeoutMs: 2000,
-    admissionHoldMs: 8000,
+    admissionTimeoutMs: 10000,
+    admissionHoldMs: 25000,
     admissionHoldMax: 500,
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
