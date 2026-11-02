@@ -45,6 +45,9 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const volumeService = require('../utils/volumeService');
 const { Privilege, authOf } = require('../utils/privileges');
 
+// The longest install error a node tells the network, in characters.
+const INSTALL_ERROR_MAX_LENGTH = 1000;
+
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
@@ -617,7 +620,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
           version: 1,
           name: appSpecifications.name,
           hash: appSpecifications.hash, // hash of application specifics that are running
-          error: serviceHelper.ensureString(errorResponse),
+          error: serviceHelper.ensureString(errorResponse).slice(0, INSTALL_ERROR_MAX_LENGTH),
           ip: localSocketAddr,
           broadcastedAt,
         };
