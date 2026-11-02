@@ -1767,6 +1767,7 @@ async function sharedAppVolumesMount() {
   if (!mount || isShared(mount)) return mount;
   const { error } = await serviceHelper.runCommand('mount', {
     runAsRoot: true,
+    hostMountNamespace: true,
     params: ['--make-shared', mount.target],
     logError: false,
   });
