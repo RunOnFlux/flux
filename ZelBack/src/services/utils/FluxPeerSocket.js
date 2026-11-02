@@ -8,6 +8,7 @@ const peerCodec = require('./peerCodec');
 const rateLimit = require('./rateLimit');
 const { isOrdered } = require('./messageRoutes');
 const linkCrypto = require('./linkCrypto');
+const fluxEventBus = require('./fluxEventBus');
 
 let _fluxNetworkHelper;
 function getFluxNetworkHelper() {
@@ -632,6 +633,9 @@ class FluxPeerSocket {
     // events and each is held to it on its own (fluxCommunication).
     if (frameBytes > config.fluxapps.gossipMessageMaxBytes) {
       log.warn(`Dropping a ${frameBytes} byte ${msgObj.data?.type} from ${this.direction} peer ${this.key}: over ${config.fluxapps.gossipMessageMaxBytes} bytes`);
+      fluxEventBus.publish('peers:frameDropped', {
+        ip: this.ip, port: this.port, type: msgObj.data?.type ?? null, bytes: frameBytes,
+      });
       return;
     }
 

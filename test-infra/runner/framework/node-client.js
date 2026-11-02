@@ -254,6 +254,8 @@ export function nodeClient(nodeNum) {
         'peers:accepting',
         'peers:belowThreshold',
         'peers:removed',
+        // a frame over gossipMessageMaxBytes, dropped before it is handled
+        'peers:frameDropped',
         'peers:thresholdReached',
         // A node taken out of service for losing its peer set, and given back.
         // dos:changed alone cannot carry this: it fires for every DOS owner, so
@@ -339,10 +341,13 @@ export function nodeClient(nodeNum) {
         'network:apprunningRefused',
         'network:appinstalling',
         'network:appinstallingerror',
+        'network:appinstallingerrorRefused',
         'network:appremoved',
         'network:appmessage',
         // whether a node took an unpaid app message, and why not
         'appmessage:admission',
+        // an app message a node did not store, and why
+        'appmessage:refused',
         // whether peers on the admission quorum held a message this node proposed
         'appmessage:quorum',
         'network:ipchanged',
@@ -359,6 +364,8 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:peerDisconnected',
         'ephemeralSync:budgetSpent',
         'sync:chunkVerified',
+        // events of a sync answer over gossipMessageMaxBytes, left out
+        'sync:eventsDropped',
         'hashSync:complete',
         'hashSync:bulkFetched',
         'hashSync:failed',

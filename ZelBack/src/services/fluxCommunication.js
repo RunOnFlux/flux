@@ -90,9 +90,12 @@ async function handleAppMessages(message, fromIP, port) {
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
       announceToPeers(message, `${fromIP}:${port}`);
+    } else if (rebroadcastToPeers instanceof Error) {
+      fluxEventBus.publish('appmessage:refused', { hash: message.data?.hash ?? null, reason: rebroadcastToPeers.message });
     }
   } catch (error) {
     log.error(error);
+    fluxEventBus.publish('appmessage:refused', { hash: message.data?.hash ?? null, reason: error.message });
   }
 }
 
@@ -630,6 +633,8 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     const rebroadcastToPeers = await messageStore.storeAppInstallingErrorMessage(message.data);
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appinstallingerror', { ip: message.data.ip, name: message.data.name });
+    } else if (rebroadcastToPeers instanceof Error) {
+      fluxEventBus.publish('network:appinstallingerrorRefused', { ip: message.data?.ip, name: message.data?.name, reason: rebroadcastToPeers.message });
     }
     await messageStore.storeSignedAppInstallingErrorBroadcast(message);
     const currentTimeStamp = Date.now();
@@ -1169,6 +1174,7 @@ async function processSyncChunk(msgObj, peerSocket) {
     const within = messages.filter((m) => Buffer.byteLength(JSON.stringify(m) ?? '') <= limit);
     if (within.length !== messages.length) {
       log.warn(`Dropping ${messages.length - within.length} events over ${limit} bytes from a ${msgObj.data.type} from ${peerSocket.key}`);
+      fluxEventBus.publish('sync:eventsDropped', { syncType: msgObj.data.type, peer: peerSocket.key, dropped: messages.length - within.length });
       msgObj.data.messages = within;
     }
   }
