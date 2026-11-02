@@ -1,6 +1,6 @@
 const http = require('http');
 const net = require('net');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const { signAsync } = require('@noble/secp256k1');
 const { sha256 } = require('@noble/hashes/sha2');
 const crypto = require('crypto');
@@ -729,6 +729,28 @@ const controlServer = http.createServer(async (req, res) => {
         connectedNodes: connectedNodes.size,
         availabilityAsks,
       }));
+      return;
+    }
+
+    // Opens one connection to a node per path port, as a caller that claims the
+    // link protocol and never answers its handshake, holds them for holdMs, and
+    // answers how each ended: { port, closeCode, closedAfterMs } (null while open).
+    if (req.method === 'POST' && req.url === '/dial-and-hold') {
+      const { target, ports, holdMs = 3000, capabilities = linkCrypto.CAPABILITY } = JSON.parse(await readBody(req));
+      const started = Date.now();
+      const results = ports.map((port) => ({ port, closeCode: null, closedAfterMs: null }));
+      const sockets = ports.map((port, i) => {
+        const ws = new WebSocket(`ws://${target}/ws/flux/${port}`, { headers: { 'X-Flux-Capabilities': capabilities } });
+        ws.on('close', (code) => {
+          if (results[i].closeCode === null) Object.assign(results[i], { closeCode: code, closedAfterMs: Date.now() - started });
+        });
+        ws.on('error', () => {});
+        return ws;
+      });
+      await new Promise((resolve) => { setTimeout(resolve, holdMs); });
+      sockets.forEach((ws) => { try { ws.terminate(); } catch (e) { /* closed */ } });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', results }));
       return;
     }
 

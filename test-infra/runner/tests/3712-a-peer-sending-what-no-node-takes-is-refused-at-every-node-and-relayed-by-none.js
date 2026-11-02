@@ -2,7 +2,9 @@
  * A peer sending what no node takes is refused by the node it reaches, and so
  * relayed by none: a broadcast over the per-message limit, an install error over
  * its length, an encrypted spec carrying a plain compose, an enterprise string
- * over its length, and a websocket message over the payload limit.
+ * over its length, and a websocket message over the payload limit. A caller that
+ * opens connections and never finishes their link handshake is held to the
+ * node's inbound limit and to its allowed ports.
  *
  * The stub peer is an Arcane node that authenticates its links, peered with one
  * Arcane node (ENTRY) and one legacy node (LEGACY) and nothing else; the other
@@ -216,6 +218,23 @@ describe('a peer sending what no node takes is refused at every node and relayed
       afterId: marks[ENTRY], label: 'ENTRY\'s verdict on the enterprise string of exactly its length',
     });
     expect(entry, JSON.stringify(entry)).to.have.nested.property('refused.reason').that.does.not.include('too long');
+  });
+
+  // The stub already holds a connection with ENTRY on 16127, so it dials on the
+  // other allowed ports, and on one that is not allowed.
+  it('refuses connections that never finish their handshake past the inbound limit, and on a port not allowed', async function () {
+    this.timeout(120000);
+    const allowed = [16137, 16147, 16157, 16167, 16177, 16187, 16197];
+    const results = await stub.dialAndHold(`${getSubnetConfig().nodeIp(ENTRY + 1)}:16127`, [...allowed, 16128], { holdMs: 3000 });
+    const at = (port) => results.find((r) => r.port === port);
+
+    expect(at(16128).closeCode, JSON.stringify(results)).to.equal(4021);
+    const onAllowed = allowed.map(at);
+    const refused = onAllowed.filter((r) => r.closeCode !== null);
+    const held = onAllowed.filter((r) => r.closeCode === null);
+    expect(refused.length, `connections refused at the inbound limit: ${JSON.stringify(results)}`).to.be.at.least(1);
+    refused.forEach((r) => expect(r.closeCode, JSON.stringify(r)).to.equal(4000));
+    expect(held.length, `connections held, still handshaking: ${JSON.stringify(results)}`).to.be.at.least(1);
   });
 
   // Last: the connection it closes is the stub's link to ENTRY.
