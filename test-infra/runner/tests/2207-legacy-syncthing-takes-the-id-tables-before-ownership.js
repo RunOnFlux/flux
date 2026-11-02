@@ -5,7 +5,7 @@ import { execInContainer, crashFluxos, releaseFluxos } from '../framework/contai
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { waitFor, waitForUp } from '../framework/wait.js';
+import { waitFor, waitForUp, assertNoEvent } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, scanFolder, statPath,
   getFileInfo, syncthingIdTables, stopDaemon,
@@ -33,6 +33,9 @@ const { TABLES_SHA256 } = numericIdTables;
 //     later to reach syncthing's namespace. Where it is not, FluxOS makes it so.
 //   - Only FluxOS writes the tables, so it checks them on the sentinel's first
 //     pass and before each launch of syncthing, and on no pass between.
+//   - A user or group added to the host replaces its passwd or group file.
+//     syncthing's own /etc is not the host's, so it keeps the tables and is not
+//     restarted.
 //
 // The two holders give the same names different ids, as hosts do, so a name
 // that travelled would land on the wrong id. A third node holds nothing: a node
@@ -237,6 +240,29 @@ describe('a legacy node\'s syncthing takes the numeric id tables before any owne
     await waitFor(async () => (await getFolderStatus(client(LEGACY), folder))?.state === 'idle', {
       timeout: 120000, interval: 2000, label: 'the folder is back',
     });
+  });
+
+  it('keeps the tables, and the same syncthing, when a user and a group are added to the host', async function () {
+    this.timeout(600000);
+    const passes = async () => (await client(LEGACY).getTestCounters())?.['syncthing:supervisionPass'] ?? 0;
+    const views = async () => syncthingIdTables(client(LEGACY));
+    const before = await views();
+    expect(before.length && before.every((v) => v.tables === TABLES_SHA256), `fixture: syncthing runs with the tables: ${JSON.stringify(before)}`).to.equal(true);
+    const mark = client(LEGACY).getLastEventId();
+
+    const added = await sh(LEGACY, 'groupadd e2eaddedgrp && useradd -r -g e2eaddedgrp e2eaddeduser && getent passwd e2eaddeduser');
+    expect(added.exitCode, `fixture: ${added.output}`).to.equal(0);
+
+    const after = await views();
+    expect(after.map((v) => v.tables), 'what syncthing resolves owners against, once the host added a user').to.deep.equal(before.map(() => TABLES_SHA256));
+
+    // Three sentinel passes: each would replace a syncthing resolving the host's names.
+    const passed = await passes();
+    await waitFor(async () => (await passes()) >= passed + 3, {
+      timeout: 400000, interval: 3000, label: 'three more sentinel passes',
+    });
+    await assertNoEvent(client(LEGACY), 'syncthing:namesVisible', () => true, 0, { afterId: mark });
+    expect((await views()).map((v) => v.pid), 'the syncthing processes').to.deep.equal(before.map((v) => v.pid));
   });
 
   it('checks the tables on its first pass and before a launch, and on no pass between', async function () {
