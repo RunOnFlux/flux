@@ -474,7 +474,7 @@ describe('daemonServiceUtils tests', () => {
 
     it('should return getBlock from cache if it exists', async () => {
       const rpc = 'getBlock';
-      const params = ['testing1', 'testing2'];
+      const params = ['00000000000000000000000000000000000000000000000000000000000abcde', 2];
       const key = rpc + JSON.stringify(params);
       const data = 'testvalue';
       const expectedSuccessMessage = {
@@ -525,7 +525,7 @@ describe('daemonServiceUtils tests', () => {
 
     it('should call rpc client if getBlock data is not cached ', async () => {
       const rpc = 'getBlock';
-      const params = ['getBlockParam'];
+      const params = ['00000000000000000000000000000000000000000000000000000000000abcde'];
       const key = rpc + JSON.stringify(params);
       const data = 'testvalue';
       const expectedSuccessMessage = {
@@ -541,6 +541,38 @@ describe('daemonServiceUtils tests', () => {
       sinon.assert.calledOnceWithExactly(getSpy, key);
       sinon.assert.calledOnceWithExactly(daemonRpcClientStub, rpc, { params });
       expect(daemonServiceUtils.getBlockCache(key)).to.eql(data);
+    });
+
+    it('asks fluxd for a block asked for by height every time, and keeps no copy', async () => {
+      const rpc = 'getBlock';
+      const params = ['2952005', 2];
+      const key = rpc + JSON.stringify(params);
+      daemonServiceUtils.setBlockCache(key, 'a block a reorganisation replaced');
+      const daemonRpcClientStub = sinon.stub().resolves('the active block');
+      daemonServiceUtils.setFluxdClient({ run: daemonRpcClientStub });
+
+      const first = await daemonServiceUtils.executeCall(rpc, params);
+      const second = await daemonServiceUtils.executeCall(rpc, params);
+
+      expect(first.data).to.equal('the active block');
+      expect(second.data).to.equal('the active block');
+      sinon.assert.calledTwice(daemonRpcClientStub);
+    });
+
+    it('asks fluxd for the hash at a height every time, and keeps no copy', async () => {
+      const rpc = 'getBlockHash';
+      const params = [2952005];
+      const key = rpc + JSON.stringify(params);
+      daemonServiceUtils.setStandardCache(key, 'the hash a reorganisation replaced');
+      const daemonRpcClientStub = sinon.stub().resolves('the active hash');
+      daemonServiceUtils.setFluxdClient({ run: daemonRpcClientStub });
+
+      const first = await daemonServiceUtils.executeCall(rpc, params);
+      const second = await daemonServiceUtils.executeCall(rpc, params);
+
+      expect(first.data).to.equal('the active hash');
+      expect(second.data).to.equal('the active hash');
+      sinon.assert.calledTwice(daemonRpcClientStub);
     });
 
     it('should call rpc client if getRawTransaction data is not cached ', async () => {
