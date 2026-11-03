@@ -25,6 +25,13 @@ const { globalAppsTempMessages, appsHashesCollection } = require('../utils/appCo
 // those releases' messages is one an attacker submitting through them could use
 // up for every other client of them.
 //
+// A node that is not ArcaneOS counts a message against its operator only. An
+// unpaid message reaches an ArcaneOS node only from ArcaneOS nodes, so there its
+// tag is the admitting node's reading of the caller; any node that signs can
+// send a node that is not ArcaneOS a message under any tag, so a tag counted
+// there would let it use up a client's allowance. Its own signature it cannot
+// put on another operator's messages.
+//
 // Only unpaid messages are counted or refused. A hash with a payment on chain is
 // taken whatever it carries, and is left out of every count.
 
@@ -281,7 +288,10 @@ async function admitUnpaid(message, { frame, daemonHeight }) {
   const resolved = await resolveOrigin(message, frame);
   if (resolved.refused) return { refused: resolved.refused };
 
-  const place = await reserve(message.hash, { clientTag, originKey: resolved.originKey, clientTagCap });
+  const counted = process.env.FLUXOS_PATH
+    ? { clientTag, originKey: resolved.originKey, clientTagCap }
+    : { originKey: resolved.originKey };
+  const place = await reserve(message.hash, counted);
   if (place.refused) return { refused: place.refused };
 
   return {

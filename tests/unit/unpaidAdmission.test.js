@@ -44,6 +44,7 @@ describe('unpaidAdmission tests', () => {
   const frameOf = (data, pubKey = ENTRY_KEY) => ({ ...originBy(pubKey), data });
 
   beforeEach(() => {
+    process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
     // what the temporary store holds per query, and which of its hashes are paid
     held = new Map();
     paid = new Set();
@@ -74,6 +75,7 @@ describe('unpaidAdmission tests', () => {
 
   afterEach(() => {
     sinon.restore();
+    delete process.env.FLUXOS_PATH;
   });
 
   const holding = (query, count, hashes = Array.from({ length: count }, (_, i) => `held${i}`)) => {
@@ -206,6 +208,41 @@ describe('unpaidAdmission tests', () => {
         .to.deep.equal({ refused: 'its client tag is malformed' });
       expect(await unpaidAdmission.admitUnpaid(stale, { frame: frameOf(stale), daemonHeight: TIP }))
         .to.deep.equal({ refused: `its client tag height ${TAG_HEIGHT - 240} is not current` });
+    });
+  });
+
+  describe('admitUnpaid: on a node that is not ArcaneOS', () => {
+    beforeEach(() => {
+      delete process.env.FLUXOS_PATH;
+    });
+
+    it('takes a message whose client tag has used its allowance, and stores the tag', async () => {
+      holding({ clientTag: TAG }, 3);
+      const data = tagged();
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission.fields).to.deep.equal({
+        clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin: originBy(), originKey: ENTRY_KEY,
+      });
+    });
+
+    it('refuses an operator that has used its allowance, whatever tags its messages carry', async () => {
+      holding({ originKey: ENTRY_KEY }, 5);
+      const data = tagged({ clientTag: 'f'.repeat(64) });
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
+    });
+
+    it('counts the messages it is taking against their operator only', async () => {
+      const admissions = await Promise.all(Array.from({ length: 6 }, (_, i) => {
+        const data = tagged({ hash: `burst${i}` });
+        return unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+      }));
+
+      expect(admissions.filter((a) => a.refused).map((a) => a.refused)).to.deep.equal(['its admitting operator already has 5 unpaid app messages pending']);
     });
   });
 
