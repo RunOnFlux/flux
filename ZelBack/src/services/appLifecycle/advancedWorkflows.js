@@ -3940,6 +3940,12 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     };
   }
 
+  // Misplaced holders leave one per refill, never all at once. A departure takes
+  // the app below its instance count, and every other misplaced holder waits
+  // until a correctly placed node has taken the gap. With nowhere correctly
+  // placed to go, the gap stays open and the rest stay where they are: an app
+  // running outside its geolocation keeps its data and keeps serving, which is
+  // better than an app that has neither.
   if (deps.misplaced) {
     const verdict = handbackTurns.mayHandBack(
       deps.turn.holders,
