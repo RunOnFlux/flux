@@ -338,6 +338,7 @@ module.exports = {
     nodeAuthCallsConcurrent: 2,
     nodeAuthCallsQueued: 32,
     linkHandshakeDeadlineMs: 10000,
+    untaggedRefusedFrom: '8.23.0',
     admissionQuorum: 3,
     admissionLinkTarget: 5,
     admissionTimeoutMs: 10000,

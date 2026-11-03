@@ -25,6 +25,7 @@ describe('unpaidAdmission tests', () => {
   let allowed;
   let submitterCap;
   let unpaidAdmission;
+  let floor = '8.22.0';
 
   // An app message in the order its admitting node signs it.
   const message = (fields = {}) => ({
@@ -63,6 +64,8 @@ describe('unpaidAdmission tests', () => {
     unpaidAdmission = proxyquire('../../ZelBack/src/services/appMessaging/unpaidAdmission', {
       config: {
         database: { appsglobal: { database: 'appsglobal' }, daemon: { database: 'daemon' } },
+        minimumFluxOSAllowedVersion: floor,
+        fluxapps: { untaggedRefusedFrom: '8.23.0' },
       },
       '../utils/unpaidAllowances': { allowances: () => allowed, submitterCap },
       '../dbHelper': dbHelper,
@@ -385,6 +388,27 @@ describe('unpaidAdmission tests', () => {
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
       expect(admission).to.deep.equal({ fields: {} });
+    });
+
+    describe('once the version floor is the first release that tags', () => {
+      before(() => { floor = '8.23.0'; });
+      after(() => { floor = '8.22.0'; });
+
+      it('refuses it', async () => {
+        const data = message();
+
+        const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+        expect(admission).to.deep.equal({ refused: 'it carries no client tag' });
+      });
+
+      it('still takes a tagged message', async () => {
+        const data = tagged();
+
+        const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+        expect(admission.fields.clientTag).to.equal(TAG);
+      });
     });
   });
 

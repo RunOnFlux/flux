@@ -163,9 +163,11 @@ async function storeAppTemporaryMessage(message, options = {}) {
   // written or let go.
   try {
     if (!result) {
-      // Only an Arcane node can put an unpaid message into the network, and only
-      // over an authenticated link does one reach an Arcane node.
-      admission = isArcane && !options.authenticated
+      // Only an Arcane node can put a tagged unpaid message into the network, and
+      // only over an authenticated link does one reach an Arcane node. One without
+      // a tag is from a release that does not tag, from any peer: the version
+      // floor decides it (unpaidAdmission).
+      admission = isArcane && !options.authenticated && message.clientTag !== undefined
         ? { refused: 'it did not arrive over an authenticated Arcane link' }
         : await unpaidAdmission.admitUnpaid(message, { frame: options.frame, daemonHeight });
       fluxEventBus.publish('appmessage:admission', {

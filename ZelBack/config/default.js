@@ -691,12 +691,17 @@ module.exports = {
     // A connection between two Arcane nodes joins the peer set when its link
     // handshake settles, or unauthenticated at this deadline.
     linkHandshakeDeadlineMs: 10000,
+    // The first release that tags every unpaid app message it admits. Once
+    // minimumFluxOSAllowedVersion is at least this, an unpaid message without a
+    // client tag is refused; below it one is taken from any peer, uncounted
+    // (services/appMessaging/unpaidAdmission.js).
+    untaggedRefusedFrom: '8.23.0',
     // Admitting an unpaid app message (services/appMessaging/admissionQuorum.js).
     // Only an ArcaneOS node admits one, only while it holds admissionQuorum
-    // authenticated links on distinct IPs, and answers success only once peers on admissionQuorum distinct
-    // IPs hold it, within admissionTimeoutMs; nothing is committed after that. A
-    // peer holds a proposed message for admissionHoldMs awaiting the commit, and
-    // at most admissionHoldMax at once.
+    // authenticated links on distinct IPs, and answers success only once peers on
+    // admissionQuorum distinct IPs hold it, within admissionTimeoutMs; nothing is
+    // committed after that. A peer holds a proposed message for admissionHoldMs
+    // awaiting the commit, and at most admissionHoldMax at once.
     admissionQuorum: 3,
     // The authenticated links on distinct IPs a node keeps: the quorum and a margin of
     // two, so a peer or two can be away and the node still admits.
