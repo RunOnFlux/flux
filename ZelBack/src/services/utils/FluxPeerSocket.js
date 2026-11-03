@@ -340,11 +340,14 @@ class FluxPeerSocket {
     if (typeof data !== 'string') return data;
     const timed = this.remoteCapabilities.has('transmissionTimestamps') ? `T${Date.now()}|${data}` : data;
     if (!this.link?.authenticated) return timed;
-    return linkCrypto.sealFrame(this.link.sendKey, timed);
+    const number = this.link.sendNumber;
+    this.link.sendNumber += 1;
+    return linkCrypto.sealFrame(this.link.sendKey, number, timed);
   }
 
   /**
-   * The frame under a link MAC prefix, when the MAC is the peer's.
+   * The frame under a link MAC prefix, when the MAC is the peer's and its number
+   * is past the last frame taken on this link, which it then becomes.
    *
    * Checked once this node has derived the link's keys, before it has necessarily
    * read the peer's confirm: the peer MACs only after accepting this node's
@@ -352,12 +355,15 @@ class FluxPeerSocket {
    * confirm proves.
    * @param {string} raw A frame beginning with `M`.
    * @returns {string|null} The rest of the frame, or null when the MAC is not
-   *   this link's.
+   *   this link's or the frame is not newer than the last taken.
    */
   #openLinkFrame(raw) {
     const { link } = this;
     if (!link?.recvKey || link.failed) return null;
-    return linkCrypto.openFrame(link.recvKey, raw);
+    const opened = linkCrypto.openFrame(link.recvKey, raw);
+    if (!opened || opened.number <= link.recvNumber) return null;
+    link.recvNumber = opened.number;
+    return opened.frame;
   }
 
   /**
@@ -500,20 +506,36 @@ class FluxPeerSocket {
       const rateOK = rateLimit.lruRateLimit(`${this.ip}:${this.port}`, 120);
       if (!rateOK) return;
 
+      const bytes = Buffer.isBuffer(evt.data) ? evt.data.length : Buffer.byteLength(evt.data, 'utf8');
+      let frame = { data: evt.data, bytes, linkVerified: false };
+      // A frame under a link MAC is opened here, as it arrives: the frames reach
+      // this handler in the order the peer numbered them, and nothing that holds
+      // a frame back comes before this point.
+      if (typeof evt.data === 'string' && evt.data[0] === 'M') {
+        const opened = this.#openLinkFrame(evt.data);
+        if (opened === null) {
+          log.warn(`Dropping a frame from ${this.direction} peer ${this.key}: its link MAC does not verify, or it is not newer than the last frame taken`);
+          fluxEventBus.publish('peers:frameDropped', {
+            ip: this.ip, port: this.port, type: null, bytes, reason: 'linkMac',
+          });
+          return;
+        }
+        frame = { data: opened, bytes, linkVerified: true };
+      }
+
       // Until the link handshake settles only its own two messages are handled;
       // everything else waits on the socket, in order, for the connection to join.
-      if (this.handshaking && !this.#isHandshakeFrame(evt.data)) {
-        const bytes = Buffer.isBuffer(evt.data) ? evt.data.length : Buffer.byteLength(evt.data, 'utf8');
+      if (this.handshaking && !this.#isHandshakeFrame(frame.data)) {
         if (this.#queuedFrames.length >= HANDSHAKE_QUEUE_MAX || this.#queuedBytes + bytes > HANDSHAKE_QUEUE_MAX_BYTES) {
           log.warn(`Closing ${this.direction} connection ${this.key}: more than ${HANDSHAKE_QUEUE_MAX} frames or ${HANDSHAKE_QUEUE_MAX_BYTES} bytes arrived before its link handshake settled`);
           this.close(this.closeCodes.invalidMsg, 'too much arrived before the link settled');
           return;
         }
-        this.#queuedFrames.push(evt);
+        this.#queuedFrames.push(frame);
         this.#queuedBytes += bytes;
         return;
       }
-      this.#handleFrame(evt);
+      this.#handleFrame(frame);
     };
   }
 
@@ -546,8 +568,10 @@ class FluxPeerSocket {
   }
 
   /**
-   * One frame, as received.
-   * @param {{data: string|Buffer}} evt
+   * One frame, its link MAC already checked and removed.
+   * @param {{data: string|Buffer, bytes: number, linkVerified: boolean}} evt
+   *   `bytes` is the frame's size as it arrived; `linkVerified`, whether it
+   *   carried a valid link MAC.
    */
   #handleFrame(evt) {
     const { manager } = this;
@@ -560,7 +584,7 @@ class FluxPeerSocket {
     }
 
     this.messagesReceived += 1;
-    const frameBytes = Buffer.byteLength(evt.data, 'utf8');
+    const frameBytes = evt.bytes;
     this.bytesReceived += frameBytes;
 
     // Strip transmission timestamp prefix if present (T{timestamp}|{json})
@@ -569,15 +593,7 @@ class FluxPeerSocket {
     //   skew = localOffset - remoteOffset (positive = our clock is ahead)
     //   adjustedDelay = rawDelay - skew
     let rawData = evt.data;
-    let linkVerified = false;
-    if (typeof rawData === 'string' && rawData[0] === 'M') {
-      rawData = this.#openLinkFrame(rawData);
-      if (rawData === null) {
-        log.warn(`Dropping a frame from ${this.direction} peer ${this.key}: its link MAC does not verify`);
-        return;
-      }
-      linkVerified = true;
-    }
+    const { linkVerified } = evt;
     if (typeof rawData === 'string' && rawData.length > 2 && rawData[0] === 'T') {
       const pipeIdx = rawData.indexOf('|');
       if (pipeIdx > 1 && pipeIdx < 16) { // timestamp is 13-14 digits

@@ -126,6 +126,14 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Send each connected node, again and as it was, the last frame this peer
+    // sealed to it on their authenticated link. Answers how many it sent.
+    async replayLastFrame() {
+      const res = await controlFetch(`${controlUrl}/replay-last-frame`, { method: 'POST' });
+      if (!res.ok) throw new Error(`stub ${ip} could not replay: ${res.status} ${await res.text()}`);
+      return (await res.json()).sent;
+    },
+
     // Open one connection to `target` (ip:port) per path port, claiming the link
     // protocol and never answering its handshake, and hold them for holdMs. Answers
     // how each ended: [{ port, closeCode, closedAfterMs }], closeCode null when the

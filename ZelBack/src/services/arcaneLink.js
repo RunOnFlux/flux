@@ -18,8 +18,9 @@
 //   3. each side sends `fluxlinkconfirm` {mac}, a MAC under its own direction's
 //      key, and the link is authenticated when the peer's checks out.
 //
-// From then on FluxPeerSocket MACs every text frame on the link under the
-// sender's key, and marks what arrives under a valid one (arrivedAuthenticated).
+// From then on FluxPeerSocket MACs and numbers every text frame on the link
+// under the sender's key, and marks what arrives under a valid MAC and a number
+// past the last it took (arrivedAuthenticated).
 //
 // The secret never leaves the node, and nothing is cached: a new socket derives
 // afresh, so no address can carry another connection's trust.
@@ -211,6 +212,9 @@ function startLink(peer) {
     peerConfirm: null,
     sendKey: null,
     recvKey: null,
+    // The number of the next frame this end seals, and of the last it took.
+    sendNumber: 0,
+    recvNumber: -1,
     authenticated: false,
     failed: null,
     ready: null,

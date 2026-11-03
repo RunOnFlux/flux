@@ -386,8 +386,12 @@ describe('fluxCommunication tests', () => {
       const manager = { messageDispatcher: async (msgObj) => { delivered = msgObj; } };
       const sender = new FluxPeerSocket(fakeWs(), '10.0.0.2', '16127', manager);
       const receiver = new FluxPeerSocket(fakeWs(), '10.0.0.1', '16127', manager);
-      sender.link = { authenticated: true, sendKey: keyAtoB, recvKey: keyBtoA };
-      receiver.link = { authenticated: true, sendKey: keyBtoA, recvKey: keyAtoB };
+      sender.link = {
+        authenticated: true, sendKey: keyAtoB, recvKey: keyBtoA, sendNumber: 0, recvNumber: -1,
+      };
+      receiver.link = {
+        authenticated: true, sendKey: keyBtoA, recvKey: keyAtoB, sendNumber: 0, recvNumber: -1,
+      };
       sender.send(JSON.stringify({ ...envelope, timestamp: Date.now() }));
       receiver.ws.onmessage({ data: sender.ws.send.firstCall.args[0] });
       await new Promise((resolve) => { setImmediate(resolve); });

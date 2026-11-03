@@ -9,8 +9,10 @@ const NONCE_TYPE = 'fluxlinknonce';
 const CONFIRM_TYPE = 'fluxlinkconfirm';
 
 const HEX_32_BYTES = /^[0-9a-f]{64}$/;
-// `M<64 hex>|`: a link MAC over the rest of the frame.
+// `M<64 hex>|`: a link MAC over the rest of the frame, which begins with the
+// frame's number on its link and direction: `<number>|<frame>`.
 const FRAME_PREFIX_LENGTH = 66;
+const FRAME_NUMBER = /^(0|[1-9][0-9]{0,14})\|/;
 
 function hmac(key, text) {
   return crypto.createHmac('sha256', key).update(text).digest();
@@ -91,27 +93,35 @@ function confirmVerifies(key, mac) {
 }
 
 /**
- * A text frame under a link MAC.
+ * A text frame under a link MAC, numbered. A sender numbers the frames it seals
+ * on one link from 0 up, so its peer can take each frame only once and only in
+ * the order it was sent.
  * @param {Buffer} key The sender's direction key.
+ * @param {number} number The frame's number on its link and direction.
  * @param {string} frame
  * @returns {string}
  */
-function sealFrame(key, frame) {
-  return `M${hmac(key, frame).toString('hex')}|${frame}`;
+function sealFrame(key, number, frame) {
+  const numbered = `${number}|${frame}`;
+  return `M${hmac(key, numbered).toString('hex')}|${numbered}`;
 }
 
 /**
- * The frame under a link MAC prefix, when the MAC is the one `key` makes.
+ * The frame under a link MAC prefix, and its number, when the MAC is the one
+ * `key` makes.
  * @param {Buffer} key The peer's direction key.
  * @param {string} raw A frame beginning with `M`.
- * @returns {string|null}
+ * @returns {{number: number, frame: string}|null}
  */
 function openFrame(key, raw) {
   if (raw.length < FRAME_PREFIX_LENGTH || raw[FRAME_PREFIX_LENGTH - 1] !== '|') return null;
   const mac = raw.substring(1, FRAME_PREFIX_LENGTH - 1);
   if (!isHex32(mac)) return null;
-  const rest = raw.substring(FRAME_PREFIX_LENGTH);
-  return crypto.timingSafeEqual(Buffer.from(mac, 'hex'), hmac(key, rest)) ? rest : null;
+  const numbered = raw.substring(FRAME_PREFIX_LENGTH);
+  if (!crypto.timingSafeEqual(Buffer.from(mac, 'hex'), hmac(key, numbered))) return null;
+  const match = FRAME_NUMBER.exec(numbered);
+  if (!match) return null;
+  return { number: Number(match[1]), frame: numbered.substring(match[0].length) };
 }
 
 module.exports = {

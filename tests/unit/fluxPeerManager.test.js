@@ -727,8 +727,12 @@ describe('FluxPeerSocket tests', () => {
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
       const a = new FluxPeerSocket(createMockWs('10.0.0.2'), '10.0.0.2', '16127', manager);
       const b = new FluxPeerSocket(createMockWs('10.0.0.1'), '10.0.0.1', '16127', manager);
-      a.link = { authenticated: aAuthenticated, failed: null, sendKey: keyAtoB, recvKey: keyBtoA };
-      b.link = { authenticated: bAuthenticated, failed: null, sendKey: keyBtoA, recvKey: keyAtoB };
+      a.link = {
+        authenticated: aAuthenticated, failed: null, sendKey: keyAtoB, recvKey: keyBtoA, sendNumber: 0, recvNumber: -1,
+      };
+      b.link = {
+        authenticated: bAuthenticated, failed: null, sendKey: keyBtoA, recvKey: keyAtoB, sendNumber: 0, recvNumber: -1,
+      };
       return { a, b };
     }
 
@@ -759,7 +763,7 @@ describe('FluxPeerSocket tests', () => {
       a.ws.send.firstCall.args[1]();
       expect(await sending).to.equal(true);
       const sent = a.ws.send.firstCall.args[0];
-      expect(sent.substring(66, 67)).to.equal('T');
+      expect(sent.substring(66, 69)).to.equal('0|T');
 
       const msgObj = await deliver(b, sent);
 
@@ -775,6 +779,91 @@ describe('FluxPeerSocket tests', () => {
       await deliver(b, sent);
 
       sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should drop a frame it has already taken, and take the next', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      a.send(frame);
+      const [first, second] = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, first);
+      await deliver(b, first);
+      sinon.assert.calledOnce(manager.messageDispatcher);
+      await deliver(b, second);
+      sinon.assert.calledTwice(manager.messageDispatcher);
+    });
+
+    it('should drop a frame older than the last it took', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      a.send(frame);
+      const [first, second] = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, second);
+      await deliver(b, first);
+
+      sinon.assert.calledOnce(manager.messageDispatcher);
+    });
+
+    it('should take a frame numbered past a gap', async () => {
+      const { a, b } = linkedPair();
+      [0, 1, 2].forEach(() => a.send(frame));
+      const sent = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, sent[0]);
+      await deliver(b, sent[2]);
+
+      sinon.assert.calledTwice(manager.messageDispatcher);
+    });
+
+    it('should say why it dropped a frame', async () => {
+      const { a, b } = linkedPair();
+      const published = sinon.stub(fluxEventBus, 'publish');
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0];
+
+      await deliver(b, sent);
+      await deliver(b, sent);
+
+      sinon.assert.calledWith(published, 'peers:frameDropped', sinon.match({ ip: '10.0.0.1', reason: 'linkMac' }));
+    });
+
+    it('should check MAC\'d frames as they arrive during the handshake and take them in order at join', async () => {
+      const { a, b } = linkedPair({ bAuthenticated: false });
+      b.handshaking = true;
+      a.send(JSON.stringify({ version: 1, data: { type: 'fluxappregister' } }));
+      a.send(JSON.stringify({ version: 1, data: { type: 'fluxappupdate' } }));
+      const [first, second] = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, first);
+      await deliver(b, first);
+      await deliver(b, second);
+      sinon.assert.notCalled(manager.messageDispatcher);
+
+      b.handshaking = false;
+      b.flushQueuedFrames();
+      await new Promise(setImmediate);
+
+      const taken = manager.messageDispatcher.getCalls().map((call) => call.args[0]);
+      expect(taken.map((msgObj) => msgObj.data.type)).to.eql(['fluxappregister', 'fluxappupdate']);
+      taken.forEach((msgObj) => expect(arrivedAuthenticated(msgObj)).to.equal(true));
+    });
+
+    it('should take frames that waited on the handshake when a later frame is handled before them', async () => {
+      const { a, b } = linkedPair({ bAuthenticated: false });
+      b.handshaking = true;
+      [0, 1, 2].forEach(() => a.send(frame));
+      const sent = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, sent[0]);
+      await deliver(b, sent[1]);
+      b.handshaking = false;
+      await deliver(b, sent[2]);
+      b.flushQueuedFrames();
+      await new Promise(setImmediate);
+
+      sinon.assert.callCount(manager.messageDispatcher, 3);
     });
 
     it('should drop a frame sent back to the socket that made it', async () => {
