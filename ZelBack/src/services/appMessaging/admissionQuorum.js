@@ -19,6 +19,11 @@
 //   4. otherwise nothing is committed: the entry node answers failure and each
 //      peer drops its pending copy after admissionHoldMs.
 //
+// Until the version floor is a release that tags (unpaidAdmission.untaggedRefused)
+// a node short of the quorum admits as a release that does not tag: it writes the
+// message without its tag and sends it to every peer, each of which takes an
+// untagged message from any link.
+//
 // All three messages travel only in frames carrying a valid link MAC
 // (FluxPeerSocket), so no other node can propose, hold or commit.
 
@@ -78,21 +83,27 @@ function isMessageHash(hash) {
   return typeof hash === 'string' && MESSAGE_HASH.test(hash);
 }
 
+function holdsQuorum() {
+  return peerManager.authenticatedIpCount() >= config.fluxapps.admissionQuorum;
+}
+
 /**
- * Refuse at the door unless this node is an ArcaneOS node holding
- * admissionQuorum authenticated links on distinct IPs.
+ * Refuse at the door unless this node is an ArcaneOS node that can admit: one
+ * holding admissionQuorum authenticated links on distinct IPs, or any, until the
+ * version floor is a release that tags.
+ * @returns {boolean} Whether this node holds the quorum.
  * @throws {AdmissionNotSupportedError} on a node that is not ArcaneOS.
- * @throws {AdmissionUnavailableError} below the quorum.
+ * @throws {AdmissionUnavailableError} below the quorum, from that floor.
  */
 function requireQuorum() {
   if (!process.env.FLUXOS_PATH) {
     throw new AdmissionNotSupportedError('This Flux node does not take app registrations or updates: only ArcaneOS nodes do. Submit to an ArcaneOS node.');
   }
+  if (holdsQuorum()) return true;
+  if (!unpaidAdmission.untaggedRefused()) return false;
   const { admissionQuorum } = config.fluxapps;
   const count = peerManager.authenticatedIpCount();
-  if (count < admissionQuorum) {
-    throw new AdmissionUnavailableError(`This Flux node cannot admit app messages now: it holds authenticated links to ${count} of the ${admissionQuorum} nodes it needs. Try another node.`);
-  }
+  throw new AdmissionUnavailableError(`This Flux node cannot admit app messages now: it holds authenticated links to ${count} of the ${admissionQuorum} nodes it needs. Try another node.`);
 }
 
 function sendReceipt(peer, hash, state, reason) {
@@ -197,8 +208,35 @@ async function admit(message, { daemonHeight }) {
   }
 }
 
+/**
+ * Admit a message as a release that does not tag: write it without its tag and
+ * send it to every peer.
+ * @param {object} message
+ * @param {{daemonHeight: number}} options
+ */
+async function admitUntagged(message, { daemonHeight }) {
+  const {
+    type, version, appSpecifications, hash, timestamp, signature, arcaneSender,
+  } = message;
+  const untagged = {
+    type, version, appSpecifications, hash, timestamp, signature, arcaneSender,
+  };
+  const signed = await serialiseAndSignFluxBroadcast(untagged);
+  if (!signed) throw new Error('This Flux node cannot sign app messages now. Try another node.');
+  const admission = await unpaidAdmission.admitUnpaid(untagged, { frame: JSON.parse(signed), daemonHeight });
+  if (admission.refused) throw new Error(`The network will not take this app message: ${admission.refused}`);
+  await insertTemporaryMessage(untagged, admission.fields);
+  fluxEventBus.publish('appmessage:quorum', {
+    hash, committed: true, heldBy: 0, reasons: [], members: [], untagged: true,
+  });
+  [...peerManager.getAuthenticatedPeers(), ...peerManager.getUnauthenticatedPeers()].forEach((peer) => peer.send(signed));
+}
+
 async function admitOnce(message, { daemonHeight }) {
-  requireQuorum();
+  if (!requireQuorum()) {
+    await admitUntagged(message, { daemonHeight });
+    return;
+  }
   const signed = await serialiseAndSignFluxBroadcast(message);
   if (!signed) throw new Error('This Flux node cannot sign app messages now. Try another node.');
   const envelope = JSON.parse(signed);

@@ -341,6 +341,7 @@ async function tagSubmission(client, daemonHeight) {
 
 module.exports = {
   admitUnpaid,
+  untaggedRefused,
   admittedMessage,
   overAllowance,
   tagSubmission,

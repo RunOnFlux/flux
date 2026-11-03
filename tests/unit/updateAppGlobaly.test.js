@@ -10,6 +10,7 @@ const { requireMongo } = require('./dbTestHelper');
 const EventEmitter = require('node:events');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
+const unpaidAdmission = require('../../ZelBack/src/services/appMessaging/unpaidAdmission');
 
 // The submission path up to the owner's signature: which app an update is judged against, and
 // whose signature it needs.
@@ -163,8 +164,9 @@ describe('updateAppGlobalyApi tests', () => {
     delete process.env.FLUXOS_PATH;
   });
 
-  it('should refuse at the door with 503 below the quorum of authenticated links', async () => {
+  it('should refuse at the door with 503 below the quorum of authenticated links once the version floor is a release that tags', async () => {
     sinon.stub(peerManager, 'authenticatedIpCount').returns(2);
+    sinon.stub(unpaidAdmission, 'untaggedRefused').returns(true);
     const response = await update();
     expect(response.data.name).to.equal('AdmissionUnavailable');
     expect(statusCode).to.equal(503);

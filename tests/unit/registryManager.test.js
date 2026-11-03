@@ -19,6 +19,7 @@ const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/servic
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { requireMongo } = require('./dbTestHelper');
 const { verifyEncryptedSpec } = require('../../ZelBack/src/services/utils/enterpriseHelper');
+const unpaidAdmission = require('../../ZelBack/src/services/appMessaging/unpaidAdmission');
 
 describe('registryManager tests', () => {
   before(requireMongo);
@@ -2219,8 +2220,9 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     expect(response.data.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.');
   });
 
-  it('should refuse at the door, before any check, below the quorum of authenticated links', async () => {
+  it('should refuse at the door, before any check, below the quorum of authenticated links once the version floor is a release that tags', async () => {
     peerManager.authenticatedIpCount.returns(2);
+    sinon.stub(unpaidAdmission, 'untaggedRefused').returns(true);
     const response = await register({ ...spec, name: 'register_test' });
     expect(response.status).to.equal('error');
     expect(response.data.name).to.equal('AdmissionUnavailable');
