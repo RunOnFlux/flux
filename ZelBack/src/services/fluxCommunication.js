@@ -845,19 +845,61 @@ function announceOwnAddressMove(oldIp, newIp, broadcastedAt) {
   startSendingOwnMoves();
 }
 
+// The moves this process recorded as its address switched, not yet told to the
+// network.
+const ownMovesRecordedAtSwitch = new Set();
+const ownMoveKey = (oldIp, newIp, broadcastedAt) => `${normalizeSocketAddress(oldIp)} ${normalizeSocketAddress(newIp)} ${broadcastedAt}`;
+
 /**
- * Record this node's own move and announce it, once: a move already recorded
- * at the time it was made is left as it is, since the network hears it from
- * the pending move or, after a restart, from the moves sent at startup. What
- * serviceManager wires to fluxNetworkHelper's address-moved seam.
+ * Whether this node's move from `oldIp` to `newIp` made at `broadcastedAt` is
+ * recorded.
+ * @param {string} oldIp
+ * @param {string} newIp
+ * @param {number} broadcastedAt
+ * @returns {Promise<boolean>}
+ */
+async function ownMoveRecorded(oldIp, newIp, broadcastedAt) {
+  const recorded = (await registryManager.addressMovesFrom([oldIp])).get(normalizeSocketAddress(oldIp));
+  return Boolean(recorded && recorded.at === broadcastedAt && socketAddressesMatch(recorded.to, newIp));
+}
+
+/**
+ * Record this node's own move as its address switches to the new one: the move
+ * recorded once, and every row reported at the old address until now carried to
+ * the new one. This node held the old address until it switches, so a row
+ * reported there after the move was made is its own as well. What serviceManager
+ * wires to fluxNetworkHelper's address-recorded seam, which calls it inside the
+ * announcement cycle lock.
+ * @param {string} oldIp This node's former socket address.
+ * @param {string} newIp Its new socket address.
+ * @param {number} broadcastedAt When the move was made (ms).
+ */
+async function recordOwnAddressMoveAtSwitch(oldIp, newIp, broadcastedAt) {
+  if (!await ownMoveRecorded(oldIp, newIp, broadcastedAt)) {
+    await recordOwnAddressMove(oldIp, newIp, broadcastedAt);
+    ownMovesRecordedAtSwitch.add(ownMoveKey(oldIp, newIp, broadcastedAt));
+  }
+  await messageStore.storeIPChangedMessage({
+    type: 'fluxipchanged', version: 1, oldIP: oldIp, newIP: newIp, broadcastedAt: Date.now(),
+  });
+}
+
+/**
+ * Record this node's own move and announce it, once: a move a previous process
+ * recorded is left as it is, since the network hears it from the moves sent at
+ * startup. What serviceManager wires to fluxNetworkHelper's address-moved seam.
  * @param {string} oldIp This node's former socket address.
  * @param {string} newIp Its new socket address.
  * @param {number} broadcastedAt When the move was made (ms).
  */
 async function handleOwnAddressMove(oldIp, newIp, broadcastedAt) {
-  const recorded = (await registryManager.addressMovesFrom([oldIp])).get(normalizeSocketAddress(oldIp));
-  if (recorded && recorded.at === broadcastedAt && socketAddressesMatch(recorded.to, newIp)) return;
-  await recordOwnAddressMove(oldIp, newIp, broadcastedAt);
+  const key = ownMoveKey(oldIp, newIp, broadcastedAt);
+  if (await ownMoveRecorded(oldIp, newIp, broadcastedAt)) {
+    if (!ownMovesRecordedAtSwitch.has(key)) return;
+  } else {
+    await recordOwnAddressMove(oldIp, newIp, broadcastedAt);
+  }
+  ownMovesRecordedAtSwitch.delete(key);
   announceOwnAddressMove(oldIp, newIp, broadcastedAt);
 }
 
@@ -2747,6 +2789,7 @@ module.exports = {
   handleAppInstallingErrorsSyncResponse,
   handleIPChangedMessage,
   recordOwnAddressMove,
+  recordOwnAddressMoveAtSwitch,
   announceOwnAddressMove,
   handleOwnAddressMove,
   announceRecordedOwnMovesWhenConnected,

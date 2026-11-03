@@ -903,8 +903,9 @@ describe('advancedWorkflows tests', () => {
 
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
-      // default: this node has moved nowhere, so it is where benchmark says
-      ownAddressStub = sinon.stub(fluxNetworkHelper, 'ownAddressFor').callsFake((address) => address);
+      // the address a pass reads its location rows against: the one it was given
+      ownAddressStub = sinon.stub(fluxNetworkHelper, 'withSteadyOwnAddress')
+        .callsFake(async (read) => read(await fluxNetworkHelperStub.lastCall.returnValue));
 
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       registryManagerStub = sinon.stub(registryManager, 'appLocation');
@@ -3997,19 +3998,19 @@ describe('advancedWorkflows tests', () => {
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       });
 
-      it('knows itself at the address it has recorded moving to, before benchmark reports it there', async () => {
+      it('knows itself at the address it moved to when FDM names the one it left', async () => {
         const appName = 'movedselfwindow';
         const MOVED_TO = '192.168.1.6:16127';
         sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-        // Benchmark still gives 192.168.1.5; the move this node recorded carried
-        // its rows to 192.168.1.6, and FDM's old IP resolves there.
+        // The move carried this node's rows to 192.168.1.6 and switched its
+        // address there; FDM's old IP resolves there.
+        fluxNetworkHelperStub.resolves(MOVED_TO);
         registryManagerStub.resolves([
           { name: appName, ip: MOVED_TO, runningSince: '2026-01-01T00:00:00.000Z' },
           { name: appName, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
         ]);
-        ownAddressStub.callsFake((address) => (address === '192.168.1.5:16127' ? MOVED_TO : address));
         primaryAddressStub.callsFake(async (name, ip) => (ip === '192.168.1.5' ? MOVED_TO : ip));
         serviceHelperStub.resetBehavior();
         serviceHelperStub.resolves(fdmNames('192.168.1.5'));
@@ -4021,7 +4022,7 @@ describe('advancedWorkflows tests', () => {
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       });
 
-      it('knows itself at the address it moves to while FDM\'s answer is looked up', async () => {
+      it('compares FDM\'s primary with the address it holds as the rows are read, not one it read before', async () => {
         const appName = 'movedselfmidpass';
         const MOVED_TO = '192.168.1.6:16127';
         sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
@@ -4031,13 +4032,10 @@ describe('advancedWorkflows tests', () => {
           { name: appName, ip: MOVED_TO, runningSince: '2026-01-01T00:00:00.000Z' },
           { name: appName, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
         ]);
-        // The move is recorded while the pass looks up the primary FDM named.
-        let moved = false;
-        ownAddressStub.callsFake((address) => (moved && address === '192.168.1.5:16127' ? MOVED_TO : address));
-        primaryAddressStub.callsFake(async (name, ip) => {
-          moved = true;
-          return ip === '192.168.1.5' ? MOVED_TO : ip;
-        });
+        // The pass read 192.168.1.5 before asking FDM; the switch to 192.168.1.6
+        // happened before the rows were read.
+        ownAddressStub.callsFake(async (read) => read(MOVED_TO));
+        primaryAddressStub.callsFake(async (name, ip) => (ip === '192.168.1.5' ? MOVED_TO : ip));
         serviceHelperStub.resetBehavior();
         serviceHelperStub.resolves(fdmNames('192.168.1.5'));
         axiosGetStub.resetBehavior();
