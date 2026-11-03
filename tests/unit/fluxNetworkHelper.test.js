@@ -4432,6 +4432,19 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.notCalled(publishStub);
     });
 
+    it('refuses a container\'s DNS query for the speedtest CLI\'s API, ahead of the DNS exception', () => {
+      const rules = fluxNetworkHelper.containerEgressRules(BRIDGES);
+      // As iptables 1.8.11 prints them (nf_tables, Arcane and legacy alike).
+      const hex = '"|03636c6909737065656474657374036e657400|"';
+      ['docker0', 'br-+'].forEach((bridge) => {
+        const udp = `-A DOCKER-USER -i ${bridge} -p udp -m udp --dport 53 -m string --hex-string ${hex} --algo bm --icase -j REJECT --reject-with icmp-port-unreachable`;
+        const tcp = `-A DOCKER-USER -i ${bridge} -p tcp -m tcp --dport 53 -m string --hex-string ${hex} --algo bm --icase -j REJECT --reject-with tcp-reset`;
+        const firstDnsReturn = rules.findIndex((rule) => /--dport 53 -j RETURN$/.test(rule));
+        expect(rules.indexOf(udp)).to.be.within(0, firstDnsReturn - 1);
+        expect(rules.indexOf(tcp)).to.be.within(0, firstDnsReturn - 1);
+      });
+    });
+
     it('puts back a missing FORWARD jump to DOCKER-USER, and only then', async () => {
       liveChain(fluxNetworkHelper.containerEgressRules(BRIDGES));
       runCommandStub.withArgs('iptables', iptablesCall(['-C', 'FORWARD', '-j', 'DOCKER-USER'])).resolves({ error: new Error('missing'), stdout: '', stderr: '' });
@@ -4443,6 +4456,69 @@ describe('fluxNetworkHelper tests', () => {
       runCommandStub.withArgs('iptables', iptablesCall(['-C', 'FORWARD', '-j', 'DOCKER-USER'])).resolves({ error: null, stdout: '', stderr: '' });
       await fluxNetworkHelper.applyContainerEgressRules(BRIDGES);
       sinon.assert.neverCalledWith(runCommandStub, 'iptables', iptablesCall(['-I', 'FORWARD', '-j', 'DOCKER-USER']));
+    });
+  });
+
+  describe('flux-dnsd lookup policy tests', () => {
+    const iptablesCall = (params) => sinon.match({ runAsRoot: true, params });
+    const hex = '"|03636c6909737065656474657374036e657400|"';
+    let runCommandStub;
+    let written;
+
+    beforeEach(() => {
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+      sinon.stub(fs, 'writeFile').callsFake(async (file, content) => { written = content; });
+      written = null;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    const dnsdUser = (uid) => runCommandStub.withArgs('id', sinon.match({ params: ['-u', 'flux-dnsd'] }))
+      .resolves(uid === null ? { error: new Error("id: 'flux-dnsd': no such user"), stdout: '', stderr: '' } : { error: null, stdout: `${uid}\n`, stderr: '' });
+
+    it('refuses flux-dnsd\'s forwarded queries for the speedtest CLI\'s API, and nothing of anyone else\'s', () => {
+      expect(fluxNetworkHelper.dnsdPolicyRules(997)).to.deep.equal([
+        `-A FLUX-DNS-POLICY -p udp -m udp --dport 53 -m owner --uid-owner 997 -m string --hex-string ${hex} --algo bm --icase -j REJECT --reject-with icmp-port-unreachable`,
+        `-A FLUX-DNS-POLICY -p tcp -m tcp --dport 53 -m owner --uid-owner 997 -m string --hex-string ${hex} --algo bm --icase -j REJECT --reject-with tcp-reset`,
+      ]);
+    });
+
+    it('writes the chain and its OUTPUT jump on a node that runs flux-dnsd', async () => {
+      dnsdUser(997);
+      runCommandStub.withArgs('iptables', iptablesCall(['-C', 'OUTPUT', '-j', 'FLUX-DNS-POLICY'])).resolves({ error: new Error('missing'), stdout: '', stderr: '' });
+
+      const res = await fluxNetworkHelper.applyDnsdPolicyRules();
+
+      expect(res).to.equal(true);
+      expect(written.split('\n')).to.deep.equal(['*filter', ':FLUX-DNS-POLICY - [0:0]', ...fluxNetworkHelper.dnsdPolicyRules(997), 'COMMIT', '']);
+      sinon.assert.calledWith(runCommandStub, 'iptables', iptablesCall(['-I', 'OUTPUT', '-j', 'FLUX-DNS-POLICY']));
+    });
+
+    it('writes nothing when the chain already matches', async () => {
+      dnsdUser(997);
+      runCommandStub.withArgs('iptables', iptablesCall(['-S', 'FLUX-DNS-POLICY']))
+        .resolves({ error: null, stdout: ['-N FLUX-DNS-POLICY', ...fluxNetworkHelper.dnsdPolicyRules(997), ''].join('\n'), stderr: '' });
+
+      expect(await fluxNetworkHelper.applyDnsdPolicyRules()).to.equal(true);
+      sinon.assert.neverCalledWith(runCommandStub, 'iptables-restore');
+    });
+
+    it('touches no iptables on a node without flux-dnsd', async () => {
+      dnsdUser(null);
+
+      expect(await fluxNetworkHelper.applyDnsdPolicyRules()).to.equal(true);
+      sinon.assert.neverCalledWith(runCommandStub, 'iptables');
+      sinon.assert.neverCalledWith(runCommandStub, 'iptables-restore');
+    });
+
+    it('reports failure when the restore fails', async () => {
+      dnsdUser(997);
+      runCommandStub.withArgs('iptables-restore').resolves({ error: new Error('restore failed'), stdout: '', stderr: '' });
+
+      expect(await fluxNetworkHelper.applyDnsdPolicyRules()).to.equal(false);
+      sinon.assert.neverCalledWith(runCommandStub, 'iptables', iptablesCall(['-I', 'OUTPUT', '-j', 'FLUX-DNS-POLICY']));
     });
   });
 

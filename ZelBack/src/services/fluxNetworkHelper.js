@@ -3770,6 +3770,36 @@ const containerBridges = ['docker0', 'br-+'];
 // metadata service among them. fluxnode.service lives on this node's loopback,
 // so a container reaches it through INPUT and these FORWARD rules never see it.
 const containerBlockedNetworks = NON_PUBLIC_IPV4;
+// Names an app container may not look up. Ookla limits its speedtest CLI per
+// public IP, and an app's calls come out of the same allowance as its node's own
+// bandwidth test: the CLI's API, which every call starts at, is this name.
+const containerBlockedDnsNames = ['cli.speedtest.net'];
+// The user flux-dnsd runs as. It forwards mesh containers' lookups from the
+// host, so its queries never cross DOCKER-USER.
+const dnsdUser = 'flux-dnsd';
+const dnsdPolicyChain = 'FLUX-DNS-POLICY';
+
+/**
+ * A DNS name as it appears in a query, as iptables -S prints a --hex-string:
+ * each label behind its length, ending at the root's zero. The match covers the
+ * name and every name under it.
+ * @param {string} name
+ * @returns {string}
+ */
+function dnsNameHexString(name) {
+  const bytes = name.split('.').flatMap((label) => [label.length, ...Buffer.from(label, 'ascii')]);
+  return `"|${Buffer.from([...bytes, 0]).toString('hex')}|"`;
+}
+
+/**
+ * The match a DNS query for a blocked name meets, case-insensitive because a
+ * resolver may randomise a query's case.
+ * @param {string} name
+ * @returns {string}
+ */
+function dnsNameMatch(name) {
+  return `-m string --hex-string ${dnsNameHexString(name)} --algo bm --icase`;
+}
 
 /**
  * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it.
@@ -3789,7 +3819,8 @@ const containerBlockedNetworks = NON_PUBLIC_IPV4;
  * Traffic from a container to anywhere else is matched by the bridge it comes
  * from, never by its source address, so a container cannot leave the drops by
  * forging its source; every non-public range is dropped. DNS stays open to
- * every private address, for a node owner who runs their own resolver.
+ * every private address, for a node owner who runs their own resolver, except a
+ * query for a blocked name, which is refused at once.
  *
  * No rule uses the physdev match: the kernel loads br_netfilter the first time
  * a physdev rule is added, which sends bridged traffic on every bridge on the
@@ -3806,6 +3837,10 @@ function containerEgressRules({ fluxBridges, dockerBridges }) {
     rules.push(`-A DOCKER-USER -o ${bridge} -m conntrack --ctstate DNAT -j RETURN`);
   });
   dockerBridges.forEach((bridge) => rules.push(`-A DOCKER-USER -o ${bridge} -j DROP`));
+  containerBridges.forEach((bridge) => containerBlockedDnsNames.forEach((name) => {
+    rules.push(`-A DOCKER-USER -i ${bridge} -p udp -m udp --dport 53 ${dnsNameMatch(name)} -j REJECT --reject-with icmp-port-unreachable`);
+    rules.push(`-A DOCKER-USER -i ${bridge} -p tcp -m tcp --dport 53 ${dnsNameMatch(name)} -j REJECT --reject-with tcp-reset`);
+  }));
   containerBridges.forEach((bridge) => {
     ['udp', 'tcp'].forEach((proto) => rules.push(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`));
   });
@@ -3817,60 +3852,106 @@ function containerEgressRules({ fluxBridges, dockerBridges }) {
 }
 
 /**
+ * Makes `chain` hold exactly `desired`, in one iptables-restore transaction so no
+ * moment passes without its rules, and leaves it untouched when it already does.
+ * @param {string} chain
+ * @param {string[]} desired The rules as `iptables -S <chain>` prints them.
+ * @returns {Promise<{ok: boolean, written: boolean}>} Never rejects.
+ */
+async function replaceChain(chain, desired) {
+  const { stdout: current, error: readError } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-S', chain],
+  });
+  const currentRules = serviceHelper.ensureString(current).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('-A '));
+  const inPlace = !readError && currentRules.length === desired.length && currentRules.every((rule, i) => rule === desired[i]);
+  if (inPlace) return { ok: true, written: false };
+
+  let tempDir = null;
+  try {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-iptables-'));
+    const rulesFile = path.join(tempDir, 'rules');
+    await fs.writeFile(rulesFile, ['*filter', `:${chain} - [0:0]`, ...desired, 'COMMIT', ''].join('\n'), { mode: 0o644 });
+    const { error } = await serviceHelper.runCommand('iptables-restore', {
+      runAsRoot: true, logError: false, params: ['--noflush', rulesFile],
+    });
+    if (error) {
+      log.error(`IPTABLES: ${chain} rules not applied: ${error.message}`);
+      return { ok: false, written: false };
+    }
+    log.info(`IPTABLES: ${chain} rules applied`);
+    return { ok: true, written: true };
+  } catch (error) {
+    log.error(`IPTABLES: ${chain} rules not applied: ${error.message}`);
+    return { ok: false, written: false };
+  } finally {
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Puts back `parent`'s jump to `chain` when it is missing.
+ * @param {string} parent
+ * @param {string} chain
+ * @returns {Promise<boolean>} True when the jump is in place. Never rejects.
+ */
+async function ensureJump(parent, chain) {
+  const { error: jumpMissing } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-C', parent, '-j', chain],
+  });
+  if (!jumpMissing) return true;
+  const { error } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-I', parent, '-j', chain],
+  });
+  if (error) {
+    log.error(`IPTABLES: ${parent} jump to ${chain} not restored: ${error.message}`);
+    return false;
+  }
+  log.info(`IPTABLES: ${parent} jump to ${chain} restored`);
+  return true;
+}
+
+/**
  * Keeps app containers off private and link-local networks and off each
- * other's networks. The DOCKER-USER chain is replaced in one iptables-restore
- * transaction, so no moment passes without its rules, and is left untouched
- * when it already matches. Docker never writes DOCKER-USER, and its FORWARD
- * jump is put back if missing.
+ * other's networks. Docker never writes DOCKER-USER, and its FORWARD jump is put
+ * back if missing.
  * @param {{fluxBridges: string[], dockerBridges: string[]}} bridges As
  *   containerEgressRules takes them.
  * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
  */
 async function applyContainerEgressRules(bridges) {
-  const desired = containerEgressRules(bridges);
-  const { stdout: current, error: readError } = await serviceHelper.runCommand('iptables', {
-    runAsRoot: true, logError: false, params: ['-S', 'DOCKER-USER'],
-  });
-  const currentRules = serviceHelper.ensureString(current).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('-A '));
-  const inPlace = !readError && currentRules.length === desired.length && currentRules.every((rule, i) => rule === desired[i]);
+  const { ok, written } = await replaceChain('DOCKER-USER', containerEgressRules(bridges));
+  if (!ok) return false;
+  if (written) fluxEventBus.publish('firewall:containerEgressApplied', {});
+  return ensureJump('FORWARD', 'DOCKER-USER');
+}
 
-  if (!inPlace) {
-    let tempDir = null;
-    try {
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-docker-user-'));
-      const rulesFile = path.join(tempDir, 'rules');
-      await fs.writeFile(rulesFile, ['*filter', ':DOCKER-USER - [0:0]', ...desired, 'COMMIT', ''].join('\n'), { mode: 0o644 });
-      const { error } = await serviceHelper.runCommand('iptables-restore', {
-        runAsRoot: true, logError: false, params: ['--noflush', rulesFile],
-      });
-      if (error) {
-        log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
-        return false;
-      }
-      log.info('IPTABLES: DOCKER-USER rules applied');
-      fluxEventBus.publish('firewall:containerEgressApplied', {});
-    } catch (error) {
-      log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
-      return false;
-    } finally {
-      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-    }
-  }
+/**
+ * The FLUX-DNS-POLICY chain, as `iptables -S FLUX-DNS-POLICY` prints it: the
+ * queries flux-dnsd forwards upstream for a blocked name are refused, as they
+ * are when they leave an app's bridge.
+ * @param {number} uid flux-dnsd's user id.
+ * @returns {string[]}
+ */
+function dnsdPolicyRules(uid) {
+  return containerBlockedDnsNames.flatMap((name) => [
+    `-A ${dnsdPolicyChain} -p udp -m udp --dport 53 -m owner --uid-owner ${uid} ${dnsNameMatch(name)} -j REJECT --reject-with icmp-port-unreachable`,
+    `-A ${dnsdPolicyChain} -p tcp -m tcp --dport 53 -m owner --uid-owner ${uid} ${dnsNameMatch(name)} -j REJECT --reject-with tcp-reset`,
+  ]);
+}
 
-  const { error: jumpMissing } = await serviceHelper.runCommand('iptables', {
-    runAsRoot: true, logError: false, params: ['-C', 'FORWARD', '-j', 'DOCKER-USER'],
-  });
-  if (jumpMissing) {
-    const { error } = await serviceHelper.runCommand('iptables', {
-      runAsRoot: true, logError: false, params: ['-I', 'FORWARD', '-j', 'DOCKER-USER'],
-    });
-    if (error) {
-      log.error(`IPTABLES: FORWARD jump to DOCKER-USER not restored: ${error.message}`);
-      return false;
-    }
-    log.info('IPTABLES: FORWARD jump to DOCKER-USER restored');
-  }
-  return true;
+/**
+ * Holds flux-dnsd's forwarded lookups to the names app containers may look up,
+ * on a node that runs flux-dnsd; a node without its user has nothing to hold.
+ * @returns {Promise<boolean>} True when the chain is in place or not needed.
+ * Never rejects.
+ */
+async function applyDnsdPolicyRules() {
+  const { stdout, error } = await serviceHelper.runCommand('id', { logError: false, params: ['-u', dnsdUser] });
+  const uid = serviceHelper.ensureString(stdout).trim();
+  if (error || !/^\d+$/.test(uid)) return true;
+  const { ok } = await replaceChain(dnsdPolicyChain, dnsdPolicyRules(Number(uid)));
+  if (!ok) return false;
+  return ensureJump('OUTPUT', dnsdPolicyChain);
 }
 
 // lruRateLimit has been extracted to ./utils/rateLimit.js
@@ -4058,6 +4139,8 @@ module.exports = {
   isPortUPNPBanned,
   allowNodeToBindPrivilegedPorts,
   applyContainerEgressRules,
+  dnsdPolicyRules,
+  applyDnsdPolicyRules,
   containerEgressRules,
   getMaxNumberOfIpChanges,
   allowOnlyDockerNetworksToFluxNodeService,
