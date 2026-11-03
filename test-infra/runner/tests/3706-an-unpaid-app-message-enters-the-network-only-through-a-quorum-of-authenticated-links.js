@@ -224,8 +224,14 @@ describe('an unpaid app message enters the network only through a quorum of auth
     });
     // a legacy node takes what reaches it on any link
     expect((await admissionOf(env.clients[LEGACY], unauthenticated.hash, marks[REAL.indexOf(LEGACY)])).taken).to.equal(true);
-    // the same kind of message over an authenticated link is taken
-    const takenBy = await Promise.all(ARCANE.map((i) => admissionOf(env.clients[i], authenticated.hash, marks[REAL.indexOf(i)])));
-    takenBy.forEach((decision) => expect(decision.taken, JSON.stringify(decision)).to.equal(true));
+    // The same kind of message over an authenticated link is taken. A node may
+    // hear it first from an unauthenticated peer and refuse that copy; the one
+    // over its authenticated link is taken after.
+    await Promise.all(ARCANE.map((i) => env.clients[i].waitForEvent(
+      'appmessage:admission',
+      (d) => d.hash === authenticated.hash && d.taken,
+      60000,
+      { afterId: marks[REAL.indexOf(i)] },
+    )));
   });
 });
