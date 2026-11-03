@@ -1,0 +1,14 @@
+[Unit]
+# fluxd's run files on a node whose unit passes the node key as a credential: the
+# cookie fluxd accepts and fluxd.json naming the port it serves RPC on, as fluxd
+# writes them when it starts. Once per boot; a suite stops and starts fluxd by
+# removing and writing them (framework/fluxd-control.js).
+Description=fluxd's run files (harness node)
+Before=fluxos.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'install -d -m 755 /run/fluxd && install -m 640 /etc/flux-harness/fluxd/rpc.cookie /run/fluxd/rpc.cookie && install -m 644 /etc/flux-harness/fluxd/fluxd.json /run/fluxd/fluxd.json'
+
+[Install]
+WantedBy=multi-user.target

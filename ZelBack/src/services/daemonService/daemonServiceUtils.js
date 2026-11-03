@@ -5,6 +5,7 @@ const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
 const daemonConfig = require('../utils/daemonConfig');
 const fluxdCredentials = require('./fluxdCredentials');
+const fluxEventBus = require('../utils/fluxEventBus');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 
@@ -27,6 +28,8 @@ let nodeKey = null;
 let fluxdIndexes = null;
 let fluxdZmq = null;
 let fluxdWait = null;
+// Why the current wait for fluxd has not ended; null while no wait is running.
+let fluxdWaitingFor = null;
 let fluxdLogin = null;
 const FLUXD_POLL_MS = 5000;
 const FLUXD_LOG_MS = 60000;
@@ -173,6 +176,7 @@ async function buildFluxdClient() {
  */
 function loginAgain() {
   fluxdLogin ??= (async () => {
+    fluxEventBus.count('fluxd:login');
     await buildFluxdClient();
     // eslint-disable-next-line no-use-before-define
     if (fluxdReportsItself) waitForFluxd();
@@ -228,6 +232,7 @@ function waitForFluxd() {
             fluxdZmq = Object.fromEntries(answers[2].result.map(({ type, address }) => [type, address]));
           }
           log.info(`Daemon RPC available at block height ${height}`);
+          fluxEventBus.publish('daemon:rpcAvailable', { height });
           return height;
         }
         reason = failed.error.code === RPC_IN_WARMUP
@@ -236,6 +241,7 @@ function waitForFluxd() {
       } catch (error) {
         reason = error.code === RPC_IN_WARMUP ? error.message : `daemon not reachable: ${error.message}`;
       }
+      fluxdWaitingFor = reason;
       const now = Date.now();
       if (!lastLogAt || now - lastLogAt >= FLUXD_LOG_MS) {
         log.info(`Waiting for daemon RPC... (${reason})`);
@@ -244,9 +250,14 @@ function waitForFluxd() {
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(FLUXD_POLL_MS);
     }
-  })().finally(() => { fluxdWait = null; });
+  })().finally(() => {
+    fluxdWait = null;
+    fluxdWaitingFor = null;
+  });
   return fluxdWait;
 }
+
+fluxEventBus.snapshot('fluxd', () => ({ selfReporting: fluxdReportsItself, waitingFor: fluxdWaitingFor }));
 
 /**
  * To execute a remote procedure call (RPC).

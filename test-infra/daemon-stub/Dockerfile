@@ -7,6 +7,6 @@ RUN npm install --production
 
 COPY index.js ./
 
-EXPOSE 16124 16224 18232
+EXPOSE 16124 16125 16224 18232
 
 CMD ["node", "index.js"]

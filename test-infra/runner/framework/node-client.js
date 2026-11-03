@@ -201,6 +201,7 @@ export function nodeClient(nodeNum) {
         'boot:appConfirmed',
         'confirmation:changed',
         'daemon:polled',
+        'daemon:rpcAvailable',
         'daemon:recovered',
         'daemon:unreachable',
         'dos:changed',

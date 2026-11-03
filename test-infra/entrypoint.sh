@@ -276,6 +276,27 @@ fi
 # service as it does on a node.
 rm -f /usr/sbin/policy-rc.d
 
+# A node whose unit passes the node key as a credential, as the node image's unit
+# does: FluxOS takes the key from the credential and reaches fluxd with the cookie
+# and port in fluxd's run files (flux-harness-fluxd.service), never reading
+# flux.conf. FLUX_E2E_NODE_KEY_FROM is the flux.conf fixture the key comes from,
+# FLUX_E2E_FLUXD_LOGIN the cookie, FLUX_E2E_FLUXD_RPCPORT the port fluxd publishes.
+# None of them reaches FluxOS's environment.
+if [ -n "$FLUX_E2E_FLUXD_LOGIN" ]; then
+  mkdir -p /etc/flux-harness/fluxd
+  sed -n 's/^zelnodeprivkey=//p' "$FLUX_E2E_NODE_KEY_FROM" > /etc/flux-harness/node-key
+  chmod 600 /etc/flux-harness/node-key
+  if [ ! -s /etc/flux-harness/node-key ]; then
+    echo "[entrypoint] FATAL: no zelnodeprivkey in $FLUX_E2E_NODE_KEY_FROM" >&2
+    exit 3
+  fi
+  printf '%s' "$FLUX_E2E_FLUXD_LOGIN" > /etc/flux-harness/fluxd/rpc.cookie
+  printf '{"address":"%s","pid":1,"rpcport":%s}\n' "$FLUX_NODE_IP" "$FLUX_E2E_FLUXD_RPCPORT" > /etc/flux-harness/fluxd/fluxd.json
+  mkdir -p /etc/systemd/system/fluxos.service.d
+  printf '[Service]\nLoadCredential=node-key:/etc/flux-harness/node-key\n' > /etc/systemd/system/fluxos.service.d/credential.conf
+  unset FLUX_E2E_FLUXD_LOGIN FLUX_E2E_NODE_KEY_FROM FLUX_E2E_FLUXD_RPCPORT
+fi
+
 # Container env does not cross into systemd services (the manager
 # environment arrives empty), so dump it for the
 # units' EnvironmentFile. node writes C-style-quoted values, which keeps
@@ -327,6 +348,9 @@ fi
 if [ -z "$FLUXOS_PATH" ] && [ "$FLUX_PM2" != "1" ]; then
   mkdir -p /etc/systemd/system/fluxos.service.d
   printf '[Service]\nKillMode=process\n' > /etc/systemd/system/fluxos.service.d/legacy.conf
+fi
+if [ -f /etc/flux-harness/node-key ]; then
+  ln -sf /etc/systemd/system/flux-harness-fluxd.service /etc/systemd/system/multi-user.target.wants/flux-harness-fluxd.service
 fi
 if [ -n "$FLUX_SYNCTHING_HOST" ]; then
   ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service
