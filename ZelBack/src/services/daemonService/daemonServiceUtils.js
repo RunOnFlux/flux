@@ -1,7 +1,11 @@
+const os = require('node:os');
+const path = require('node:path');
 const log = require('../../lib/log');
 const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
 const daemonConfig = require('../utils/daemonConfig');
+const fluxdCredentials = require('./fluxdCredentials');
+const fluxEventBus = require('../utils/fluxEventBus');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 
@@ -14,6 +18,23 @@ const isTestnet = () => configManager.getConfigValue('initial.testnet') || false
 
 let fluxdConfig = null;
 let fluxdClient = null;
+// True when the unit passes the node key as a credential: flux.conf is then never
+// read, and fluxd is asked about itself (see fluxdCredentials).
+let fluxdReportsItself = false;
+let nodeKey = null;
+// What fluxd reports about itself: fluxdIndexes {name: info} from getindexinfo,
+// fluxdZmq {type: address} from getzmqnotifications. Null until fluxd first
+// reports them; each later report replaces them, so once known they stay known.
+let fluxdIndexes = null;
+let fluxdZmq = null;
+let fluxdWait = null;
+// Why the current wait for fluxd has not ended; null while no wait is running.
+let fluxdWaitingFor = null;
+let fluxdLogin = null;
+const FLUXD_POLL_MS = 5000;
+const FLUXD_LOG_MS = 60000;
+const RPC_IN_WARMUP = -28;
+const FLUXD_RPC_PORT_UNPUBLISHED = 'FLUXD_RPC_PORT_UNPUBLISHED';
 let previousTestnetValue = isTestnet();
 
 // Listen for config changes and rebuild RPC client if testnet mode changes
@@ -22,10 +43,13 @@ configManager.on('configReloaded', async (newConfig) => {
   if (newTestnetValue !== previousTestnetValue) {
     previousTestnetValue = newTestnetValue;
     // Rebuild RPC client with new port
-    await buildFluxdClient();
-    const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
-    const rpcPort = fluxdConfig?.rpcport || config.daemon[portId];
-    log.info(`Testnet mode changed, rebuilt daemon RPC client on port ${rpcPort}`);
+    try {
+      // eslint-disable-next-line no-use-before-define
+      const client = await buildFluxdClient();
+      log.info(`Testnet mode changed, rebuilt daemon RPC client for ${client.url}`);
+    } catch (error) {
+      log.error(`Testnet mode changed, daemon RPC client not rebuilt: ${error.message}`);
+    }
   }
 });
 
@@ -41,15 +65,22 @@ const rawTxCache = cacheManager.daemonTxCache;
 const blockCache = cacheManager.daemonBlockCache;
 
 /**
- * Parse flux.conf into the module's config.
+ * Parse flux.conf into the module's config, or, when the unit passes the node key
+ * as a credential, take the key from it and leave flux.conf alone.
  *
  * Published only once it is parsed. Assigning first left a window in which the config was
  * set and empty, so a caller arriving during the read took it for a file with nothing in it.
  * @returns {Promise<void>}
  */
 async function readDaemonConfig() {
+  const key = await fluxdCredentials.loadNodeKey();
   const parsed = new daemonConfig.DaemonConfig();
-  await parsed.parseConfig();
+  if (key !== null) {
+    nodeKey = key;
+    fluxdReportsItself = true;
+  } else {
+    await parsed.parseConfig();
+  }
   fluxdConfig = parsed;
 }
 
@@ -68,24 +99,162 @@ async function ensureConfigLoaded() {
   if (!fluxdConfig) await readDaemonConfig();
 }
 
+/**
+ * Whether fluxd authenticates this node's RPC with its cookie: always beside a
+ * fluxd that reports itself, and beside any fluxd whose flux.conf sets no
+ * rpcpassword, as fluxd then uses only its cookie.
+ * @returns {boolean}
+ */
+function usesRpcCookie() {
+  return fluxdReportsItself || !fluxdConfig?.rpcpassword;
+}
+
+/**
+ * Where fluxd writes its RPC cookie: the fixed path beside a fluxd that reports
+ * itself; otherwise flux.conf's rpccookiefile, a relative one inside fluxd's data
+ * directory, or that directory's .cookie.
+ * @returns {string}
+ */
+function rpcCookieFile() {
+  if (fluxdReportsItself) return fluxdCredentials.RPC_COOKIE_FILE;
+  const datadir = fluxdConfig.dataDir;
+  const configured = fluxdConfig.get('rpccookiefile');
+  if (!configured) return path.join(datadir, '.cookie');
+  return path.isAbsolute(configured) ? configured : path.join(datadir, configured);
+}
+
+/**
+ * Where fluxd's RPC server listens: the port fluxd publishes beside a fluxd that
+ * reports itself; otherwise flux.conf's rpcport, or the network's default.
+ * @returns {Promise<number>}
+ * @throws {Error} code FLUXD_RPC_PORT_UNPUBLISHED beside a fluxd that reports
+ *   itself and publishes no port, which is while it is not running.
+ */
+async function fluxdRpcPort() {
+  if (fluxdReportsItself) {
+    const port = await fluxdCredentials.readFluxdRpcPort();
+    if (port === null) {
+      throw Object.assign(new Error(`fluxd has not published its RPC port in ${fluxdCredentials.FLUXD_FILE}`), { code: FLUXD_RPC_PORT_UNPUBLISHED });
+    }
+    return port;
+  }
+  const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
+  return fluxdConfig.rpcport || config.daemon[portId];
+}
+
+/**
+ * Builds the client fluxd is called through, from what is known about fluxd now.
+ * @returns {Promise<fluxRpc.FluxRpc>}
+ * @throws {Error} as fluxdRpcPort, or when the login cannot be read.
+ */
 async function buildFluxdClient() {
   await ensureConfigLoaded();
 
-  const username = fluxdConfig.rpcuser || 'rpcuser';
-  const password = fluxdConfig.rpcpassword || 'rpcpassword';
+  // With no cookie yet (fluxd not started) the client sends no login, fluxd
+  // answers 401, and the next call reads the cookie again.
+  const auth = usesRpcCookie()
+    ? await fluxdCredentials.readRpcCookie(rpcCookieFile())
+    : { username: fluxdConfig.rpcuser || 'rpcuser', password: fluxdConfig.rpcpassword };
 
-  const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
-
-  const rpcPort = fluxdConfig.rpcport || config.daemon[portId];
+  const rpcPort = await fluxdRpcPort();
 
   const rpcHost = config.daemon.host;
   const client = new fluxRpc.FluxRpc(`http://${rpcHost}:${rpcPort}`, {
-    auth: { username, password }, timeout: 40_000,
+    auth, timeout: 40_000,
   });
 
   fluxdClient = client;
 
   return client;
+}
+
+/**
+ * Logs in to fluxd again after it restarted: the cookie and the RPC port are read
+ * again, and fluxd is asked about itself again (waitForFluxd) without holding up
+ * the caller. Callers arriving together share one login.
+ * @returns {Promise<void>}
+ */
+function loginAgain() {
+  fluxdLogin ??= (async () => {
+    fluxEventBus.count('fluxd:login');
+    await buildFluxdClient();
+    // eslint-disable-next-line no-use-before-define
+    if (fluxdReportsItself) waitForFluxd();
+  })().finally(() => { fluxdLogin = null; });
+  return fluxdLogin;
+}
+
+/**
+ * Runs `call` with the client. fluxd writes a new cookie at each start, so a 401
+ * on a node that logs in with the cookie means fluxd restarted: the call logs in
+ * again (loginAgain) unless another call already has since this one began, and
+ * is made once more.
+ * @template T
+ * @param {function(fluxRpc.FluxRpc): Promise<T>} call
+ * @returns {Promise<T>}
+ */
+async function callFluxd(call) {
+  const client = fluxdClient;
+  try {
+    return await call(client);
+  } catch (error) {
+    if (!usesRpcCookie() || error.status !== 401) throw error;
+    if (fluxdClient === client) await loginAgain();
+    return call(fluxdClient);
+  }
+}
+
+/**
+ * Waits until fluxd answers and, where fluxd reports itself, has reported its
+ * indexes and ZMQ notifications, asking every FLUXD_POLL_MS. What it reports
+ * replaces what was held. Boot waits on this before the daemon is ready; a fluxd
+ * restart starts it again. Concurrent callers share one wait.
+ * @returns {Promise<number>} fluxd's block height.
+ */
+function waitForFluxd() {
+  fluxdWait ??= (async () => {
+    let lastLogAt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let reason;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        if (!fluxdClient) await buildFluxdClient();
+        const calls = [{ method: 'getblockcount' }];
+        if (fluxdReportsItself) calls.push({ method: 'getindexinfo' }, { method: 'getzmqnotifications' });
+        // eslint-disable-next-line no-await-in-loop
+        const answers = await callFluxd((client) => client.runBatch(calls));
+        const failed = answers.find((answer) => answer.error);
+        if (!failed) {
+          const height = answers[0].result;
+          if (fluxdReportsItself) {
+            fluxdIndexes = answers[1].result;
+            fluxdZmq = Object.fromEntries(answers[2].result.map(({ type, address }) => [type, address]));
+          }
+          log.info(`Daemon RPC available at block height ${height}`);
+          fluxEventBus.publish('daemon:rpcAvailable', { height });
+          return height;
+        }
+        reason = failed.error.code === RPC_IN_WARMUP
+          ? failed.error.message
+          : `${calls[failed.id].method}: ${failed.error.message}`;
+      } catch (error) {
+        reason = error.code === RPC_IN_WARMUP ? error.message : `daemon not reachable: ${error.message}`;
+      }
+      fluxdWaitingFor = reason;
+      const now = Date.now();
+      if (!lastLogAt || now - lastLogAt >= FLUXD_LOG_MS) {
+        log.info(`Waiting for daemon RPC... (${reason})`);
+        lastLogAt = now;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(FLUXD_POLL_MS);
+    }
+  })().finally(() => {
+    fluxdWait = null;
+    fluxdWaitingFor = null;
+  });
+  return fluxdWait;
 }
 
 /**
@@ -99,10 +268,17 @@ async function executeCall(rpc, params, options = {}) {
   const rpcparameters = params || [];
   const useCache = options.useCache ?? true;
 
-  if (!fluxdClient) await buildFluxdClient();
+  if (!fluxdClient) {
+    try {
+      await buildFluxdClient();
+    } catch (error) {
+      return messageHelper.createErrorMessage(error.message, error.name, error.code);
+    }
+  }
 
   await lock.enable();
 
+  let response;
   try {
     let data;
 
@@ -115,7 +291,7 @@ async function executeCall(rpc, params, options = {}) {
     }
 
     if (!data) {
-      data = await fluxdClient.run(rpc, { params: rpcparameters });
+      data = await callFluxd((client) => client.run(rpc, { params: rpcparameters }));
       if (useCache && rpc === 'getBlock') {
         blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
       } else if (useCache && rpc === 'getRawTransaction') {
@@ -124,14 +300,13 @@ async function executeCall(rpc, params, options = {}) {
         cache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
       }
     }
-    const successResponse = messageHelper.createDataMessage(data);
-    return successResponse;
+    response = messageHelper.createDataMessage(data);
   } catch (error) {
-    const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return daemonError;
+    response = messageHelper.createErrorMessage(error.message, error.name, error.code);
   } finally {
     lock.disable();
   }
+  return response;
 }
 
 /**
@@ -140,10 +315,9 @@ async function executeCall(rpc, params, options = {}) {
  * @returns {object} Message containing array of {id, result, error} objects.
  */
 async function executeBatchCall(calls) {
-  if (!fluxdClient) await buildFluxdClient();
-
   try {
-    const data = await fluxdClient.runBatch(calls);
+    if (!fluxdClient) await buildFluxdClient();
+    const data = await callFluxd((client) => client.runBatch(calls));
     return messageHelper.createDataMessage(data);
   } catch (error) {
     return messageHelper.createErrorMessage(error.message, error.name, error.code);
@@ -221,14 +395,47 @@ function getBlockCache(key) {
 
 /**
  * To get a value for a specified key from the configuration file.
+ *
+ * When fluxd reports itself, flux.conf is not read: `zelnodeprivkey` is the
+ * credential, `zmqpub<type>` the address fluxd reports publishing that type on,
+ * and every other key undefined.
  * @param {string} parameter Config key.
  * @returns {string} Config value.
  */
 function getConfigValue(parameter) {
   if (!fluxdConfig) return undefined;
 
-  const value = fluxdConfig.get(parameter);
-  return value;
+  if (!fluxdReportsItself) return fluxdConfig.get(parameter);
+
+  if (parameter === 'zelnodeprivkey') return nodeKey;
+  if (parameter.startsWith('zmqpub')) return fluxdZmq?.[parameter.slice('zmq'.length)];
+  return undefined;
+}
+
+/**
+ * Whether fluxd keeps the insight explorer's indexes (address, spent, timestamp).
+ * @returns {boolean|null} Null while not known: flux.conf not yet read, or fluxd
+ *   not yet reported its indexes (waitForFluxd).
+ */
+function insightIndexes() {
+  if (!fluxdConfig) return null;
+  if (fluxdReportsItself) return fluxdIndexes ? Boolean(fluxdIndexes.addressindex) : null;
+  const value = fluxdConfig.get('insightexplorer');
+  return value === 1 || value === '1';
+}
+
+fluxEventBus.snapshot('fluxd', () => ({
+  selfReporting: fluxdReportsItself,
+  waitingFor: fluxdWaitingFor,
+  insightIndexes: insightIndexes(),
+}));
+
+/**
+ * Whether fluxd is asked about itself rather than read from flux.conf.
+ * @returns {boolean}
+ */
+function isFluxdSelfReporting() {
+  return fluxdReportsItself;
 }
 
 /**
@@ -273,6 +480,14 @@ function getFluxdDir() {
 }
 
 /**
+ * fluxd's data directory: FLUXD_PATH, which the node image sets, otherwise ~/.flux.
+ * @returns {string}
+ */
+function fluxdDataDir() {
+  return process.env.FLUXD_PATH || path.join(os.homedir(), '.flux');
+}
+
+/**
  * The fluxd daemon rpc client
  * @returns {daemonrpc.Client}
  */
@@ -287,6 +502,7 @@ function getFluxdClient() {
  * @returns {Promise<Boolean>}
  */
 async function writeFluxdConfig(fileName = null) {
+  if (fluxdReportsItself) throw new Error('flux.conf is not FluxOS\'s to write on this node');
   await fluxdConfig.write({ fileName });
 }
 
@@ -297,6 +513,7 @@ async function writeFluxdConfig(fileName = null) {
  */
 async function createBackupFluxdConfig(fileName) {
   if (!fileName) return false;
+  if (fluxdReportsItself) throw new Error('flux.conf is not FluxOS\'s to copy on this node');
 
   return fluxdConfig.createBackupConfig(fileName);
 }
@@ -313,14 +530,19 @@ module.exports = {
   createBackupFluxdConfig,
   executeCall,
   executeBatchCall,
+  fluxdDataDir,
+  FLUXD_RPC_PORT_UNPUBLISHED,
   getConfigValue,
   getFluxdClient,
   getFluxdConfig,
   getFluxdConfigPath,
   getFluxdDir,
+  insightIndexes,
+  isFluxdSelfReporting,
   readDaemonConfig,
   ensureConfigLoaded,
   setConfigValue,
+  waitForFluxd,
   writeFluxdConfig,
 
   // exports for testing purposes

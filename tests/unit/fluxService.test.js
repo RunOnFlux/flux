@@ -1392,13 +1392,14 @@ describe('fluxService tests', () => {
 
     it('should return debug log file if the user is an admin', async () => {
       verifyPrivilegeStub.returns(true);
+      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/dat/var/lib/fluxd');
       const res = generateResponse();
       const expectedResponse = 'File downloaded';
 
       const result = await fluxService.daemonDebug(undefined, res);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledWithMatch(res.download, 'debug.log');
+      sinon.assert.calledOnceWithExactly(res.download, '/dat/var/lib/fluxd/debug.log', 'debug.log');
     });
   });
 
@@ -1450,9 +1451,7 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-      // Mock daemon service utils to return valid paths
-      sinon.stub(daemonServiceUtils, 'getConfigValue').returns(path.join(os.homedir(), '.flux'));
-      sinon.stub(daemonServiceUtils, 'getFluxdDir').returns(path.join(os.homedir(), '.flux'));
+      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/dat/var/lib/fluxd');
     });
 
     afterEach(() => {
@@ -1499,7 +1498,7 @@ describe('fluxService tests', () => {
           name: 'testing error',
         },
       });
-      const nodedpath = path.join(os.homedir(), '.flux', 'debug.log');
+      const nodedpath = '/dat/var/lib/fluxd/debug.log';
       const expectedResponse = {
         data: {
           code: 403,
@@ -3072,6 +3071,26 @@ describe('fluxService tests', () => {
       expect(res.statusMessage).to.equal('Flux daemon still running, unable to clone blockchain.');
       sinon.assert.calledWithExactly(res.status, 503);
       sinon.assert.calledOnce(res.end);
+    });
+
+    it('takes a fluxd that publishes no RPC port for one that is not running', async () => {
+      const res = generateResponse();
+      res.setHeader = sinon.stub();
+      const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+      osStub.returns('/home/testuser');
+      fsPromisesStubs.stat.resolves({ isDirectory: () => true });
+      const dirInfoStub = sinon.stub(serviceHelper, 'dirInfo').resolves({ count: 0, size: 0 });
+      daemonServiceUtilsStub.rejects(Object.assign(new Error('unpublished'), { code: daemonServiceUtils.FLUXD_RPC_PORT_UNPUBLISHED }));
+
+      await fluxService.streamChain(req, res).catch(() => {});
+
+      sinon.assert.calledOnce(daemonServiceUtilsStub);
+      expect(res.statusMessage).to.not.equal('Flux daemon still running, unable to clone blockchain.');
+      sinon.assert.neverCalledWith(res.status, 503);
+      // Past the check: it went on to size the chain folders and announce the size.
+      sinon.assert.called(dirInfoStub);
+      sinon.assert.calledWith(res.setHeader, 'Approx-Content-Length');
     });
 
     it('should set Approx-Content-Length response header with expected value', async () => {

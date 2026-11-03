@@ -11,6 +11,10 @@ if (process.env.FLUX_TEST_HARNESS !== 'true') {
 }
 
 const FLUXD_PORT = Number(process.env.FLUXD_PORT) || 16124;
+// The port fluxd publishes in fluxd.json to a node whose unit passes the node key
+// as a credential. It differs from FLUXD_PORT, fluxd's default, so a node that
+// reaches fluxd here can only have read the published port.
+const FLUXD_PUBLISHED_PORT = Number(process.env.FLUXD_PUBLISHED_PORT) || 16125;
 const BENCHD_PORT = Number(process.env.BENCHD_PORT) || 16224;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 18232;
 
@@ -61,6 +65,12 @@ const rpcMethodFailures = new Map();
 // systemsecure=true is never a residential-DOS target.
 const nonArcaneNodes = new Map();
 const requestJournal = [];
+// real ip -> the login (`user:password`) fluxd accepts from that node, as fluxd's
+// cookie: a node with one is answered 401 without it. Other nodes are not asked
+// for a login.
+const fluxdLogins = new Map();
+// real ip -> refusals held unanswered until released (DELETE /fluxd-refusals/hold).
+const refusalHolds = new Map();
 const MAX_JOURNAL_SIZE = 10000;
 
 const seededAddressDeltas = [];
@@ -298,6 +308,14 @@ const rpcHandlers = {
   }),
 
   getblockcount: (params, sourceIp) => localHeightFor(sourceIp),
+
+  getindexinfo: () => ({
+    addressindex: { synced: true, best_block_height: currentHeight },
+    spentindex: { synced: true, best_block_height: currentHeight },
+    timestampindex: { synced: true, best_block_height: currentHeight },
+  }),
+
+  getzmqnotifications: () => [],
 
   getinfo: () => ({
     version: DAEMON_VERSION,
@@ -581,20 +599,22 @@ const benchHandlers = {
   stop: () => 'Flux benchmark stopping (stub)',
 };
 
-async function handleRpc(handlers, req, res) {
-  const { method, params, id } = req.body;
-  const sourceIp = req.ip;
+// One JSON-RPC request's response object.
+async function answerRpc(handlers, request, sourceIp, port) {
+  const { method, params, id } = request ?? {};
   const cleanIp = sourceIp.replace('::ffff:', '');
 
   if (!method) {
-    return res.status(400).json({ result: null, error: { code: -32600, message: 'Missing method' }, id });
+    return { body: { result: null, error: { code: -32600, message: 'Missing method' }, id } };
   }
 
-  requestJournal.push({ method, sourceIp: cleanIp, timestamp: Date.now() });
+  requestJournal.push({
+    method, sourceIp: cleanIp, port, timestamp: Date.now(),
+  });
   if (requestJournal.length > MAX_JOURNAL_SIZE) requestJournal.shift();
 
   if (rpcFailures.has(cleanIp)) {
-    return res.json({ result: null, error: { code: -28, message: 'Loading block index...' }, id });
+    return { body: { result: null, error: { code: -28, message: 'Loading block index...' }, id } };
   }
 
   const lowerMethod = method.toLowerCase();
@@ -602,7 +622,7 @@ async function handleRpc(handlers, req, res) {
   const failing = rpcMethodFailures.get(cleanIp);
   if (failing && failing.get(lowerMethod) > 0) {
     failing.set(lowerMethod, failing.get(lowerMethod) - 1);
-    return res.json({ result: null, error: { code: -1, message: `${lowerMethod} failed by the harness` }, id });
+    return { body: { result: null, error: { code: -1, message: `${lowerMethod} failed by the harness` }, id } };
   }
 
   const heldMethods = rpcHolds.get(cleanIp);
@@ -615,23 +635,71 @@ async function handleRpc(handlers, req, res) {
 
   if (!handler) {
     console.log(`Unhandled RPC method: ${method} from ${sourceIp}`);
-    return res.json({ result: null, error: { code: -32601, message: `Method not found: ${method}` }, id });
+    return { body: { result: null, error: { code: -32601, message: 'Method not found' }, id } };
   }
 
   try {
     const result = typeof handler === 'function' ? handler.call(handlers, params || [], sourceIp) : handler;
-    return res.json({ result, error: null, id });
+    return { body: { result, error: null, id } };
   } catch (e) {
     console.error(`RPC error for ${method} from ${sourceIp}:`, e.message);
-    return res.json({ result: null, error: { code: -1, message: e.message }, id });
+    return { body: { result: null, error: { code: -1, message: e.message }, id } };
   }
 }
 
-// -- Fluxd RPC server --
+// fluxd's HTTP status for a request sent alone: 200 for a result, 400 for an
+// invalid request, 404 for an unknown method, 500 for any other error.
+function fluxdStatus({ error }) {
+  if (!error) return 200;
+  if (error.code === -32600) return 400;
+  if (error.code === -32601) return 404;
+  return 500;
+}
+
+// Answered as fluxd answers. A batch is an array of requests, answered 200 by an
+// array of their responses in order, each with its own error; an empty batch by
+// an empty array. The bench port answers every request sent alone 200, except one
+// without a method (400).
+async function handleRpc(handlers, req, res, { statusFor } = {}) {
+  if (!Array.isArray(req.body)) {
+    const { body } = await answerRpc(handlers, req.body, req.ip, req.socket.localPort);
+    const status = statusFor ? statusFor(body) : (body.error?.code === -32600 ? 400 : 200);
+    return res.status(status).json(body);
+  }
+  const answers = await Promise.all(req.body.map((request) => answerRpc(handlers, request, req.ip, req.socket.localPort)));
+  return res.json(answers.map(({ body }) => body));
+}
+
+// The `user:password` of an HTTP Basic Authorization header, or null.
+function basicLogin(header) {
+  const match = /^Basic (.+)$/.exec(header || '');
+  return match ? Buffer.from(match[1], 'base64').toString('utf8') : null;
+}
+
+// fluxd refuses a login other than its cookie with 401 and an empty body.
+async function refuseUnlessLoggedIn(req, res) {
+  const ip = req.ip.replace('::ffff:', '');
+  const login = fluxdLogins.get(ip);
+  if (login === undefined || basicLogin(req.headers.authorization) === login) return false;
+  const held = refusalHolds.get(ip);
+  if (held) await new Promise((resolve) => { held.add(resolve); });
+  res.status(401).set('WWW-Authenticate', 'Basic realm="jsonrpc"').end();
+  return true;
+}
+
+// -- Fluxd RPC server: fluxd's default port and the port it publishes --
 const fluxd = express();
 fluxd.use(express.json());
-fluxd.post('/', (req, res) => { handleRpc(rpcHandlers, req, res).catch((err) => { console.error('fluxd rpc:', err); }); });
+fluxd.post('/', async (req, res) => {
+  try {
+    if (await refuseUnlessLoggedIn(req, res)) return;
+    await handleRpc(rpcHandlers, req, res, { statusFor: fluxdStatus });
+  } catch (err) {
+    console.error('fluxd rpc:', err);
+  }
+});
 fluxd.listen(FLUXD_PORT, () => console.log(`Fluxd stub listening on port ${FLUXD_PORT}`));
+fluxd.listen(FLUXD_PUBLISHED_PORT, () => console.log(`Fluxd stub listening on port ${FLUXD_PUBLISHED_PORT}`));
 
 // -- Fluxbenchd RPC server --
 const benchd = express();
@@ -1189,6 +1257,44 @@ control.delete('/rpc-hold/:ip', (req, res) => {
   return res.json({ ip: req.params.ip, held: false, released });
 });
 
+// -- Logins --
+
+// The login fluxd accepts from one node: its cookie, `user:password`.
+control.post('/fluxd-login/:ip', (req, res) => {
+  const { login } = req.body;
+  if (typeof login !== 'string' || !login.includes(':')) return res.status(400).json({ error: 'login must be user:password' });
+  fluxdLogins.set(req.params.ip, login);
+  return res.json({ ip: req.params.ip, login });
+});
+
+control.delete('/fluxd-login/:ip', (req, res) => {
+  fluxdLogins.delete(req.params.ip);
+  res.json({ ip: req.params.ip, login: null });
+});
+
+function releaseRefusals(ip) {
+  const held = refusalHolds.get(ip);
+  refusalHolds.delete(ip);
+  if (!held) return 0;
+  for (const resolve of held) resolve();
+  return held.size;
+}
+
+// Refusals to one node are held unanswered until released, so the calls a fluxd
+// restart refuses can be answered together.
+control.post('/fluxd-refusals/hold/:ip', (req, res) => {
+  if (!refusalHolds.has(req.params.ip)) refusalHolds.set(req.params.ip, new Set());
+  res.json({ ip: req.params.ip, held: true });
+});
+
+control.get('/fluxd-refusals/hold/:ip', (req, res) => {
+  res.json({ ip: req.params.ip, waiting: refusalHolds.get(req.params.ip)?.size ?? 0 });
+});
+
+control.delete('/fluxd-refusals/hold/:ip', (req, res) => {
+  res.json({ ip: req.params.ip, released: releaseRefusals(req.params.ip) });
+});
+
 // -- Seeded RPC data --
 
 control.post('/seed-address-deltas', (req, res) => {
@@ -1268,6 +1374,7 @@ control.post('/reset', (req, res) => {
   // Answered, not dropped: a call left waiting on a hold outlives the reset and
   // hangs whatever made it.
   for (const ip of [...rpcHolds.keys()]) releaseHolds(ip);
+  for (const ip of [...refusalHolds.keys()]) releaseRefusals(ip);
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];
   pendingAppTxQueue.length = 0;

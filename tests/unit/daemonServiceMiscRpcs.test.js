@@ -12,75 +12,29 @@ const generateResponse = () => {
 };
 
 describe('daemonServiceMiscRpcs tests', () => {
-  describe('isAddressIndex', () => {
-    let getConfigValue;
+  describe('isInsightExplorer tests', () => {
+    let insightIndexes;
 
     beforeEach(() => {
-      getConfigValue = sinon.stub(daemonServiceUtils, 'getConfigValue');
+      insightIndexes = sinon.stub(daemonServiceUtils, 'insightIndexes');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    [[1, true], ['1', true], ['0', false], [undefined, false]].forEach(([value, expected]) => {
-      it(`answers ${expected} for addressindex=${value}`, () => {
-        getConfigValue.returns(value);
-        expect(daemonServiceMiscRpcs.isAddressIndex()).to.equal(expected);
-        sinon.assert.calledOnceWithExactly(getConfigValue, 'addressindex');
+    [[true, true], [false, false], [null, false]].forEach(([known, expected]) => {
+      it(`answers ${expected} when fluxd's insight indexes are ${known}`, () => {
+        insightIndexes.returns(known);
+        expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(expected);
       });
     });
-  });
 
-  describe('isInsightExplorer tests', () => {
-    let serviceUtilsStub;
-
-    beforeEach(() => {
-      daemonServiceMiscRpcs.setIsDaemonInsightExplorer(null);
-      serviceUtilsStub = sinon.stub(daemonServiceUtils, 'getConfigValue');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return the isDaemonInsightExplorer value if it is already set', () => {
-      daemonServiceMiscRpcs.setIsDaemonInsightExplorer(1);
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(1);
-      sinon.assert.notCalled(serviceUtilsStub);
-    });
-
-    it('should return config value and set isDaemonInsightExplorer to true if getConfigValue returns 1', () => {
-      serviceUtilsStub.returns(1);
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(true);
-      expect(daemonServiceMiscRpcs.getIsDaemonInsightExplorer()).to.eql(true);
-      sinon.assert.calledOnceWithExactly(serviceUtilsStub, 'insightexplorer');
-    });
-
-    it('should return config value and set isDaemonInsightExplorer to true if getConfigValue returns \'1\'', () => {
-      serviceUtilsStub.returns('1');
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(true);
-      expect(daemonServiceMiscRpcs.getIsDaemonInsightExplorer()).to.eql(true);
-      sinon.assert.calledOnceWithExactly(serviceUtilsStub, 'insightexplorer');
-    });
-
-    it('should return config value and set isDaemonInsightExplorer to false if getConfigValue returns anything but 1', () => {
-      serviceUtilsStub.returns(2);
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(false);
-      expect(daemonServiceMiscRpcs.getIsDaemonInsightExplorer()).to.eql(false);
-      sinon.assert.calledOnceWithExactly(serviceUtilsStub, 'insightexplorer');
+    it('answers fluxd\'s latest report, so a fluxd restart reaches it', () => {
+      insightIndexes.returns(true);
+      expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(true);
+      insightIndexes.returns(false);
+      expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(false);
     });
   });
 

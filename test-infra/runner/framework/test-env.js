@@ -21,6 +21,7 @@ import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import { getSubnetConfig, REGISTRY_ALIAS, STORAGE_HOST } from './subnet-config.js';
 import { closeDb } from './db-client.js';
+import { FLUXD_PUBLISHED_PORT, newFluxdLogin, setFluxdLogin } from './fluxd-control.js';
 import {
   clearInfraDeath, infraDeathError, reportInfraDeath, sleepUnlessInfraDead,
 } from './infra-death.js';
@@ -1006,6 +1007,10 @@ export async function createTestEnv({
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
   awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
+  // Arcane nodes whose unit passes the node key as a credential, by node index:
+  // no flux.conf, and fluxd reached with the cookie and port in fluxd's run files
+  // (framework/fluxd-control.js).
+  credentialNodes = [],
   // Firewalled nodes boot with ufw active as their install leaves it - the legacy
   // installer's rules on a legacy node, the ISO's on an Arcane one - and FluxOS
   // adds its own on top. true for every node, or a list of node indices. Off
@@ -1021,6 +1026,10 @@ export async function createTestEnv({
   // (framework/host-stall.js), by node index.
   for (const index of freezableDockerRoot) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes) throw new Error(`createTestEnv: freezableDockerRoot names node ${index}, outside a fleet of ${nodes}`);
+  }
+  for (const index of credentialNodes) {
+    if (!Number.isInteger(index) || index < 0 || index >= nodes) throw new Error(`createTestEnv: credentialNodes names node ${index}, outside a fleet of ${nodes}`);
+    if (legacyNodes.includes(index) || pm2Nodes[index] !== undefined) throw new Error(`createTestEnv: credentialNodes names node ${index}, which is not an Arcane node`);
   }
   // Legacy nodes whose apps folder is reached through a symlink, as an operator's
   // is after moving the flux directory to another disk, by node index.
@@ -1317,7 +1326,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, confirmationIntervalBlocks);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, confirmationIntervalBlocks, credentialNodes);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1346,7 +1355,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], confirmationIntervalBlocks = 1) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], confirmationIntervalBlocks = 1, credentialNodes = []) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1397,6 +1406,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     .withEnvironment({
       FLUX_TEST_HARNESS: 'true',
       FLUXD_PORT: '16124',
+      FLUXD_PUBLISHED_PORT: String(FLUXD_PUBLISHED_PORT),
       BENCHD_PORT: '16224',
       CONTROL_PORT: '18232',
       TICKER_AUTOSTART: tickerAutostart ? 'true' : 'false',
@@ -1435,6 +1445,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       aliases: Object.fromEntries(Object.entries(collateralOf).map(([num, of]) => [subnet.nodeIp(Number(num)), subnet.nodeIp(Number(of))])),
     }),
   });
+
+  // The cookie fluxd accepts from each node whose unit passes the node key as a
+  // credential, registered before the node boots and written into its run files.
+  const fluxdLogins = Object.fromEntries(credentialNodes.map((i) => [i, newFluxdLogin()]));
+  for (const [i, login] of Object.entries(fluxdLogins)) {
+    await setFluxdLogin(subnet.nodeIp(Number(i) + 1), login);
+  }
+  env.credentialNodes = [...credentialNodes];
 
   for (const [ip, status] of Object.entries(nodeStatusOverrides)) {
     await fetch(`http://${DAEMON_IP}:18232/node-status/${ip}`, {
@@ -1714,6 +1732,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (pausedSyncthingNodes.includes(i)) nodeEnv.FLUX_SYNCTHING_PAUSED = '1';
     if (freezableDockerRoot.includes(i)) nodeEnv.FLUX_FREEZABLE_DOCKER_ROOT = 'true';
+    if (fluxdLogins[i]) {
+      // The key's fixture is where the entrypoint takes the credential from;
+      // FLUXD_CONFIG_PATH names a file the node does not have.
+      nodeEnv.FLUX_E2E_NODE_KEY_FROM = nodeEnv.FLUXD_CONFIG_PATH;
+      nodeEnv.FLUXD_CONFIG_PATH = '/dat/var/lib/fluxd/flux.conf';
+      nodeEnv.FLUX_E2E_FLUXD_LOGIN = fluxdLogins[i];
+      nodeEnv.FLUX_E2E_FLUXD_RPCPORT = String(FLUXD_PUBLISHED_PORT);
+    }
     // FluxOS is given the link; the entrypoint points it at the real folder.
     if (symlinkedAppsFolder.includes(i)) {
       nodeEnv.FLUX_APPS_FOLDER = '/mnt/appdata/flux-apps-link';

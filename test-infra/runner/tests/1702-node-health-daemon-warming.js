@@ -21,7 +21,7 @@ const subnet = getSubnetConfig();
 //
 // rpcFailures is the real condition rather than an imitation of it: the daemon
 // stub answers every RPC from this node with code -28, "Loading block index...",
-// which is exactly what waitForDaemonRpc loops on.
+// which is exactly what the boot wait for fluxd loops on.
 //
 // Legacy, because the syncthing term only decides fitness on nodes whose
 // syncthing FluxOS owns. On Arcane it is carved out and this suite would pass

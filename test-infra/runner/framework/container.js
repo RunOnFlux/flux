@@ -460,14 +460,15 @@ export async function configuredIpOf(container) {
   return r.stdout.trim();
 }
 
-// A crash of one node's FluxOS: the process is killed outright, with no
-// shutdown handling at all. `hold` keeps the node down afterwards, as a machine
-// that lost power stays down; releaseFluxos brings it back.
-export async function crashFluxos(container, { hold = false, exitTimeoutMs = 30000, interval = 250 } = {}) {
+// Signals one node's FluxOS and returns once the process has exited. `hold`
+// keeps the node down afterwards, as a machine stays down until its next boot;
+// releaseFluxos brings it back.
+export async function signalFluxos(container, signal, { hold = false, exitTimeoutMs = 30000, interval = 250 } = {}) {
   const pid = await fluxosPid(container);
-  if (!pid) throw new Error('crashFluxos: FluxOS is not running');
+  if (!pid) throw new Error(`signalFluxos: FluxOS is not running to receive SIG${signal}`);
   if (hold) await holdFluxos(container);
-  await execInContainer(container, `kill -9 ${pid}`);
+  const signalled = await execInContainer(container, `kill -${signal} ${pid}`);
+  if (signalled.exitCode !== 0) throw new Error(`signalFluxos: could not send SIG${signal} to ${pid}: ${signalled.output}`);
   const start = Date.now();
   while (Date.now() - start < exitTimeoutMs) {
     throwIfInfraDead();
@@ -476,7 +477,14 @@ export async function crashFluxos(container, { hold = false, exitTimeoutMs = 300
     // eslint-disable-next-line no-await-in-loop
     await sleepUnlessInfraDead(interval);
   }
-  throw new Error(`crashFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGKILL`);
+  throw new Error(`signalFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIG${signal}`);
+}
+
+// A crash of one node's FluxOS: the process is killed outright, with no
+// shutdown handling at all. `hold` keeps the node down afterwards, as a machine
+// that lost power stays down; releaseFluxos brings it back.
+export async function crashFluxos(container, options = {}) {
+  return signalFluxos(container, 'KILL', options);
 }
 
 // A command as a legacy node's operator runs pm2: as their account, against their pm2

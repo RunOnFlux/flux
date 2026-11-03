@@ -20,6 +20,8 @@ const upnpService = require('../../ZelBack/src/services/upnpService');
 const dnsLookup = require('../../ZelBack/src/services/utils/dnsLookup');
 const configManager = require('../../ZelBack/src/services/utils/configManager');
 const fluxServer = require('../../ZelBack/src/lib/fluxServer');
+const portFile = require('../../ZelBack/src/services/utils/portFile');
+const fluxdCredentials = require('../../ZelBack/src/services/daemonService/fluxdCredentials');
 
 /**
  * These tests isolate and test the SIGTERM handling logic from apiServer.js
@@ -803,6 +805,20 @@ describe('apiServer initiate readiness', () => {
       .forEach((listener) => process.removeListener('uncaughtException', listener));
   });
 
+  it('records the ports the listeners report, not the ones configured', async () => {
+    let call = 0;
+    fluxServer.FluxServer.callsFake(() => {
+      call += 1;
+      return {
+        listen, app: {}, socketIo: {}, port: 40000 + call,
+      };
+    });
+
+    await apiServer.initiate();
+
+    expect(apiServer.getListeningPorts()).to.deep.equal({ apiPort: 40001, apiPortHttps: 40002 });
+  });
+
   it('reports ready once both listeners are up, before the startup that waits on Mongo, Docker and fluxd', async () => {
     await apiServer.initiate();
 
@@ -863,6 +879,18 @@ describe('apiServer initiate readiness', () => {
     sinon.assert.notCalled(startFluxFunctions);
   });
 
+  it('exits as a configuration error, before it listens, when the node-key credential cannot be used', async () => {
+    sinon.stub(fluxdCredentials, 'loadNodeKey').rejects(new Error('the node-key credential /run/credentials/fluxos.service/node-key is empty'));
+    sinon.stub(serviceHelper, 'delay').resolves();
+    const exit = sinon.stub(process, 'exit');
+
+    await apiServer.initiate();
+    await new Promise(setImmediate);
+
+    sinon.assert.calledWithExactly(exit, systemdNotify.EXIT_CONFIG);
+    sinon.assert.callOrder(exit, listen);
+  });
+
   ['http', 'https'].forEach((mode, failing) => {
     it(`exits as a configuration error when the ${mode} listener cannot listen`, async () => {
       listen.onCall(failing).rejects(new Error('EADDRINUSE'));
@@ -874,5 +902,45 @@ describe('apiServer initiate readiness', () => {
 
       sinon.assert.calledOnceWithExactly(exit, systemdNotify.EXIT_CONFIG);
     });
+  });
+});
+
+describe('a stop removes the port file before it exits', () => {
+  let exitStub;
+  let removeStub;
+
+  beforeEach(() => {
+    sinon.stub(serviceHelper, 'delay').resolves();
+    sinon.stub(serviceHelper, 'runCommand').resolves({ stdout: '', error: null });
+    globalState.runningAppsCache.clear();
+    sinon.stub(dockerService, 'dockerListContainers').resolves([]);
+    sinon.stub(syncthingService, 'drainFoldersToPeers').resolves([]);
+    sinon.stub(syncthingFolderWrites, 'pauseAllFolders').resolves({ paused: [], failed: [] });
+    sinon.stub(verifyPool, 'stop');
+    sinon.stub(globalState, 'setShutdownInProgressTrue');
+    exitStub = sinon.stub(process, 'exit');
+    removeStub = sinon.stub(portFile, 'removePortFile').returns(true);
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('on a restart of the service alone', async () => {
+    sinon.stub(fs, 'existsSync').returns(false);
+
+    await apiServer.handleSigterm();
+
+    sinon.assert.calledOnce(removeStub);
+    expect(exitStub.firstCall.callId).to.be.greaterThan(removeStub.firstCall.callId);
+  });
+
+  it('on a system shutdown', async () => {
+    sinon.stub(fs, 'existsSync').callsFake((p) => p === '/run/systemd/shutdown/scheduled');
+
+    await apiServer.handleSigterm();
+
+    sinon.assert.calledOnce(removeStub);
+    expect(exitStub.firstCall.callId).to.be.greaterThan(removeStub.firstCall.callId);
   });
 });
