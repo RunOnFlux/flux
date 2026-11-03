@@ -9016,7 +9016,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       expect(releases(logWarn)).to.have.lengthOf(1);
-      expect(releases(logWarn)[0]).to.include('no longer evacuating');
+      expect(releases(logWarn)[0]).to.include('no longer leaving the app');
     });
 
     it('leaves a component it could not stop unmarked, so the next pass retries', async () => {
