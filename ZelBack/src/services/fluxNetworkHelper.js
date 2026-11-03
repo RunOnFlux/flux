@@ -3774,10 +3774,12 @@ const containerBlockedNetworks = NON_PUBLIC_IPV4;
 // public IP, and an app's calls come out of the same allowance as its node's own
 // bandwidth test: the CLI's API, which every call starts at, is this name.
 const containerBlockedDnsNames = ['cli.speedtest.net'];
-// The user flux-dnsd runs as. It forwards mesh containers' lookups from the
-// host, so its queries never cross DOCKER-USER.
-const dnsdUser = 'flux-dnsd';
-const dnsdPolicyChain = 'FLUX-DNS-POLICY';
+// Docker's embedded resolver and flux-dnsd look names up for app containers
+// from the host, so those queries never cross DOCKER-USER. The image tags each
+// of them with this mark bit (the ArcaneOS image's flux-dns-tag.service); a node whose image
+// does not tag them has nothing in this chain to match.
+const forwardedDnsMark = '0x10000000/0x10000000';
+const forwardedDnsChain = 'FLUX-DNS-POLICY';
 
 /**
  * A DNS name as it appears in a query, as iptables -S prints a --hex-string:
@@ -3926,32 +3928,27 @@ async function applyContainerEgressRules(bridges) {
 }
 
 /**
- * The FLUX-DNS-POLICY chain, as `iptables -S FLUX-DNS-POLICY` prints it: the
- * queries flux-dnsd forwards upstream for a blocked name are refused, as they
- * are when they leave an app's bridge.
- * @param {number} uid flux-dnsd's user id.
+ * The FLUX-DNS-POLICY chain, as `iptables -S FLUX-DNS-POLICY` prints it: a query
+ * the node forwards for an app container, for a blocked name, is refused as it
+ * is when it leaves an app's bridge.
  * @returns {string[]}
  */
-function dnsdPolicyRules(uid) {
+function forwardedDnsRules() {
   return containerBlockedDnsNames.flatMap((name) => [
-    `-A ${dnsdPolicyChain} -p udp -m udp --dport 53 -m owner --uid-owner ${uid} ${dnsNameMatch(name)} -j REJECT --reject-with icmp-port-unreachable`,
-    `-A ${dnsdPolicyChain} -p tcp -m tcp --dport 53 -m owner --uid-owner ${uid} ${dnsNameMatch(name)} -j REJECT --reject-with tcp-reset`,
+    `-A ${forwardedDnsChain} -p udp -m udp --dport 53 -m mark --mark ${forwardedDnsMark} ${dnsNameMatch(name)} -j REJECT --reject-with icmp-port-unreachable`,
+    `-A ${forwardedDnsChain} -p tcp -m tcp --dport 53 -m mark --mark ${forwardedDnsMark} ${dnsNameMatch(name)} -j REJECT --reject-with tcp-reset`,
   ]);
 }
 
 /**
- * Holds flux-dnsd's forwarded lookups to the names app containers may look up,
- * on a node that runs flux-dnsd; a node without its user has nothing to hold.
- * @returns {Promise<boolean>} True when the chain is in place or not needed.
- * Never rejects.
+ * Holds the lookups the node forwards for app containers to the names an app may
+ * look up.
+ * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
  */
-async function applyDnsdPolicyRules() {
-  const { stdout, error } = await serviceHelper.runCommand('id', { logError: false, params: ['-u', dnsdUser] });
-  const uid = serviceHelper.ensureString(stdout).trim();
-  if (error || !/^\d+$/.test(uid)) return true;
-  const { ok } = await replaceChain(dnsdPolicyChain, dnsdPolicyRules(Number(uid)));
+async function applyForwardedDnsRules() {
+  const { ok } = await replaceChain(forwardedDnsChain, forwardedDnsRules());
   if (!ok) return false;
-  return ensureJump('OUTPUT', dnsdPolicyChain);
+  return ensureJump('OUTPUT', forwardedDnsChain);
 }
 
 // lruRateLimit has been extracted to ./utils/rateLimit.js
@@ -4139,8 +4136,8 @@ module.exports = {
   isPortUPNPBanned,
   allowNodeToBindPrivilegedPorts,
   applyContainerEgressRules,
-  dnsdPolicyRules,
-  applyDnsdPolicyRules,
+  forwardedDnsRules,
+  applyForwardedDnsRules,
   containerEgressRules,
   getMaxNumberOfIpChanges,
   allowOnlyDockerNetworksToFluxNodeService,
