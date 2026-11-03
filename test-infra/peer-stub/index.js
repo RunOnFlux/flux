@@ -199,10 +199,17 @@ function linkLog(link, event) {
 }
 
 // Every text frame this stub sends goes through here: on an authenticated link
-// it carries the link MAC, as a node's would.
+// it carries the link MAC and its number, as a node's would. The last sealed
+// frame is kept for /replay-last-frame.
 function sendTo(ws, frame) {
   const link = links.get(ws);
-  ws.send(link?.authenticated ? linkCrypto.sealFrame(link.sendKey, frame) : frame);
+  if (!link?.authenticated) {
+    ws.send(frame);
+    return;
+  }
+  link.lastSealed = linkCrypto.sealFrame(link.sendKey, link.sendNumber, frame);
+  link.sendNumber += 1;
+  ws.send(link.lastSealed);
 }
 
 async function nodeAuthEncrypt(text) {
@@ -296,12 +303,14 @@ async function answerSyncRequest(ws, rawData) {
 
 async function handleMessage(ws, received) {
   let rawData = received;
-  // A frame under a link MAC is taken only when the MAC is the node's.
+  // A frame under a link MAC is taken only when the MAC is the node's and its
+  // number is past the last taken.
   if (rawData[0] === 0x4d) {
     const link = links.get(ws);
     const opened = link?.recvKey ? linkCrypto.openFrame(link.recvKey, rawData.toString()) : null;
-    if (opened === null) return;
-    rawData = Buffer.from(opened);
+    if (opened === null || opened.number <= link.recvNumber) return;
+    link.recvNumber = opened.number;
+    rawData = Buffer.from(opened.frame);
   }
   // Binary frames are the peer protocol's own encoding - hash traffic and the
   // app-state sync requests. This stub speaks the second only when asked to,
@@ -428,6 +437,9 @@ wss.on('connection', (ws, req) => {
       peerConfirm: null,
       sendKey: null,
       recvKey: null,
+      sendNumber: 0,
+      recvNumber: -1,
+      lastSealed: null,
       authenticated: false,
     });
   }
@@ -792,6 +804,23 @@ const controlServer = http.createServer(async (req, res) => {
       broadcastsSent += sent;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', sent, connected: connectedNodes.size }));
+      return;
+    }
+
+    // Send each connected node, again and as it was, the last frame this stub
+    // sealed to it: a replay on its link.
+    if (req.method === 'POST' && req.url === '/replay-last-frame') {
+      let sent = 0;
+      for (const ws of connectedNodes) {
+        const link = links.get(ws);
+        if (ws.readyState === 1 && link?.lastSealed) {
+          linkLog(link, 'replayed its last sealed frame');
+          ws.send(link.lastSealed);
+          sent++;
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', sent }));
       return;
     }
 

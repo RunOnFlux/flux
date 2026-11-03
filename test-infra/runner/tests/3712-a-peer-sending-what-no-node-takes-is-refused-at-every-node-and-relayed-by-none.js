@@ -4,7 +4,8 @@
  * its length, an encrypted spec carrying a plain compose, an enterprise string
  * over its length, and a websocket message over the payload limit. A caller that
  * opens connections and never finishes their link handshake is held to the
- * node's inbound limit and to its allowed ports.
+ * node's inbound limit and to its allowed ports, and a frame replayed on an
+ * authenticated link is dropped.
  *
  * The stub peer is an Arcane node that authenticates its links, peered with one
  * Arcane node (ENTRY) and one legacy node (LEGACY) and nothing else; the other
@@ -235,6 +236,24 @@ describe('a peer sending what no node takes is refused at every node and relayed
     expect(refused.length, `connections refused at the inbound limit: ${JSON.stringify(results)}`).to.be.at.least(1);
     refused.forEach((r) => expect(r.closeCode, JSON.stringify(r)).to.equal(4000));
     expect(held.length, `connections held, still handshaking: ${JSON.stringify(results)}`).to.be.at.least(1);
+  });
+
+  it('drops a frame its link has already carried, and takes the next', async function () {
+    this.timeout(300000);
+    const first = await buildSeedableApp({ env, name: name('replay'), instances: 1 });
+    await stub.broadcast(pendingMessage(first));
+    await waitFor(() => storedOn(ENTRY, first.hash), { timeout: 120000, interval: 2000, label: 'ENTRY stored the message the stub sent over its link' });
+
+    const mark = env.clients[ENTRY].getLastEventId();
+    expect(await stub.replayLastFrame(), 'frames the stub replayed').to.equal(1);
+    const replayed = await waitForFirstEvent(env.clients[ENTRY], [
+      { event: 'peers:frameDropped', matches: (d) => d.ip === stub.ip && d.reason === 'linkMac' },
+    ], { afterId: mark, timeout: 60000, label: 'ENTRY dropped the frame the stub replayed on its link' });
+    expect(replayed.data.reason).to.equal('linkMac');
+
+    const next = await buildSeedableApp({ env, name: name('replay'), instances: 1 });
+    await stub.broadcast(pendingMessage(next));
+    await waitFor(() => storedOn(ENTRY, next.hash), { timeout: 120000, interval: 2000, label: 'ENTRY stored the next message the stub sent over its link' });
   });
 
   // Last: the connection it closes is the stub's link to ENTRY.
