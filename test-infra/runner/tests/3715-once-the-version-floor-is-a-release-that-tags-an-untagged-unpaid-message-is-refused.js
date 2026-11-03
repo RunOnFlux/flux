@@ -36,6 +36,9 @@ const PLAIN_STUB = 4;
 // minimumFluxOSAllowedVersion in ZelBack/config/default.js.
 const FLOOR = '8.18.0';
 const QUORUM = 10;
+// Node 0's inbound arc wraps onto the stubs, which dial nothing, so it is short
+// of the inbound floor the door checks before the quorum.
+const ENTRY = 1;
 
 describe('once the version floor is a release that tags, an untagged unpaid message is refused', function () {
   let env;
@@ -105,8 +108,8 @@ describe('once the version floor is a release that tags, an untagged unpaid mess
     this.timeout(60000);
     const owner = appOwnerKey();
     const result = await registerApp(
-      env.clients[ARCANE[0]].url,
-      nodeKey(ARCANE[0] + 1),
+      env.clients[ENTRY].url,
+      nodeKey(ENTRY + 1),
       buildAppSpec({ name: `e2efloorreg${stamp}`, ownerKey: owner }),
       'fluxappregister',
       { ownerKey: owner },
