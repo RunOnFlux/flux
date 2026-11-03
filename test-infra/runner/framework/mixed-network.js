@@ -89,8 +89,8 @@ export function mixedNetworkChecks(getEnv, { legacy, observer }) {
       const answers = await Promise.all(REAL.map(async (index) => ({ index, ...(await registerThrough(index)) })));
       answers.forEach(({ index, status, body }) => {
         if (legacy.includes(index)) {
-          expect(status, `legacy node ${index}: ${JSON.stringify(body)}`).to.equal(503);
-          expect(body.data.name).to.equal('AdmissionUnavailable');
+          expect(status, `legacy node ${index}: ${JSON.stringify(body)}`).to.equal(501);
+          expect(body.data.name).to.equal('AdmissionNotSupported');
         } else {
           expect(body.status, `Arcane node ${index}: ${JSON.stringify(body)}`).to.equal('success');
         }

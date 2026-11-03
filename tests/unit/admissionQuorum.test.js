@@ -75,11 +75,13 @@ describe('admissionQuorum tests', () => {
 
   beforeEach(() => {
     clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
   });
 
   afterEach(() => {
     clock.restore();
     sinon.restore();
+    delete process.env.FLUXOS_PATH;
   });
 
   it('should stub only names the real modules export', () => {
@@ -117,6 +119,15 @@ describe('admissionQuorum tests', () => {
       const { mod, peerManager, deps } = withPeers(['10.0.0.1', '10.0.0.2']);
       expect(() => mod.requireQuorum()).to.throw(mod.AdmissionUnavailableError);
       await expect(mod.admit(MESSAGE, { daemonHeight: 100 })).to.be.rejectedWith('holds authenticated links to 2 of the 3');
+      expect(deps.sign.called).to.equal(false);
+      peerManager.authenticated.forEach((peer) => expect(peer.sent).to.have.length(0));
+    });
+
+    it('should refuse at the door, whatever its links, on a node that is not ArcaneOS', async () => {
+      delete process.env.FLUXOS_PATH;
+      const { mod, peerManager, deps } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4']);
+      expect(() => mod.requireQuorum()).to.throw(mod.AdmissionNotSupportedError);
+      await expect(mod.admit(MESSAGE, { daemonHeight: 100 })).to.be.rejectedWith('only ArcaneOS nodes do');
       expect(deps.sign.called).to.equal(false);
       peerManager.authenticated.forEach((peer) => expect(peer.sent).to.have.length(0));
     });

@@ -5,8 +5,8 @@
  *
  * The fleet: seven Arcane nodes, one legacy node, an Arcane stub peer and a
  * plain one. admissionQuorum is 2, which every Arcane node meets with room to
- * spare - the worst-placed carries three authenticated peers - and which the
- * legacy node, authenticating nothing, never meets. Every peer but the entry
+ * spare - the worst-placed carries three authenticated peers; the legacy node
+ * refuses at its door whatever its links. Every peer but the entry
  * node holds one admitting operator to one pending message (originKeyCap 1), so
  * the entry node's second registration is one its peers refuse while its own
  * door takes it.
@@ -177,7 +177,7 @@ describe('an unpaid app message enters the network only through a quorum of auth
     }
   });
 
-  it('refuses at the door, with 503, on a node that cannot authenticate a link', async function () {
+  it('refuses at the door, with 501, on a node that is not ArcaneOS', async function () {
     this.timeout(60000);
     const { url } = env.clients[LEGACY];
     const auth = await authenticate(url, nodeKey(LEGACY + 1));
@@ -190,8 +190,8 @@ describe('an unpaid app message enters the network only through a quorum of auth
     });
     const body = await response.json();
 
-    expect(response.status).to.equal(503);
-    expect(body.data.name).to.equal('AdmissionUnavailable');
+    expect(response.status, JSON.stringify(body)).to.equal(501);
+    expect(body.data.name).to.equal('AdmissionNotSupported');
   });
 
   it('takes an unpaid message on an Arcane node only over an authenticated link', async function () {

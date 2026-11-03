@@ -2193,10 +2193,12 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     sinon.stub(peerManager, 'inboundCount').get(() => 100);
     sinon.stub(peerManager, 'authenticatedIpCount').returns(3);
     sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 2500000 } });
+    process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
   });
 
   afterEach(() => {
     sinon.restore();
+    delete process.env.FLUXOS_PATH;
   });
 
   [
@@ -2233,6 +2235,14 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     expect(response.status).to.equal('error');
     expect(response.data.name).to.equal('AdmissionUnavailable');
     expect(statusCode).to.equal(503);
+  });
+
+  it('should refuse at the door with 501, whatever its links, on a node that is not ArcaneOS', async () => {
+    delete process.env.FLUXOS_PATH;
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.status).to.equal('error');
+    expect(response.data.name).to.equal('AdmissionNotSupported');
+    expect(statusCode).to.equal(501);
   });
 
   it('should answer any other refusal with the v1 status', async () => {
