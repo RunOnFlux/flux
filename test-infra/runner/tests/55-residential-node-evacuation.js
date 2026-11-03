@@ -949,6 +949,6 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
     await driveUntil(client, async () => released() !== undefined, { timeoutMs: 120000 + (2 * PASS_MS) });
     await startTicker();
 
-    expect(released().data.reason).to.equal('NOT_EVACUATING');
+    expect(released().data.reason).to.equal('NOT_LEAVING');
   });
 });
