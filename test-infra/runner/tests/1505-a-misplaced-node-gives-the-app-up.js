@@ -38,6 +38,7 @@ import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING } from '../framework/residential-fleet.js';
 import { keysOf, nextOwnedTurn, untilOwnedTurnEndsMs } from '../framework/handback-turns.js';
+import { allowFromNow } from '../framework/time-budget.js';
 
 const subnet = getSubnetConfig();
 
@@ -199,7 +200,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
 
   it('the moved node gives MOVES up and the free DE node takes it', async function () {
     const waitMs = handBackWaitMs(moved + 1, (await installedInstanceIndices(env, MOVES)).map((i) => i + 1));
-    this.timeout(waitMs + 360000);
+    allowFromNow(this, waitMs + 360000);
     await drive(moved, async () => decided(moved, MOVES, gaveUp), waitMs, `node ${moved} gives ${MOVES} up as misplaced`);
 
     await drive(free, async () => {
@@ -212,7 +213,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
     const all = [...Array(NODES).keys()].map((i) => i + 1);
     const remaining = all.filter((node) => node !== moved + 1);
     const waitMs = handBackWaitMs(moved + 1, all);
-    this.timeout(waitMs + 180000);
+    allowFromNow(this, waitMs + 180000);
     await drive(moved, async () => decided(moved, STALLS, gaveUp), waitMs, `node ${moved} gives ${STALLS} up as misplaced`);
     await drive(free, async () => !(await installedInstanceIndices(env, STALLS)).includes(moved), 120000, `the moved node no longer holds ${STALLS}`);
 
@@ -220,8 +221,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
     // after each has owned a turn among them - so any of them being told to
     // leave would have.
     const holdMs = Math.max(...remaining.map((node) => handBackWaitMs(node, remaining)));
-    // Set again, which restarts the test's timer, now the hold is known.
-    this.timeout(holdMs + 120000);
+    allowFromNow(this, holdMs + 120000);
     const holdUntil = Date.now() + holdMs;
     await drive(free, async () => Date.now() >= holdUntil, holdMs + 60000, 'a turn owned by every remaining holder');
     const holders = await installedInstanceIndices(env, STALLS);
@@ -233,7 +233,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
   });
 
   it('a node whose own report says FR keeps both apps while the table places it in DE', async function () {
-    this.timeout((4 * PASS_MS) + 60000);
+    allowFromNow(this, (4 * PASS_MS) + 60000);
     const selfReported = SELF_REPORTED_FR - 1;
     // A decision about STALLS since the table moved proves the pass ran on this
     // node after it, so the negatives below are about a node that was looking,

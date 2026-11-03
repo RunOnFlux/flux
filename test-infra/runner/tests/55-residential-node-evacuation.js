@@ -19,6 +19,7 @@ import {
   departureWaitMs, fleetNodes, RESIDENTIAL_PACING, PASS_MS, retireSeededApps, expectHoldsOnly,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOwner, untilOwnedTurnEndsMs } from '../framework/handback-turns.js';
+import { allowFromNow } from '../framework/time-budget.js';
 
 describe('Residential node evacuation: classification', function () {
   let env;
@@ -262,7 +263,7 @@ describe('Residential node evacuation', function () {
     // its own residentialCheckIntervalMs timer, so it arrives with the chain
     // stopped - which is also why it cannot be driven for.
     const budgetMs = departureWaitMs([TARGET], env.nodeCount);
-    this.timeout(budgetMs + 300000);
+    allowFromNow(this, budgetMs + 300000);
     await driveUntil(client, async () => removed() !== undefined, { timeoutMs: budgetMs });
 
     const removedEvent = removed();
@@ -387,7 +388,7 @@ describe('Residential node evacuation', function () {
       .filter((e) => e.id > anchor && e.event === name && e.data?.appName === 'worldapp' && predicate(e.data));
     const refusals = () => since('giveUp:safety', (d) => d.safe === false);
     const budgetMs = departureWaitMs([TARGET], env.nodeCount);
-    this.timeout(budgetMs + 120000);
+    allowFromNow(this, budgetMs + 120000);
     await driveUntil(client, async () => refusals().length > 0, { timeoutMs: budgetMs });
     await startTicker();
     const [verdict] = refusals();
@@ -422,7 +423,7 @@ describe('Residential node evacuation', function () {
     const anchor = client.getLastEventId();
     await stopTicker();
     const budgetMs = departureWaitMs([TARGET], env.nodeCount);
-    this.timeout(budgetMs + 180000);
+    allowFromNow(this, budgetMs + 180000);
     await driveUntil(client, async () => client.getEventBuffer()
       .some((e) => e.id > anchor && e.event === 'app:removed' && e.data?.name === 'worldapp'),
     { timeoutMs: budgetMs });
@@ -552,7 +553,7 @@ describe('Residential node evacuation: one holder at a time', function () {
 
     await stopTicker();
     const budgetMs = departureWaitMs([TARGET, SECOND_TARGET], env.nodeCount);
-    this.timeout(budgetMs + 120000);
+    allowFromNow(this, budgetMs + 120000);
     await driveUntil(env.clients[TARGET - 1],
       async () => refusals().length > 0 || departures() >= 2,
       { timeoutMs: budgetMs });
@@ -642,7 +643,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // stand-down is the first thing its evacuation reaches.
     await stopTicker();
     const budgetMs = departureWaitMs([TARGET], env.nodeCount);
-    this.timeout(budgetMs + 600000);
+    allowFromNow(this, budgetMs + 600000);
     await driveUntil(client, async () => stoodDown() !== undefined, { timeoutMs: budgetMs });
     await startTicker();
 
@@ -714,7 +715,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
       turnMs: RESIDENTIAL_PACING.residentialTurnMs,
       fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
     }) + (2 * PASS_MS);
-    this.timeout(budgetMs + 180000);
+    allowFromNow(this, budgetMs + 180000);
     await driveUntil(client, async () => removal() !== undefined, { timeoutMs: budgetMs });
     await startTicker();
     const removed = removal();
@@ -834,7 +835,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
       // has its own couplings to check first.
       await stopTicker();
       const budgetMs = departureWaitMs([TARGET], env.nodeCount);
-      this.timeout(budgetMs + 120000);
+      allowFromNow(this, budgetMs + 120000);
       await driveUntil(client, async () => unknownRefusal() !== undefined, { timeoutMs: budgetMs });
       await startTicker();
 
@@ -901,7 +902,7 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
       && e.data?.appName === appName);
     await stopTicker();
     const budgetMs = departureWaitMs([TARGET], env.nodeCount);
-    test.timeout(budgetMs + 120000);
+    allowFromNow(test, budgetMs + 120000);
     await driveUntil(client, async () => stoodDown() !== undefined, { timeoutMs: budgetMs });
     return { event: stoodDown(), folder };
   }
@@ -923,7 +924,7 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
       turnMs: RESIDENTIAL_PACING.residentialTurnMs,
       fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
     }) + RESIDENTIAL_PACING.residentialTurnMs + (2 * PASS_MS);
-    this.timeout(budgetMs + 120000);
+    allowFromNow(this, budgetMs + 120000);
     await driveUntil(client, async () => released() !== undefined, { timeoutMs: budgetMs });
     await startTicker();
 
