@@ -1,7 +1,7 @@
 /*
  * An unpaid app message enters the network only through a node that holds a
  * quorum of authenticated Arcane links, only once peers on that quorum of IPs
- * hold it, and over authenticated links alone.
+ * hold it, and, carrying a client tag, over authenticated links alone.
  *
  * The fleet: seven Arcane nodes, one legacy node, an Arcane stub peer and a
  * plain one. admissionQuorum is 2, which every Arcane node meets with room to
@@ -10,6 +10,9 @@
  * node holds one admitting operator to one pending message (originKeyCap 1), so
  * the entry node's second registration is one its peers refuse while its own
  * door takes it.
+ *
+ * Until the version floor reaches the first release that tags, an untagged
+ * message, as a release that does not tag sends it, is taken from any link.
  *
  * The harness's fluxbench is the daemon stub's: what a green run shows is the
  * protocol between FluxOS processes, not SAS's encryption.
@@ -192,6 +195,17 @@ describe('an unpaid app message enters the network only through a quorum of auth
 
     expect(response.status, JSON.stringify(body)).to.equal(501);
     expect(body.data.name).to.equal('AdmissionNotSupported');
+  });
+
+  it('takes an untagged unpaid message from an unauthenticated link, as a release that does not tag sends it', async function () {
+    this.timeout(120000);
+    const app = await buildSeedableApp({ env, name: `e2equorumuntagged${stamp}`, instances: 1 });
+    const marks = REAL.map((i) => env.clients[i].getLastEventId());
+
+    await plainStub.broadcast(pendingMessage(app));
+
+    const decisions = await Promise.all(REAL.map((i) => admissionOf(env.clients[i], app.hash, marks[REAL.indexOf(i)])));
+    decisions.forEach((decision, at) => expect(decision, `node ${REAL[at]}: ${JSON.stringify(decision)}`).to.include({ taken: true, clientTag: null }));
   });
 
   it('takes an unpaid message on an Arcane node only over an authenticated link', async function () {

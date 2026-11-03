@@ -2,6 +2,7 @@
 
 const config = require('config');
 const dbHelper = require('../dbHelper');
+const serviceHelper = require('../serviceHelper');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { clientTagFor, tagHeightIsCurrent } = require('../utils/clientTag');
@@ -20,10 +21,12 @@ const { globalAppsTempMessages, appsHashesCollection } = require('../utils/appCo
 // signed, and the operator is known by that signature.
 //
 // A message without a tag was admitted or rebuilt by a release that does not
-// make them. It is taken without a count, and carries no origin: a rebuilt reply
-// is signed by whoever answered, not by whoever admitted. An allowance shared by
-// those releases' messages is one an attacker submitting through them could use
-// up for every other client of them.
+// make them. Until the network's version floor reaches the first release that
+// tags (fluxapps.untaggedRefusedFrom) it is taken from any peer without a count,
+// and carries no origin: a rebuilt reply is signed by whoever answered, not by
+// whoever admitted. An allowance shared by those releases' messages is one an
+// attacker submitting through them could use up for every other client of them.
+// From that floor every node runs a release that tags, and one is refused.
 //
 // A node that is not ArcaneOS counts a message against its operator only. An
 // unpaid message reaches an ArcaneOS node only from ArcaneOS nodes, so there its
@@ -64,6 +67,15 @@ function admittedMessage({
     // only where a submitter range granted one
     ...(clientTagCap !== undefined && { clientTagCap }),
   };
+}
+
+/**
+ * Whether an unpaid message without a client tag is refused: once the network's
+ * version floor is a release that tags every unpaid message it admits.
+ * @returns {boolean}
+ */
+function untaggedRefused() {
+  return serviceHelper.semverAtLeast(config.minimumFluxOSAllowedVersion, config.fluxapps.untaggedRefusedFrom);
 }
 
 /**
@@ -274,7 +286,7 @@ async function admitUnpaid(message, { frame, daemonHeight }) {
   const {
     clientTag, clientTagHeight, clientTagCap, arcaneSender,
   } = message;
-  if (clientTag === undefined) return { fields: {} };
+  if (clientTag === undefined) return untaggedRefused() ? { refused: 'it carries no client tag' } : { fields: {} };
 
   if (typeof clientTag !== 'string' || !TAG_PATTERN.test(clientTag)) return { refused: 'its client tag is malformed' };
   if (!tagHeightIsCurrent(clientTagHeight, daemonHeight)) return { refused: `its client tag height ${clientTagHeight} is not current` };

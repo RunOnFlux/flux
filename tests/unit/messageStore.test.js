@@ -273,17 +273,26 @@ describe('messageStore tests', () => {
           else process.env.FLUXOS_PATH = before;
         });
 
-        it('refuses an unpaid message that did not arrive over an authenticated link, and says why', async () => {
+        it('refuses a tagged unpaid message that did not arrive over an authenticated link, and says why', async () => {
           dbHelperStub.findOneInDatabase.resolves(null);
           const onRefusal = sinon.stub();
 
-          const result = await messageStore.storeAppTemporaryMessage(pending, { onRefusal });
+          const result = await messageStore.storeAppTemporaryMessage({ ...pending, clientTag: 'c'.repeat(64) }, { onRefusal });
 
           expect(result).to.equal(false);
           sinon.assert.notCalled(unpaidAdmissionStub.admitUnpaid);
           sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
           sinon.assert.calledOnceWithExactly(onRefusal, 'it did not arrive over an authenticated Arcane link');
           expect(event()).to.include({ hash: 'hash123', taken: false, reason: 'it did not arrive over an authenticated Arcane link' });
+        });
+
+        it('leaves an untagged unpaid message from any link to the allowances, which the version floor decides', async () => {
+          dbHelperStub.findOneInDatabase.resolves(null);
+
+          const result = await messageStore.storeAppTemporaryMessage(pending);
+
+          expect(result).to.equal(true);
+          sinon.assert.calledOnce(unpaidAdmissionStub.admitUnpaid);
         });
 
         it('admits an unpaid message that arrived over an authenticated link', async () => {
