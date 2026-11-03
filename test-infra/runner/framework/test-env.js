@@ -30,7 +30,7 @@ import {
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import {
-  derivePeerThresholds, deriveReadinessThresholds, deriveAdmissionQuorum, PRODUCTION_ADMISSION_QUORUM, carriedPeers, ringArc, dialerCount,
+  derivePeerThresholds, deriveReadinessThresholds, deriveAdmissionQuorum, carriedPeers, ringArc, dialerCount,
 } from './peer-topology.js';
 import { pushImage, mirrorExecutorImage, executorImageReference } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
@@ -1903,11 +1903,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // carries, for the same reason - see peer-topology.js.
         ...deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps),
         // And the admission quorum, for the same reason - see peer-topology.js.
-        // A legacy node keeps production's: it authenticates no link, so its door
-        // refuses every unpaid registration, as a legacy node's does.
-        admissionQuorum: legacyNodes.includes(i)
-          ? PRODUCTION_ADMISSION_QUORUM
-          : deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, legacyNodes.length),
+        admissionQuorum: deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, legacyNodes.length),
         // Travels as configuration, like every other override. It used to be an
         // env var the entrypoint sed into shared.js - but the merged config is
         // written by REQUIRING the per-node file, which spreads shared.js at
