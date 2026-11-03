@@ -398,11 +398,15 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
     { timeout: 60000, interval: 500, label: 'no connection on any node still handshaking' },
   );
 
-  // An Arcane node admits an app message only once it holds admissionQuorum
-  // authenticated links on distinct IPs, which follows peering by a handshake per
-  // link. Waited here so a suite registering an app straight after boot meets a
-  // door that is open.
-  const admitting = env.nodeConfigs.filter((cfg) => cfg.arcane && env.clients[cfg.index] && cfg.admissionQuorum > 0);
+  // An Arcane node admits an app message by quorum only once it holds
+  // admissionQuorum authenticated links on distinct IPs, which follows peering by
+  // a handshake per link. Waited here so a suite registering an app straight
+  // after boot meets a door that admits by quorum. A node can link to no more
+  // than the fleet's other Arcane nodes and its Arcane stubs, so one whose quorum
+  // is more than that never reaches it and is not waited for.
+  const arcaneNodes = env.nodeConfigs.filter((cfg) => cfg.arcane && env.clients[cfg.index]);
+  const linkable = arcaneNodes.length - 1 + (env.arcaneStubPeers ?? []).length;
+  const admitting = arcaneNodes.filter((cfg) => cfg.admissionQuorum > 0 && cfg.admissionQuorum <= linkable);
   await waitFor(
     async () => {
       const counts = await Promise.all(admitting.map(async (cfg) => {
