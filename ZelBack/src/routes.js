@@ -290,8 +290,7 @@ module.exports = (app) => {
   app.get('/flux/uplink', rejectQueryParameters, asyncRoute((req, res) => {
     return uplinkService.uplinkAPI(req, res);
   }));
-  // Uncached: the answer depends on who is asking.
-  app.get('/flux/kernel', rejectQueryParameters, asyncRoute((req, res) => {
+  app.get('/flux/kernel', rejectQueryParameters, cache('60 seconds'), asyncRoute((req, res) => {
     return kernelService.kernelAPI(req, res);
   }));
   app.get('/flux/zelid', cache('30 seconds'), asyncRoute((req, res) => { // DEPERCATED

@@ -3,7 +3,6 @@ const chai = require('chai');
 const sinon = require('sinon');
 
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const kernelService = require('../../ZelBack/src/services/kernelService');
 
 const { expect } = chai;
@@ -99,26 +98,14 @@ describe('kernelService tests', () => {
       return { json: sinon.stub().returnsArg(0) };
     }
 
-    it('refuses a caller who is neither the node operator nor the Flux team', async () => {
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
-      const read = sinon.stub(fsPromises, 'readFile').resolves('4736\n');
-      const res = fakeRes();
-
-      await kernelService.kernelAPI({ headers: {} }, res);
-
-      expect(res.json.firstCall.args[0].status).to.equal('error');
-      expect(res.json.firstCall.args[0].data.code).to.equal(401);
-      sinon.assert.notCalled(read);
-    });
-
-    it('gives each flag\'s bit, letter and description to the node operator or the Flux team', async () => {
-      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+    it('gives each flag\'s bit, letter and description to any caller', async () => {
+      const verify = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
       sinon.stub(fsPromises, 'readFile').resolves('4736\n');
       const res = fakeRes();
 
       await kernelService.kernelAPI({ headers: {} }, res);
 
-      sinon.assert.calledWith(verify, Privilege.NODE_OPERATOR_OR_FLUX_TEAM);
+      sinon.assert.notCalled(verify);
       const answer = res.json.firstCall.args[0];
       expect(answer.status).to.equal('success');
       expect(answer.data.tainted).to.equal(4736);

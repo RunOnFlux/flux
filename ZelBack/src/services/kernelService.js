@@ -9,8 +9,6 @@
 
 const fs = require('node:fs/promises');
 const messageHelper = require('./messageHelper');
-const verificationHelper = require('./verificationHelper');
-const { Privilege, authOf } = require('./utils/privileges');
 
 const TAINTED_PATH = '/proc/sys/kernel/tainted';
 
@@ -94,14 +92,12 @@ async function getTaintSummary() {
 
 /**
  * GET /flux/kernel - the taint value with each flag's bit, letter and
- * description, for the node operator and the Flux team.
+ * description.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>}
  */
 async function kernelAPI(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  if (authorized !== true) return res.json(messageHelper.errUnauthorizedMessage());
   return res.json(messageHelper.createDataMessage(await readTaint()));
 }
 
