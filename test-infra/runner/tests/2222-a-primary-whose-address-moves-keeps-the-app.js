@@ -99,6 +99,9 @@ describe('a primary whose address moves keeps the app', function () {
     await client(B).waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RECONCILE && d.key === movedSocket, DETECTION_MS, { afterId: beforeMove });
     const observed = await electionDecisionCount(client(B), fleet.identifier, 'primaryObserved');
     await waitForElectionDecisions(client(B), fleet.identifier, 'primaryObserved', PASSES_HELD, { from: observed, timeout: 60000 });
+    expect(client(B).getEventBuffer().filter((e) => e.event === 'primaryRole:changed' && e.id > beforeMove
+      && e.data.identifier === fleet.identifier && e.data.from === 'primary'),
+      'the primary gave up its role while held inside its move').to.deep.equal([]);
     await client(B).releaseCheckpoint(BEFORE_RECONCILE, movedSocket);
 
     // A node that detects its move restarts its apps for the new address.
