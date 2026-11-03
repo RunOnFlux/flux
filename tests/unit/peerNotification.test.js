@@ -23,6 +23,7 @@ describe('peerNotification tests', () => {
   let placementsOfStub;
   let waitForBackfillStub;
   let waitForLocalSocketAddressStub;
+  let getKnownLocalSocketAddressStub;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -60,6 +61,7 @@ describe('peerNotification tests', () => {
     },
     '../fluxNetworkHelper': {
       waitForLocalSocketAddress: waitForLocalSocketAddressStub,
+      getKnownLocalSocketAddress: getKnownLocalSocketAddressStub,
     },
     '../geolocationService': {
       isStaticIP: sinon.stub().returns(true),
@@ -136,6 +138,7 @@ describe('peerNotification tests', () => {
     waitForBootDrainSettledStub = sinon.stub().resolves();
     waitForBackfillStub = sinon.stub().resolves();
     waitForLocalSocketAddressStub = sinon.stub().resolves('192.168.1.1:16127');
+    getKnownLocalSocketAddressStub = sinon.stub().returns('192.168.1.1:16127');
     storeAppRunningMessageStub = sinon.stub().resolves();
     storeAppStateEventStub = sinon.stub().resolves();
     broadcastMessageToAllStub = sinon.stub().resolves('signed');
@@ -532,6 +535,18 @@ describe('peerNotification tests', () => {
       expect(broadcastMessageToAllStub.calledOnce).to.be.true;
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.ip).to.equal('192.168.1.1:16127');
+    });
+
+    // A move of this node's own switches its address inside the cycle lock, so
+    // the address is the one held when the snapshot is stamped.
+    it('announces at the address this node holds when the snapshot is taken', async () => {
+      waitForLocalSocketAddressStub.resolves('192.168.1.1:16127');
+      getKnownLocalSocketAddressStub.callsFake(() => (announceCycle.locked ? '192.168.1.2:16127' : '192.168.1.1:16127'));
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.ip).to.equal('192.168.1.2:16127');
     });
 
     // A removal waits for a cycle in flight; a cycle still waiting for the node's

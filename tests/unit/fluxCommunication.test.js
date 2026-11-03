@@ -3816,7 +3816,32 @@ describe('fluxCommunication tests', () => {
         sinon.assert.calledOnce(drop);
       });
 
-      it('leaves a move it has already recorded at that time as it is: no second record, no connections dropped again', async () => {
+      it('records a move as its address switches, and carries every row reported at the old address until then', async () => {
+        sinon.stub(registryManager, 'addressMovesFrom').resolves(new Map());
+        const before = Date.now();
+
+        await fluxCommunication.recordOwnAddressMoveAtSwitch(OLD, NEW, AT);
+
+        sinon.assert.calledOnce(storeEvent);
+        sinon.assert.calledTwice(storeMove);
+        expect(storeMove.firstCall.args[0].broadcastedAt, 'the move').to.equal(AT);
+        expect(storeMove.secondCall.args[0]).to.include({ oldIP: OLD, newIP: NEW });
+        expect(storeMove.secondCall.args[0].broadcastedAt, 'the rows until the switch').to.be.at.least(before);
+        sinon.assert.notCalled(drop);
+      });
+
+      it('announces a move recorded as its address switched, recording it no second time', async () => {
+        const movesFrom = sinon.stub(registryManager, 'addressMovesFrom').resolves(new Map());
+        await fluxCommunication.recordOwnAddressMoveAtSwitch(OLD, NEW, AT);
+        movesFrom.resolves(new Map([[OLD, { to: NEW, at: AT, signer: '04own' }]]));
+
+        await fluxCommunication.handleOwnAddressMove(OLD, NEW, AT);
+
+        sinon.assert.calledOnce(storeEvent);
+        sinon.assert.calledOnce(drop);
+      });
+
+      it('leaves a move an earlier process recorded as it is: no second record, no connections dropped again', async () => {
         sinon.stub(registryManager, 'addressMovesFrom').resolves(new Map([[OLD, { to: NEW, at: AT, signer: '04own' }]]));
 
         await fluxCommunication.handleOwnAddressMove(OLD, NEW, AT);
