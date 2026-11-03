@@ -2,7 +2,7 @@
  * Unpaid app messages on a mostly Arcane fleet: ten Arcane nodes and two legacy.
  *
  * Every Arcane node holds the quorum through its ring, admits at its door and
- * passes on what it admits; every legacy node answers 503 at its door and still
+ * passes on what it admits; every legacy node answers 501 at its door and still
  * holds what the Arcane nodes committed. A signed copy that reaches an Arcane
  * node after an unsigned copy of it was refused is taken; a paid message that
  * only an unauthenticated peer serves is taken; an unpaid one only such a peer
@@ -35,7 +35,7 @@ describe('unpaid app messages on a mostly Arcane fleet', function () {
     await env?.teardown();
   });
 
-  it('admits at every Arcane node\'s door and answers 503 at every legacy one, and every node then holds what was admitted', async function () {
+  it('admits at every Arcane node\'s door and answers 501 at every legacy one, and every node then holds what was admitted', async function () {
     this.timeout(300000);
     const admitted = await checks.doorAdmitsOnlyOnArcaneNodes();
     expect(admitted, 'nothing was admitted').to.not.be.empty;

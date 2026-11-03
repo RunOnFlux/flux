@@ -55,6 +55,17 @@ class AdmissionUnavailableError extends Error {
   }
 }
 
+/**
+ * Refused at the door: this node never admits unpaid messages. Only an ArcaneOS
+ * node does.
+ */
+class AdmissionNotSupportedError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'AdmissionNotSupported';
+  }
+}
+
 // The entry node's open rounds, by message hash.
 const rounds = new Map();
 // The entry node's admissions in progress, by message hash, each settling once
@@ -68,10 +79,15 @@ function isMessageHash(hash) {
 }
 
 /**
- * Refuse at the door unless this node holds admissionQuorum authenticated links
- * on distinct IPs. A legacy node never does.
+ * Refuse at the door unless this node is an ArcaneOS node holding
+ * admissionQuorum authenticated links on distinct IPs.
+ * @throws {AdmissionNotSupportedError} on a node that is not ArcaneOS.
+ * @throws {AdmissionUnavailableError} below the quorum.
  */
 function requireQuorum() {
+  if (!process.env.FLUXOS_PATH) {
+    throw new AdmissionNotSupportedError('This Flux node does not take app registrations or updates: only ArcaneOS nodes do. Submit to an ArcaneOS node.');
+  }
   const { admissionQuorum } = config.fluxapps;
   const count = peerManager.authenticatedIpCount();
   if (count < admissionQuorum) {
@@ -403,6 +419,7 @@ module.exports = {
   RECEIPT,
   COMMIT,
   RECEIPT_STATE,
+  AdmissionNotSupportedError,
   AdmissionUnavailableError,
   isMessageHash,
   requireQuorum,

@@ -46,7 +46,7 @@ describe('unpaid app messages on a mostly legacy fleet', function () {
     expect(linked.filter((ip) => ip !== env.clients[4].ip), 'links beyond the ring').to.satisfy((ips) => ips.every((ip) => reported.includes(ip)));
   });
 
-  it('admits at every Arcane node\'s door and answers 503 at every legacy one, and every node then holds what was admitted', async function () {
+  it('admits at every Arcane node\'s door and answers 501 at every legacy one, and every node then holds what was admitted', async function () {
     this.timeout(300000);
     const admitted = await checks.doorAdmitsOnlyOnArcaneNodes();
     expect(admitted, 'nothing was admitted').to.not.be.empty;

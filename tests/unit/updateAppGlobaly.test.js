@@ -138,29 +138,43 @@ describe('updateAppGlobaly tests', () => {
 });
 
 describe('updateAppGlobalyApi tests', () => {
-  afterEach(() => {
-    sinon.restore();
+  let statusCode;
+  const update = () => new Promise((resolve) => {
+    const req = new EventEmitter();
+    statusCode = 200;
+    const res = {
+      json: resolve,
+      status(code) { statusCode = code; return this; },
+    };
+    advancedWorkflows.updateAppGlobalyApi(req, res);
+    req.emit('data', JSON.stringify({ type: 'fluxappupdate', version: 1 }));
+    req.emit('end');
   });
 
-  it('should refuse at the door with 503 below the quorum of authenticated links', async () => {
+  beforeEach(() => {
     sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
     sinon.stub(peerManager, 'outboundCount').get(() => 100);
     sinon.stub(peerManager, 'inboundCount').get(() => 100);
+    process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    delete process.env.FLUXOS_PATH;
+  });
+
+  it('should refuse at the door with 503 below the quorum of authenticated links', async () => {
     sinon.stub(peerManager, 'authenticatedIpCount').returns(2);
-    let statusCode = 200;
-
-    const response = await new Promise((resolve) => {
-      const req = new EventEmitter();
-      const res = {
-        json: resolve,
-        status(code) { statusCode = code; return this; },
-      };
-      advancedWorkflows.updateAppGlobalyApi(req, res);
-      req.emit('data', JSON.stringify({ type: 'fluxappupdate', version: 1 }));
-      req.emit('end');
-    });
-
+    const response = await update();
     expect(response.data.name).to.equal('AdmissionUnavailable');
     expect(statusCode).to.equal(503);
+  });
+
+  it('should refuse at the door with 501, whatever its links, on a node that is not ArcaneOS', async () => {
+    delete process.env.FLUXOS_PATH;
+    sinon.stub(peerManager, 'authenticatedIpCount').returns(3);
+    const response = await update();
+    expect(response.data.name).to.equal('AdmissionNotSupported');
+    expect(statusCode).to.equal(501);
   });
 });
