@@ -108,8 +108,8 @@ describe('FluxOS reaches fluxd through what fluxd publishes when its unit passes
       `mkdir -p ${FLUXD_PATH} && echo ${marker} >> ${FLUXD_PATH}/debug.log`);
     expect(written.exitCode, written.output).to.equal(0);
 
-    const answer = await node().getAuthed('/flux/taildaemondebug', node().zelidauth);
-    expect(answer.status, JSON.stringify(answer)).to.equal('success');
-    expect(answer.data.message).to.include(marker);
+    const { status, data } = await node().request('GET', '/flux/taildaemondebug', { headers: { zelidauth: node().zelidauth } });
+    expect({ status, answer: data?.status }, JSON.stringify(data).slice(0, 300)).to.eql({ status: 200, answer: 'success' });
+    expect(data.data.message).to.include(marker);
   });
 });
