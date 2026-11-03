@@ -36,9 +36,8 @@ import {
 import { waitFor } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import {
-  derivedQueueStepMs, derivedEvacuationIntervalMs, departureCycleMs, loadSharedConfig,
-} from '../framework/coupled-knobs.js';
+import { PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING } from '../framework/residential-fleet.js';
+import { keysOf, nextOwnedTurn, untilOwnedTurnEndsMs } from '../framework/handback-turns.js';
 
 const subnet = getSubnetConfig();
 
@@ -61,27 +60,24 @@ const FR_GEO = {
 // from it, the way the network spreads one.
 const TICKING_NODE = 0;
 
-// The give-up pass runs every removeFluxAppsPeriod x 4 blocks and a block costs
-// one explorer poll. Two is the floor suite 55 measured: a departure has to be
-// visible to the other holders before their next pass.
-const PASS_PERIOD_BLOCKS = 2;
-const SHARED_POLL_MS = loadSharedConfig().fluxapps.explorerPollIntervalMs;
-const PACING = (() => {
-  const fleet = { removeFluxAppsPeriod: PASS_PERIOD_BLOCKS, explorerPollIntervalMs: SHARED_POLL_MS };
-  const residentialQueueStepMs = derivedQueueStepMs(fleet);
-  const residentialEvacuationIntervalMs = derivedEvacuationIntervalMs({ ...fleet, residentialQueueStepMs });
-  return { residentialQueueStepMs, residentialEvacuationIntervalMs };
-})();
-const QUEUE_BASE_MS = 1000;
-// A misplaced departure waits out the queue only - no evacuation interval - but
-// the derived cycle is the bound every other departure wait in the harness uses,
-// and the worst position is one short of the larger app's count.
-const DEPARTURE_WAIT_MS = 2 * departureCycleMs({
-  ...PACING,
-  removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
-  explorerPollIntervalMs: SHARED_POLL_MS,
-  residentialQueueBaseMs: QUEUE_BASE_MS,
-}, NODES);
+// The give-up pass and the handback turn the residential fleets run on: a
+// misplaced holder leaves by the same turn rule as an evacuating one.
+const TURN_MS = RESIDENTIAL_PACING.residentialTurnMs;
+
+/**
+ * How long until `node` can have handed back an app held by `holders`: to the
+ * end of the second turn it owns from now, by the product's own turn rule, plus
+ * two passes for a pass that lands late. The second, because the first can go
+ * to the other app the node holds.
+ * @param {number} node 1-based.
+ * @param {number[]} holders 1-based nodes holding the app.
+ * @returns {number} Milliseconds.
+ */
+function handBackWaitMs(node, holders) {
+  const turns = { holders: keysOf(holders), owners: keysOf([node]), turnMs: TURN_MS };
+  const first = nextOwnedTurn({ ...turns, fromMs: Date.now() });
+  return untilOwnedTurnEndsMs({ ...turns, fromMs: first.startMs + TURN_MS }) + (2 * PASS_MS);
+}
 
 describe('1505: a node the table places outside an app\'s geolocation gives the app up', function () {
   let env;
@@ -101,9 +97,9 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
     .some((e) => e.event === 'giveUp:considered' && e.id > afterId
       && e.data.appName === appName && predicate(e.data));
 
-  // Blocks are driven at the explorer poll the queue step is derived from. The
-  // free-running ticker is slower, and a pass that lands further apart than a
-  // ticket tolerates restarts every turn it is serving.
+  // Blocks are driven at the explorer poll the turn is derived from. The
+  // free-running ticker is slower, and a turn would then hold fewer passes than
+  // the rule needs.
   const drive = (index, condition, timeoutMs, label) => driveUntil(env.clients[index], condition, { timeoutMs, label });
 
   const publishTable = async (body) => {
@@ -138,9 +134,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
           // ever landing (see suite 55).
           daemonInfoIntervalMs: 1000,
           removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
-          residentialQueueBaseMs: QUEUE_BASE_MS,
-          residentialQueueStepMs: PACING.residentialQueueStepMs,
-          residentialEvacuationIntervalMs: PACING.residentialEvacuationIntervalMs,
+          residentialTurnMs: TURN_MS,
         },
       },
     });
@@ -204,8 +198,9 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
   });
 
   it('the moved node gives MOVES up and the free DE node takes it', async function () {
-    this.timeout(DEPARTURE_WAIT_MS + 360000);
-    await drive(moved, async () => decided(moved, MOVES, gaveUp), DEPARTURE_WAIT_MS, `node ${moved} gives ${MOVES} up as misplaced`);
+    const waitMs = handBackWaitMs(moved + 1, (await installedInstanceIndices(env, MOVES)).map((i) => i + 1));
+    this.timeout(waitMs + 360000);
+    await drive(moved, async () => decided(moved, MOVES, gaveUp), waitMs, `node ${moved} gives ${MOVES} up as misplaced`);
 
     await drive(free, async () => {
       const holders = await installedInstanceIndices(env, MOVES);
@@ -214,15 +209,21 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
   });
 
   it('the moved node gives STALLS up and the rest keep it, with nowhere correctly placed to go', async function () {
-    this.timeout(DEPARTURE_WAIT_MS * 4 + 180000);
-    await drive(moved, async () => decided(moved, STALLS, gaveUp), DEPARTURE_WAIT_MS * 2, `node ${moved} gives ${STALLS} up as misplaced`);
+    const all = [...Array(NODES).keys()].map((i) => i + 1);
+    const remaining = all.filter((node) => node !== moved + 1);
+    const waitMs = handBackWaitMs(moved + 1, all);
+    this.timeout(waitMs + 180000);
+    await drive(moved, async () => decided(moved, STALLS, gaveUp), waitMs, `node ${moved} gives ${STALLS} up as misplaced`);
     await drive(free, async () => !(await installedInstanceIndices(env, STALLS)).includes(moved), 120000, `the moved node no longer holds ${STALLS}`);
 
     // The gap stays open: four DE holders, and every one of them still has it
-    // after a whole departure cycle of passes - long enough for any of them to
-    // have left if anything were telling it to.
-    const holdUntil = Date.now() + DEPARTURE_WAIT_MS;
-    await drive(free, async () => Date.now() >= holdUntil, DEPARTURE_WAIT_MS + 60000, 'a departure cycle of passes');
+    // after each has owned a turn among them - so any of them being told to
+    // leave would have.
+    const holdMs = Math.max(...remaining.map((node) => handBackWaitMs(node, remaining)));
+    // Set again, which restarts the test's timer, now the hold is known.
+    this.timeout(holdMs + 120000);
+    const holdUntil = Date.now() + holdMs;
+    await drive(free, async () => Date.now() >= holdUntil, holdMs + 60000, 'a turn owned by every remaining holder');
     const holders = await installedInstanceIndices(env, STALLS);
     expect(holders, `${STALLS} stays on the four DE nodes`)
       .to.deep.equal([...Array(NODES).keys()].filter((i) => i !== moved));
@@ -232,12 +233,12 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
   });
 
   it('a node whose own report says FR keeps both apps while the table places it in DE', async function () {
-    this.timeout(DEPARTURE_WAIT_MS + 60000);
+    this.timeout((4 * PASS_MS) + 60000);
     const selfReported = SELF_REPORTED_FR - 1;
     // A decision about STALLS since the table moved proves the pass ran on this
     // node after it, so the negatives below are about a node that was looking,
     // over the same passes in which the moved node judged both apps misplaced.
-    await drive(selfReported, async () => decided(selfReported, STALLS, () => true, afterMove[selfReported]), DEPARTURE_WAIT_MS, `node ${selfReported} judges ${STALLS} after the move`);
+    await drive(selfReported, async () => decided(selfReported, STALLS, () => true, afterMove[selfReported]), 4 * PASS_MS, `node ${selfReported} judges ${STALLS} after the move`);
 
     expect(decided(moved, STALLS, isMisplaced), 'the moved node judged STALLS misplaced over the same passes').to.equal(true);
     expect(decided(selfReported, STALLS, isMisplaced), 'the self-reported-FR node never judged STALLS misplaced').to.equal(false);
