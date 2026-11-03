@@ -8514,7 +8514,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       });
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(evacuationSafety.canSafelyRemoveApp);
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
@@ -8532,7 +8532,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // LOCAL is second of three: 9.9.9.9 started last.
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledWith(appUninstaller.removeAppLocally, appName);
     });
