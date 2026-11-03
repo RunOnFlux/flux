@@ -17,8 +17,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // A node's IP changes and fluxd confirms the new address before FluxOS has told
 // its peers, so they hear the move with the chain listing the node at the new
 // address only and nothing at the address it left. The node is held after it
-// records the move and before it tells anyone, until every other node has read
-// the list that holds it at the new address.
+// records the move and switches to it, and before it tells anyone, until every
+// other node has read the list that holds it at the new address.
 //
 // The chain moved the node from the address it left, which proves the move is
 // its own: its peers apply the move with the time it recorded, whether or not it
@@ -65,7 +65,7 @@ describe('a move heard after the chain lists the new address', function () {
     await node.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RECONCILE && d.key === newSocket, DETECTION_MS, { afterId: heldAnchor });
     const decided = await dbClient(i + 1).ownAddressRecord();
     expect([decided?.movedFrom, decided?.socketAddress], 'fixture: the node decided its move').to.deep.equal([oldSocket, newSocket]);
-    expect(await moveHeldBy(i, oldSocket, newSocket), 'fixture: the node has not told its move').to.equal(undefined);
+    expect(await moveHeldBy(i, oldSocket, newSocket), 'fixture: the node recorded its move as its address switched').to.not.equal(undefined);
     await Promise.all(others(i).map((j) => client(j).waitForEvent('networkstate:updated', () => true, 120000, { afterId: listAnchors.get(j) })));
     // eslint-disable-next-line no-restricted-syntax
     for (const j of others(i)) {
