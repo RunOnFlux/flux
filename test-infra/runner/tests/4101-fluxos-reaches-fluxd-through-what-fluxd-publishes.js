@@ -101,7 +101,7 @@ describe('FluxOS reaches fluxd through what fluxd publishes when its unit passes
     expect(await fluxosPid(node().container), 'FluxOS pid').to.equal(pid);
   });
 
-  it('the fluxd log endpoint reads fluxd\'s directory from FLUXD_PATH', async function () {
+  it('the fluxd log endpoints read fluxd\'s directory from FLUXD_PATH', async function () {
     this.timeout(60000);
     const marker = `fluxd-log-marker-${Date.now()}`;
     const written = await execInContainer(node().container,
@@ -111,5 +111,9 @@ describe('FluxOS reaches fluxd through what fluxd publishes when its unit passes
     const { status, data } = await node().request('GET', '/flux/taildaemondebug', { headers: { zelidauth: node().zelidauth } });
     expect({ status, answer: data?.status }, JSON.stringify(data).slice(0, 300)).to.eql({ status: 200, answer: 'success' });
     expect(data.data.message).to.include(marker);
+
+    const download = await node().request('GET', '/flux/daemondebug', { headers: { zelidauth: node().zelidauth } });
+    expect(download.status, String(download.data).slice(0, 300)).to.equal(200);
+    expect(download.data).to.be.a('string').and.include(marker);
   });
 });
