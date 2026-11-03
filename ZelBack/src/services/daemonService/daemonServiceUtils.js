@@ -257,8 +257,6 @@ function waitForFluxd() {
   return fluxdWait;
 }
 
-fluxEventBus.snapshot('fluxd', () => ({ selfReporting: fluxdReportsItself, waitingFor: fluxdWaitingFor }));
-
 /**
  * To execute a remote procedure call (RPC).
  * @param {string} rpc Remote procedure call.
@@ -425,6 +423,12 @@ function insightIndexes() {
   const value = fluxdConfig.get('insightexplorer');
   return value === 1 || value === '1';
 }
+
+fluxEventBus.snapshot('fluxd', () => ({
+  selfReporting: fluxdReportsItself,
+  waitingFor: fluxdWaitingFor,
+  insightIndexes: insightIndexes(),
+}));
 
 /**
  * Whether fluxd is asked about itself rather than read from flux.conf.

@@ -16,7 +16,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { execInContainer, fluxosPid, restartFluxos } from '../framework/container.js';
-import { getJournal } from '../framework/daemon-control.js';
+import { failRpc, getJournal } from '../framework/daemon-control.js';
 import {
   FLUXD_PUBLISHED_PORT, stopFluxd, startFluxd, restartFluxd,
   holdFluxdRefusals, heldFluxdRefusals, releaseFluxdRefusals,
@@ -80,6 +80,22 @@ describe('FluxOS reaches fluxd through what fluxd publishes when its unit passes
     await startFluxd(node());
     await node().waitForEvent('daemon:rpcAvailable', () => true, 60000, { afterId: mark });
     expect((await node().getTestState('fluxd')).waitingFor).to.equal(null);
+  });
+
+  it('FluxOS is ready only once fluxd has said which indexes it keeps', async function () {
+    this.timeout(240000);
+    const FAILURES = 3;
+    await failRpc(node().ip, 'getindexinfo', { times: FAILURES });
+    const restartedAt = Date.now();
+    const mark = node().getLastEventId();
+    await restartFluxos(node().container);
+    await node().waitForEvent('daemon:rpcAvailable', () => true, 120000, { afterId: mark });
+
+    // The canary: fluxd refused the question before it answered it.
+    const asked = (await getJournal({ method: 'getindexinfo', sourceIp: node().ip })).entries
+      .filter((e) => e.timestamp >= restartedAt);
+    expect(asked.length, 'getindexinfo calls since the restart').to.be.above(FAILURES);
+    expect((await node().getTestState('fluxd')).insightIndexes).to.equal(true);
   });
 
   it('the calls a fluxd restart refuses log in to it once, and FluxOS stays up', async function () {
