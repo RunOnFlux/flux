@@ -22,6 +22,7 @@ const PlacementHoldOwner = Object.freeze({
   RESIDENTIAL_DOS: 'residentialDos',
   DATABASE_SUSPECT: 'databaseSuspect',
   HOST_STALL: 'hostStall',
+  BENCHMARK_VERDICT: 'benchmarkVerdict',
 });
 
 /** owner -> reason */

@@ -69,6 +69,7 @@ describe('appSpawner tests', () => {
 
 
   function buildModule(opts = {}) {
+    let heldByBenchmarkRead = false;
     configStub = createConfigStub(opts.configOverrides);
     globalStateStub = createGlobalStateStub();
     if (opts.globalStateOverrides) {
@@ -145,9 +146,10 @@ describe('appSpawner tests', () => {
         ),
       },
       '../benchmarkService': {
-        getBenchmarks: sinon.stub().resolves({
-          status: 'success',
-          data: { ipaddress: '192.168.1.1' },
+        // A read can settle the benchmark verdict's hold, as the real one does.
+        getBenchmarks: sinon.stub().callsFake(async () => {
+          if (opts.benchmarkReadHolds) heldByBenchmarkRead = true;
+          return { status: 'success', data: { ipaddress: '192.168.1.1' } };
         }),
       },
       '../fluxNetworkHelper': {
@@ -156,8 +158,8 @@ describe('appSpawner tests', () => {
         isNodeDos: sinon.stub().returns(false),
       },
       '../placementHold': {
-        isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
-        getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
+        isPlacementHeld: sinon.stub().callsFake(() => Boolean(opts.placementHold) || heldByBenchmarkRead),
+        getPlacementHold: sinon.stub().callsFake(() => opts.placementHold ?? (heldByBenchmarkRead ? 'Benchmark verdict: failed' : null)),
       },
       '../daemonService/daemonServiceMiscRpcs': {
         isDaemonSynced: daemonSyncStub,
@@ -400,6 +402,17 @@ describe('appSpawner tests', () => {
 
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
+      expect(aggregateStub.called).to.equal(false);
+    });
+
+    it('acts on the hold its own benchmark read sets', async () => {
+      // The pass reads the benchmarks before it tests the hold, so a verdict that
+      // has just turned failed stops this pass, not the next one.
+      buildModule({ benchmarkReadHolds: true });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('Benchmark verdict: failed')).to.equal(true);
       expect(aggregateStub.called).to.equal(false);
     });
 

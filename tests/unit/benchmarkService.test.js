@@ -12,6 +12,7 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const placementHold = require('../../ZelBack/src/services/placementHold');
 
 describe('benchmarkService tests', () => {
   describe('buildBenchdClient tests', () => {
@@ -667,6 +668,78 @@ describe('benchmarkService tests', () => {
 
       sinon.assert.calledOnce(benchmarkStub);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
+    });
+  });
+
+  describe('getBenchmarks placement hold tests', () => {
+    const { BENCHMARK_VERDICT } = placementHold.PlacementHoldOwner;
+    let runStub;
+    const reply = (data) => runStub.resolves(data);
+
+    beforeEach(() => {
+      sinon.stub(fs, 'stat').resolves(true);
+      runStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      placementHold.clearPlacementHold(BENCHMARK_VERDICT);
+    });
+
+    it('holds placement while the last finished cycle failed', async () => {
+      reply({ ipaddress: '1.2.3.4', verdict: 'failed' });
+
+      await benchmarkService.getBenchmarks();
+
+      expect(placementHold.isPlacementHeld()).to.equal(true);
+      expect(placementHold.getPlacementHold()).to.equal('Benchmark verdict: failed');
+    });
+
+    it('holds placement while the last finished cycle was unmeasured', async () => {
+      reply({ ipaddress: '1.2.3.4', verdict: 'unmeasured' });
+
+      await benchmarkService.getBenchmarks();
+
+      expect(placementHold.getPlacementHold()).to.equal('Benchmark verdict: unmeasured');
+    });
+
+    it('holds placement until a benchmark cycle has finished', async () => {
+      reply({ ipaddress: '1.2.3.4', verdict: null });
+
+      await benchmarkService.getBenchmarks();
+
+      expect(placementHold.getPlacementHold()).to.equal('Benchmark verdict: no benchmark cycle has finished yet');
+    });
+
+    it('releases the hold when a cycle passes', async () => {
+      reply({ ipaddress: '1.2.3.4', verdict: 'failed' });
+      await benchmarkService.getBenchmarks();
+      reply({ ipaddress: '1.2.3.4', verdict: 'passed' });
+
+      await benchmarkService.getBenchmarks();
+
+      expect(placementHold.isPlacementHeld()).to.equal(false);
+    });
+
+    it('leaves placement to the other gates when fluxbench reports no verdict', async () => {
+      reply({ ipaddress: '1.2.3.4', verdict: 'failed' });
+      await benchmarkService.getBenchmarks();
+      reply({ ipaddress: '1.2.3.4' });
+
+      await benchmarkService.getBenchmarks();
+
+      expect(placementHold.isPlacementHeld()).to.equal(false);
+    });
+
+    it('leaves the hold as it stands when fluxbench does not answer', async () => {
+      reply({ ipaddress: '1.2.3.4', verdict: 'failed' });
+      await benchmarkService.getBenchmarks();
+      runStub.rejects(new Error('connect ENOENT /run/fluxbenchd/full.sock'));
+
+      const result = await benchmarkService.getBenchmarks();
+
+      expect(result.status).to.equal('error');
+      expect(placementHold.getPlacementHold()).to.equal('Benchmark verdict: failed');
     });
   });
 
