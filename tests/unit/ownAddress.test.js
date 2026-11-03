@@ -359,6 +359,7 @@ describe('fluxNetworkHelper own address tests', () => {
       let release;
       recordedAtSwitch.onFirstCall().callsFake(() => new Promise((resolve) => { release = resolve; }));
       const stop = fluxNetworkHelper.startOwnAddressWatch();
+      let switched = false;
       try {
         expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal('198.51.100.133:16127');
         expect(fluxNetworkHelper.pendingOwnMove()).to.equal('198.51.100.134:16127');
@@ -366,9 +367,11 @@ describe('fluxNetworkHelper own address tests', () => {
         expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true }), 'while its rows are carried').to.equal('198.51.100.133:16127');
         release();
         await fluxNetworkHelper.handleOwnAddress('198.51.100.134:16127');
+        switched = true;
         expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.134:16127');
         expect(fluxNetworkHelper.pendingOwnMove()).to.equal(null);
       } finally {
+        if (!switched) release?.();
         stop();
       }
     });
@@ -404,10 +407,13 @@ describe('fluxNetworkHelper own address tests', () => {
 
       let readWith = null;
       const reading = fluxNetworkHelper.withSteadyOwnAddress(async (own) => { readWith = own; });
-      await settle();
-      expect(readWith, 'a read waits for the switch').to.equal(null);
-      release();
-      await moving;
+      try {
+        await settle();
+        expect(readWith, 'a read waits for the switch').to.equal(null);
+      } finally {
+        release();
+        await moving;
+      }
       await reading;
 
       expect(readWith).to.equal('198.51.100.140:16127');
