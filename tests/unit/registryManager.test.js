@@ -18,6 +18,7 @@ const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/local
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { requireMongo } = require('./dbTestHelper');
+const unpaidAdmission = require('../../ZelBack/src/services/appMessaging/unpaidAdmission');
 
 describe('registryManager tests', () => {
   before(requireMongo);
@@ -2229,8 +2230,9 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     });
   });
 
-  it('should refuse at the door, before any check, below the quorum of authenticated links', async () => {
+  it('should refuse at the door, before any check, below the quorum of authenticated links once the version floor is a release that tags', async () => {
     peerManager.authenticatedIpCount.returns(2);
+    sinon.stub(unpaidAdmission, 'untaggedRefused').returns(true);
     const response = await register({ ...spec, name: 'register_test' });
     expect(response.status).to.equal('error');
     expect(response.data.name).to.equal('AdmissionUnavailable');

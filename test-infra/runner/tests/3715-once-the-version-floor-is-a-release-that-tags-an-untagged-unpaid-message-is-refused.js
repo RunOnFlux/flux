@@ -10,10 +10,15 @@
  * authenticate and a plain one whose links do not. An untagged message from
  * either is refused by every node. The canary is a tagged message over the
  * Arcane stub's authenticated links, which both Arcane nodes take.
+ *
+ * No node can hold admissionQuorum (10) authenticated links here, so an Arcane
+ * node's door refuses a registration with 503.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
+import { appOwnerKey, nodeKey } from '../framework/keys.js';
+import { buildAppSpec, registerApp } from '../framework/app-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import {
@@ -30,6 +35,7 @@ const ARCANE_STUB = 3;
 const PLAIN_STUB = 4;
 // minimumFluxOSAllowedVersion in ZelBack/config/default.js.
 const FLOOR = '8.18.0';
+const QUORUM = 10;
 
 describe('once the version floor is a release that tags, an untagged unpaid message is refused', function () {
   let env;
@@ -61,7 +67,7 @@ describe('once the version floor is a release that tags, an untagged unpaid mess
       legacyNodes: [LEGACY],
       stubPeers: [ARCANE_STUB, PLAIN_STUB],
       arcaneStubPeers: [ARCANE_STUB],
-      configOverrides: { fluxapps: { untaggedRefusedFrom: FLOOR } },
+      configOverrides: { fluxapps: { untaggedRefusedFrom: FLOOR, admissionQuorum: QUORUM } },
     });
     await bootAndPeer(env);
     arcaneStub = env.stubPeerClients.get(ARCANE_STUB);
@@ -94,4 +100,19 @@ describe('once the version floor is a release that tags, an untagged unpaid mess
       });
     });
   }
+
+  it('refuses a registration with 503 at an Arcane node short of its quorum', async function () {
+    this.timeout(60000);
+    const owner = appOwnerKey();
+    const result = await registerApp(
+      env.clients[ARCANE[0]].url,
+      nodeKey(ARCANE[0] + 1),
+      buildAppSpec({ name: `e2efloorreg${stamp}`, ownerKey: owner }),
+      'fluxappregister',
+      { ownerKey: owner },
+    );
+
+    expect(result.status, JSON.stringify(result)).to.equal('error');
+    expect(result.data.name).to.equal('AdmissionUnavailable');
+  });
 });

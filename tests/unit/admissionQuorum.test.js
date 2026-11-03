@@ -46,6 +46,8 @@ function load() {
     sign: sinon.stub().resolves(SIGNED),
     release,
     admitUnpaid: sinon.stub().resolves({ fields: { clientTag: 't', originKey: 'entryKey' }, release }),
+    // the version floor is a release that tags, unless a test says otherwise
+    untaggedRefused: sinon.stub().returns(true),
     insert: sinon.stub().resolves(),
     holds: sinon.stub().resolves(false),
     publish: sinon.stub(),
@@ -54,7 +56,7 @@ function load() {
     '../utils/peerState': { peerManager },
     '../utils/fluxBroadcastHelper': { serialiseAndSignFluxBroadcast: deps.sign },
     '../utils/fluxEventBus': { publish: deps.publish },
-    './unpaidAdmission': { admitUnpaid: deps.admitUnpaid },
+    './unpaidAdmission': { admitUnpaid: deps.admitUnpaid, untaggedRefused: deps.untaggedRefused },
     './temporaryMessageRecord': { insertTemporaryMessage: deps.insert, holdsTemporaryMessage: deps.holds },
   });
   return { mod, peerManager, deps };
@@ -90,6 +92,7 @@ describe('admissionQuorum tests', () => {
     expect(realPeerManager.authenticatedIpCount).to.be.a('function');
     expect(fluxBroadcastHelper.serialiseAndSignFluxBroadcast).to.be.a('function');
     expect(unpaidAdmission.admitUnpaid).to.be.a('function');
+    expect(unpaidAdmission.untaggedRefused).to.be.a('function');
     expect(temporaryMessageRecord.insertTemporaryMessage).to.be.a('function');
     expect(temporaryMessageRecord.holdsTemporaryMessage).to.be.a('function');
   });
@@ -130,6 +133,57 @@ describe('admissionQuorum tests', () => {
       await expect(mod.admit(MESSAGE, { daemonHeight: 100 })).to.be.rejectedWith('only ArcaneOS nodes do');
       expect(deps.sign.called).to.equal(false);
       peerManager.authenticated.forEach((peer) => expect(peer.sent).to.have.length(0));
+    });
+
+    describe('below the quorum, until the version floor is a release that tags', () => {
+      // as the door builds it (unpaidAdmission.admittedMessage)
+      const UNTAGGED = { ...MESSAGE, arcaneSender: true };
+      const TAGGED = { ...UNTAGGED, clientTag: 'c'.repeat(64), clientTagHeight: 100 };
+
+      it('should let the request through the door', () => {
+        const { mod, deps } = withPeers(['10.0.0.1']);
+        deps.untaggedRefused.returns(false);
+
+        expect(mod.requireQuorum()).to.equal(false);
+      });
+
+      it('should write the message without its tag and send it to every peer, proposing it to none', async () => {
+        const { mod, peerManager, deps } = withPeers(['10.0.0.1']);
+        deps.untaggedRefused.returns(false);
+        deps.admitUnpaid.resolves({ fields: {} });
+        const legacy = makePeer('10.0.9.9');
+        peerManager.unauthenticated = [legacy];
+
+        await mod.admit(TAGGED, { daemonHeight: 100 });
+
+        const [signedMessage] = deps.sign.firstCall.args;
+        expect(signedMessage).to.eql(UNTAGGED);
+        sinon.assert.calledOnceWithExactly(deps.insert, UNTAGGED, {});
+        [...peerManager.authenticated, legacy].forEach((peer) => {
+          expect(peer.sent).to.eql([JSON.parse(SIGNED)]);
+          expect(proposalsTo(peer)).to.have.length(0);
+        });
+      });
+
+      it('should write nothing and send nothing when the message is refused', async () => {
+        const { mod, peerManager, deps } = withPeers(['10.0.0.1']);
+        deps.untaggedRefused.returns(false);
+        deps.admitUnpaid.resolves({ refused: 'a reason' });
+
+        await expect(mod.admit(TAGGED, { daemonHeight: 100 })).to.be.rejectedWith('a reason');
+        sinon.assert.notCalled(deps.insert);
+        peerManager.authenticated.forEach((peer) => expect(peer.sent).to.have.length(0));
+      });
+
+      it('should run the round once it holds the quorum', async () => {
+        const { mod, peerManager, deps } = withPeers(['10.0.0.1', '10.0.0.2', '10.0.0.3']);
+        deps.untaggedRefused.returns(false);
+
+        mod.admit(TAGGED, { daemonHeight: 100 }).catch(() => {});
+        await flush();
+
+        peerManager.authenticated.forEach((peer) => expect(proposalsTo(peer)).to.have.length(1));
+      });
     });
 
     it('should count two links to one IP once at the door', () => {
