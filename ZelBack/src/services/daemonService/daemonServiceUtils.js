@@ -1,3 +1,4 @@
+const os = require('node:os');
 const path = require('node:path');
 const log = require('../../lib/log');
 const asyncLock = require('../utils/asyncLock');
@@ -62,8 +63,7 @@ const blockCache = cacheManager.daemonBlockCache;
 
 /**
  * Parse flux.conf into the module's config, or, when the unit passes the node key
- * as a credential, take the key from it and resolve flux.conf's path without
- * reading the file.
+ * as a credential, take the key from it and leave flux.conf alone.
  *
  * Published only once it is parsed. Assigning first left a window in which the config was
  * set and empty, so a caller arriving during the read took it for a file with nothing in it.
@@ -73,7 +73,6 @@ async function readDaemonConfig() {
   const key = await fluxdCredentials.loadNodeKey();
   const parsed = new daemonConfig.DaemonConfig();
   if (key !== null) {
-    await parsed.resolvePaths();
     nodeKey = key;
     fluxdReportsItself = true;
   } else {
@@ -466,6 +465,14 @@ function getFluxdDir() {
 }
 
 /**
+ * fluxd's data directory: FLUXD_PATH, which the node image sets, otherwise ~/.flux.
+ * @returns {string}
+ */
+function fluxdDataDir() {
+  return process.env.FLUXD_PATH || path.join(os.homedir(), '.flux');
+}
+
+/**
  * The fluxd daemon rpc client
  * @returns {daemonrpc.Client}
  */
@@ -508,6 +515,7 @@ module.exports = {
   createBackupFluxdConfig,
   executeCall,
   executeBatchCall,
+  fluxdDataDir,
   FLUXD_RPC_PORT_UNPUBLISHED,
   getConfigValue,
   getFluxdClient,

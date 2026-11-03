@@ -200,7 +200,7 @@ describe('daemonServiceUtils tests', () => {
       const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
       await module.buildFluxdClient();
       expect(state.parsed).to.equal(0);
-      expect(state.resolved).to.equal(1);
+      expect(state.resolved, 'nor looks for it').to.equal(0);
       expect(module.isFluxdSelfReporting()).to.equal(true);
       expect(module.getConfigValue('zelnodeprivkey')).to.equal('credkey');
       expect(module.getConfigValue('rpcpassword')).to.equal(undefined);
@@ -642,6 +642,28 @@ describe('daemonServiceUtils tests', () => {
       await daemonServiceUtils.executeBatchCall([{ method: 'getblockcount', params: [] }]);
 
       sinon.assert.notCalled(getSpy);
+    });
+  });
+
+  describe('fluxdDataDir', () => {
+    const saved = process.env.FLUXD_PATH;
+
+    afterEach(() => {
+      if (saved === undefined) delete process.env.FLUXD_PATH;
+      else process.env.FLUXD_PATH = saved;
+      sinon.restore();
+    });
+
+    it('is FLUXD_PATH when the image sets it', () => {
+      process.env.FLUXD_PATH = '/dat/var/lib/fluxd';
+      sinon.stub(os, 'homedir').returns('/home/node');
+      expect(daemonServiceUtils.fluxdDataDir()).to.equal('/dat/var/lib/fluxd');
+    });
+
+    it('is ~/.flux without FLUXD_PATH', () => {
+      delete process.env.FLUXD_PATH;
+      sinon.stub(os, 'homedir').returns('/home/node');
+      expect(daemonServiceUtils.fluxdDataDir()).to.equal('/home/node/.flux');
     });
   });
 });

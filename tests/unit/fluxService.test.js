@@ -1392,13 +1392,14 @@ describe('fluxService tests', () => {
 
     it('should return debug log file if the user is an admin', async () => {
       verifyPrivilegeStub.returns(true);
+      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/dat/var/lib/fluxd');
       const res = generateResponse();
       const expectedResponse = 'File downloaded';
 
       const result = await fluxService.daemonDebug(undefined, res);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledWithMatch(res.download, 'debug.log');
+      sinon.assert.calledOnceWithExactly(res.download, '/dat/var/lib/fluxd/debug.log', 'debug.log');
     });
   });
 
@@ -1450,9 +1451,7 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-      // Mock daemon service utils to return valid paths
-      sinon.stub(daemonServiceUtils, 'getConfigValue').returns(path.join(os.homedir(), '.flux'));
-      sinon.stub(daemonServiceUtils, 'getFluxdDir').returns(path.join(os.homedir(), '.flux'));
+      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/dat/var/lib/fluxd');
     });
 
     afterEach(() => {
@@ -1499,7 +1498,7 @@ describe('fluxService tests', () => {
           name: 'testing error',
         },
       });
-      const nodedpath = path.join(os.homedir(), '.flux', 'debug.log');
+      const nodedpath = '/dat/var/lib/fluxd/debug.log';
       const expectedResponse = {
         data: {
           code: 403,
