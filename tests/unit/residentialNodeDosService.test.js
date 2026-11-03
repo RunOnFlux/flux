@@ -16,6 +16,7 @@ describe('residentialNodeDosService tests', () => {
   const TAMPERING = StickyDosOwner.APP_TAMPERING;
   let service;
   let fluxNetworkHelperStub;
+  let placementHoldStub;
   let geolocationServiceStub;
   let benchmarkServiceStub;
   let dbHelperStub;
@@ -49,6 +50,7 @@ describe('residentialNodeDosService tests', () => {
       },
       './dbHelper': dbHelperStub,
       './fluxNetworkHelper': fluxNetworkHelperStub,
+      './placementHold': placementHoldStub,
       './geolocationService': geolocationServiceStub,
       './benchmarkService': benchmarkServiceStub,
       './utils/globalState': globalStateStub,
@@ -71,13 +73,15 @@ describe('residentialNodeDosService tests', () => {
     // accept a release from any owner and so could never fail the way the real
     // module refuses to.
     const holds = new Map();
-    fluxNetworkHelperStub = {
-      ...makeStickyDosDouble(),
+    placementHoldStub = {
       PlacementHoldOwner: Object.freeze({ RESIDENTIAL_DOS: 'residentialDos' }),
       setPlacementHold: sinon.stub().callsFake((owner, reason) => { holds.set(owner, reason); }),
       clearPlacementHold: sinon.stub().callsFake((owner) => { holds.delete(owner); }),
       getPlacementHold: sinon.stub().callsFake(() => (holds.size ? [...holds.values()].join('; ') : null)),
       isPlacementHeld: sinon.stub().callsFake(() => holds.size > 0),
+    };
+    fluxNetworkHelperStub = {
+      ...makeStickyDosDouble(),
       getLocalSocketAddress: sinon.stub().resolves(LOCAL),
     };
 
@@ -193,8 +197,8 @@ describe('residentialNodeDosService tests', () => {
 
       await service.enforceResidentialPolicy(deps);
 
-      expect(fluxNetworkHelperStub.isPlacementHeld()).to.equal(true);
-      expect(fluxNetworkHelperStub.getPlacementHold()).to.equal(service.HOLD_REASON);
+      expect(placementHoldStub.isPlacementHeld()).to.equal(true);
+      expect(placementHoldStub.getPlacementHold()).to.equal(service.HOLD_REASON);
     });
 
     it('never sets a DOS on a node that still holds apps', async () => {
@@ -212,7 +216,7 @@ describe('residentialNodeDosService tests', () => {
 
       await service.enforceResidentialPolicy(deps);
 
-      expect(fluxNetworkHelperStub.isPlacementHeld()).to.equal(false);
+      expect(placementHoldStub.isPlacementHeld()).to.equal(false);
     });
 
     it('lifts when the node migrates to ArcaneOS', async () => {
@@ -222,7 +226,7 @@ describe('residentialNodeDosService tests', () => {
 
       await service.enforceResidentialPolicy(deps);
 
-      expect(fluxNetworkHelperStub.isPlacementHeld()).to.equal(false);
+      expect(placementHoldStub.isPlacementHeld()).to.equal(false);
     });
   });
 
@@ -233,7 +237,7 @@ describe('residentialNodeDosService tests', () => {
       const { decided } = await service.enforceResidentialPolicy(deps);
 
       expect(decided).to.equal(false);
-      expect(fluxNetworkHelperStub.isPlacementHeld()).to.equal(false);
+      expect(placementHoldStub.isPlacementHeld()).to.equal(false);
       sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
     });
 
@@ -243,7 +247,7 @@ describe('residentialNodeDosService tests', () => {
       const { decided } = await service.enforceResidentialPolicy(deps);
 
       expect(decided).to.equal(false);
-      expect(fluxNetworkHelperStub.isPlacementHeld()).to.equal(false);
+      expect(placementHoldStub.isPlacementHeld()).to.equal(false);
     });
   });
 
@@ -327,7 +331,7 @@ describe('residentialNodeDosService tests', () => {
 
       expect(decided).to.equal(false);
       sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
-      expect(fluxNetworkHelperStub.isPlacementHeld()).to.equal(true);
+      expect(placementHoldStub.isPlacementHeld()).to.equal(true);
     });
 
     it('is NOT set before the node knows what it is running', async () => {
@@ -338,7 +342,7 @@ describe('residentialNodeDosService tests', () => {
 
       expect(decided).to.equal(false);
       sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
-      expect(fluxNetworkHelperStub.isPlacementHeld()).to.equal(true);
+      expect(placementHoldStub.isPlacementHeld()).to.equal(true);
     });
 
     it('is released once the node is no longer a target', async () => {

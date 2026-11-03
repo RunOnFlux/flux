@@ -154,6 +154,8 @@ describe('appSpawner tests', () => {
         getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
         isPortOpen: sinon.stub().resolves(true),
         isNodeDos: sinon.stub().returns(false),
+      },
+      '../placementHold': {
         isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
         getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
       },

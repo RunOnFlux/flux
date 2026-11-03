@@ -34,6 +34,7 @@ const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const placementHold = require('./placementHold');
 
 const DEPENDENCIES = new Set(['mongod', 'dockerd', 'containerd', 'syncthing', 'fluxd', 'fluxbenchd']);
 const READ_INTERVAL_MS = config.hostStall.readIntervalMs;
@@ -295,10 +296,10 @@ async function restoreState() {
 async function act() {
   const longest = [...tracked.values()].reduce((worst, thread) => (!worst || thread.intervals > worst.intervals ? thread : worst), null);
   if (!longest || longest.intervals === 0) {
-    fluxNetworkHelper.clearPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL);
+    placementHold.clearPlacementHold(placementHold.PlacementHoldOwner.HOST_STALL);
     return;
   }
-  fluxNetworkHelper.setPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL, describe(longest));
+  placementHold.setPlacementHold(placementHold.PlacementHoldOwner.HOST_STALL, describe(longest));
   if (longest.intervals >= STUCK_INTERVALS && !fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
     tripReason = `Host stall: ${describe(longest)}`;
     fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, tripReason);

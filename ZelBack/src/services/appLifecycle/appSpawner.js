@@ -5,6 +5,7 @@ const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const placementHold = require('../placementHold');
 const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
@@ -196,8 +197,8 @@ async function trySpawningGlobalApplication() {
       return installDelay;
     }
 
-    if (fluxNetworkHelper.isPlacementHeld()) {
-      log.info(`Node held back from new placements (${fluxNetworkHelper.getPlacementHold()}). Global applications will not be installed`);
+    if (placementHold.isPlacementHeld()) {
+      log.info(`Node held back from new placements (${placementHold.getPlacementHold()}). Global applications will not be installed`);
       fluxEventBus.publish('spawner:blocked', { reason: 'placement_hold' });
       return installDelay;
     }

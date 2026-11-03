@@ -35,6 +35,7 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const daemonServiceNetworkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceNetworkRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const placementHold = require('../../ZelBack/src/services/placementHold');
 const { sameKey } = require('./data/wifFixtures');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -4445,96 +4446,33 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('placement hold tests', () => {
-    const { RESIDENTIAL_DOS } = fluxNetworkHelper.PlacementHoldOwner;
+  describe('placement hold and DOS', () => {
+    const { RESIDENTIAL_DOS } = placementHold.PlacementHoldOwner;
 
     afterEach(() => {
-      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+      placementHold.clearPlacementHold(RESIDENTIAL_DOS);
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
     });
 
-    it('is not held by default', () => {
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
-      expect(fluxNetworkHelper.getPlacementHold()).to.equal(null);
-    });
-
-    it('holds with the reason it was given', () => {
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
-
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
-      expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential node not running ArcaneOS');
-    });
-
-    it('releases', () => {
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'some reason');
-
-      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
-
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
-    });
-
-    it('publishes a hold when it is set, and again when its reason changes', () => {
-      const publish = sinon.stub(fluxEventBus, 'publish');
-
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'second');
-
-      expect(publish.args.filter(([name]) => name === 'placementHold:set')).to.deep.equal([
-        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'first' }],
-        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'second' }],
-      ]);
-    });
-
-    it('publishes a release only of a hold that stood', () => {
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
-      const publish = sinon.stub(fluxEventBus, 'publish');
-
-      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
-      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
-
-      sinon.assert.calledOnceWithExactly(publish, 'placementHold:cleared', { owner: RESIDENTIAL_DOS, reason: 'held' });
-    });
-
-    it('refuses an owner it does not know, rather than minting one', () => {
-      // An unknown owner is a caller that was never given an identity. Accepted,
-      // it would hold the node under a name no release path knows about.
-      expect(() => fluxNetworkHelper.setPlacementHold('someFeature', 'a reason')).to.throw('unknown owner');
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
-    });
-
-    it('does not release a hold it does not own', () => {
-      // The reason this is a map keyed by owner and not a single slot. With one
-      // slot, whoever cleared next released the node outright - including a
-      // caller whose own condition had nothing to do with the hold in place - so
-      // the node resumed taking apps for a condition that had not lifted.
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential');
-
-      fluxNetworkHelper.clearPlacementHold('someOtherOwner');
-
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
-      expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential');
-    });
-
-    it('does NOT put the node into DOS', () => {
-      // The whole point of the hold: DOS >= 100 makes nodeStatusMonitor and
-      // appStartupManager rm -rf every app on the box. A node that should stop
-      // growing but keep its volumes must not cross that line.
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
+    it('a placement hold does NOT put the node into DOS', () => {
+      // DOS >= 100 makes nodeStatusMonitor and appStartupManager remove every app
+      // on the box. A node that should stop growing but keep its volumes must not
+      // cross that line.
+      placementHold.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
 
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
     });
 
-    it('is independent of a sticky DOS in both directions', () => {
+    it('a placement hold is independent of a sticky DOS in both directions', () => {
       fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS, 'someone else holds this');
 
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+      expect(placementHold.isPlacementHeld()).to.equal(false);
 
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
+      placementHold.setPlacementHold(RESIDENTIAL_DOS, 'held');
 
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+      expect(placementHold.isPlacementHeld()).to.equal(true);
     });
   });
 
