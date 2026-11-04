@@ -1,5 +1,5 @@
-# The Arcane link arithmetic comes out of the node image: the stub authenticates
-# with FluxOS's own linkCrypto.js, so it cannot drift from the node it talks to.
+# The Arcane link arithmetic and its frames come out of the node image: the stub
+# authenticates with FluxOS's own linkCrypto.js and peerCodec.js, so it cannot drift from the node it talks to.
 # That makes flux-e2e-fluxos-01 a build dependency of this stub - build-images.sh
 # builds it first and passes its tag through.
 ARG FLUX_E2E_TAG=latest
@@ -14,6 +14,7 @@ RUN npm install --production
 
 COPY index.js ./
 COPY --from=nodeimage /flux/ZelBack/src/services/utils/linkCrypto.js ./linkCrypto.js
+COPY --from=nodeimage /flux/ZelBack/src/services/utils/peerCodec.js ./peerCodec.js
 
 EXPOSE 16127 16128
 

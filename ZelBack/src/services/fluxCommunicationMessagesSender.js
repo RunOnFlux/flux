@@ -20,11 +20,15 @@ const myMessageCache = cacheManager.tempMessageCache;
  * Sign and send a message to a peer.
  * @param {object} message Message to sign and send.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer Peer to send to.
+ * @param {object} [options]
+ * @param {boolean} [options.awaitDrain] Resolve once the socket has taken the frame.
+ * @param {function(object): Buffer} [options.encode] Puts the signed broadcast into a binary frame.
  */
 async function sendSignedMessage(message, peer, options = {}) {
   try {
-    const messageSigned = await serialiseAndSignFluxBroadcast(message);
-    if (!messageSigned) return;
+    const signed = await serialiseAndSignFluxBroadcast(message);
+    if (!signed) return;
+    const messageSigned = options.encode ? options.encode(JSON.parse(signed)) : signed;
     if (options.awaitDrain) {
       await peer.sendAsync(messageSigned);
     } else {

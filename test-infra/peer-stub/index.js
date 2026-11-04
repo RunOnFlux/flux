@@ -6,6 +6,7 @@ const { sha256 } = require('@noble/hashes/sha2');
 const crypto = require('crypto');
 // FluxOS's own, as the node image ships it (see Dockerfile).
 const linkCrypto = require('./linkCrypto');
+const peerCodec = require('./peerCodec');
 
 if (process.env.FLUX_TEST_HARNESS !== 'true') {
   console.error('FLUX_TEST_HARNESS=true is required. This stub must only run inside the test harness.');
@@ -173,6 +174,11 @@ async function serialiseAndSignBroadcast(data) {
   return JSON.stringify({ version, timestamp, pubKey: PUBLIC_KEY, signature, data });
 }
 
+// A signed nonce or confirm, in the binary frame the link handshake travels in.
+async function sendLinkFrame(ws, data) {
+  ws.send(peerCodec.encodeLinkFrame(JSON.parse(await serialiseAndSignBroadcast(data))));
+}
+
 /**
  * A response that is correctly shaped and cannot be attributed to this peer.
  *
@@ -265,11 +271,11 @@ async function handleLinkNonce(ws, msg) {
   link.peerNonce = msg.data.nonce;
   link.peerPubKey = msg.pubKey;
   linkLog(link, 'nonce received');
-  ws.send(await serialiseAndSignBroadcast({ type: linkCrypto.NONCE_TYPE, version: 1, nonce: link.localNonce }));
+  await sendLinkFrame(ws, { type: linkCrypto.NONCE_TYPE, version: 1, nonce: link.localNonce });
   const secret = await nodeAuthEncrypt(linkCrypto.transcript(link));
   Object.assign(link, linkCrypto.directionKeys(secret, link.localNonce, link.peerNonce));
   linkLog(link, 'keys derived');
-  ws.send(await serialiseAndSignBroadcast({ type: linkCrypto.CONFIRM_TYPE, version: 1, mac: linkCrypto.confirmMac(link.sendKey) }));
+  await sendLinkFrame(ws, { type: linkCrypto.CONFIRM_TYPE, version: 1, mac: linkCrypto.confirmMac(link.sendKey) });
   linkLog(link, 'confirm sent');
   if (link.peerConfirm) handleLinkConfirm(ws, link.peerConfirm);
 }
@@ -342,6 +348,12 @@ async function handleMessage(ws, received) {
     link.recvNumber = opened.number;
     rawData = Buffer.from(opened.frame);
   }
+  if (ARCANE_LINK && peerCodec.isLinkFrame(rawData)) {
+    const msg = peerCodec.decodeLinkFrame(rawData);
+    if (msg?.data.type === linkCrypto.NONCE_TYPE) await handleLinkNonce(ws, msg);
+    else if (msg) handleLinkConfirm(ws, msg);
+    return;
+  }
   // Binary frames are the peer protocol's own encoding - hash traffic and the
   // app-state sync requests. This stub speaks the second only when asked to,
   // and a JSON parse error per incoming request is noise rather than a finding.
@@ -353,15 +365,6 @@ async function handleMessage(ws, received) {
   try {
     const msg = JSON.parse(rawData);
     const { data } = msg;
-
-    if (ARCANE_LINK && data?.type === linkCrypto.NONCE_TYPE) {
-      await handleLinkNonce(ws, msg);
-      return;
-    }
-    if (ARCANE_LINK && data?.type === linkCrypto.CONFIRM_TYPE) {
-      handleLinkConfirm(ws, msg);
-      return;
-    }
 
     // A node telling its peers what it adopted. Counted and not answered: an announcement
     // asks for nothing.

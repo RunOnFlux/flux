@@ -1235,6 +1235,11 @@ describe('FluxPeerManager tests', () => {
 
     const addHandshaking = (ip = '10.0.0.1') => manager.add(createMockWs(ip), ip, '16127', { source: PEER_SOURCE.RANDOM });
     const frame = (type) => JSON.stringify({ version: 1, data: { type } });
+    const linkFrame = (data, timestamp = 1) => peerCodec.encodeLinkFrame({
+      timestamp, pubKey: '02'.repeat(33), signature: Buffer.alloc(65, 1).toString('base64'), data,
+    });
+    const nonceFrame = (timestamp) => linkFrame({ type: 'fluxlinknonce', version: 1, nonce: 'ab'.repeat(32) }, timestamp);
+    const confirmFrame = () => linkFrame({ type: 'fluxlinkconfirm', version: 1, mac: 'cd'.repeat(32) });
     const flush = async () => {
       for (let i = 0; i < 5; i += 1) {
         // eslint-disable-next-line no-await-in-loop
@@ -1297,8 +1302,8 @@ describe('FluxPeerManager tests', () => {
       const peer = addHandshaking();
 
       peer.ws.onmessage({ data: frame('fluxapprunning') });
-      peer.ws.onmessage({ data: frame('fluxlinknonce') });
-      peer.ws.onmessage({ data: `T${Date.now()}|${frame('fluxlinkconfirm')}` });
+      peer.ws.onmessage({ data: nonceFrame() });
+      peer.ws.onmessage({ data: confirmFrame() });
       peer.ws.onmessage({ data: frame('fluxipchanged') });
       await flush();
       const handled = (stub) => stub.getCalls().map((c) => c.args[0].data.type);
@@ -1318,8 +1323,8 @@ describe('FluxPeerManager tests', () => {
         settle();
         return peer;
       };
-      const nonce = (id) => JSON.stringify({ version: 1, id, data: { type: 'fluxlinknonce' } });
-      const handledIds = () => manager.handshakeFrameDispatcher.getCalls().map((c) => c.args[0].id);
+      const nonce = (id) => nonceFrame(id);
+      const handledIds = () => manager.handshakeFrameDispatcher.getCalls().map((c) => c.args[0].timestamp);
 
       it('should handle them in arrival order whatever order their verifications finish in', async () => {
         const answers = [];
@@ -1386,10 +1391,22 @@ describe('FluxPeerManager tests', () => {
         expect(handledIds(), 'another connection\'s held frame holds nothing back').to.eql([2]);
       });
 
-      it('should drop one over the size a broadcast is held to, unverified', async () => {
+      it('should close on one over the layout\'s size, unverified and unparsed', async () => {
         const peer = addJoined();
         await flush();
-        peer.ws.onmessage({ data: nonce('x'.repeat(config.fluxapps.gossipMessageMaxBytes)) });
+        const parsed = sinon.spy(JSON, 'parse');
+        peer.ws.onmessage({ data: Buffer.alloc(peerCodec.LINK_FRAME_MAX_BYTES + 1, peerCodec.MSG_TYPE.LINK_NONCE) });
+        await flush();
+
+        expect(parsed.called).to.equal(false);
+        sinon.assert.notCalled(manager.handshakeFrameVerifier);
+        sinon.assert.calledOnce(peer.ws.close);
+      });
+
+      it('should take no part of the handshake from a text frame', async () => {
+        const peer = addHandshaking();
+        peer.ws.onmessage({ data: frame('fluxlinknonce') });
+        settle();
         await flush();
 
         sinon.assert.notCalled(manager.handshakeFrameVerifier);

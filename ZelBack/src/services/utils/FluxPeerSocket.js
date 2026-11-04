@@ -533,9 +533,14 @@ class FluxPeerSocket {
         frame = { data: opened, bytes, linkVerified: true };
       }
 
-      // Until the link handshake settles only its own two messages are handled;
-      // everything else waits on the socket, in order, for the connection to join.
-      if (this.handshaking && !this.#isHandshakeFrame(frame.data)) {
+      if (Buffer.isBuffer(evt.data) && peerCodec.isLinkFrame(evt.data)) {
+        this.#takeLinkFrame(evt.data);
+        return;
+      }
+
+      // Until the link handshake settles only its own frames are handled; everything
+      // else waits on the socket, in order, for the connection to join.
+      if (this.handshaking) {
         if (this.#queuedFrames.length >= HANDSHAKE_QUEUE_MAX || this.#queuedBytes + bytes > HANDSHAKE_QUEUE_MAX_BYTES) {
           log.warn(`Closing ${this.direction} connection ${this.key}: more than ${HANDSHAKE_QUEUE_MAX} frames or ${HANDSHAKE_QUEUE_MAX_BYTES} bytes arrived before its link handshake settled`);
           this.close(this.closeCodes.invalidMsg, 'too much arrived before the link settled');
@@ -550,23 +555,6 @@ class FluxPeerSocket {
   }
 
   /**
-   * Whether a frame is one of the link handshake's own: a nonce or a confirm,
-   * which are sent before the link can MAC anything.
-   * @param {string|Buffer} data
-   * @returns {boolean}
-   */
-  #isHandshakeFrame(data) {
-    if (typeof data !== 'string') return false;
-    const pipe = data[0] === 'T' ? data.indexOf('|') : -1;
-    try {
-      const type = JSON.parse(pipe > 0 ? data.substring(pipe + 1) : data)?.data?.type;
-      return type === linkCrypto.NONCE_TYPE || type === linkCrypto.CONFIRM_TYPE;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Handle the frames that arrived while the link handshake ran, once the
    * connection has joined.
    */
@@ -575,6 +563,23 @@ class FluxPeerSocket {
     this.#queuedFrames = [];
     this.#queuedBytes = 0;
     queued.forEach((evt) => this.#handleFrame(evt));
+  }
+
+  /**
+   * A binary link frame, which is decoded by its layout and never parsed. One
+   * that does not decode, as none over the layout's size does, closes the connection.
+   * @param {Buffer} buf
+   */
+  #takeLinkFrame(buf) {
+    this.messagesReceived += 1;
+    this.bytesReceived += buf.length;
+    const msgObj = peerCodec.decodeLinkFrame(buf);
+    if (!msgObj) {
+      log.warn(`Closing ${this.direction} connection ${this.key}: a ${buf.length} byte link frame that does not decode`);
+      this.close(this.closeCodes.invalidMsg, 'link frame does not decode');
+      return;
+    }
+    this.#takeHandshakeFrame(msgObj, buf.length);
   }
 
   /**
@@ -703,10 +708,8 @@ class FluxPeerSocket {
       return;
     }
 
-    if (isHandshake(msgObj.data?.type)) {
-      this.#takeHandshakeFrame(msgObj, frameBytes);
-      return;
-    }
+    // The handshake travels in binary link frames, so a text copy of one is no part of it.
+    if (isHandshake(msgObj.data?.type)) return;
 
     // Dispatch to the manager's message handler (gossip pipeline)
     if (manager.messageDispatcher) {
