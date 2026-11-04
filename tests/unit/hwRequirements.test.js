@@ -209,6 +209,7 @@ describe('hwRequirements tests', () => {
         isStaticIP: sinon.stub().returns(true),
         getNodeGeolocation: sinon.stub().resolves(nodeGeo),
       },
+      '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('203.0.113.10:16127') },
       '../appPlacement/ipLocationStore': {
         lookup: sinon.stub().resolves(null),
         regionCodeForName: sinon.stub().returns(null),
@@ -927,6 +928,7 @@ describe('hwRequirements tests', () => {
     function gateWith(lookupResult, regionNames = {}) {
       return proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
         '../geolocationService': { getNodeGeolocation: sinon.stub().resolves(geoNode) },
+        '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('203.0.113.10:16127') },
         '../appPlacement/ipLocationStore': {
           lookup: lookupResult instanceof Error
             ? sinon.stub().rejects(lookupResult)
@@ -1040,6 +1042,68 @@ describe('hwRequirements tests', () => {
     });
   });
 
+  describe('appGeolocationVerdict, for a node whose address has changed', () => {
+    // The saved geolocation still describes the address the node left: the
+    // table places that one in France, and ip-api last answered Finland.
+    const OLD_IP = '203.0.113.10';
+    const NEW_IP = '198.51.100.7';
+    const finland = { countryCode: 'FI', continentCode: 'EU', region: 'FI-18' };
+    const germany = { countryCode: 'DE', continentCode: 'EU', region: 'DE-BY' };
+    const france = { countryCode: 'FR', continentCode: 'EU', region: 'FR-GES' };
+
+    function gateAt(getLocalSocketAddress, tableAtNewIp = finland) {
+      const lookup = sinon.stub().resolves(null);
+      lookup.withArgs(OLD_IP).resolves(france);
+      lookup.withArgs(NEW_IP).resolves(tableAtNewIp);
+      const gate = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+        '../geolocationService': {
+          getNodeGeolocation: sinon.stub().resolves({
+            ip: OLD_IP, continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa',
+          }),
+        },
+        '../fluxNetworkHelper': { getLocalSocketAddress },
+        '../appPlacement/ipLocationStore': { lookup, regionCodeForName: () => null },
+        '../../lib/log': logStub,
+      });
+      return { gate, lookup };
+    }
+    const NOT_MATCHING = 'App specs of geolocation set is not matching to run on node geolocation. Aborting.';
+    const atNewIp = () => sinon.stub().resolves(`${NEW_IP}:16127`);
+
+    it('passes an app the table admits at the current address, whatever it says of the old one', async () => {
+      const { gate } = gateAt(atNewIp());
+
+      const result = await gate.appGeolocationVerdict({ version: 7, geolocation: ['acEU_FI'] });
+
+      expect(result).to.deep.equal({ verdict: GeoVerdict.PASS, source: null, reason: null });
+    });
+
+    it('fails on the table for the current address', async () => {
+      const { gate } = gateAt(atNewIp(), germany);
+
+      const result = await gate.appGeolocationVerdict({ version: 7, geolocation: ['acEU_FI'] });
+
+      expect(result).to.deep.equal({ verdict: GeoVerdict.FAIL, source: GeoSource.TABLE, reason: NOT_MATCHING });
+    });
+
+    it('rests on the self-report when the node cannot name its address', async () => {
+      const { gate, lookup } = gateAt(sinon.stub().resolves(null));
+
+      const result = await gate.appGeolocationVerdict({ version: 7, geolocation: ['acEU_DE'] });
+
+      expect(result).to.deep.equal({ verdict: GeoVerdict.FAIL, source: GeoSource.SELF, reason: NOT_MATCHING });
+      sinon.assert.notCalled(lookup);
+    });
+
+    it('rests on the self-report when reading the address throws', async () => {
+      const { gate } = gateAt(sinon.stub().rejects(new Error('fluxd unreachable')));
+
+      const result = await gate.appGeolocationVerdict({ version: 7, geolocation: ['acEU_DE'] });
+
+      expect(result).to.deep.equal({ verdict: GeoVerdict.FAIL, source: GeoSource.SELF, reason: NOT_MATCHING });
+    });
+  });
+
   describe('checkAppRequirements refuses on the geolocation verdict', () => {
     // Every other requirement passes: a four-core node with room to spare, no
     // static-IP, data-centre or node pin. Only the geolocation decides.
@@ -1064,6 +1128,7 @@ describe('hwRequirements tests', () => {
           ip: '203.0.113.10', continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa',
         }),
       },
+      '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('203.0.113.10:16127') },
       '../appPlacement/ipLocationStore': {
         lookup: sinon.stub().resolves(lookupResult),
         regionCodeForName: () => null,

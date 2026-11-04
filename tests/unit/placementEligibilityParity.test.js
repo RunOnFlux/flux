@@ -141,6 +141,7 @@ async function installerAccepts(geolocation, nodeGeo) {
   if (!installerGates.has(key)) {
     installerGates.set(key, proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
       '../geolocationService': { getNodeGeolocation: sinon.stub().resolves({ ...nodeGeo, ip: '203.0.113.10' }) },
+      '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('203.0.113.10:16127') },
       '../appPlacement/ipLocationStore': {
         lookup: sinon.stub().resolves(tableHit(nodeGeo)),
         isStoreUnavailable: () => false,
