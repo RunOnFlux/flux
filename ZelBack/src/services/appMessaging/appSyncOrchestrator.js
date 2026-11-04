@@ -1297,4 +1297,7 @@ class AppSyncOrchestrator {
   }
 }
 
+// The state this node's orchestrator is in now - harness-only, see fluxEventBus.js.
+fluxEventBus.snapshot('orchestrator', () => ({ state: globalState.appSyncState }));
+
 module.exports = { AppSyncOrchestrator, STATES };
