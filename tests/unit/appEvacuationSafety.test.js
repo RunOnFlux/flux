@@ -49,6 +49,7 @@ describe('appEvacuationSafety tests', () => {
       appLocation: sinon.stub(),
       getApplicationGlobalSpecifications: sinon.stub(),
       findSyncedPeer: sinon.stub().resolves({ deviceID: 'PEER1', globalBytes: 1024 }),
+      folderHoldsNothing: sinon.stub().resolves(false),
       // Both required. The default case is this node running the g: component
       // with the election able to name another node as primary, so the checks
       // below reach the syncthing evidence rather than stopping short of it.
@@ -294,6 +295,61 @@ describe('appEvacuationSafety tests', () => {
       expect(result.code).to.equal('NO_SYNCED_PEER');
       expect(result.standDown).to.equal(undefined);
       sinon.assert.notCalled(deps.isElectedPrimary);
+    });
+  });
+
+  describe('a copy holding nothing', () => {
+    beforeEach(() => {
+      deps.getApplicationGlobalSpecifications.resolves({
+        name: 'quiet',
+        version: 8,
+        instances: 3,
+        compose: [{ name: 'web', containerData: 'r:/data|ml:cache:/cache' }],
+      });
+      deps.appLocation.resolves(locations(LOCAL, '2.2.2.2:16127', '3.3.3.3:16127', '4.4.4.4:16127'));
+      deps.findSyncedPeer.resolves(null);
+    });
+
+    it('is safe to remove with no synced peer', async () => {
+      deps.folderHoldsNothing.resolves(true);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('quiet', deps);
+
+      expect(result.safe).to.equal(true);
+    });
+
+    it('refuses a copy that cannot show it holds nothing', async () => {
+      const result = await appEvacuationSafety.canSafelyRemoveApp('quiet', deps);
+
+      expect(result).to.include({ safe: false, code: 'NO_SYNCED_PEER' });
+    });
+
+    it('asks about the folder in the component\'s synced scope', async () => {
+      await appEvacuationSafety.canSafelyRemoveApp('quiet', deps);
+
+      sinon.assert.calledOnceWithExactly(deps.folderHoldsNothing, 'fluxweb_quiet', ['cache']);
+    });
+
+    it('does not ask when a peer already holds the folder', async () => {
+      deps.findSyncedPeer.resolves({ deviceID: 'PEER1', globalBytes: 1024 });
+
+      await appEvacuationSafety.canSafelyRemoveApp('quiet', deps);
+
+      sinon.assert.notCalled(deps.folderHoldsNothing);
+    });
+
+    it('still refuses the only host', async () => {
+      deps.folderHoldsNothing.resolves(true);
+      deps.appLocation.resolves(locations(LOCAL));
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('quiet', {
+        ...deps,
+        getApplicationGlobalSpecifications: sinon.stub().resolves({
+          name: 'quiet', version: 8, instances: 1, compose: [{ name: 'web', containerData: 'r:/data' }],
+        }),
+      });
+
+      expect(result).to.include({ safe: false, code: 'ONLY_HOST' });
     });
   });
 

@@ -98,8 +98,11 @@ function readAnswer(answer) {
   // old to say, which reads as none, as that node's answer always has.
   const heldOut = Array.isArray(answer?.heldOut) ? answer.heldOut : [];
   const volumeGone = Array.isArray(answer?.volumeGone) ? answer.volumeGone : [];
+  // What each folder the peer sends holds in the index, in file bytes. Absent on a peer
+  // too old to say and on one that would not serve it to this caller: no evidence.
+  const published = (answer && typeof answer.published === 'object' && answer.published) || {};
   return {
-    reachable: true, answerable: true, ready, folders, holding, seeding, notLookedAt, heldOut, volumeGone,
+    reachable: true, answerable: true, ready, folders, holding, seeding, notLookedAt, heldOut, volumeGone, published,
   };
 }
 
