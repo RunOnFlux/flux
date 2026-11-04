@@ -1418,6 +1418,25 @@ describe('FluxPeerManager tests', () => {
       sinon.assert.calledOnce(peer.ws.close);
     });
 
+    it('should close on a frame too large for the queue without parsing it', () => {
+      const peer = addHandshaking();
+      const parsed = sinon.spy(JSON, 'parse');
+
+      peer.ws.onmessage({ data: `{"data":{"type":"fluxlinknonce"},"pad":"${'x'.repeat(2 * 1024 * 1024)}"}` });
+
+      expect(parsed.called).to.equal(false);
+      sinon.assert.calledOnce(peer.ws.close);
+    });
+
+    it('should queue a nonce too large to be one instead of verifying it', () => {
+      const peer = addHandshaking();
+
+      peer.ws.onmessage({ data: `{"data":{"type":"fluxlinknonce"},"pad":"${'x'.repeat(4096)}"}` });
+
+      sinon.assert.notCalled(manager.handshakeFrameVerifier);
+      sinon.assert.notCalled(peer.ws.close);
+    });
+
     // Bytes, not only frames: four frames of a quarter MiB fill the queue, and one byte more closes it.
     it('should close a connection whose queued frames pass 1 MiB before its handshake settles', () => {
       const peer = addHandshaking();
