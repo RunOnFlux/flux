@@ -61,7 +61,6 @@ describe('a running primary whose location lapsed is never started beside', func
           minIncoming: 1,
           sigtermExpiryS: SIGTERM_EXPIRY_S,
           locationTtlS: LOCATION_TTL_S,
-          nodeMonitorIntervalMs: 60 * 60 * 1000,
         },
       },
     });
