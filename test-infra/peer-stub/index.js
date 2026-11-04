@@ -224,10 +224,40 @@ async function nodeAuthEncrypt(text) {
   return JSON.parse(result).message;
 }
 
+// A link's handshake state before any nonce, for this stub's end of `ws`.
+function freshLink(peerIp) {
+  return {
+    localNonce: crypto.randomBytes(32).toString('hex'),
+    localPubKey: PUBLIC_KEY,
+    localIp: NODE_IP,
+    peerIp,
+    peerNonce: null,
+    peerPubKey: null,
+    peerConfirm: null,
+    sendKey: null,
+    recvKey: null,
+    sendNumber: 0,
+    recvNumber: -1,
+    lastSealed: null,
+    authenticated: false,
+    gaveUp: false,
+    // The handshakes this socket has run, this one included.
+    handshakes: 1,
+  };
+}
+
 // The node's nonce: answer with this stub's own, derive the link's keys and send
-// the confirm. The node opens the handshake as soon as it connects.
+// the confirm. The node opens the handshake as soon as it connects. As on an
+// Arcane node, a nonce on a link the node gave up on starts a new handshake on
+// the same socket.
 async function handleLinkNonce(ws, msg) {
-  const link = links.get(ws);
+  let link = links.get(ws);
+  if (link?.gaveUp && !link.authenticated && linkCrypto.isHex32(msg.data.nonce)) {
+    const handshakes = link.handshakes + 1;
+    link = { ...freshLink(link.peerIp), handshakes };
+    links.set(ws, link);
+    linkLog(link, `a new handshake on the same socket (${handshakes})`);
+  }
   if (!link || link.peerNonce || !linkCrypto.isHex32(msg.data.nonce)) {
     linkLog(link, `nonce ignored (${!link ? 'no link state' : link.peerNonce ? 'a nonce is already held' : 'malformed'})`);
     return;
@@ -385,6 +415,16 @@ async function handleMessage(ws, received) {
 
 const wss = new WebSocketServer({ noServer: true });
 
+function ownCapabilities() {
+  const answersAppStateSync = SILENT_APP_STATE_SYNC || UNVERIFIABLE_APP_STATE_SYNC || ANSWERING_APP_STATE_SYNC;
+  return [
+    'peerExchange',
+    ...(answersAppStateSync ? ['appStateSync'] : []),
+    ...(POLICY_UNAWARE ? [] : ['policyBundle']),
+    ...(ARCANE_LINK ? [linkCrypto.CAPABILITY] : []),
+  ].join(',');
+}
+
 wss.on('headers', (headers) => {
   // peerExchange only. This stub does NOT implement the app-state sync
   // endpoints - apprunning, appinstalling and apperrors are all absent - and a
@@ -410,42 +450,20 @@ wss.on('headers', (headers) => {
   // POLICY_UNAWARE is the peer that predates the protocol, which is every peer on the first
   // day of a rollout. A node does not ask it and does not announce to it, and a node whose
   // peers are all this must still reach the published source.
-  const answersAppStateSync = SILENT_APP_STATE_SYNC || UNVERIFIABLE_APP_STATE_SYNC || ANSWERING_APP_STATE_SYNC;
-  const capabilities = [
-    'peerExchange',
-    ...(answersAppStateSync ? ['appStateSync'] : []),
-    ...(POLICY_UNAWARE ? [] : ['policyBundle']),
-    ...(ARCANE_LINK ? [linkCrypto.CAPABILITY] : []),
-  ].join(',');
-  headers.push(`X-Flux-Capabilities: ${capabilities}`);
+  headers.push(`X-Flux-Capabilities: ${ownCapabilities()}`);
   headers.push('X-Flux-Version: 8.0.0');
   headers.push('X-Flux-Uptime: 1000');
 });
 
-wss.on('connection', (ws, req) => {
-  connectionsReceived++;
+// One connection with a node, whichever end dialled it.
+function adoptConnection(ws, peerIp, capabilitiesHeader) {
   // Only a node that speaks the link protocol opens a handshake.
-  const nodeCapabilities = String(req.headers['x-flux-capabilities'] || '').split(',').map((c) => c.trim());
+  const nodeCapabilities = String(capabilitiesHeader || '').split(',').map((c) => c.trim());
   if (ARCANE_LINK && nodeCapabilities.includes(linkCrypto.CAPABILITY)) {
-    links.set(ws, {
-      localNonce: crypto.randomBytes(32).toString('hex'),
-      localPubKey: PUBLIC_KEY,
-      localIp: NODE_IP,
-      peerIp: (req.socket.remoteAddress || '').replace('::ffff:', ''),
-      peerNonce: null,
-      peerPubKey: null,
-      peerConfirm: null,
-      sendKey: null,
-      recvKey: null,
-      sendNumber: 0,
-      recvNumber: -1,
-      lastSealed: null,
-      authenticated: false,
-    });
+    links.set(ws, freshLink(peerIp));
   }
-  linkLog(links.get(ws) ?? { peerIp: (req.socket.remoteAddress || '').replace('::ffff:', '') }, `connected (${links.has(ws) ? 'speaks the link protocol' : 'no link protocol'})`);
+  linkLog(links.get(ws) ?? { peerIp }, `connected (${links.has(ws) ? 'speaks the link protocol' : 'no link protocol'})`);
   connectedNodes.add(ws);
-  const peerIp = (req.socket.remoteAddress || '').replace('::ffff:', '');
   ws.on('close', (code) => {
     connectedNodes.delete(ws);
     closes.push({ ip: peerIp, code, at: Date.now() });
@@ -454,7 +472,23 @@ wss.on('connection', (ws, req) => {
   });
   ws.on('message', (data) => handleMessage(ws, data));
   ws.on('error', () => {});
+}
+
+wss.on('connection', (ws, req) => {
+  connectionsReceived++;
+  adoptConnection(ws, (req.socket.remoteAddress || '').replace('::ffff:', ''), req.headers['x-flux-capabilities']);
 });
+
+// Dials `target` (ip:port) as a machine reaching a node does, and carries the
+// connection as one the node had dialled. Answers once it is open.
+function dialNode(target) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://${target}/ws/flux/${WS_PORT}`, { headers: { 'X-Flux-Capabilities': ownCapabilities() } });
+    ws.once('upgrade', (res) => adoptConnection(ws, target.split(':')[0], res.headers['x-flux-capabilities']));
+    ws.once('open', resolve);
+    ws.once('error', reject);
+  });
+}
 
 // Whether a TCP connection to the asker's port completes. A timeout answers for
 // a port that is filtered rather than refused - to the node asking, both mean
@@ -727,6 +761,13 @@ const controlServer = http.createServer(async (req, res) => {
         linksAuthenticatedOpen: [...connectedNodes].filter((ws) => links.get(ws)?.authenticated).length,
         // the open connections whose node speaks the link protocol
         linksOpen: [...connectedNodes].filter((ws) => links.has(ws)).length,
+        // each open link: the node it is with, and the handshakes its socket has run
+        links: [...connectedNodes].filter((ws) => links.has(ws)).map((ws) => {
+          const link = links.get(ws);
+          return {
+            peerIp: link.peerIp, handshakes: link.handshakes, authenticated: link.authenticated, gaveUp: link.gaveUp,
+          };
+        }),
         requestsReceived,
         messagesServed,
         unverifiableResponsesSent,
@@ -763,6 +804,26 @@ const controlServer = http.createServer(async (req, res) => {
       sockets.forEach((ws) => { try { ws.terminate(); } catch (e) { /* closed */ } });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', results }));
+      return;
+    }
+
+    // Dials every node in `targets` (ip:port) and holds the connections, each
+    // speaking this peer's link protocol.
+    if (req.method === 'POST' && req.url === '/dial-links') {
+      const { targets } = JSON.parse(await readBody(req));
+      await Promise.all(targets.map(dialNode));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', dialled: targets.length }));
+      return;
+    }
+
+    // Closes every connection this peer holds with a node, as a peer restarting
+    // does; a node this peer asks to dial dials again at the next ask.
+    if (req.method === 'POST' && req.url === '/close-links') {
+      const closed = connectedNodes.size;
+      connectedNodes.forEach((ws) => { try { ws.close(1000, 'closed by the harness'); } catch (e) { /* closed */ } });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', closed }));
       return;
     }
 

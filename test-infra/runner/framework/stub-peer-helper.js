@@ -22,6 +22,13 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Close every connection a node holds to this peer; each node dials again
+    // when the peer next asks it to. Answers how many were closed.
+    async closeLinks() {
+      const res = await controlFetch(`${controlUrl}/close-links`, { method: 'POST' });
+      return (await res.json()).closed;
+    },
+
     // What this peer claims to be holding. A folder named here blocks the asking
     // node's promotion, so it keeps asking every pass instead of promoting once
     // and falling silent.
@@ -146,6 +153,18 @@ export function stubPeerClient(ip) {
       });
       if (!res.ok) throw new Error(`stub ${ip} could not dial ${target}: ${res.status} ${await res.text()}`);
       return (await res.json()).results;
+    },
+
+    // Dial each of `targets` (ip:port) and hold the connections, speaking this
+    // peer's link protocol: the way an address no node dials reaches a node.
+    async dialLinks(targets) {
+      const res = await controlFetch(`${controlUrl}/dial-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets }),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not dial ${targets}: ${res.status} ${await res.text()}`);
+      return (await res.json()).dialled;
     },
 
     // The events this peer answers each state-sync request with, by response type
