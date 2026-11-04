@@ -145,7 +145,10 @@ describe('a node the chain moved keeps its rows until its move is heard', functi
     await waitFor(async () => await awaitingMove(SYNCS_EVICTION, oldSocket) > 0, {
       timeout: 240000, interval: 3000, label: 'the restarted node applied the eviction and left the rows to the move',
     });
-    expect(await rowsAt(SYNCS_EVICTION, oldSocket), 'the rows the restarted node holds at the address').to.have.length(1);
+    // The same sync can hand it the move, from the node itself, so they stand at one
+    // address or the other.
+    const held = [...await rowsAt(SYNCS_EVICTION, oldSocket), ...await rowsAt(SYNCS_EVICTION, newSocket)];
+    expect(held, 'the rows the restarted node holds').to.have.length(1);
     expect(await evictions(SYNCS_EVICTION, oldSocket), 'the restarted node recorded the eviction').to.have.length(0);
   });
 
