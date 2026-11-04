@@ -2108,6 +2108,12 @@ async function manageFolderSyncState(params) {
     // Re-deriving that verdict here would cost a syncthing round trip and a
     // directory walk per folder to answer a question already answered.
     await ensureContainerRunning(appId, containerDataFlags);
+    // A joining copy decides on this figure this pass, so it stays a pass old where it
+    // decides anything: a folder publishing nothing. One publishing bytes keeps a joiner
+    // waiting whatever the exact figure, and is left to the slower sync state pass.
+    if (!folderStates.publishesBytes(appId)) {
+      folderStates.published(appId, (await getFolderSyncCompletion(appId))?.globalBytes ?? null);
+    }
     decideType(syncthingFolder, containerDataFlags, 'sendreceive');
     // Ensure cache entry exists so health monitor can track this folder
     const existingCache = receiveOnlySyncthingAppsCache.get(appId);

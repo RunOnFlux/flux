@@ -34,6 +34,15 @@ describe('folderStates tests', () => {
       expect(folderStates.answer(new Set(['fluxr_app'])).published).to.deep.equal({});
     });
 
+    it('tells a folder publishing bytes from one publishing nothing or unread', () => {
+      folderStates.published('fluxfull_app', 4096);
+      folderStates.published('fluxempty_app', 0);
+
+      expect(folderStates.publishesBytes('fluxfull_app')).to.equal(true);
+      expect(folderStates.publishesBytes('fluxempty_app')).to.equal(false);
+      expect(folderStates.publishesBytes('fluxunread_app')).to.equal(false);
+    });
+
     it('forgets a removed folder', () => {
       folderStates.published('fluxr_app', 0);
       folderStates.removed('fluxr_app');
