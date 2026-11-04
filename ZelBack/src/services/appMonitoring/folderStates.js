@@ -149,6 +149,15 @@ function published(folderId, bytes) {
 }
 
 /**
+ * Whether a writable folder is known to hold bytes in the index.
+ * @param {string} folderId
+ * @returns {boolean}
+ */
+function publishesBytes(folderId) {
+  return globalState.publishedFileBytes.get(folderId) > 0;
+}
+
+/**
  * Records a folder the monitor pass found a ready standby. A measurement it holds
  * stands; any other state becomes no claim, because a ready standby is not measured.
  * @param {string} folderId
@@ -209,6 +218,7 @@ module.exports = {
   measured,
   notMounted,
   published,
+  publishesBytes,
   receiveOnlyFolderIds,
   recreated,
   removed,

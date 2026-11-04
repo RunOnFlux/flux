@@ -2752,6 +2752,44 @@ describe('syncthingFolderStateMachine tests', () => {
     // to the address order over a holder that may hold the owner's data. So nobody
     // seeds while one has not looked. This node's address sorts first and it holds
     // nothing, so the address order would give it the seed.
+    describe('what a sending folder publishes', () => {
+      beforeEach(() => {
+        globalStateMock.publishedFileBytes.clear();
+        mockParams.syncFolder = { type: 'sendreceive' };
+        dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+        syncthingServiceMock.getDbStatus.resetHistory();
+      });
+
+      it('reads a folder publishing nothing on every pass, so a joiner decides on this pass', async () => {
+        syncthingServiceMock.getDbStatus.resolves({ globalBytes: 0, inSyncBytes: 0, state: 'idle' });
+        await stateMachine.manageFolderSyncState(mockParams);
+        expect(globalStateMock.publishedFileBytes.get('test-app')).to.equal(0);
+
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 4096, globalFiles: 1, inSyncBytes: 4096, state: 'idle',
+        });
+        await stateMachine.manageFolderSyncState(mockParams);
+        expect(globalStateMock.publishedFileBytes.get('test-app')).to.equal(4096);
+      });
+
+      it('reads nothing for a folder publishing bytes', async () => {
+        globalStateMock.publishedFileBytes.set('test-app', 4096);
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingServiceMock.getDbStatus);
+      });
+
+      it('withdraws the figure when the status cannot be read', async () => {
+        globalStateMock.publishedFileBytes.set('test-app', 0);
+        syncthingServiceMock.getDbStatus.rejects(new Error('down'));
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(globalStateMock.publishedFileBytes.has('test-app')).to.equal(false);
+      });
+    });
+
     describe('a copy whose cluster index holds nothing', () => {
       const HOLDER_B = '10.0.0.2:16127';
       const HOLDER_C = '10.0.0.3:16127';
