@@ -165,13 +165,22 @@ class FluxCacheManager {
     // can legitimately request: a request follows an announcement. Policy bundles,
     // asks and answers never enter it, so its entries no longer carry the payload of
     // messages nobody will ever fetch by hash.
+    //
+    // A copy can arrive as long after the first as the network takes to carry it,
+    // and one the filter has forgotten is handled again, so the filter holds its
+    // whole ttl at 100 announcements a second.
     announcementSeen: {
-      max: 1_000,
+      max: 30_000,
       ttl: 5 * FluxCacheManager.oneMinute,
     },
     announcementStore: {
-      max: 1_000,
+      max: 5_000,
       ttl: 5 * FluxCacheManager.oneMinute,
+    },
+    // The peers that announced a message to this node: it does not announce it back.
+    announcementPeers: {
+      max: 6_000,
+      ttl: FluxCacheManager.oneMinute,
     },
     wsPeerCache: {
       max: 100,

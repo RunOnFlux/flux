@@ -688,6 +688,23 @@ module.exports = {
     linkHandshakeBackoffMs: 600000,
     nodeAuthCallsConcurrent: 2,
     nodeAuthCallsQueued: 32,
+    // Fetching an announced message (services/utils/announcementFetch.js). A peer
+    // asked has hashFetchRttMultiplier round trips plus hashFetchBaseMs to deliver,
+    // or hashFetchDefaultMs before its latency is measured, doubled for each peer
+    // asked before it up to 2^hashFetchMaxBackoff. A timer more than hashFetchLateMs
+    // late means this node is behind. hashFetchesMax is how many messages are
+    // fetched at once. A peer's connection ends at hashFetchMissesToDisconnect
+    // misses within hashFetchMissWindowMs, while it has missed more than
+    // hashFetchMissesPerServed for each message it served there.
+    hashFetchRttMultiplier: 3,
+    hashFetchBaseMs: 100,
+    hashFetchDefaultMs: 500,
+    hashFetchLateMs: 50,
+    hashFetchMaxBackoff: 4,
+    hashFetchesMax: 5000,
+    hashFetchMissesToDisconnect: 20,
+    hashFetchMissesPerServed: 10,
+    hashFetchMissWindowMs: 600000,
     // A connection between two Arcane nodes joins the peer set when its link
     // handshake settles, or unauthenticated at this deadline.
     linkHandshakeDeadlineMs: 10000,
