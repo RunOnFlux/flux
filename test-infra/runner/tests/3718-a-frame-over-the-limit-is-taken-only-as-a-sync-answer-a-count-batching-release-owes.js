@@ -19,7 +19,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { pendingMessage, pendingMessageOn, pendingVerdict } from '../framework/unpaid-messages.js';
-import { waitFor, waitForDaemonReady, waitForOrchestratorState } from '../framework/wait.js';
+import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import limits from '../framework/message-limits.cjs';
 
@@ -88,8 +88,8 @@ describe('a frame over the limit is taken only as a sync answer a count-batching
     // Last: the connection it closes is the only one JOINER has.
     it('closes on the same size from that peer when it owes nothing', async function () {
       this.timeout(300000);
-      const { env, stub, joiner } = fleet;
-      await waitForOrchestratorState(joiner, 'READY', 120000);
+      const { env, stub, joiner, mark: joined } = fleet;
+      await joiner.waitForEvent('ephemeralSync:allComplete', () => true, 120000, { afterId: joined });
       const app = await buildSeedableApp({ env, name: `e2eframeafter${stamp}`, instances: 1 });
       const mark = joiner.getLastEventId();
 
