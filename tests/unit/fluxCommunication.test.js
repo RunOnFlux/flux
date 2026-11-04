@@ -24,12 +24,14 @@ const nodeConfirmationService = require('../../ZelBack/src/services/nodeConfirma
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const admissionQuorum = require('../../ZelBack/src/services/appMessaging/admissionQuorum');
+const arcaneLink = require('../../ZelBack/src/services/arcaneLink');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
+const announcementFetch = require('../../ZelBack/src/services/utils/announcementFetch');
 const fluxPeerSocketModule = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
@@ -38,7 +40,7 @@ const { NetworkStateManager } = require('../../ZelBack/src/services/utils/networ
 
 // What fluxCommunication installs on the shared peer manager as it loads.
 const PEER_MANAGER_HOOKS = ['linkHandshake', 'messageDispatcher', 'linkMessageDispatcher', 'syncResponseDispatcher', 'hashHandlers'];
-const PEER_MANAGER_EVENTS = ['peerConnected', 'peerDisconnected', 'authenticatedLinkLost'];
+const PEER_MANAGER_EVENTS = ['peerConnected', 'peerDisconnected', 'authenticatedLinkLost', 'authenticatedLinkGained'];
 
 /**
  * fluxCommunication loaded again as an Arcane node, installed on the shared peer
@@ -288,7 +290,7 @@ describe('fluxCommunication tests', () => {
       await handled;
 
       expect(written).to.equal(true);
-      sinon.assert.calledOnceWithExactly(broadcastHashStub, objectHash(envelope.data), peer.key);
+      sinon.assert.calledOnceWithExactly(broadcastHashStub, objectHash(envelope.data), peer.key, undefined);
       expect(cacheManager.announcementSeen.has(objectHash(envelope.data))).to.equal(true);
       expect(messageStore.storeAppTemporaryMessage.firstCall.args[1].frame.pubKey).to.equal('entryKey');
       expect(messageStore.storeAppTemporaryMessage.firstCall.args[1].authenticated).to.equal(true);
@@ -504,7 +506,7 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`);
+      sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`, undefined);
       // Announcing is what makes it fetchable: a peer answering the hash asks for it here.
       expect(cacheManager.announcementStore.has(objectHash(message.data))).to.equal(true);
     }).timeout(10000);
@@ -627,7 +629,13 @@ describe('fluxCommunication tests', () => {
       sinon.stub(policyStore, 'notePeerSeq');
     });
 
-    afterEach(() => {
+    // A dispatch hands its handler to setImmediate and resolves: the handler finishes
+    // here, against these stubs, and not inside a later test.
+    afterEach(async () => {
+      for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
       sinon.restore();
     });
 
@@ -790,7 +798,11 @@ describe('fluxCommunication tests', () => {
       store = sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(false);
     });
 
-    afterEach(() => {
+    // A dispatch hands its handler to setImmediate and resolves: the handler finishes
+    // here, against these stubs, and not inside a later test.
+    afterEach(async () => {
+      // eslint-disable-next-line no-use-before-define
+      await handled();
       sinon.restore();
     });
 
@@ -810,6 +822,32 @@ describe('fluxCommunication tests', () => {
         await new Promise((resolve) => { setImmediate(resolve); });
       }
     };
+
+    it('asks the next announcer after a copy that cannot settle the message', async () => {
+      const request = sinon.stub(peerManager, 'sendHashRequest');
+      announcementFetch.reset();
+      announcementFetch.announced(objectHash(data), 'A');
+      announcementFetch.announced(objectHash(data), 'B');
+
+      await peerManager.messageDispatcher(copy(), peerSocket);
+      await handled();
+
+      expect(request.getCalls().map((c) => c.args[0])).to.deep.equal(['A', 'B']);
+      announcementFetch.reset();
+    });
+
+    it('asks nobody further after a copy that settles it', async () => {
+      const request = sinon.stub(peerManager, 'sendHashRequest');
+      announcementFetch.reset();
+      announcementFetch.announced(objectHash(data), 'A');
+      announcementFetch.announced(objectHash(data), 'B');
+
+      await peerManager.messageDispatcher(copy({ signed: true }), peerSocket);
+      await handled();
+
+      expect(request.getCalls().map((c) => c.args[0])).to.deep.equal(['A']);
+      announcementFetch.reset();
+    });
 
     it('leaves no mark when refused for its route, so the authenticated copy after it is handled', async () => {
       await peerManager.messageDispatcher(copy(), peerSocket);
@@ -854,6 +892,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('still marks any other announcement from any link', async () => {
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
       sinon.stub(messageStore, 'storeIPChangedMessage').resolves(false);
       const ipChanged = {
         type: 'fluxipchanged', version: 1, oldIP: '1.1.1.1', newIP: '2.2.2.2', broadcastedAt: Date.now(),
@@ -949,6 +988,19 @@ describe('fluxCommunication tests', () => {
 
         const sent = JSON.parse(told.send.firstCall.args[0]);
         expect(sent).to.deep.equal({ type: 'arcanepeers', version: 1, peers: ['198.51.100.8:16127', '198.51.100.9:16137'] });
+        sinon.assert.calledWithExactly(networkStateService.markArcane, told.key, NetworkStateManager.SELF_REPORTED);
+      });
+
+      it('tells a joined peer whose link authenticated after it joined, as it tells one that joined authenticated', () => {
+        const told = linkPeer('198.51.100.7');
+        linked = [told, linkPeer('198.51.100.8')];
+        sinon.stub(peerManager, 'get').callsFake((key) => linked.find((peer) => peer.key === key));
+        sinon.stub(networkStateService, 'markArcane');
+
+        peerManager.emit('authenticatedLinkGained', told.key);
+
+        const sent = JSON.parse(told.send.firstCall.args[0]);
+        expect(sent).to.deep.equal({ type: 'arcanepeers', version: 1, peers: ['198.51.100.8:16127'] });
         sinon.assert.calledWithExactly(networkStateService.markArcane, told.key, NetworkStateManager.SELF_REPORTED);
       });
 
@@ -1265,7 +1317,7 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`);
+      sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`, undefined);
     }).timeout(10000);
 
     it('should not send broadcast if message is older than 3900 seconds', async () => {
@@ -1422,7 +1474,7 @@ describe('fluxCommunication tests', () => {
 
           await fluxCommunication[name](message, fromIp, port);
 
-          sinon.assert.calledOnceWithExactly(broadcastHash, objectHash(message.data), `${fromIp}:${port}`);
+          sinon.assert.calledOnceWithExactly(broadcastHash, objectHash(message.data), `${fromIp}:${port}`, undefined);
         });
 
         it('does not relay a claim whose signed broadcast could not be stored', async () => {
@@ -3050,6 +3102,20 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(messageStore.storeIPChangedMessage, data);
     });
 
+    it('takes a synced move it applied for the links refused at the new address', async () => {
+      const taken = sinon.stub(arcaneLink, 'noteMoveTaken').resolves();
+      const NEW = '198.51.100.40:16127';
+      const data = {
+        type: 'fluxipchanged', version: 1, oldIP: SENDER, newIP: NEW, broadcastedAt: Date.now() - 60000,
+      };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'ipchanged', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.calledOnceWithExactly(taken, NEW, envelope.pubKey, data.broadcastedAt + messageStore.IP_CHANGED_VALIDITY_MS);
+    });
+
     it('drops a synced move away from an address listed under another key, though the signer is listed at the new one', async () => {
       const NEW = '198.51.100.40:16127';
       networkStateService.getFluxnodeBySocketAddress.callsFake(async (address) => (address === NEW ? { pubkey: 'PUB' } : { pubkey: 'OTHER' }));
@@ -3801,12 +3867,23 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnce(relayed);
     });
 
+    it('takes a move it applied for the links refused at the new address', async () => {
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
+      const taken = sinon.stub(arcaneLink, 'noteMoveTaken').resolves();
+
+      await fluxCommunication.handleIPChangedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.calledOnceWithExactly(taken, message.data.newIP, message.pubKey, message.data.broadcastedAt + messageStore.IP_CHANGED_VALIDITY_MS);
+    });
+
     it('does not pass on a move it refused', async () => {
       sinon.stub(messageStore, 'storeIPChangedMessage').resolves(new Error('Invalid Flux IP Changed message for storing version 2 not supported'));
+      const taken = sinon.stub(arcaneLink, 'noteMoveTaken').resolves();
 
       await fluxCommunication.handleIPChangedMessage(message, '10.0.0.9', '16127');
 
       sinon.assert.notCalled(relayed);
+      sinon.assert.notCalled(taken);
     });
   });
 
@@ -4018,6 +4095,241 @@ describe('fluxCommunication tests', () => {
 
       expect(await connect('10.0.0.1:16127')).to.deep.equal([]);
       expect(peerManager.listeners('peerConnected').some((listener) => listener.name === 'sendOwnMovesTo')).to.equal(false);
+    });
+  });
+
+  describe('fetching an announced message', () => {
+    const peerOf = (ip) => ({
+      key: `${ip}:16127`,
+      ip,
+      port: '16127',
+      direction: 'outgoing',
+      closeCodes: { badOrigin: 4001, blocked: 4002 },
+      badMessageTimestamps: [],
+      fetchRecord: { startedAt: Date.now(), misses: 0, served: 0 },
+      msgMap: new Map([['newHash', 0], ['requestHash', 0]]),
+      close: sinon.stub(),
+      sendNak: () => {},
+      send: sinon.stub(),
+    });
+    const data = () => ({
+      type: 'fluxipchanged', version: 1, oldIP: '1.1.1.1', newIP: '2.2.2.2', broadcastedAt: Date.now(),
+    });
+    const envelope = (payload) => ({
+      version: 1, pubKey: '0400', timestamp: Date.now(), signature: 'sig', data: payload,
+    });
+    const settled = async () => {
+      for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    };
+    let request;
+    let verify;
+    let broadcast;
+    const announce = async (hash, peer) => {
+      await peerManager.messageDispatcher({ messageHashPresent: hash }, peer);
+      await settled();
+    };
+
+    beforeEach(() => {
+      cacheManager.announcementSeen.clear();
+      cacheManager.announcementPeers.clear();
+      cacheManager.announcementStore.clear();
+      announcementFetch.reset();
+      request = sinon.stub(peerManager, 'sendHashRequest');
+      broadcast = sinon.stub(peerManager, 'broadcastHash');
+      verify = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').resolves(fluxCommunicationUtils.VerifyResult.OK);
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
+    });
+
+    afterEach(() => {
+      announcementFetch.reset();
+      sinon.restore();
+    });
+
+    it('asks one announcer, however many announce', async () => {
+      const hash = objectHash(data());
+      await announce(hash, peerOf('1.1.1.1'));
+      await announce(hash, peerOf('2.2.2.2'));
+
+      expect(request.getCalls().map((c) => c.args[0])).to.deep.equal(['1.1.1.1:16127']);
+    });
+
+    it('asks the next announcer at once when a copy does not verify, and counts it against its sender', async () => {
+      const payload = data();
+      const hash = objectHash(payload);
+      const first = peerOf('1.1.1.1');
+      await announce(hash, first);
+      await announce(hash, peerOf('2.2.2.2'));
+      verify.resolves(fluxCommunicationUtils.VerifyResult.BAD_SIGNATURE);
+
+      await peerManager.messageDispatcher(envelope(payload), first);
+      await settled();
+
+      expect(request.getCalls().map((c) => c.args[0])).to.deep.equal(['1.1.1.1:16127', '2.2.2.2:16127']);
+      expect(first.badMessageTimestamps).to.have.length(1);
+    });
+
+    it('handles the genuine copy that arrived while a forged one was being verified', async () => {
+      const payload = data();
+      let fail;
+      verify.onFirstCall().returns(new Promise((resolve) => { fail = resolve; }));
+      verify.onSecondCall().resolves(fluxCommunicationUtils.VerifyResult.OK);
+      const forged = envelope(payload);
+      const forger = peerOf('1.1.1.1');
+      const genuine = peerOf('2.2.2.2');
+      const stored = messageStore.storeIPChangedMessage;
+
+      const first = peerManager.messageDispatcher(forged, forger);
+      await settled();
+      await peerManager.messageDispatcher(envelope(payload), genuine);
+      fail(fluxCommunicationUtils.VerifyResult.BAD_SIGNATURE);
+      await first;
+      await settled();
+
+      sinon.assert.calledTwice(verify);
+      sinon.assert.calledOnce(stored);
+      expect(cacheManager.announcementSeen.has(objectHash(payload))).to.equal(true);
+    });
+
+    it('keeps the path a message arrived with, for the operator to read, and refuses anyone else', async () => {
+      const payload = data();
+      const message = envelope(payload);
+      const hop = [5, `${'A'.repeat(87)}=`];
+      await peerManager.messageDispatcher({ ...message, networkPath: [hop] }, peerOf('1.1.1.1'));
+      await settled();
+      const privilege = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      const res = { json: sinon.stub() };
+
+      await fluxCommunication.getNetworkPaths({ headers: {} }, res);
+      const kept = res.json.firstCall.args[0].data.filter((p) => p.hash === objectHash(payload));
+      expect(kept).to.have.length(1);
+      expect(kept[0].verified).to.equal(false);
+
+      privilege.resolves(false);
+      await fluxCommunication.getNetworkPaths({ headers: {} }, res);
+      expect(res.json.secondCall.args[0].status).to.equal('error');
+    });
+
+    it('does not announce a message back to the peers that announced it', async () => {
+      const payload = data();
+      const hash = objectHash(payload);
+      const first = peerOf('1.1.1.1');
+      await announce(hash, first);
+      await announce(hash, peerOf('2.2.2.2'));
+
+      await peerManager.messageDispatcher(envelope(payload), first);
+      await settled();
+
+      sinon.assert.calledOnce(broadcast);
+      expect([...broadcast.firstCall.args[2]]).to.deep.equal(['1.1.1.1:16127', '2.2.2.2:16127']);
+    });
+
+    it('disconnects a peer at hashFetchMissesToDisconnect misses inside the window, not before', () => {
+      const peer = peerOf('1.1.1.1');
+      for (let i = 1; i < config.fluxapps.hashFetchMissesToDisconnect; i += 1) fluxCommunication.noteFetchMiss(peer);
+      sinon.assert.notCalled(peer.close);
+
+      fluxCommunication.noteFetchMiss(peer);
+      sinon.assert.calledOnce(peer.close);
+    });
+
+    it('keeps a peer that serves at least one in hashFetchMissesPerServed, and cuts one that does not', () => {
+      const { hashFetchMissesToDisconnect, hashFetchMissesPerServed } = config.fluxapps;
+      const served = hashFetchMissesToDisconnect;
+      const peer = peerOf('1.1.1.1');
+      peer.fetchRecord.served = served;
+      for (let i = 0; i < served * hashFetchMissesPerServed; i += 1) fluxCommunication.noteFetchMiss(peer);
+      sinon.assert.notCalled(peer.close);
+
+      fluxCommunication.noteFetchMiss(peer);
+      sinon.assert.calledOnce(peer.close);
+    });
+
+    it('starts a new record once the window has passed', () => {
+      const peer = peerOf('1.1.1.1');
+      peer.fetchRecord = {
+        startedAt: Date.now() - config.fluxapps.hashFetchMissWindowMs, misses: config.fluxapps.hashFetchMissesToDisconnect, served: 0,
+      };
+      fluxCommunication.noteFetchMiss(peer);
+
+      sinon.assert.notCalled(peer.close);
+      expect(peer.fetchRecord.misses).to.equal(1);
+    });
+
+    it('serves a requested message with its path, signed by this node when it can sign', async () => {
+      const message = envelope(data());
+      const hash = objectHash(message.data);
+      cacheManager.announcementStore.set(hash, message);
+      const peer = peerOf('1.1.1.1');
+      sinon.stub(peerManager, 'get').returns(peer);
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves('0400');
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').resolves('KyDMNQdx4TY26VcAcR3ezEkVGN9Dvg6v6ioMdmeAQC4M6Rbg4pZv');
+
+      await peerManager.messageDispatcher({ requestMessageHash: hash }, peer);
+      await settled();
+
+      const sent = JSON.parse(peer.send.firstCall.args[0]);
+      expect(sent.data).to.deep.equal(message.data);
+      expect(sent.networkPath).to.have.length(1);
+    });
+  });
+
+  describe('a link handshake frame', () => {
+    const peerOf = () => ({
+      key: '1.1.1.1:16127',
+      direction: 'outgoing',
+      closeCodes: { badOrigin: 4001, blocked: 4002 },
+      badMessageTimestamps: [],
+      close: sinon.stub(),
+    });
+    const frame = { pubKey: '0400', data: { type: 'fluxlinknonce' } };
+    const { VerifyResult } = fluxCommunicationUtils;
+    let verify;
+    let window;
+
+    beforeEach(() => {
+      verify = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').resolves(VerifyResult.OK);
+      window = sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('verifies when signed by a listed node inside the window', async () => {
+      expect(await peerManager.handshakeFrameVerifier(frame, peerOf())).to.equal(true);
+    });
+
+    it('does not verify outside the window', async () => {
+      window.returns(false);
+      expect(await peerManager.handshakeFrameVerifier(frame, peerOf())).to.equal(false);
+    });
+
+    it('counts a forged frame against its sender', async () => {
+      verify.resolves(VerifyResult.BAD_SIGNATURE);
+      const peer = peerOf();
+      expect(await peerManager.handshakeFrameVerifier(frame, peer)).to.equal(false);
+      expect(peer.badMessageTimestamps).to.have.length(1);
+    });
+
+    it('does not count a frame whose key the list does not hold, which can lag the chain', async () => {
+      verify.resolves(VerifyResult.NODE_NOT_FOUND);
+      const peer = peerOf();
+      expect(await peerManager.handshakeFrameVerifier(frame, peer)).to.equal(false);
+      expect(peer.badMessageTimestamps).to.have.length(0);
+    });
+
+    it('closes a blocked key without verifying', async () => {
+      cacheManager.wsPeerCache.set('0400', true);
+      const peer = peerOf();
+      expect(await peerManager.handshakeFrameVerifier(frame, peer)).to.equal(false);
+      sinon.assert.calledOnce(peer.close);
+      sinon.assert.notCalled(verify);
+      cacheManager.wsPeerCache.delete('0400');
     });
   });
 });

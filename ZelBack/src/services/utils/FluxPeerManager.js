@@ -154,6 +154,9 @@ class FluxPeerManager extends EventEmitter {
      * @type {function(object, FluxPeerSocket)|null}
      */
     this.linkMessageDispatcher = null;
+    // Whether a link handshake frame verifies, and who takes one that did.
+    this.handshakeFrameVerifier = null;
+    this.handshakeFrameDispatcher = null;
 
     /**
      * Starts a connection's Arcane link handshake - set by fluxCommunication.js.
@@ -915,6 +918,15 @@ class FluxPeerManager extends EventEmitter {
    */
   noteAuthenticatedLinkLost(key) {
     this.emit('authenticatedLinkLost', key);
+  }
+
+  /**
+   * A joined connection's link authenticated. Listeners learn it through
+   * `authenticatedLinkGained`.
+   * @param {string} key
+   */
+  noteAuthenticatedLinkGained(key) {
+    this.emit('authenticatedLinkGained', key);
   }
 
   /**
@@ -1816,11 +1828,12 @@ class FluxPeerManager extends EventEmitter {
    * @param {string} hexHash 40-char hex hash
    * @param {string} [excludeKey] Peer key to exclude
    */
-  broadcastHash(hexHash, excludeKey) {
+  broadcastHash(hexHash, excludeKey, skip) {
     const binBuf = peerCodec.encodeHashPresent(hexHash);
     const jsonStr = JSON.stringify({ messageHashPresent: hexHash });
     for (const peer of this.#peers.values()) {
       if (excludeKey && peer.key === excludeKey) continue;
+      if (skip?.has(peer.key)) continue;
       if (peer.remoteCapabilities.has('binaryMessages')) {
         peer.send(binBuf);
       } else {
@@ -2008,7 +2021,9 @@ fluxEventBus.snapshot('peers', () => {
     source: peer.source,
     alive: peer.isAlive,
     connectedAt: peer.connectedAt,
+    connectionId: peer.connectionId,
     authenticated: Boolean(peer.link?.authenticated),
+    linkFailed: peer.link?.failed ?? null,
     handshaking: peer.handshaking,
   });
   // A connection whose link handshake has not settled is held, by direction,

@@ -33,7 +33,9 @@ const {
   ROUTE, register, declaredIntent, handlerFor, isOrdered,
 } = require('./utils/messageRoutes');
 
-const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
+const {
+  announcementSeen, announcementStore, announcementPeers, wsPeerCache,
+} = cacheManager;
 // The hashes of app messages being handled from copies that cannot settle them (see
 // dispatchFluxMessage), each only while its copy is handled.
 const unsettledInHand = new Set();
@@ -53,6 +55,8 @@ const { NetworkStateManager } = require('./utils/networkStateManager');
 const { arrivedAuthenticated } = require('./utils/FluxPeerSocket');
 const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
+const announcementFetch = require('./utils/announcementFetch');
+const networkPath = require('./utils/networkPath');
 const verifyPool = require('./utils/verifyPool');
 const { Privilege, authOf } = require('./utils/privileges');
 
@@ -407,7 +411,9 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         await messageStore.applyEviction(event.ip, Date.parse(event.createdAt));
       } else if (event.type === 'ipchanged') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        await messageStore.storeIPChangedMessage(event.data);
+        if (await messageStore.storeIPChangedMessage(event.data) === true) {
+          await arcaneLink.noteMoveTaken(event.data.newIP, event.envelope.pubKey, event.data.broadcastedAt + messageStore.IP_CHANGED_VALIDITY_MS);
+        }
       }
     }
 
@@ -514,7 +520,7 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
 function announceToPeers(message, excludeKey) {
   const messageHash = hash(message.data);
   announcementStore.set(messageHash, message);
-  peerManager.broadcastHash(messageHash, excludeKey);
+  peerManager.broadcastHash(messageHash, excludeKey, announcementPeers.get(messageHash));
 }
 
 async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
@@ -523,9 +529,11 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
     // The filter, not the store: the question is whether this node already has the
     // message, and it has plenty it never announced - anything the database already
     // held when it arrived. Asking the store would re-request those.
-    if (!announcementSeen.has(messageHash)) {
-      peerManager.sendHashRequest(`${fromIP}:${port}`, messageHash);
-    }
+    const peerKey = `${fromIP}:${port}`;
+    const announcers = announcementPeers.get(messageHash) ?? new Set();
+    announcers.add(peerKey);
+    announcementPeers.set(messageHash, announcers);
+    announcementFetch.announced(messageHash, peerKey);
   } catch (error) {
     log.error(error);
   }
@@ -546,10 +554,10 @@ async function handleRequestMessageHash(messageHash, fromIP, port) {
     if (announcementStore.has(messageHash)) {
       const message = announcementStore.get(messageHash);
       if (message) {
-        const messageString = serviceHelper.ensureString(message);
         const peer = peerManager.get(`${fromIP}:${port}`);
         if (peer) {
-          peer.send(messageString);
+          const privateKey = await fluxNetworkHelper.getFluxNodePrivateKey();
+          peer.send(networkPath.framed(message, (text) => verificationHelper.signMessage(text, privateKey), `${fromIP}:${port}`));
         }
       }
     }
@@ -878,6 +886,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
     const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:ipchanged', { oldIP: message.data.oldIP, newIP: message.data.newIP });
+      await arcaneLink.noteMoveTaken(message.data.newIP, message.pubKey, message.data.broadcastedAt + messageStore.IP_CHANGED_VALIDITY_MS);
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -986,6 +995,135 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 // not answer, waits before it is dispatched again.
 const BROADCAST_VERIFY_RETRY_MS = 30 * 1000;
 
+const RECENT_NETWORK_PATHS = 256;
+const recentNetworkPaths = [];
+
+/**
+ * A corrupted or forged message from a peer, tracked against it with a rolling
+ * window: 5 in 10 minutes disconnect it.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
+ * @param {string} verifyResult
+ */
+function noteBadMessage(peerSocket, verifyResult) {
+  const BAD_MSG_WINDOW = 10 * 60 * 1000;
+  const BAD_MSG_THRESHOLD = 5;
+  const now = Date.now();
+  const cutoff = now - BAD_MSG_WINDOW;
+  peerSocket.badMessageTimestamps.push(now);
+  while (peerSocket.badMessageTimestamps.length > 0 && peerSocket.badMessageTimestamps[0] < cutoff) {
+    peerSocket.badMessageTimestamps.shift();
+  }
+  // Safety cap — prevent unbounded growth from adversarial peers
+  if (peerSocket.badMessageTimestamps.length > 20) {
+    peerSocket.badMessageTimestamps = peerSocket.badMessageTimestamps.slice(-10);
+  }
+  const count = peerSocket.badMessageTimestamps.length;
+  log.warn(`Bad message (${verifyResult}) from ${peerSocket.direction} peer ${peerSocket.key}, count: ${count}/10min`);
+  if (count >= BAD_MSG_THRESHOLD) {
+    log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key} after ${count} bad messages in 10 minutes`);
+    peerSocket.close(peerSocket.closeCodes.badOrigin, 'too many bad messages');
+  }
+}
+
+/**
+ * What a peer has been asked for in the current hashFetchMissWindowMs.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
+ * @returns {{startedAt: number, misses: number, served: number}}
+ */
+function fetchRecordOf(peerSocket) {
+  const now = Date.now();
+  const { fetchRecord } = peerSocket;
+  if (now - fetchRecord.startedAt < config.fluxapps.hashFetchMissWindowMs) return fetchRecord;
+  Object.assign(fetchRecord, { startedAt: now, misses: 0, served: 0 });
+  return fetchRecord;
+}
+
+/**
+ * A peer announced a message, did not deliver it when asked, and another peer
+ * did. A peer that delivers at all keeps its connection through a burst that
+ * outruns it: one that announces and never delivers misses nearly everything.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
+ */
+function noteFetchMiss(peerSocket) {
+  const record = fetchRecordOf(peerSocket);
+  record.misses += 1;
+  const { hashFetchMissesToDisconnect, hashFetchMissesPerServed } = config.fluxapps;
+  if (record.misses >= hashFetchMissesToDisconnect && record.misses > hashFetchMissesPerServed * record.served) {
+    log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key}: ${record.misses} announced messages not delivered, ${record.served} delivered`);
+    peerSocket.close(peerSocket.closeCodes.badOrigin, 'announced messages it did not deliver');
+  }
+}
+
+/**
+ * Whether a link handshake frame may be handled: its peer is not blocked, it is
+ * signed by a listed node, and it is inside the broadcast window.
+ * @param {object} msgObj
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
+ * @returns {Promise<boolean>}
+ */
+async function verifyHandshakeFrame(msgObj, peerSocket) {
+  if (wsPeerCache.has(msgObj.pubKey)) {
+    log.info(`Closing ${peerSocket.direction} connection, peer is on blockedList`);
+    peerSocket.close(peerSocket.closeCodes.blocked, 'blocked list');
+    return false;
+  }
+  const now = Date.now();
+  const { VerifyResult } = fluxCommunicationUtils;
+  const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
+  if (verifyResult === VerifyResult.OK) return fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, now) === true;
+  if (verifyResult !== VerifyResult.UNREADABLE && verifyResult !== VerifyResult.NODE_NOT_FOUND) noteBadMessage(peerSocket, verifyResult);
+  return false;
+}
+
+/**
+ * Keeps the path of a message that arrived with one.
+ * @param {string} messageHash
+ * @param {object} msgObj
+ */
+function noteNetworkPath(messageHash, msgObj) {
+  const path = networkPath.validPath(msgObj.networkPath);
+  if (!path.length) return;
+  recentNetworkPaths.push({
+    hash: messageHash, type: msgObj.data.type, timestamp: msgObj.timestamp, receivedAt: Date.now(), networkPath: path,
+  });
+  if (recentNetworkPaths.length > RECENT_NETWORK_PATHS) recentNetworkPaths.shift();
+}
+
+/**
+ * The paths of the messages this node received most recently, each read back
+ * from this node and verified.
+ * GET /flux/networkpaths
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} The response.
+ */
+async function getNetworkPaths(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  if (!authorized) return res.json(messageHelper.errUnauthorizedMessage());
+  const ownAddress = peerManager.getOwnSocketAddress();
+  const addressesOf = async (pubKey) => [...((await networkStateService.getFluxnodesByPubkey(pubKey))?.keys() ?? [])];
+  const paths = await Promise.all(recentNetworkPaths.map(async (received) => ({
+    hash: received.hash,
+    type: received.type,
+    timestamp: received.timestamp,
+    receivedAt: received.receivedAt,
+    ...await networkPath.readPath(received, ownAddress, addressesOf),
+  })));
+  return res.json(messageHelper.createDataMessage(paths));
+}
+
+/**
+ * The copy of a message being verified failed: a copy held behind it is
+ * dispatched, and otherwise the next announcer is asked.
+ * @param {string} messageHash
+ */
+function rejectCopy(messageHash) {
+  const held = announcementFetch.rejected(messageHash);
+  if (!held) return;
+  // eslint-disable-next-line no-use-before-define
+  setImmediate(() => dispatchFluxMessage(held.msgObj, held.peerSocket).catch((error) => log.error(error)));
+}
+
 async function dispatchFluxMessage(msgObj, peerSocket) {
   const codes = peerSocket.closeCodes;
   const {
@@ -1033,7 +1171,6 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     return;
   }
 
-  await serviceHelper.delay(Math.floor(Math.random() * 75 + 1));
   // Also what a NAK names further down, so it is computed for every message.
   const messageHash = hash(msgObj.data);
   // THE FILTER IS FOR MESSAGES THAT REACH THIS NODE BY MORE THAN ONE ROUTE, WHICH IS WHAT
@@ -1061,7 +1198,10 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   const claimedSlot = declaredIntent(msgObj.data.type) === INTENT.ANNOUNCE;
   const settles = !(isArcane && APP_MESSAGE_TYPES.has(msgObj.data.type) && !arrivedAuthenticated(msgObj));
   if (claimedSlot) {
-    if (announcementSeen.has(messageHash)) return;
+    if (announcementSeen.has(messageHash)) {
+      announcementFetch.holdCopy(messageHash, msgObj, peerSocket);
+      return;
+    }
     if (settles) {
       announcementSeen.set(messageHash, true);
     } else {
@@ -1089,6 +1229,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   }
   const currentTimeStamp = Date.now();
   const { VerifyResult } = fluxCommunicationUtils;
+  if (claimedSlot) announcementFetch.verifyingCopy(messageHash);
   const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
 
   if (verifyResult === VerifyResult.UNREADABLE) {
@@ -1102,11 +1243,18 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
       }, BROADCAST_VERIFY_RETRY_MS);
     } else {
       releaseSlot();
+      if (claimedSlot) rejectCopy(messageHash);
       log.warn(`Dropping a ${msgObj.data?.type} from ${peerSocket.direction} peer ${peerSocket.key}: the database did not answer within its window`);
     }
   } else if (verifyResult === VerifyResult.OK) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
     if (timestampOK === true) {
+      // A copy that cannot settle the message leaves the node still wanting it.
+      if (claimedSlot) {
+        if (settles) announcementFetch.delivered(messageHash, peerSocket.key);
+        else rejectCopy(messageHash);
+        noteNetworkPath(messageHash, msgObj);
+      }
       const handler = handlerFor(msgObj.data.type);
       if (!handler) {
         log.warn(`Unrecognised message type of ${msgObj.data.type}`);
@@ -1126,37 +1274,20 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     } else {
       // Signed by a real node and outside the window, which is what a replay looks like.
       releaseSlot();
+      if (claimedSlot) rejectCopy(messageHash);
       peerSocket.sendNak(messageHash, NAK_REASON.STALE);
     }
   } else if (verifyResult === VerifyResult.NODE_NOT_FOUND) {
     releaseSlot();
+    if (claimedSlot) rejectCopy(messageHash);
     // Originator's node is not in the deterministic list — stale list or node went offline.
     // The relay peer is not at fault. Drop the message, don't punish the relay.
     log.warn(`Dropping message from ${peerSocket.direction} peer ${peerSocket.key}: originator pubkey ${pubKey} not found in node list`);
     fluxEventBus.publish('network:originatorNotListed', { type: msgObj.data?.type, pubKey, relay: peerSocket.key });
   } else {
     releaseSlot();
-    // BAD_SIGNATURE or MALFORMED — the message is corrupted or forged.
-    // Track against this relay peer with a rolling window.
-    // If they send 5+ bad messages in 10 minutes, disconnect.
-    const BAD_MSG_WINDOW = 10 * 60 * 1000;
-    const BAD_MSG_THRESHOLD = 5;
-    const now = Date.now();
-    const cutoff = now - BAD_MSG_WINDOW;
-    peerSocket.badMessageTimestamps.push(now);
-    while (peerSocket.badMessageTimestamps.length > 0 && peerSocket.badMessageTimestamps[0] < cutoff) {
-      peerSocket.badMessageTimestamps.shift();
-    }
-    // Safety cap — prevent unbounded growth from adversarial peers
-    if (peerSocket.badMessageTimestamps.length > 20) {
-      peerSocket.badMessageTimestamps = peerSocket.badMessageTimestamps.slice(-10);
-    }
-    const count = peerSocket.badMessageTimestamps.length;
-    log.warn(`Bad message (${verifyResult}) from ${peerSocket.direction} peer ${peerSocket.key}, count: ${count}/10min`);
-    if (count >= BAD_MSG_THRESHOLD) {
-      log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key} after ${count} bad messages in 10 minutes`);
-      peerSocket.close(codes.badOrigin, 'too many bad messages');
-    }
+    if (claimedSlot) rejectCopy(messageHash);
+    noteBadMessage(peerSocket, verifyResult);
   }
 }
 
@@ -1321,8 +1452,10 @@ register('fluxpolicy', (msg, peer) => policyStore.offerBundle(
 ), ROUTE.GOSSIP, INTENT.ANSWER);
 
 // The Arcane link handshake: point to point, both directions, never relayed.
-register(arcaneLink.NONCE_TYPE, (msg, peer) => arcaneLink.handleNonce(msg, peer).catch((error) => log.error(error)), ROUTE.GOSSIP, INTENT.VARIES);
-register(arcaneLink.CONFIRM_TYPE, (msg, peer) => arcaneLink.handleConfirm(msg, peer), ROUTE.GOSSIP, INTENT.VARIES);
+register(arcaneLink.NONCE_TYPE, (msg, peer) => arcaneLink.handleNonce(msg, peer).catch((error) => log.error(error)), ROUTE.HANDSHAKE, INTENT.VARIES);
+register(arcaneLink.CONFIRM_TYPE, (msg, peer) => arcaneLink.handleConfirm(msg, peer), ROUTE.HANDSHAKE, INTENT.VARIES);
+peerManager.handshakeFrameVerifier = verifyHandshakeFrame;
+peerManager.handshakeFrameDispatcher = (msg, peer) => handlerFor(msg.data.type)(msg, peer);
 // A connection between two Arcane nodes joins the peer set once this settles.
 peerManager.linkHandshake = (peer) => arcaneLink.startLink(peer);
 
@@ -1336,7 +1469,7 @@ peerManager.messageDispatcher = dispatchFluxMessage;
 // A link that joins authenticated is marked and told this node's authenticated
 // links; a change to them is reported to every authenticated peer, and a lost one
 // brings the next discovery pass forward while this node is short of the target.
-peerManager.on('peerConnected', (key) => {
+function onAuthenticatedPeer(key) {
   const peer = peerManager.get(key);
   if (!peer?.link?.authenticated) return;
   networkStateService.markArcane(key, NetworkStateManager.SELF_REPORTED);
@@ -1344,7 +1477,9 @@ peerManager.on('peerConnected', (key) => {
   reportArcanePeersTo(peer);
   // eslint-disable-next-line no-use-before-define
   scheduleArcaneReport();
-});
+}
+peerManager.on('peerConnected', onAuthenticatedPeer);
+peerManager.on('authenticatedLinkGained', onAuthenticatedPeer);
 peerManager.on('authenticatedLinkLost', () => {
   // eslint-disable-next-line no-use-before-define
   scheduleArcaneReport();
@@ -1352,6 +1487,20 @@ peerManager.on('authenticatedLinkLost', () => {
   if (peerManager.acceptingConnections && linksShort()) scheduleDiscovery(linkRecoveryDelay());
 });
 peerManager.linkMessageDispatcher = dispatchLinkMessage;
+announcementFetch.wire({
+  request: (peerKey, messageHash) => peerManager.sendHashRequest(peerKey, messageHash),
+  latencyOf: (peerKey) => peerManager.get(peerKey)?.latency ?? null,
+  seen: (messageHash) => announcementSeen.has(messageHash),
+  onMiss: (peerKey) => {
+    const peer = peerManager.get(peerKey);
+    if (peer) noteFetchMiss(peer);
+  },
+  onServed: (peerKey) => {
+    const peer = peerManager.get(peerKey);
+    if (peer) fetchRecordOf(peer).served += 1;
+  },
+});
+peerManager.on('peerDisconnected', (key) => announcementFetch.peerGone(key));
 peerManager.syncResponseDispatcher = dispatchSyncResponse;
 async function verifySyncRequest(peer, decoded) {
   const { requestTimestamp, pubkey, signature, sinceTimestamp } = decoded;
@@ -2561,6 +2710,8 @@ function logSocketsEvery(intervalMs) {
 
 module.exports = {
   handleAppProposal,
+  noteFetchMiss,
+  getNetworkPaths,
   dispatchLinkMessage,
   connectedPeers,
   removePeer,

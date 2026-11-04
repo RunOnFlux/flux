@@ -348,6 +348,9 @@ module.exports = (app) => {
   app.get('/flux/networkhealth', cache('5 seconds'), asyncRoute((req, res) => {
     return fluxCommunication.getNetworkHealth(req, res);
   }));
+  app.get('/flux/networkpaths', asyncRoute((req, res) => {
+    return fluxCommunication.getNetworkPaths(req, res);
+  }));
   // Deprecated peer endpoints — kept for backward compatibility
   app.get('/flux/connectedpeers', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxCommunication.connectedPeers(req, res);
