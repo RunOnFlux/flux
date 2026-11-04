@@ -321,6 +321,81 @@ describe('fluxnodeAddressRecord', () => {
     });
   });
 
+  describe('movedAwayFrom', () => {
+    const X = '203.0.113.90:16127';
+    const Y = '203.0.113.91:16127';
+    const Z = '203.0.113.92:16127';
+
+    it('names where the node left for, and the block that moved it', async () => {
+      await block(base + 1, [confirmation(A, X)]);
+      await block(base + 2, [confirmation(A, Y)]);
+
+      expect(await fluxnodeAddressRecord.movedAwayFrom(X)).to.deep.equal({ to: Y, height: base + 2 });
+    });
+
+    it('names where the node is now when it has moved on since', async () => {
+      await block(base + 1, [confirmation(A, X)]);
+      await block(base + 2, [confirmation(A, Y)]);
+      await block(base + 3, [confirmation(A, Z)]);
+
+      expect(await fluxnodeAddressRecord.movedAwayFrom(X)).to.deep.equal({ to: Z, height: base + 2 });
+    });
+
+    it('is null for a node still confirmed at the address', async () => {
+      await block(base + 1, [confirmation(A, X)]);
+
+      expect(await fluxnodeAddressRecord.movedAwayFrom(X)).to.equal(null);
+    });
+
+    it('is null for an address the record has never seen', async () => {
+      expect(await fluxnodeAddressRecord.movedAwayFrom(X)).to.equal(null);
+    });
+
+    it('is null for a node that left the address and came back to it', async () => {
+      await block(base + 1, [confirmation(A, X)]);
+      await block(base + 2, [confirmation(A, Y)]);
+      await block(base + 3, [confirmation(A, X)]);
+
+      expect(await fluxnodeAddressRecord.movedAwayFrom(X)).to.equal(null);
+    });
+
+    it('is null when another node took the address after the first left it', async () => {
+      await block(base + 1, [confirmation(A, X)]);
+      await block(base + 2, [confirmation(A, Y)]);
+      await block(base + 3, [confirmation(B, X)]);
+
+      expect(await fluxnodeAddressRecord.movedAwayFrom(X)).to.equal(null);
+    });
+
+    it('names the later of two nodes that held the address, when it is the one that left', async () => {
+      await block(base + 1, [confirmation(A, X)]);
+      await block(base + 2, [confirmation(A, Y)]);
+      await block(base + 3, [confirmation(B, X)]);
+      await block(base + 4, [confirmation(B, Z)]);
+
+      expect(await fluxnodeAddressRecord.movedAwayFrom(X)).to.deep.equal({ to: Z, height: base + 4 });
+    });
+
+    it('takes the last time a node that left an address twice left it', async () => {
+      await block(base + 1, [confirmation(A, X)]);
+      await block(base + 2, [confirmation(A, Y)]);
+      await block(base + 3, [confirmation(A, X)]);
+      await block(base + 4, [confirmation(A, Y)]);
+
+      expect(await fluxnodeAddressRecord.movedAwayFrom(X)).to.deep.equal({ to: Y, height: base + 4 });
+    });
+  });
+
+  describe('holds', () => {
+    it('holds a block once it is recorded and not before', async () => {
+      await block(base + 1, []);
+
+      expect(fluxnodeAddressRecord.holds(base + 1)).to.equal(true);
+      expect(fluxnodeAddressRecord.highestRecorded()).to.equal(base + 1);
+      expect(fluxnodeAddressRecord.holds(base + 2)).to.equal(false);
+    });
+  });
+
   describe('whenRecorded', () => {
     it('resolves at once for a block already recorded', async () => {
       await block(base, []);

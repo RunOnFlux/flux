@@ -22,20 +22,20 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // no longer holds.
 //
 // The standby takes its answer that it holds nothing, and starts. Neither the
-// location expiry nor the eviction sweep can do that for it here: both are set
-// beyond the suite's own waits.
+// location expiry nor an eviction can do that for it here: the expiry is set
+// beyond the suite's own waits, and every other node is held before evicting.
 //
 // A = the standby, B = the primary, C = a bystander the discovery ring needs.
 
 const A = 0;
 const B = 1;
+const C = 2;
 
 // As long as production holds a verified identity.
 const VERIFIED_TTL_MS = 30 * 60 * 1000;
-// Beyond every wait below, so B's locations neither expire nor are evicted while
-// the standby decides.
+// Beyond every wait below, so B's locations do not expire while the standby decides.
 const LOCATION_TTL_S = 30 * 60;
-const NODE_MONITOR_INTERVAL_MS = 60 * 60 * 1000;
+const BEFORE_EVICTION = 'locations:beforeEviction';
 // Production's whole handover, from FDM going quiet to the standby running it.
 const HANDOVER_MS = 5 * 60 * 1000;
 
@@ -71,11 +71,11 @@ describe('a primary dropped from the node list hands its app over', function () 
           minIncoming: 1,
           peerIdentityVerifiedTtlMs: VERIFIED_TTL_MS,
           locationTtlS: LOCATION_TTL_S,
-          nodeMonitorIntervalMs: NODE_MONITOR_INTERVAL_MS,
         },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+    await Promise.all([A, C].map((i) => env.clients[i].holdCheckpoint(BEFORE_EVICTION, addr(B))));
     await Promise.all(env.clients.map((c, i) => waitFor(() => isDaemonUp(c), {
       timeout: 180000, interval: 3000, label: `syncthing daemon up on node ${i}`,
     })));

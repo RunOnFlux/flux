@@ -442,7 +442,6 @@ module.exports = {
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
-    nodeMonitorCheckTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,
     imageUpdateInitialDelayMinMs: 600000,
     imageUpdateInitialDelayMaxMs: 1800000,
