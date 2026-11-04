@@ -213,6 +213,7 @@ export function nodeClient(nodeNum) {
         'firewall:containerEgressApplied',
         'firewall:defaultsWritten',
         'fileops:recovered',
+        'locations:moved',
         'messageCapability:changed',
         'networkstate:updated',
         'orchestrator:started',

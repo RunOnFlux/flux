@@ -849,8 +849,9 @@ async function storeIPChangedMessage(message) {
       await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ...reportedBefore, name: { $in: present.map((row) => row.name) } });
     }
   }
-  await dbHelper.updateInDatabase(database, globalAppsLocations, reportedBefore, { $set: { ip: newIp } });
+  const carried = await dbHelper.updateInDatabase(database, globalAppsLocations, reportedBefore, { $set: { ip: newIp } });
   addressMoveEvents.emit(ADDRESS_MOVE_EVENTS.APPLIED, { from: message.oldIP, to: newIp, broadcastedAt: message.broadcastedAt });
+  fluxEventBus.publish('locations:moved', { from: message.oldIP, to: newIp, rows: carried.modifiedCount });
 
   // all stored, rebroadcast
   return true;

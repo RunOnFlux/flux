@@ -74,6 +74,7 @@ describe('Sync response: eviction, pruning and forged events', function () {
   // broadcast stamped before the fleet existed is one production would refuse
   // too.
   let stamp;
+  let syncStart;
 
   before(async function () {
     this.timeout(600000);
@@ -218,6 +219,7 @@ describe('Sync response: eviction, pruning and forged events', function () {
     // Seeded, so let it in. It has never spoken to a peer, so its first sync is
     // its only one, and it reads records written seconds ago rather than records
     // written before it started booting.
+    syncStart = joiner.getLastEventId();
     await env.healPartition([10], RUNNING);
     await env.startDiscovery([10]);
     await waitForOrchestratorState(joiner, 'READY', 180000);
@@ -308,15 +310,16 @@ describe('Sync response: eviction, pruning and forged events', function () {
 
   it('should carry a node\'s rows to the address a synced move took it to', async function () {
     this.timeout(60000);
-    let atNew = [];
-    let atOld = [];
-    await waitFor(async () => {
-      atNew = (await dbClient(11).getAppLocationsByIp(MOVED_TO)).map((r) => r.name);
-      atOld = (await dbClient(11).getAppLocationsByIp(socketAddr(HONEST_MOVER_NODE))).map((r) => r.name);
-      return atNew.includes('moverapp') && !atOld.includes('moverapp');
-    }, {
-      timeout: 45000, interval: 1000, label: 'the joiner holds the mover\'s row at its new port only',
-    });
+    // Nothing answers at the new address, so the joiner's monitor evicts the row
+    // on its next pass. The event states what the move itself carried.
+    const { data } = await env.clients[10].waitForEvent(
+      'locations:moved',
+      (moved) => moved.from === socketAddr(HONEST_MOVER_NODE) && moved.to === MOVED_TO && moved.rows > 0,
+      45000,
+      { afterId: syncStart },
+    );
+
+    expect(data.rows, 'rows the mover reported before it moved').to.equal(1);
   });
 
   it('should leave a running report in force when an older shutdown of that node arrives with it', async function () {
