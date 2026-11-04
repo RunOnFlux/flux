@@ -47,6 +47,10 @@ describe('a move heard after the chain lists the new address', function () {
   const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:${API_PORT}`);
   const moveHeldBy = async (i, oldSocket, newSocket) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
     .find((event) => event.data?.newIP === newSocket);
+  const peerCount = async (node) => {
+    const [outbound, inbound] = await Promise.all([node.getPeers(), node.getIncomingPeers()]);
+    return new Set([...(outbound.data || []), ...(inbound.data || [])]).size;
+  };
   const awaitingMove = async (j, socket) => (await client(j).getTestCounters())['location:awaitingMove']?.[socket] ?? 0;
 
   // Moves node `i` with the chain listing it at the new address in the next block, holds
@@ -153,7 +157,12 @@ describe('a move heard after the chain lists the new address', function () {
         // eslint-disable-next-line no-await-in-loop
         expect(await dbClient(j + 1).getAppStateEvents({ ip: left, type: 'evicted' }), `node ${j} evicted a node the chain moved`).to.have.length(0);
       }
-      expect(node.getEventBuffer().filter((event) => event.id > moveAnchor && event.event === 'app:running'), 'announced while its move is under way').to.have.length(0);
+      // Held past the point it could be heard, but for its move: listed where it now
+      // is, and holding peers.
+      const heldAt = node.getLastEventId();
+      await node.waitForEvent('networkstate:updated', () => true, 120000, { afterId: heldAt });
+      await waitFor(async () => await peerCount(node) > 0, { timeout: 120000, interval: 1000, label: 'fixture: the held node holds peers' });
+      await assertNoEvent(node, 'app:running', () => true, ANNOUNCED_ONCE_MS, { afterId: moveAnchor });
       releasedAt = Date.now();
     });
 
