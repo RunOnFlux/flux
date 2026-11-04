@@ -445,6 +445,9 @@ async function startFluxFunctions() {
     // payments in chain order from it and bootstrap the explorer from it. The
     // node serves its API holding the DOS, and the hold removes its apps.
     if (!addressIndexed) return;
+    // App payments are placed in chain order from the daemon's address index: it
+    // positions the payments recorded before the scan recorded positions, and a
+    // node with no app history yet fetches its payments through it.
     await untilSucceeds('Payment position backfill', () => paymentPositions.backfillPaymentPositions());
     // Before the hash sync reads the flags and the retry windows.
     await untilSucceeds('App message flag repair', () => appMessageHashes.repairLostMessageFlags());
