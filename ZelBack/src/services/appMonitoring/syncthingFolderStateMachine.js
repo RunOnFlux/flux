@@ -293,15 +293,16 @@ function isSyncedPayloadName(name, unsyncedSubdirs = []) {
  * index over emptied data is never caught.
  * @param {string} dirPath - Directory path to check
  * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
- * @param {{countDirs?: boolean}} options - whether a directory is content in its own
- *   right, which the caller decides from what the index claims
+ * @param {{countDirs?: boolean, limit?: number}} options - whether a directory is content
+ *   in its own right, which the caller decides from what the index claims, and how many
+ *   entries end the walk
  * @returns {Promise<{hasContent: boolean, fileCount: number, readable: boolean}>}
  *   whether the scope holds the owner's data, how many entries this process counted
  *   itself (a privileged probe answers the question, never with a number), and
  *   whether the answer was established at all
  */
-async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = [], { countDirs = true } = {}) {
-  const { count, unreadable } = await countFilesUpTo(dirPath, 100, {
+async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = [], { countDirs = true, limit = 100 } = {}) {
+  const { count, unreadable } = await countFilesUpTo(dirPath, limit, {
     excludeRoot: (name) => !isSyncedPayloadName(name, unsyncedSubdirs),
     countDirs,
   });
@@ -404,6 +405,39 @@ async function localHoldings(folderId, skipNames = []) {
     log.warn(`localHoldings - ${folderId}: local changes span more than ${outcome.pages} pages; ${bytes} bytes is a floor, not the total`);
   }
   return { bytes, newestModified };
+}
+
+/**
+ * Whether this node's copy of a folder holds nothing of the owner's: nothing a removal
+ * could lose, and nothing a promotion could publish.
+ *
+ * Each read is the proof of a different failure, and they run cheapest first. The index
+ * says what syncthing has seen, the local changes what this node holds that the cluster
+ * does not, and the disk what neither has scanned. A file only the disk shows is handed
+ * to syncthing, so the next pass answers it from the index without walking.
+ *
+ * Anything that cannot be established answers false.
+ * @param {string} folderId
+ * @param {string[]} [unsyncedSubdirs] volume-root names the spec declared with ml:
+ * @param {object} [options]
+ * @param {object} [options.status] The sync status the caller decided on.
+ * @param {object} [options.holdings] The local holdings the caller read.
+ * @returns {Promise<boolean>}
+ */
+async function folderHoldsNothing(folderId, unsyncedSubdirs = [], options = {}) {
+  const status = options.status === undefined ? await getFolderSyncCompletion(folderId) : options.status;
+  if (!status || status.globalBytes !== 0 || status.state !== 'idle') return false;
+  const holdings = options.holdings === undefined ? await localHoldings(folderId, unsyncedSubdirs) : options.holdings;
+  if (!holdings || holdings.bytes !== 0) return false;
+  const volume = `${appsFolder}${folderId}`;
+  if (!(await isPathMounted(volume))) return false;
+  const disk = await checkDirectoryHasSyncScopedContent(volume, unsyncedSubdirs, { countDirs: false, limit: 1 });
+  if (disk.hasContent) {
+    await syncthingService.scanFolder(folderId)
+      .catch((error) => log.warn(`folderHoldsNothing - ${folderId}: could not ask syncthing to scan: ${error.message}`));
+    return false;
+  }
+  return disk.readable;
 }
 
 /**
@@ -1780,6 +1814,40 @@ async function handleReceiveOnlyTransition(params) {
     cache.lastNotPromotedReason = reason;
   }
 
+  // A folder the cluster's index holds nothing of has no sync to wait for, so a holder
+  // of a writable copy ends the wait rather than a sync. Every holder this node can
+  // read has to show it: one answer that a peer published nothing says nothing about
+  // the next peer, whose index may not have arrived.
+  if (syncStatus?.globalBytes === 0 && syncStatus.state === 'idle' && holdings
+    && writableHolders.length && !notLookedAt.length && !leftOut.length) {
+    const publishedNothing = await Promise.all(electionList
+      .filter((peer) => !socketAddressesMatch(peer.ip, localSocketAddr))
+      .map(async (peer) => {
+        const answer = await liveness.read(peer.ip);
+        if (!answer.reachable || !answer.answerable || !answer.ready) return false;
+        return !writableHolders.includes(peer.ip) || answer.published?.[appId] === 0;
+      }));
+    if (publishedNothing.every(Boolean)) {
+      // What this node holds is everything the cluster knows of. A receive-only folder
+      // publishes it with a zeroed version, so no peer can take it until it sends. A g:
+      // folder sends only from its primary, which the election decides.
+      const holdsData = holdings.bytes > 0;
+      const joins = holdsData
+        ? !containerDataFlags.includes('g')
+        : await folderHoldsNothing(appId, unsyncedSubdirs || [], { status: syncStatus, holdings });
+      if (joins) {
+        log.info(`handleReceiveOnlyTransition - ${appId} joins a cluster whose index is empty, ${holdsData ? `publishing ${holdings.bytes} bytes` : 'holding nothing'}`);
+        fluxEventBus.count('syncthing:emptyClusterJoin', appId, holdsData ? 'holdsData' : 'holdsNothing');
+        decideType(syncthingFolder, containerDataFlags, 'sendreceive');
+        if (containerDataFlags.includes('r')) {
+          appReconciler.setControllerDesired(appId, 'running', 'syncthing empty cluster join');
+        }
+        cache.restarted = true;
+        return { syncthingFolder, cache };
+      }
+    }
+  }
+
   // Not the leader - syncStatus already read above
   decideType(syncthingFolder, containerDataFlags, 'receiveonly');
   cache.numberOfExecutions = (cache.numberOfExecutions || 0) + 1;
@@ -2154,6 +2222,7 @@ module.exports = {
   verifyFolderMountSafety,
   verifySendReceiveFolderSafety,
   findSyncedPeer,
+  folderHoldsNothing,
   isPathMounted,
   checkDirectoryHasContent,
   checkDirectoryHasSyncScopedContent,

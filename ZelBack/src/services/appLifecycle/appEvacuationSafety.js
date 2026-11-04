@@ -49,6 +49,7 @@ function syncedComponents(spec) {
       : spec.name;
     acc.push({
       name: component.name || spec.name,
+      unsyncedSubdirs: mountParser.getUnsyncedSubdirs(component.containerData || ''),
       syncMode,
       // The key masterSlaveApps elects on, and the name the container carries
       // once the prefix is stripped - so a caller can ask whether THIS node is
@@ -91,6 +92,8 @@ function otherHostCount(locations, localSocketAddr) {
  * @param {Function} deps.appLocation Instance locations for an app name.
  * @param {Function} deps.getApplicationGlobalSpecifications Global spec for an app name.
  * @param {Function} deps.findSyncedPeer Connected peer that holds a folder, or null.
+ * @param {Function} deps.folderHoldsNothing Whether this node's copy of a folder holds
+ *   nothing of the owner's. Required.
  * @param {Function} deps.isElectedPrimary Three-state: true if this node is the
  *   elected `g:` primary, false if another node provably is, null if the
  *   election cannot say. Required - null and false are not interchangeable here.
@@ -106,6 +109,7 @@ async function canSafelyRemoveApp(appName, deps) {
     appLocation,
     getApplicationGlobalSpecifications,
     findSyncedPeer,
+    folderHoldsNothing,
     isElectedPrimary,
     isComponentRunningLocally,
     shuttingDownDevices,
@@ -119,8 +123,8 @@ async function canSafelyRemoveApp(appName, deps) {
     // safe, so the omission throws and the catch below turns it into a refusal
     // that says so.
     if (typeof isElectedPrimary !== 'function' || typeof isComponentRunningLocally !== 'function'
-      || typeof shuttingDownDevices !== 'function') {
-      throw new Error('isElectedPrimary, isComponentRunningLocally and shuttingDownDevices are required');
+      || typeof shuttingDownDevices !== 'function' || typeof folderHoldsNothing !== 'function') {
+      throw new Error('isElectedPrimary, isComponentRunningLocally, shuttingDownDevices and folderHoldsNothing are required');
     }
     if (globalState.backupInProgress.includes(appName)) {
       return { safe: false, code: 'BACKUP_IN_PROGRESS', reason: 'backup in progress' };
@@ -192,7 +196,9 @@ async function canSafelyRemoveApp(appName, deps) {
     for (const component of synced) {
       // eslint-disable-next-line no-await-in-loop
       const peer = await findSyncedPeer(component.folderId, { exclude });
-      if (!peer) {
+      // A copy holding nothing has nothing a peer needs to hold.
+      // eslint-disable-next-line no-await-in-loop
+      if (!peer && !(await folderHoldsNothing(component.folderId, component.unsyncedSubdirs))) {
         return {
           safe: false,
           code: 'NO_SYNCED_PEER',

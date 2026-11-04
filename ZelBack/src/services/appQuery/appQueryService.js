@@ -871,9 +871,9 @@ async function promotedFolderHoldings(req, res) {
 
     const ready = ids !== null;
     const {
-      holding, notLookedAt, heldOut, volumeGone,
+      holding, notLookedAt, heldOut, volumeGone, published,
     } = ready ? folderStates.answer(ids) : {
-      holding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
+      holding: {}, notLookedAt: [], heldOut: [], volumeGone: [], published: {},
     };
     const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.PROMOTED_FOLDERS, body);
     const response = messageHelper.createDataMessage(await seal({
@@ -884,6 +884,7 @@ async function promotedFolderHoldings(req, res) {
       volumeGone,
       ...(entitled ? {
         holding,
+        published,
         seeding: Object.fromEntries(globalState.seedMarks),
       } : {}),
     }));

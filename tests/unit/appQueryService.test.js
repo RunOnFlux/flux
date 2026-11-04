@@ -1192,7 +1192,7 @@ describe('appQueryService tests', () => {
         const result = await appQueryService.promotedFolderHoldings({ body });
 
         sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'promoted', body);
-        expect(seal.firstCall.args[0]).to.have.keys('ready', 'folders', 'notLookedAt', 'heldOut', 'volumeGone', 'holding', 'seeding');
+        expect(seal.firstCall.args[0]).to.have.keys('ready', 'folders', 'notLookedAt', 'heldOut', 'volumeGone', 'published', 'holding', 'seeding');
         expect(result.sealed).to.equal(true);
       });
 

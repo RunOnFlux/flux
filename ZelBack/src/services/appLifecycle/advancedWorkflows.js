@@ -4222,6 +4222,7 @@ async function checkAndRemoveApplicationInstance({
         appLocation: registryManager.appLocation,
         getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
         findSyncedPeer: syncthingFolderStateMachine.findSyncedPeer,
+        folderHoldsNothing: syncthingFolderStateMachine.folderHoldsNothing,
         isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
         isComponentRunningLocally,
         shuttingDownDevices,
