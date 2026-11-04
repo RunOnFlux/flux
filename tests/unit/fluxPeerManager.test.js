@@ -13,6 +13,8 @@ const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/uti
 const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const log = require('../../ZelBack/src/lib/log');
+const messageRoutes = require('../../ZelBack/src/services/utils/messageRoutes');
+const { INTENT } = require('../../ZelBack/src/services/utils/messageIntent');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
 // Loaded for its side effect: the transport declares the routing table as it loads, and the
@@ -1223,6 +1225,12 @@ describe('FluxPeerManager tests', () => {
     beforeEach(() => {
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
       manager.linkHandshake = () => new Promise((resolve) => { settle = resolve; });
+      manager.handshakeFrameVerifier = sinon.stub().resolves(true);
+      manager.handshakeFrameDispatcher = sinon.stub();
+    });
+
+    before(() => {
+      messageRoutes.register(['fluxlinknonce', 'fluxlinkconfirm'], () => {}, messageRoutes.ROUTE.HANDSHAKE, INTENT.VARIES);
     });
 
     const addHandshaking = (ip = '10.0.0.1') => manager.add(createMockWs(ip), ip, '16127', { source: PEER_SOURCE.RANDOM });
@@ -1293,12 +1301,99 @@ describe('FluxPeerManager tests', () => {
       peer.ws.onmessage({ data: `T${Date.now()}|${frame('fluxlinkconfirm')}` });
       peer.ws.onmessage({ data: frame('fluxipchanged') });
       await flush();
-      expect(manager.messageDispatcher.getCalls().map((c) => c.args[0].data.type)).to.eql(['fluxlinknonce', 'fluxlinkconfirm']);
+      const handled = (stub) => stub.getCalls().map((c) => c.args[0].data.type);
+      expect(handled(manager.handshakeFrameDispatcher)).to.eql(['fluxlinknonce', 'fluxlinkconfirm']);
+      expect(handled(manager.messageDispatcher)).to.eql([]);
 
       settle();
       await flush();
 
-      expect(manager.messageDispatcher.getCalls().map((c) => c.args[0].data.type)).to.eql(['fluxlinknonce', 'fluxlinkconfirm', 'fluxapprunning', 'fluxipchanged']);
+      expect(handled(manager.handshakeFrameDispatcher)).to.eql(['fluxlinknonce', 'fluxlinkconfirm']);
+      expect(handled(manager.messageDispatcher)).to.eql(['fluxapprunning', 'fluxipchanged']);
+    });
+
+    describe('its frames on a joined connection', () => {
+      const addJoined = (ip = '10.0.0.2') => {
+        const peer = addHandshaking(ip);
+        settle();
+        return peer;
+      };
+      const nonce = (id) => JSON.stringify({ version: 1, id, data: { type: 'fluxlinknonce' } });
+      const handledIds = () => manager.handshakeFrameDispatcher.getCalls().map((c) => c.args[0].id);
+
+      it('should handle them in arrival order whatever order their verifications finish in', async () => {
+        const answers = [];
+        manager.handshakeFrameVerifier = sinon.stub().callsFake(() => new Promise((resolve) => { answers.push(resolve); }));
+        const peer = addJoined();
+        await flush();
+        [1, 2, 3].forEach((id) => peer.ws.onmessage({ data: nonce(id) }));
+        await flush();
+        expect(manager.handshakeFrameVerifier.callCount, 'every verification started on arrival').to.equal(3);
+
+        answers[2](true);
+        answers[1](true);
+        await flush();
+        expect(handledIds(), 'nothing is handled ahead of the first').to.eql([]);
+
+        answers[0](true);
+        await flush();
+        expect(handledIds()).to.eql([1, 2, 3]);
+      });
+
+      it('should step over a frame that does not verify and handle the next', async () => {
+        manager.handshakeFrameVerifier = sinon.stub().callsFake((msg) => Promise.resolve(msg.id !== 2));
+        const peer = addJoined();
+        await flush();
+        [1, 2, 3].forEach((id) => peer.ws.onmessage({ data: nonce(id) }));
+        await flush();
+
+        expect(handledIds()).to.eql([1, 3]);
+      });
+
+      it('should drop a frame past the most a connection holds, and take frames again once they are handled', async () => {
+        const answers = [];
+        manager.handshakeFrameVerifier = sinon.stub().callsFake(() => new Promise((resolve) => { answers.push(resolve); }));
+        const peer = addJoined();
+        await flush();
+        const dropped = sinon.stub(fluxEventBus, 'publish');
+        for (let id = 1; id <= 9; id += 1) peer.ws.onmessage({ data: nonce(id) });
+        await flush();
+
+        expect(manager.handshakeFrameVerifier.callCount).to.equal(8);
+        sinon.assert.calledWith(dropped, 'peers:frameDropped', sinon.match({ reason: 'handshakeHeld', type: 'fluxlinknonce' }));
+
+        answers.forEach((answer) => answer(true));
+        await flush();
+        expect(handledIds()).to.eql([1, 2, 3, 4, 5, 6, 7, 8]);
+
+        peer.ws.onmessage({ data: nonce(10) });
+        answers[8](true);
+        await flush();
+        expect(handledIds().at(-1)).to.equal(10);
+      });
+
+      it('should keep each connection\'s frames to itself', async () => {
+        const answers = [];
+        manager.handshakeFrameVerifier = sinon.stub().callsFake(() => new Promise((resolve) => { answers.push(resolve); }));
+        const held = addJoined('10.0.0.3');
+        const other = addJoined('10.0.0.4');
+        await flush();
+        held.ws.onmessage({ data: nonce(1) });
+        other.ws.onmessage({ data: nonce(2) });
+        answers[1](true);
+        await flush();
+
+        expect(handledIds(), 'another connection\'s held frame holds nothing back').to.eql([2]);
+      });
+
+      it('should drop one over the size a broadcast is held to, unverified', async () => {
+        const peer = addJoined();
+        await flush();
+        peer.ws.onmessage({ data: nonce('x'.repeat(config.fluxapps.gossipMessageMaxBytes)) });
+        await flush();
+
+        sinon.assert.notCalled(manager.handshakeFrameVerifier);
+      });
     });
 
     it('should hold binary frames until it joins', async () => {
@@ -1577,6 +1672,17 @@ describe('FluxPeerManager tests', () => {
       manager.remove('203.0.113.9:16127', 1006);
 
       expect(seen).to.deep.equal([]);
+    });
+  });
+
+  describe('noteAuthenticatedLinkGained', () => {
+    it('announces the key whose joined link authenticated', () => {
+      const gained = [];
+      manager.on('authenticatedLinkGained', (key) => gained.push(key));
+
+      manager.noteAuthenticatedLinkGained('10.0.0.1:16127');
+
+      expect(gained).to.deep.equal(['10.0.0.1:16127']);
     });
   });
 
@@ -3527,6 +3633,20 @@ describe('FluxPeerManager tests', () => {
     });
 
     describe('broadcastHash', () => {
+      it('should announce to nobody it is told to skip', () => {
+        const told = createMockWs('44.0.0.1');
+        manager.add(told, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        const skipped = createMockWs('45.0.0.1');
+        manager.add(skipped, '45.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        told.send.resetHistory();
+        skipped.send.resetHistory();
+
+        manager.broadcastHash('abcdef0123456789abcdef0123456789abcdef01', null, new Set(['45.0.0.1:16127']));
+
+        sinon.assert.calledOnce(told.send);
+        sinon.assert.notCalled(skipped.send);
+      });
+
       it('should send binary to capable peers and JSON to others', () => {
         const ws1 = createMockWs('44.0.0.1');
         manager.add(ws1, '44.0.0.1', '16127', {

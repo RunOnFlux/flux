@@ -6,11 +6,13 @@
 // handshake between two Arcane nodes cannot compute it either, and anything it
 // injects fails the MAC.
 //
-// Once per socket, both directions:
+// On each new socket, both directions:
 //   1. each side sends `fluxlinknonce` {nonce}, a fresh 32-byte nonce in a signed
 //      envelope. dispatchFluxMessage has checked the signature, and that the key
-//      is listed, before the handler runs, so no fluxbench call is made for a
-//      peer that holds no listed key;
+//      is listed, before the handler runs. A fluxbench call is made only for a
+//      key listed at the socket's address, or one this node has heard move there
+//      (listedHere), so one key holds a handshake budget only on the addresses
+//      its nodes hold;
 //   2. each side derives the secret as fluxbench's node-auth encryption of a
 //      digest of both nonces, both node keys and both IPs - its own listed IP and
 //      the IP the socket comes from. A relay sits on a third IP, so the two ends
@@ -24,6 +26,15 @@
 //
 // The secret never leaves the node, and nothing is cached: a new socket derives
 // afresh, so no address can carry another connection's trust.
+//
+// A link refused because its key was not yet known at the socket's address
+// (notListedHere) is handshaken again on the same socket once it is: when this
+// node takes a move of that key to that address, or its node list shows it
+// there. The connection carries traffic unauthenticated meanwhile, and its
+// frames are MAC'd from the moment the new handshake authenticates. A peer
+// whose link has not authenticated takes a fresh nonce on a joined socket as
+// the start of a new handshake; an authenticated link is never handshaken
+// again.
 
 const crypto = require('node:crypto');
 const config = require('config');
@@ -31,7 +42,9 @@ const log = require('../lib/log');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
+const networkStateService = require('./networkStateService');
 const { peerManager } = require('./utils/peerState');
+const { normalizeSocketAddress } = require('./utils/socketAddressUtils');
 const { sendSignedMessage } = require('./fluxCommunicationMessagesSender');
 const linkCrypto = require('./utils/linkCrypto');
 
@@ -54,6 +67,11 @@ const FAILURE = Object.freeze({
   CONFIRM: 'confirm',
   // The peer's own handshake failed, and it said so.
   PEER_GAVE_UP: 'peerGaveUp',
+  // The key is not listed at the socket's address, and no move of it there
+  // has been taken.
+  NOT_LISTED_HERE: 'notListedHere',
+  // A handshake on a joined socket was not answered in linkHandshakeDeadlineMs.
+  TIMEOUT: 'timeout',
 });
 
 // The failures that are the peer's doing, and so back its IP off.
@@ -66,6 +84,11 @@ const handshakesByIp = new Map();
 
 let nodeAuthCallsInFlight = 0;
 const nodeAuthCallQueue = [];
+
+// Moves this node has taken, by the normalized address moved to: { pubKey,
+// validTill }. Each is a verified move of a listed node, kept for as long as
+// the move itself is valid.
+const movesTaken = new Map();
 
 /**
  * Whether a handshake with a peer at `ip` may cost a fluxbench call now, and
@@ -81,10 +104,24 @@ function admitHandshake(ip, now) {
     entry = { windowStart: now, count: 0, backoffUntil: entry?.backoffUntil ?? 0 };
     handshakesByIp.set(ip, entry);
   }
-  if (now < entry.backoffUntil) return false;
-  if (entry.count >= linkHandshakesPerIp) return false;
+  if (now < entry.backoffUntil || entry.count >= linkHandshakesPerIp) return false;
   entry.count += 1;
   return true;
+}
+
+/**
+ * Whether `pubKey` is listed at the peer's socket address, or has been taken
+ * as moved there.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ * @param {string} pubKey
+ * @returns {Promise<boolean>}
+ */
+async function listedHere(peer, pubKey) {
+  const address = normalizeSocketAddress(peer.key);
+  const node = await networkStateService.getFluxnodeBySocketAddress(address);
+  if (node?.pubkey === pubKey) return true;
+  const move = movesTaken.get(address);
+  return Boolean(move && move.pubKey === pubKey && move.validTill > Date.now());
 }
 
 function backOff(ip, now) {
@@ -126,7 +163,9 @@ function fail(peer, link, reason) {
   link.settle();
   if (BACKS_OFF.has(reason)) backOff(peer.ip, Date.now());
   log.warn(`arcaneLink - link with ${peer.key} not authenticated: ${reason}`);
-  fluxEventBus.publish('peers:linkFailed', { ip: peer.ip, port: peer.port, reason });
+  fluxEventBus.publish('peers:linkFailed', {
+    ip: peer.ip, port: peer.port, connectionId: peer.connectionId, reason,
+  });
   // A handshake settles at both ends together: a confirm with no MAC tells the
   // peer this end will not authenticate, so it settles now rather than at its
   // deadline. Unsent when this node cannot sign, or when the peer gave up first.
@@ -150,7 +189,9 @@ function peerGaveUp(peer, link) {
   link.authenticated = false;
   link.failed = FAILURE.PEER_GAVE_UP;
   log.warn(`arcaneLink - link with ${peer.key} no longer authenticated: ${FAILURE.PEER_GAVE_UP}`);
-  fluxEventBus.publish('peers:linkFailed', { ip: peer.ip, port: peer.port, reason: FAILURE.PEER_GAVE_UP });
+  fluxEventBus.publish('peers:linkFailed', {
+    ip: peer.ip, port: peer.port, connectionId: peer.connectionId, reason: FAILURE.PEER_GAVE_UP,
+  });
   peerManager.noteAuthenticatedLinkLost(peer.key);
 }
 
@@ -167,11 +208,20 @@ function checkConfirm(peer, link) {
   link.authenticated = true;
   link.settle();
   log.info(`arcaneLink - link with ${peer.key} authenticated`);
-  fluxEventBus.publish('peers:linkAuthenticated', { ip: peer.ip, port: peer.port });
+  fluxEventBus.publish('peers:linkAuthenticated', {
+    ip: peer.ip, port: peer.port, connectionId: peer.connectionId, joined: !peer.handshaking,
+  });
+  // A connection that joined before its link authenticated is counted now.
+  if (!peer.handshaking) peerManager.noteAuthenticatedLinkGained(peer.key);
 }
 
 async function deriveKeys(peer, link) {
-  if (!admitHandshake(peer.ip, Date.now())) {
+  if (!await listedHere(peer, link.peerPubKey)) {
+    fail(peer, link, FAILURE.NOT_LISTED_HERE);
+    return;
+  }
+  if (!isLive(peer, link) || link.failed) return;
+  if (!link.admitted && !admitHandshake(peer.ip, Date.now())) {
     fail(peer, link, FAILURE.BUDGET);
     return;
   }
@@ -191,17 +241,12 @@ async function deriveKeys(peer, link) {
 }
 
 /**
- * Open the handshake on a new connection. FluxPeerManager calls this before the
- * connection joins the peer set, and joins it when the answer settles.
+ * A fresh handshake on `peer`, replacing any link it held, with its nonce sent.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
- * @returns {Promise<void>|null} Settles when the link authenticates or fails;
- *   null when no handshake applies: this node is not Arcane, does not know its
- *   own address, or the peer does not advertise the capability.
+ * @param {string} ownAddress
+ * @returns {{link: object, settled: Promise<void>}}
  */
-function startLink(peer) {
-  if (!isArcane || peer.link || !peer.remoteCapabilities.has(CAPABILITY)) return null;
-  const ownAddress = peerManager.getOwnSocketAddress();
-  if (!ownAddress) return null;
+function openLink(peer, ownAddress) {
   const link = {
     localNonce: crypto.randomBytes(32).toString('hex'),
     localIp: ownAddress.split(':')[0],
@@ -217,6 +262,8 @@ function startLink(peer) {
     recvNumber: -1,
     authenticated: false,
     failed: null,
+    // Counted against the peer IP's handshake budget already.
+    admitted: false,
     ready: null,
     settle: null,
   };
@@ -230,17 +277,103 @@ function startLink(peer) {
     }
     await sendSignedMessage({ type: NONCE_TYPE, version: 1, nonce: link.localNonce }, peer);
   })().catch((error) => log.error(error));
-  return settled;
+  return { link, settled };
 }
 
 /**
- * A peer's nonce. One per socket; a later one is ignored.
+ * Open the handshake on a new connection. FluxPeerManager calls this before the
+ * connection joins the peer set, and joins it when the answer settles.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ * @returns {Promise<void>|null} Settles when the link authenticates or fails;
+ *   null when no handshake applies: this node is not Arcane, does not know its
+ *   own address, or the peer does not advertise the capability.
+ */
+function startLink(peer) {
+  if (!isArcane || peer.link || !peer.remoteCapabilities.has(CAPABILITY)) return null;
+  const ownAddress = peerManager.getOwnSocketAddress();
+  if (!ownAddress) return null;
+  return openLink(peer, ownAddress).settled;
+}
+
+/**
+ * Whether a connection can be handshaken again: it has joined, and its link
+ * failed. A failed link never authenticated, or stopped being authenticated
+ * when its peer gave up on it.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ * @returns {boolean}
+ */
+function mayRestart(peer) {
+  return isArcane && Boolean(peer.link?.failed) && !peer.handshaking && peer.isAlive
+    && Boolean(peerManager.getOwnSocketAddress());
+}
+
+/**
+ * Handshake a connection mayRestart allows again, on the same socket. Fails
+ * `timeout` if it has not settled in linkHandshakeDeadlineMs.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ * @returns {object} The new link.
+ */
+function restartLink(peer) {
+  const { link } = openLink(peer, peerManager.getOwnSocketAddress());
+  const deadline = setTimeout(() => fail(peer, link, FAILURE.TIMEOUT), config.fluxapps.linkHandshakeDeadlineMs);
+  const { settle } = link;
+  link.settle = () => { clearTimeout(deadline); settle(); };
+  return link;
+}
+
+/**
+ * Handshake again each joined connection refused as notListedHere whose key is
+ * now listed at its address, or taken as moved there.
+ * @param {string} [address] Only the connections at this socket address.
+ * @returns {Promise<void>}
+ */
+async function relinkListed(address) {
+  const due = peerManager.getUnauthenticatedPeers().filter((peer) => peer.link?.failed === FAILURE.NOT_LISTED_HERE
+    && (!address || normalizeSocketAddress(peer.key) === address));
+  await Promise.all(due.map(async (peer) => {
+    const { link } = peer;
+    if (!await listedHere(peer, link.peerPubKey)) return;
+    if (mayRestart(peer)) restartLink(peer);
+  }));
+}
+
+/**
+ * A move this node has taken: the node listed with `pubKey` is now at `newIP`.
+ * Its links refused there for want of a listing are handshaken again.
+ * @param {string} newIP The socket address moved to.
+ * @param {string} pubKey The move's verified signer.
+ * @param {number} validTill When the move stops being valid (ms).
+ * @returns {Promise<void>}
+ */
+async function noteMoveTaken(newIP, pubKey, validTill) {
+  if (!isArcane) return;
+  const now = Date.now();
+  movesTaken.forEach((move, address) => { if (move.validTill <= now) movesTaken.delete(address); });
+  const address = normalizeSocketAddress(newIP);
+  if (!address || validTill <= now) return;
+  movesTaken.set(address, { pubKey, validTill });
+  await relinkListed(address);
+}
+
+if (isArcane) {
+  networkStateService.onUpdated(() => { relinkListed().catch((error) => log.error(error)); });
+}
+
+/**
+ * A peer's nonce. A link takes one. A later one starts a new handshake where
+ * mayRestart allows, counted against the peer IP's handshake budget when it
+ * starts, and is ignored otherwise or past the budget.
  * @param {object} msg Verified envelope.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
  */
 async function handleNonce(msg, peer) {
-  const { link } = peer;
-  if (!link || link.peerNonce || link.failed) return;
+  let { link } = peer;
+  if (!link) return;
+  if (link.peerNonce || link.failed) {
+    if (!mayRestart(peer) || !admitHandshake(peer.ip, Date.now())) return;
+    link = restartLink(peer);
+    link.admitted = true;
+  }
   const nonce = msg.data?.nonce;
   link.peerNonce = typeof nonce === 'string' ? nonce : '';
   link.peerPubKey = msg.pubKey;
@@ -258,14 +391,16 @@ async function handleNonce(msg, peer) {
 }
 
 /**
- * A peer's proof that it derived the secret, one per socket; or, with no MAC,
- * its word that its own handshake failed.
+ * A peer's proof that it derived the secret, one per link; or, with no MAC,
+ * its word that its own handshake failed. A peer sends its confirm after its
+ * nonce, so a link takes one only once it holds the peer's nonce: a confirm
+ * that arrives before it belongs to a handshake this link replaced.
  * @param {object} msg Verified envelope.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
  */
 function handleConfirm(msg, peer) {
   const { link } = peer;
-  if (!link || link.failed) return;
+  if (!link || link.failed || !link.peerNonce) return;
   if (msg.data?.mac === null) {
     if (msg.pubKey === link.peerPubKey) peerGaveUp(peer, link);
     return;
@@ -284,9 +419,10 @@ function isAuthenticated(peer) {
   return Boolean(peer?.link?.authenticated);
 }
 
-/** Test seam: forget every per-IP budget and the call queue. */
+/** Test seam: forget every per-IP budget, the call queue and the moves taken. */
 function resetState() {
   handshakesByIp.clear();
+  movesTaken.clear();
   nodeAuthCallsInFlight = 0;
   nodeAuthCallQueue.length = 0;
 }
@@ -297,6 +433,7 @@ module.exports = {
   CONFIRM_TYPE,
   FAILURE,
   startLink,
+  noteMoveTaken,
   handleNonce,
   handleConfirm,
   isAuthenticated,

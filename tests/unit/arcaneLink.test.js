@@ -8,6 +8,7 @@ const proxyquireCallThru = require('proxyquire');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const messagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 
 const { expect } = chai;
@@ -17,6 +18,12 @@ const MODULE_PATH = '../../ZelBack/src/services/arcaneLink';
 // What every Arcane node's fluxbench computes, and no legacy node's can.
 const ARCANE_KEY = 'arcane-node-auth';
 const arcaneEncrypt = async (text) => crypto.createHmac('sha256', ARCANE_KEY).update(text).digest('base64');
+
+// The node list every node reads: socket address to the key listed there.
+const listed = new Map();
+const listListeners = new Set();
+const listAt = (ip, pubKey) => listed.set(`${ip}:16127`, pubKey);
+const updateList = () => listListeners.forEach((listener) => listener());
 
 const settle = async () => {
   for (let i = 0; i < 50; i += 1) {
@@ -30,11 +37,12 @@ const settle = async () => {
  * `send(message, peer)` is wired by `connect`.
  */
 function makeNode({
-  ip, pubKey, encrypt = arcaneEncrypt, arcane = true,
+  ip, pubKey, encrypt = arcaneEncrypt, arcane = true, list = true,
 }) {
   const node = {
-    ip, pubKey, peers: new Map(), routes: new Map(), encryptCalls: 0, linksLost: [],
+    ip, pubKey, peers: new Map(), routes: new Map(), encryptCalls: 0, linksLost: [], linksGained: [],
   };
+  if (list) listAt(ip, pubKey);
   const before = process.env.FLUXOS_PATH;
   if (arcane) process.env.FLUXOS_PATH = '/flux';
   else delete process.env.FLUXOS_PATH;
@@ -52,10 +60,16 @@ function makeNode({
         if (deliver) setImmediate(() => deliver({ pubKey: node.pubKey, data: message }));
       },
     },
+    './networkStateService': {
+      getFluxnodeBySocketAddress: async (address) => (listed.has(address) ? { pubkey: listed.get(address) } : null),
+      onUpdated: (listener) => { listListeners.add(listener); return () => listListeners.delete(listener); },
+    },
     './utils/peerState': {
       peerManager: {
         getOwnSocketAddress: () => `${node.ip}:16127`,
+        getUnauthenticatedPeers: () => [...node.peers.values()].filter((peer) => !peer.handshaking && !peer.link?.authenticated),
         noteAuthenticatedLinkLost: (key) => node.linksLost.push(key),
+        noteAuthenticatedLinkGained: (key) => node.linksGained.push(key),
       },
     },
   });
@@ -99,6 +113,11 @@ async function handshake(a, b, peers) {
 }
 
 describe('arcaneLink tests', () => {
+  beforeEach(() => {
+    listed.clear();
+    listListeners.clear();
+  });
+
   afterEach(() => {
     sinon.restore();
   });
@@ -108,7 +127,11 @@ describe('arcaneLink tests', () => {
     expect(fluxNetworkHelper.getFluxNodePublicKey).to.be.a('function');
     expect(messagesSender.sendSignedMessage).to.be.a('function');
     expect(peerManager.getOwnSocketAddress).to.be.a('function');
+    expect(peerManager.getUnauthenticatedPeers).to.be.a('function');
     expect(peerManager.noteAuthenticatedLinkLost).to.be.a('function');
+    expect(peerManager.noteAuthenticatedLinkGained).to.be.a('function');
+    expect(networkStateService.getFluxnodeBySocketAddress).to.be.a('function');
+    expect(networkStateService.onUpdated).to.be.a('function');
   });
 
   it('should advertise the capability only on an Arcane node', () => {
@@ -314,10 +337,24 @@ describe('arcaneLink tests', () => {
   });
 
   describe('a relay', () => {
-    it('should not let a node on a third IP join two Arcane nodes into an authenticated link', async () => {
+    it('should refuse two Arcane nodes joined through a third IP their keys are not listed at, without a fluxbench call', async () => {
       const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
       const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
       // Both ends see the relay's IP; it forwards every frame unchanged.
+      const peers = connect(a, b, { aSeesIp: '10.0.0.66', bSeesIp: '10.0.0.66' });
+
+      await handshake(a, b, peers);
+
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(false);
+      expect(b.mod.isAuthenticated(peers.bPeer)).to.equal(false);
+      expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.NOT_LISTED_HERE);
+      expect(a.encryptCalls + b.encryptCalls).to.equal(0);
+    });
+
+    it('should not let a relay on a node of the same operator join two of its nodes into an authenticated link', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyOp' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyOp' });
+      listAt('10.0.0.66', 'keyOp');
       const peers = connect(a, b, { aSeesIp: '10.0.0.66', bSeesIp: '10.0.0.66' });
 
       await handshake(a, b, peers);
@@ -353,7 +390,7 @@ describe('arcaneLink tests', () => {
       expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.KEY_CHANGED);
     });
 
-    it('should take one nonce per socket', async () => {
+    it('should take no nonce on an authenticated link', async () => {
       const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
       const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
       const peers = connect(a, b);
@@ -491,6 +528,254 @@ describe('arcaneLink tests', () => {
 
       expect(peers.aPeer.link.sendKey).to.equal(null);
       expect(b.mod.isAuthenticated(peers.bPeer)).to.equal(false);
+    });
+  });
+
+  describe('a key not listed at the socket\'s address', () => {
+    const nonceFrom = (pubKey) => ({ pubKey, data: { type: 'fluxlinknonce', nonce: crypto.randomBytes(32).toString('hex') } });
+
+    // a refuses b's first handshake: b's key is listed at another address.
+    async function refusedThenJoined({ bListed = false } = {}) {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB', list: bListed });
+      if (!bListed) listAt('10.0.0.200', 'keyB');
+      const peers = connect(a, b);
+      await handshake(a, b, peers);
+      expect(peers.aPeer.link.failed, 'fixture: a refused the first handshake').to.equal(a.mod.FAILURE.NOT_LISTED_HERE);
+      return { a, b, peers };
+    }
+
+    it('should refuse it before any fluxbench call, and tell the peer, without backing its IP off', async () => {
+      const { a, b, peers } = await refusedThenJoined();
+
+      expect(a.encryptCalls).to.equal(0);
+      expect(peers.bPeer.link.failed).to.equal(b.mod.FAILURE.PEER_GAVE_UP);
+      listAt('10.0.0.2', 'keyB');
+      a.peers.delete(peers.aPeer.key);
+      b.peers.delete(peers.bPeer.key);
+      const again = connect(a, b);
+      await handshake(a, b, again);
+      expect(a.mod.isAuthenticated(again.aPeer)).to.equal(true);
+    });
+
+    it('should authenticate a key listed at another address once this node has taken its move to the socket\'s', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB', list: false });
+      listAt('10.0.0.200', 'keyB');
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyB', Date.now() + 60000);
+      const peers = connect(a, b);
+
+      await handshake(a, b, peers);
+
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
+      expect(b.mod.isAuthenticated(peers.bPeer)).to.equal(true);
+    });
+
+    it('should not take a move of another key, or one past its validity', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB', list: false });
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyX', Date.now() + 60000);
+      const c = makeNode({ ip: '10.0.0.3', pubKey: 'keyC', list: false });
+      await a.mod.noteMoveTaken('10.0.0.3:16127', 'keyC', Date.now() - 1);
+      const toB = connect(a, b);
+      const toC = connect(a, c);
+
+      await handshake(a, b, toB);
+      await handshake(a, c, toC);
+
+      expect(toB.aPeer.link.failed).to.equal(a.mod.FAILURE.NOT_LISTED_HERE);
+      expect(toC.aPeer.link.failed).to.equal(a.mod.FAILURE.NOT_LISTED_HERE);
+      expect(a.encryptCalls).to.equal(0);
+    });
+
+    it('should not take a move once it is past its validity', async () => {
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB', list: false });
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyB', Date.now() + 1000);
+      clock.tick(1000);
+      const peers = connect(a, b);
+
+      await handshake(a, b, peers);
+
+      expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.NOT_LISTED_HERE);
+    });
+
+    it('should authenticate the same connection when this node takes the move there, and count the link gained at both ends', async () => {
+      const { a, b, peers } = await refusedThenJoined();
+      const {aPeer} = peers;
+      const {bPeer} = peers;
+
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyB', Date.now() + 60000);
+      await settle();
+
+      expect(peers.aPeer).to.equal(aPeer);
+      expect(a.mod.isAuthenticated(aPeer)).to.equal(true);
+      expect(b.mod.isAuthenticated(bPeer)).to.equal(true);
+      expect(aPeer.link.sendKey.equals(bPeer.link.recvKey)).to.equal(true);
+      expect(a.linksGained).to.deep.equal([aPeer.key]);
+      expect(b.linksGained).to.deep.equal([bPeer.key]);
+    });
+
+    it('should authenticate the same connection when the node list shows the key at its address', async () => {
+      const { a, b, peers } = await refusedThenJoined();
+
+      listAt('10.0.0.2', 'keyB');
+      updateList();
+      await settle();
+
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
+      expect(b.mod.isAuthenticated(peers.bPeer)).to.equal(true);
+    });
+
+    it('should not handshake again on a list update that still does not show the key there', async () => {
+      const { a, peers } = await refusedThenJoined();
+      const {link} = peers.aPeer;
+      const sent = [];
+      const deliver = a.routes.get(peers.aPeer);
+      a.routes.set(peers.aPeer, (msg) => { sent.push(msg.data.type); deliver(msg); });
+
+      updateList();
+      await settle();
+
+      expect(peers.aPeer.link).to.equal(link);
+      expect(sent).to.deep.equal([]);
+    });
+
+    it('should handshake again only the connections refused for want of a listing', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA', encrypt: async () => null });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
+      const peers = connect(a, b);
+      await handshake(a, b, peers);
+      expect(peers.aPeer.link.failed, 'fixture: refused for another reason').to.equal(a.mod.FAILURE.FLUXBENCH);
+      const {link} = peers.aPeer;
+
+      updateList();
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyB', Date.now() + 60000);
+      await settle();
+
+      expect(peers.aPeer.link).to.equal(link);
+    });
+
+    it('should ignore a fresh nonce on a connection that has not joined', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const peer = makePeer('10.0.0.2');
+      peer.handshaking = true;
+      a.peers.set(peer.key, peer);
+      a.mod.startLink(peer);
+      await a.mod.handleNonce(nonceFrom('keyB'), peer);
+      const { link } = peer;
+      expect(link.failed, 'fixture: the first handshake failed before the connection joined').to.equal(a.mod.FAILURE.NOT_LISTED_HERE);
+      listAt('10.0.0.2', 'keyB');
+
+      await a.mod.handleNonce(nonceFrom('keyB'), peer);
+
+      expect(peer.link).to.equal(link);
+    });
+
+    it('should ignore a fresh nonce, sending nothing, once the peer\'s IP has no handshake budget left', async () => {
+      const { a, peers } = await refusedThenJoined();
+      const { linkHandshakesPerIp } = config.fluxapps;
+      for (let i = 0; i < linkHandshakesPerIp; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await a.mod.handleNonce(nonceFrom('keyB'), peers.aPeer);
+        // eslint-disable-next-line no-await-in-loop
+        await settle();
+        expect(peers.aPeer.link.failed, `fixture: fresh nonce ${i + 1} handshaken and refused`).to.equal(a.mod.FAILURE.NOT_LISTED_HERE);
+      }
+      const {link} = peers.aPeer;
+      const sent = [];
+      a.routes.set(peers.aPeer, (msg) => sent.push(msg.data.type));
+
+      await a.mod.handleNonce(nonceFrom('keyB'), peers.aPeer);
+      await settle();
+
+      expect(peers.aPeer.link).to.equal(link);
+      expect(sent).to.deep.equal([]);
+    });
+
+    it('should count a handshake a fresh nonce starts once against the peer IP\'s budget', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      listAt('10.0.0.2', 'keyB');
+      const peer = makePeer('10.0.0.2');
+      a.peers.set(peer.key, peer);
+      const giveUp = () => a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: null } }, peer);
+      const { linkHandshakesPerIp } = config.fluxapps;
+      a.mod.startLink(peer);
+      await a.mod.handleNonce(nonceFrom('keyB'), peer);
+      giveUp();
+
+      for (let i = 1; i < linkHandshakesPerIp; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await a.mod.handleNonce(nonceFrom('keyB'), peer);
+        // eslint-disable-next-line no-await-in-loop
+        await settle();
+        giveUp();
+      }
+
+      expect(a.encryptCalls, 'every handshake the budget allows derived its keys').to.equal(linkHandshakesPerIp);
+    });
+
+    it('should ignore a fresh nonce on a link still handshaking on a joined connection', async () => {
+      const { a, peers } = await refusedThenJoined();
+      const held = [];
+      a.routes.set(peers.aPeer, (msg) => held.push(msg));
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyB', Date.now() + 60000);
+      await a.mod.handleNonce(nonceFrom('keyB'), peers.aPeer);
+      const {link} = peers.aPeer;
+      expect(link.failed, 'fixture: the new handshake is running').to.equal(null);
+
+      await a.mod.handleNonce(nonceFrom('keyB'), peers.aPeer);
+
+      expect(peers.aPeer.link).to.equal(link);
+    });
+
+    it('should not fail a new handshake on the confirm of the one it replaced', async () => {
+      const { a, b, peers } = await refusedThenJoined();
+      const deliver = a.routes.get(peers.aPeer);
+      const held = [];
+      a.routes.set(peers.aPeer, (msg) => held.push(msg));
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyB', Date.now() + 60000);
+      await settle();
+      expect(peers.aPeer.link.peerNonce, 'fixture: the new handshake waits for the peer\'s nonce').to.equal(null);
+
+      // The confirm b sent for the handshake a refused, arriving after a started the new one.
+      a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: 'ab'.repeat(32) } }, peers.aPeer);
+      a.routes.set(peers.aPeer, deliver);
+      held.forEach(deliver);
+      await settle();
+
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
+      expect(b.mod.isAuthenticated(peers.bPeer)).to.equal(true);
+    });
+
+    it('should fail a new handshake the peer does not answer, after linkHandshakeDeadlineMs', async () => {
+      const { a, peers } = await refusedThenJoined();
+      a.routes.delete(peers.aPeer);
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyB', Date.now() + 60000);
+      await settle();
+      expect(peers.aPeer.link.failed).to.equal(null);
+      clock.tick(config.fluxapps.linkHandshakeDeadlineMs);
+
+      expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.TIMEOUT);
+    });
+
+    it('should never handshake an authenticated link again', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
+      const peers = connect(a, b);
+      await handshake(a, b, peers);
+      const {link} = peers.aPeer;
+
+      await a.mod.noteMoveTaken('10.0.0.2:16127', 'keyB', Date.now() + 60000);
+      updateList();
+      await a.mod.handleNonce(nonceFrom('keyB'), peers.aPeer);
+      await settle();
+
+      expect(peers.aPeer.link).to.equal(link);
+      expect(a.encryptCalls).to.equal(1);
     });
   });
 });

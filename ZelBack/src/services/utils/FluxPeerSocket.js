@@ -6,7 +6,7 @@ const serviceHelper = require('../serviceHelper');
 const { version: FLUX_VERSION } = require('../../../../package.json');
 const peerCodec = require('./peerCodec');
 const rateLimit = require('./rateLimit');
-const { isOrdered } = require('./messageRoutes');
+const { isHandshake, isOrdered } = require('./messageRoutes');
 const linkCrypto = require('./linkCrypto');
 const fluxEventBus = require('./fluxEventBus');
 
@@ -50,6 +50,10 @@ function arrivedAuthenticated(msgObj) {
 // handshake runs.
 const HANDSHAKE_QUEUE_MAX = 256;
 const HANDSHAKE_QUEUE_MAX_BYTES = 1024 * 1024;
+// The handshake frames a connection holds awaiting verification. A handshake is
+// a nonce and a confirm from each side of its restart, so an honest peer holds
+// two or three.
+const HANDSHAKE_FRAMES_HELD_MAX = 8;
 
 // The admission protocol (services/appMessaging/admissionQuorum.js), and an
 // Arcane node's report of its authenticated links, taken only from a frame
@@ -137,6 +141,11 @@ class FluxPeerSocket {
   /** Frames that arrived while the link handshake ran, waiting for the connection to join. */
   #queuedFrames = [];
 
+  // Handshake frames in arrival order, and how many are held.
+  #handshakeTail = Promise.resolve();
+
+  #handshakeFramesHeld = 0;
+
   #queuedBytes = 0;
 
   /**
@@ -196,6 +205,7 @@ class FluxPeerSocket {
     this.nakWindowStart = Date.now();
     this.lastTransmissionDelay = null;
     this.badMessageTimestamps = [];
+    this.fetchRecord = { startedAt: Date.now(), misses: 0, served: 0 };
     this.remoteCapabilities = new Set();
     // This connection's Arcane link handshake (services/arcaneLink.js): null
     // until it opens, and never carried to another connection.
@@ -568,6 +578,34 @@ class FluxPeerSocket {
   }
 
   /**
+   * A handshake frame takes its place on this connection in the step it arrives.
+   * Its verification runs at once and may finish in any order; the frame is
+   * handled once every frame before it has been, so a peer's confirm is never
+   * handled ahead of the nonce it answers.
+   * @param {object} msgObj
+   * @param {number} bytes
+   */
+  #takeHandshakeFrame(msgObj, bytes) {
+    const { manager } = this;
+    if (this.#handshakeFramesHeld >= HANDSHAKE_FRAMES_HELD_MAX) {
+      log.warn(`Dropping a ${msgObj.data.type} from ${this.direction} peer ${this.key}: ${HANDSHAKE_FRAMES_HELD_MAX} handshake frames are awaiting verification`);
+      fluxEventBus.publish('peers:frameDropped', {
+        ip: this.ip, port: this.port, type: msgObj.data.type, bytes, reason: 'handshakeHeld',
+      });
+      return;
+    }
+    this.#handshakeFramesHeld += 1;
+    const verified = manager.handshakeFrameVerifier(msgObj, this);
+    this.#handshakeTail = this.#handshakeTail
+      .then(() => verified)
+      .then((ok) => {
+        this.#handshakeFramesHeld -= 1;
+        if (ok) manager.handshakeFrameDispatcher(msgObj, this);
+      })
+      .catch((error) => log.error(error));
+  }
+
+  /**
    * One frame, its link MAC already checked and removed.
    * @param {{data: string|Buffer, bytes: number, linkVerified: boolean}} evt
    *   `bytes` is the frame's size as it arrived; `linkVerified`, whether it
@@ -662,6 +700,11 @@ class FluxPeerSocket {
       fluxEventBus.publish('peers:frameDropped', {
         ip: this.ip, port: this.port, type: msgObj.data?.type ?? null, bytes: frameBytes,
       });
+      return;
+    }
+
+    if (isHandshake(msgObj.data?.type)) {
+      this.#takeHandshakeFrame(msgObj, frameBytes);
       return;
     }
 
