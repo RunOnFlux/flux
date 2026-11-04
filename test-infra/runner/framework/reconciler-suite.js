@@ -22,7 +22,7 @@ import {
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
-import { dialerCount, expectedPeerTotal } from './peer-topology.js';
+import { dialerCount, expectedPeerTotal, ringPeerFloors } from './peer-topology.js';
 import { setSynced, setSyncState, setNoPeerData } from './syncthing-control.js';
 import { execInContainer } from './container.js';
 
@@ -396,6 +396,33 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
       return states.every(({ outbound, inbound }) => ![...outbound, ...inbound].some((peer) => peer.handshaking));
     },
     { timeout: 60000, interval: 500, label: 'no connection on any node still handshaking' },
+  );
+
+  // The door refuses a node short of either floor, and the total above can be met
+  // with one direction short: a dial a stub refused waits for the next discovery
+  // pass. A node not listed at its own address holds no place on the ring.
+  const unlistedNodes = env.unlistedNodes ?? [];
+  const stubs = [...env.stubPeerClients.keys()];
+  const ring = env.clients.map((_client, index) => index).filter((index) => !unlistedNodes.includes(index));
+  const absent = ring.filter((index) => !env.clients[index] && !stubs.includes(index));
+  const ringed = env.nodeConfigs
+    .filter((cfg) => env.clients[cfg.index] && ring.includes(cfg.index))
+    .map(({ index, minOutgoing, minIncoming }) => ({
+      index,
+      floors: ringPeerFloors(index, ring, {
+        minOutgoing, minIncoming, absent, stubs,
+      }),
+    }));
+  await waitFor(
+    async () => {
+      const held = await Promise.all(ringed.map(async ({ index, floors }) => {
+        const { outbound, inbound } = await env.clients[index].getTestState('peers');
+        return outbound.filter((peer) => !peer.handshaking).length >= floors.outbound
+          && inbound.filter((peer) => !peer.handshaking).length >= floors.inbound;
+      }));
+      return held.every(Boolean);
+    },
+    { timeout: 60000, interval: 500, label: `the door's peer floors on ${ringed.length} nodes` },
   );
 
   // An Arcane node admits an app message by quorum only once it holds

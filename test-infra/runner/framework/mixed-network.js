@@ -38,7 +38,6 @@ export function mixedFleet({ legacy, observer, ipGroups = {} }) {
     arcaneStubPeers: [ARCANE_STUB],
     stubPeeredWith: { [ARCANE_STUB]: [observer], [PLAIN_STUB]: [observer] },
     ipGroups,
-    discoveryAutostart: true,
     configOverrides: {
       fdmAddresses: [getSubnetConfig().gateway],
       fluxapps: {
