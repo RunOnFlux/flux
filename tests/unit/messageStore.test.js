@@ -1217,7 +1217,7 @@ describe('messageStore tests', () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findInDatabase.resolves([]);
-      dbHelperStub.updateInDatabase.resolves();
+      dbHelperStub.updateInDatabase.resolves({ modifiedCount: 1 });
 
       const result = await messageStore.storeIPChangedMessage(message);
 
