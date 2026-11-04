@@ -158,11 +158,16 @@ describe('a move heard after the chain lists the new address', function () {
         expect(await dbClient(j + 1).getAppStateEvents({ ip: left, type: 'evicted' }), `node ${j} evicted a node the chain moved`).to.have.length(0);
       }
       // Held past the point it could be heard, but for its move: listed where it now
-      // is, and holding peers.
-      const heldAt = node.getLastEventId();
-      await node.waitForEvent('networkstate:updated', () => true, 120000, { afterId: heldAt });
+      // is, and holding peers, for longer than a node that moved waits to announce.
       await waitFor(async () => await peerCount(node) > 0, { timeout: 120000, interval: 1000, label: 'fixture: the held node holds peers' });
-      await assertNoEvent(node, 'app:running', () => true, ANNOUNCED_ONCE_MS, { afterId: moveAnchor });
+      let heldAt = node.getLastEventId();
+      // eslint-disable-next-line no-restricted-syntax
+      for (const unused of [1, 2, 3, 4]) { // eslint-disable-line no-unused-vars
+        // eslint-disable-next-line no-await-in-loop
+        await node.waitForEvent('networkstate:updated', () => true, 120000, { afterId: heldAt });
+        heldAt = node.getLastEventId();
+      }
+      await assertNoEvent(node, 'app:running', () => true, 1, { afterId: moveAnchor });
       releasedAt = Date.now();
     });
 
