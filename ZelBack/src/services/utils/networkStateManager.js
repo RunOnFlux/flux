@@ -27,7 +27,10 @@ const log = require('../../lib/log');
  */
 
 class NetworkStateManager extends EventEmitter {
-  static #minFetchIntervalMs = 30_000;
+  // Under the 30 s block time. A fetch finishes a moment after its block, so the next
+  // block arrives a moment under 30 s later, and a floor of 30 s would skip every other
+  // block.
+  static #minFetchIntervalMs = 25_000;
 
   // The reporter of a link this node authenticated itself.
   static SELF_REPORTED = 'self';

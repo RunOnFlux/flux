@@ -124,8 +124,9 @@ async function stopBroadcasting() {
 
 // How many of its own list updates a node that moved waits before it announces.
 // Its peers refuse an announcement at an address their lists do not hold yet, and
-// each list updates on its own schedule: a list updates at least every block and at
-// most every other, so three of this node's updates span any peer's slowest.
+// each list updates on its own schedule, on a block and not within 25 s of the last
+// update. Three of this node's updates span all but a peer that has fallen behind,
+// which keeps the rows the move carried and hears the next timed announcement.
 const LIST_UPDATES_AFTER_MOVE = 3;
 
 // A move of this node's own has not been announced at its new address.
