@@ -1371,6 +1371,9 @@ export async function createTestEnv({
   const env = makeEnvShell(networkName);
   env.rejoinOnRestart = rejoinOnRestart;
   env.arcaneStubPeers = arcaneStubPeers;
+  // Indices of the nodes and stubs on another's collateral: not listed at their
+  // own address, so no link of theirs authenticates.
+  env.unlistedNodes = Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1);
   env.answeringSyncPeers = answeringSyncPeers;
   env.attestedLegacyNodes = attestedLegacyNodes;
   activeEnvs.add(env);
@@ -1412,6 +1415,11 @@ function mergeConfigs(base, override) {
 }
 
 async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = []) {
+  // The dialing nodes no link authenticates with: legacy nodes, and nodes not
+  // listed at their own address because they run on another's collateral.
+  const unlinkableNodeCount = new Set([
+    ...legacyNodes, ...Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1).filter((i) => !stubPeers.includes(i)),
+  ]).size;
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1896,7 +1904,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // carries, for the same reason - see peer-topology.js.
         ...deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps),
         // And the admission quorum, for the same reason - see peer-topology.js.
-        admissionQuorum: deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, legacyNodes.length),
+        admissionQuorum: deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, unlinkableNodeCount),
         // Travels as configuration, like every other override. It used to be an
         // env var the entrypoint sed into shared.js - but the merged config is
         // written by REQUIRING the per-node file, which spreads shared.js at

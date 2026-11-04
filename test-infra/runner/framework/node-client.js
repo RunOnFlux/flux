@@ -257,6 +257,9 @@ export function nodeClient(nodeNum) {
         // a frame over gossipMessageMaxBytes, dropped before it is handled
         'peers:frameDropped',
         'peers:thresholdReached',
+        // An Arcane link's handshake, by connection: authenticated, or failed and why
+        'peers:linkAuthenticated',
+        'peers:linkFailed',
         // A node taken out of service for losing its peer set, and given back.
         // dos:changed alone cannot carry this: it fires for every DOS owner, so
         // a suite asserting on it would pass on the tampering enforcer's verdict

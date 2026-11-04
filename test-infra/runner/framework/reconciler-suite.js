@@ -402,10 +402,14 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   // admissionQuorum authenticated links on distinct IPs, which follows peering by
   // a handshake per link. Waited here so a suite registering an app straight
   // after boot meets a door that admits by quorum. A node can link to no more
-  // than the fleet's other Arcane nodes and its Arcane stubs, so one whose quorum
-  // is more than that never reaches it and is not waited for.
-  const arcaneNodes = env.nodeConfigs.filter((cfg) => cfg.arcane && env.clients[cfg.index]);
-  const linkable = arcaneNodes.length - 1 + (env.arcaneStubPeers ?? []).length;
+  // than the fleet's other Arcane nodes and its Arcane stubs listed at their own
+  // address, so one whose quorum is more than that never reaches it and is not
+  // waited for, nor is a node not listed at its own address, which links with
+  // nothing.
+  const unlisted = new Set(env.unlistedNodes ?? []);
+  const linkedStubs = (env.arcaneStubPeers ?? []).filter((index) => !unlisted.has(index));
+  const arcaneNodes = env.nodeConfigs.filter((cfg) => cfg.arcane && env.clients[cfg.index] && !unlisted.has(cfg.index));
+  const linkable = arcaneNodes.length - 1 + linkedStubs.length;
   const admitting = arcaneNodes.filter((cfg) => cfg.admissionQuorum > 0 && cfg.admissionQuorum <= linkable);
   await waitFor(
     async () => {
@@ -419,10 +423,11 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   );
   // A stub that speaks as an Arcane node relays as one only over a link it has
   // authenticated, so a suite sending through it waits until every link it holds
-  // with a node that speaks the protocol has.
+  // with a node that speaks the protocol has. A stub not listed at its own
+  // address authenticates none, and is not waited for.
   await waitFor(
     async () => {
-      const stats = await Promise.all((env.arcaneStubPeers ?? []).map((index) => env.stubPeerClients.get(index).getStats()));
+      const stats = await Promise.all(linkedStubs.map((index) => env.stubPeerClients.get(index).getStats()));
       return stats.every((s) => s.linksOpen > 0 && s.linksAuthenticatedOpen === s.linksOpen);
     },
     { timeout: 60000, interval: 1000, label: 'every link of every Arcane stub peer authenticated' },

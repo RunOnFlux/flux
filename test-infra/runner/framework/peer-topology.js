@@ -162,9 +162,9 @@ export const PRODUCTION_ADMISSION_LINK_TARGET = 5;
 /**
  * The admission quorum a fleet of this shape can meet. A node admits an unpaid
  * app message only while it holds admissionQuorum authenticated links on distinct
- * IPs, and only an Arcane node authenticates, so the quorum is what the node that
- * fares worst can count: reachablePeers, less every legacy node, since one may
- * sit in any arc, less the margin production keeps above its quorum
+ * IPs, and only an Arcane node listed at its own address authenticates, so the
+ * quorum is what the node that fares worst can count: reachablePeers, less every
+ * node no link authenticates with, since one may sit in any arc, less the margin production keeps above its quorum
  * (admissionLinkTarget - admissionQuorum), so a peer or two can be away and a
  * registration still goes through. A fleet that carries production's links keeps
  * production's quorum; a smaller one gets what it carries past the margin, and a
@@ -172,13 +172,14 @@ export const PRODUCTION_ADMISSION_LINK_TARGET = 5;
  * the thresholds above; a suite TESTING the quorum sets its own and that wins.
  * @param {number} nodeCount
  * @param {number} absentCount Stubs and deferred nodes.
- * @param {number} legacyCount
+ * @param {number} unlinkableCount Dialing nodes no link authenticates with:
+ *   legacy nodes, and nodes not listed at their own address.
  * @returns {number}
  */
-export function deriveAdmissionQuorum(nodeCount, absentCount, legacyCount) {
+export function deriveAdmissionQuorum(nodeCount, absentCount, unlinkableCount) {
   const reachable = reachablePeers(dialerCount(nodeCount, absentCount), absentCount);
   const margin = PRODUCTION_ADMISSION_LINK_TARGET - PRODUCTION_ADMISSION_QUORUM;
-  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - legacyCount - margin));
+  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - unlinkableCount - margin));
 }
 
 /**
