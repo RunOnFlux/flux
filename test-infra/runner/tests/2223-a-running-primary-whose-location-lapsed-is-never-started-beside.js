@@ -23,8 +23,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // one still running: a silence it cannot explain is never a reason to.
 //
 // The location expiry and the shutdown window are short so the lapse happens
-// inside the suite; the node-list eviction is set beyond it, so nothing else
-// releases the standby.
+// inside the suite. The primary stays on the node list, so nothing else releases
+// the standby.
 //
 // A = the standby, B = the primary, C = a bystander the discovery ring needs.
 
