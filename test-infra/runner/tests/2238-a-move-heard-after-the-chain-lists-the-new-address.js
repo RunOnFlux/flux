@@ -186,6 +186,7 @@ describe('a move heard after the chain lists the new address', function () {
       expect(new Date(row.runningSince).getTime(), `when node ${j} holds the node took the app`).to.equal(new Date(tookAt).getTime());
     }
 
+    await node.waitForEvent('app:running', (d) => d.ip === newSocket, 60000, { afterId: heldAnchor });
     const announced = () => node.getEventBuffer().filter((event) => event.id > heldAnchor && event.event === 'app:running');
     expect(announced().map((event) => event.data.ip), 'one announcement, at the new address').to.deep.equal([newSocket]);
     await assertNoEvent(node, 'app:running', () => true, ANNOUNCED_ONCE_MS, { afterId: announced()[0].id });
