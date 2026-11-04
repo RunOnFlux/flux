@@ -170,6 +170,10 @@ const ANNOUNCE_INTERVAL_MS = Math.floor(
 // signed move before they are evicted: 20 minutes at 30 s a block.
 const ADDRESS_MOVE_GRACE_BLOCKS = 40;
 
+// How long rows at an address the chain has not listed wait on a signed move to
+// it. A node can sign such a move to any address, so the wait ends.
+const ADDRESS_MOVE_WAIT_MS = config.fluxapps.addressMoveWaitMs ?? 1200000;
+
 // Hash sync constants (blocks, at 30s per block)
 const HASH_EXPIRY_BLOCKS = 1051200; // ~1 year — permanently flag unresolvable hashes
 const HASH_RETRY_BACKOFF = [0, 100, 500, 2500, 12500, 50000, 100000]; // ~0, 50min, 4h, 21h, 4d, 17d, 35d
@@ -222,6 +226,7 @@ module.exports = {
   RUNNING_EXPIRY_MS,
   ANNOUNCE_INTERVAL_MS,
   ADDRESS_MOVE_GRACE_BLOCKS,
+  ADDRESS_MOVE_WAIT_MS,
   INSTALLING_EXPIRY_MS,
   INSTALLING_ERRORS_EXPIRY_MS,
   SIGTERM_EXPIRY_MS,

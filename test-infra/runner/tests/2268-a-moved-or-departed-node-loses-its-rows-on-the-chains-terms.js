@@ -31,12 +31,20 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // A node that told its move and left the list before the chain listed it at the
 // new address: its rows stood there on its word, and there is no word left.
 //
+// A node that tells of a move the chain never reaches: a node can sign a move to
+// any address, so its peers wait a bounded time. The node goes on holding its own
+// rows: it knows where it is, whatever the list has reached.
+//
 // Nodes 1 and 2 watch. Node 0 never tells its move, node 3 moves and is dropped,
-// node 4 is dropped, node 5 tells its move and is dropped before the chain lists it.
+// node 4 is dropped, node 5 tells its move and is dropped before the chain lists
+// it, node 6 tells a move the chain never reaches.
 const SILENT = 0;
 const MOVED_THEN_GONE = 3;
 const DROPPED = 4;
 const TOLD_THEN_GONE = 5;
+const CHAIN_NEVER_REACHES = 6;
+// How long rows at an address the chain has not listed wait on a move to it.
+const ADDRESS_MOVE_WAIT_MS = 2 * 60 * 1000;
 const WATCHERS = [1, 2];
 const API_PORT = 16127;
 const BEFORE_RECONCILE = 'ownAddress:beforeReconcile';
@@ -60,6 +68,7 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
     [MOVED_THEN_GONE]: `e2emovedgone${stamp}`,
     [DROPPED]: `e2edropped${stamp}`,
     [TOLD_THEN_GONE]: `e2etoldgone${stamp}`,
+    [CHAIN_NEVER_REACHES]: `e2eneverreached${stamp}`,
   };
   const client = (i) => env.clients[i];
   const socketOf = (ip) => `${ip}:${API_PORT}`;
@@ -94,9 +103,9 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
     this.timeout(900000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 6,
+      nodes: 7,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S } },
+      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S, addressMoveWaitMs: ADDRESS_MOVE_WAIT_MS } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await Promise.all(Object.entries(apps).map(async ([index, name]) => {
@@ -190,6 +199,30 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
     await Promise.all(WATCHERS.map((j) => waitFor(async () => (await rowsAt(j, newSocket, apps[TOLD_THEN_GONE])).length === 0, {
       timeout: LIST_UPDATES_MS, interval: 1000, label: `node ${j} evicts the node that told its move and left`,
     })));
+  });
+
+  it('takes the rows at an address the chain never reaches once the wait has passed, and the node keeps its own', async function () {
+    this.timeout(DETECTION_MS + 300000);
+    const node = client(CHAIN_NEVER_REACHES);
+    const fromIp = node.ip;
+    const toIp = fromIp.replace(/\.\d+$/, '.246');
+    const newSocket = socketOf(toIp);
+    await Promise.all([fromIp, toIp].map((ip) => failRpc(ip, 'createconfirmationtransaction', { times: 1000 })));
+    await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
+    moved.push(fromIp);
+    await moveNodeAddress(node.container, toIp, fromIp);
+    await node.followTo(toIp);
+    await Promise.all(WATCHERS.map((j) => waitFor(async () => (await rowsAt(j, newSocket, apps[CHAIN_NEVER_REACHES])).length === 1, {
+      timeout: DETECTION_MS, interval: 3000, label: `fixture: node ${j} carried the rows`,
+    })));
+    const { movedAt } = await dbClient(CHAIN_NEVER_REACHES + 1).ownAddressRecord();
+
+    await Promise.all(WATCHERS.map((j) => waitFor(async () => (await rowsAt(j, newSocket, apps[CHAIN_NEVER_REACHES])).length === 0, {
+      timeout: ADDRESS_MOVE_WAIT_MS + LIST_UPDATES_MS + 60000, interval: 1000, label: `node ${j} evicts the address the chain never reached`,
+    })));
+    expect(Date.now() - movedAt, 'how long the watchers waited').to.be.at.least(ADDRESS_MOVE_WAIT_MS);
+    expect(await rowsAt(CHAIN_NEVER_REACHES, newSocket, apps[CHAIN_NEVER_REACHES]), 'the rows the node holds of itself').to.have.length(1);
+    await Promise.all([fromIp, toIp].map((ip) => clearRpcFailures(ip)));
   });
 
   it('keeps the rows of a node that sends no move for 40 blocks, then every peer takes them', async function () {

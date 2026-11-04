@@ -2,6 +2,7 @@ const os = require('os');
 const config = require('config');
 const dbHelper = require('../dbHelper');
 const nodeConfirmationService = require('../nodeConfirmationService');
+const networkStateService = require('../networkStateService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
@@ -121,12 +122,39 @@ async function stopBroadcasting() {
   await cycleFinished;
 }
 
+// How many of its own list updates a node that moved waits before it announces.
+// Its peers refuse an announcement at an address their lists do not hold yet, and
+// each list updates on its own schedule: a list updates at least every block and at
+// most every other, so three of this node's updates span any peer's slowest.
+const LIST_UPDATES_AFTER_MOVE = 3;
+
+// A move of this node's own has not been announced at its new address.
+let moveUnannounced = false;
+// This node's list updates still to come before it announces that move.
+let listUpdatesDue = 0;
+
+function onListUpdated() {
+  if (!listUpdatesDue) return;
+  listUpdatesDue -= 1;
+  if (listUpdatesDue) return;
+  log.info('peerNotification - peers have had time to list this node where it moved, broadcasting');
+  checkAndNotifyPeersOfRunningApps();
+}
+
 function initialize() {
+  fluxNetworkHelper.onOwnMoveUnderwayChange((underway) => {
+    if (underway) moveUnannounced = true;
+  });
+  networkStateService.onUpdated(onListUpdated);
   nodeConfirmationService.onMessageCapabilityChange((capable) => {
-    if (capable && broadcasting) {
-      log.info('peerNotification - Message capability regained, triggering immediate broadcast');
-      checkAndNotifyPeersOfRunningApps();
+    listUpdatesDue = 0;
+    if (!capable || !broadcasting) return;
+    if (moveUnannounced) {
+      listUpdatesDue = LIST_UPDATES_AFTER_MOVE;
+      return;
     }
+    log.info('peerNotification - Message capability regained, triggering immediate broadcast');
+    checkAndNotifyPeersOfRunningApps();
   });
 }
 
@@ -287,6 +315,8 @@ async function checkAndNotifyPeersOfRunningApps() {
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });
       fluxEventBus.publish('app:running', { apps, ip: appRunningMessage.ip, unannounced: refused.map((application) => application?.name ?? null) });
       log.info(`App Running Message broadcasted: ${apps.length} apps`);
+      moveUnannounced = false;
+      listUpdatesDue = 0;
     } catch (err) {
       log.error(err);
     }

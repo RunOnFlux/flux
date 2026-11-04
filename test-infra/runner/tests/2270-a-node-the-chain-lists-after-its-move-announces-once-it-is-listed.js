@@ -20,7 +20,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // at the new one. Its peers carry its rows on its word and keep them at an address
 // the list does not hold yet, and so does the node. It holds its peers again
 // and still cannot be heard at an address the chain does not list, so it announces
-// nothing until the list holds it there, and then announces once.
+// nothing until the list holds it there, and then announces once, having given its
+// peers time to list it there so that none refuses the announcement.
 //
 // Its daemon refuses the confirmation until the suite lets it through, which is
 // what keeps the chain behind the move. Node 0 moves; nodes 1, 2 and 3 are its peers. The location lifetime is
@@ -126,7 +127,7 @@ describe('a node the chain lists after its move announces once it is listed', fu
     await Promise.all([fromIp, toIp].map((ip) => clearRpcFailures(ip)));
     await setNodeAddress(fromIp, toIp, { scope: 'all' });
 
-    await node.waitForEvent('app:running', (d) => d.ip === newSocket, 180000, { afterId: anchor });
+    await node.waitForEvent('app:running', (d) => d.ip === newSocket, 240000, { afterId: anchor });
     const announced = () => node.getEventBuffer().filter((event) => event.id > anchor && event.event === 'app:running');
     await assertNoEvent(node, 'app:running', () => true, STEADY_MS, { afterId: announced()[0].id });
     expect(announced().map((event) => event.data.ip), 'one announcement, at the new address').to.deep.equal([newSocket]);
@@ -135,5 +136,9 @@ describe('a node the chain lists after its move announces once it is listed', fu
       const [row] = await dbClient(WATCHER + 1).getAppLocations(appName);
       return row && new Date(row.broadcastedAt).getTime() >= listedAt;
     }, { timeout: 60000, interval: 1000, label: 'a peer holds the announcement' });
+    await Promise.all([1, 2, 3].map(async (i) => {
+      const [row] = await dbClient(i + 1).getAppLocations(appName);
+      expect(new Date(row.broadcastedAt).getTime(), `the announcement node ${i} holds`).to.be.at.least(listedAt);
+    }));
   });
 });
