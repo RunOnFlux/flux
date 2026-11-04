@@ -213,6 +213,10 @@ describe('2501 firewalled nodes', function suite() {
       await releaseUfwLock(LEGACY);
     }
     await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+    // FluxOS runs its ufw commands one at a time: a boot command waiting on a lock
+    // taken from here on would hold back the next test's change behind it.
+    await node.waitForEvent('firewall:purged', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+    await node.waitForEvent('boot:settled', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
     const { stdout: queued } = await execInContainer(node.container, 'for i in $(seq 1 100); do grep -q exit= /tmp/ufw-4242.out && break; sleep 0.2; done; cat /tmp/ufw-4242.out');
     expect(queued).to.match(/exit=0/);
     const rules = await rulesAdded(LEGACY);
@@ -255,11 +259,14 @@ describe('2501 firewalled nodes', function suite() {
     const opened = fetch(`${node.url}/flux/allowport/${fluxosPort}`, { headers: { zelidauth: auth.zelidauth } }).then((res) => res.json());
     // FluxOS's change is under way and waiting on the lock; a ufw command has
     // read the rules by now.
-    await waitFor(async () => (await execInContainer(node.container, `pgrep -f '[${String(fluxosPort)[0]}]${String(fluxosPort).slice(1)}'`)).exitCode === 0, {
-      timeout: 30000, interval: 200, label: 'FluxOS\'s ufw change to start',
-    });
-    await new Promise((resolve) => { setTimeout(resolve, 2000); });
-    await execInContainer(node.container, 'touch /tmp/ufw-holder-go');
+    try {
+      await waitFor(async () => (await execInContainer(node.container, `pgrep -f '[${String(fluxosPort)[0]}]${String(fluxosPort).slice(1)}'`)).exitCode === 0, {
+        timeout: 30000, interval: 200, label: 'FluxOS\'s ufw change to start',
+      });
+      await new Promise((resolve) => { setTimeout(resolve, 2000); });
+    } finally {
+      await execInContainer(node.container, 'touch /tmp/ufw-holder-go');
+    }
 
     const answer = await opened;
     expect(answer.status, JSON.stringify(answer)).to.equal('success');
