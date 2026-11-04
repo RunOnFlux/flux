@@ -174,7 +174,7 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
     const fromIp = node.ip;
     const toIp = fromIp.replace(/\.\d+$/, '.245');
     const newSocket = socketOf(toIp);
-    await failRpc(toIp, 'createconfirmationtransaction', { times: 1000 });
+    await Promise.all([fromIp, toIp].map((ip) => failRpc(ip, 'createconfirmationtransaction', { times: 1000 })));
     await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
     moved.push(fromIp);
     await moveNodeAddress(node.container, toIp, fromIp);
@@ -185,7 +185,7 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
 
     dropped.push(fromIp);
     await removeFromNodeList(fromIp);
-    await clearRpcFailures(toIp);
+    await Promise.all([fromIp, toIp].map((ip) => clearRpcFailures(ip)));
 
     await Promise.all(WATCHERS.map((j) => waitFor(async () => (await rowsAt(j, newSocket, apps[TOLD_THEN_GONE])).length === 0, {
       timeout: LIST_UPDATES_MS, interval: 1000, label: `node ${j} evicts the node that told its move and left`,

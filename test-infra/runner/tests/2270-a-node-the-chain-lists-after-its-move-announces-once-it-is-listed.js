@@ -99,7 +99,7 @@ describe('a node the chain lists after its move announces once it is listed', fu
     newSocket = socketOf(toIp);
     anchor = node.getLastEventId();
 
-    await failRpc(toIp, CONFIRM, { times: REFUSED_CONFIRMATIONS });
+    await Promise.all([fromIp, toIp].map((ip) => failRpc(ip, CONFIRM, { times: REFUSED_CONFIRMATIONS })));
     await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
     moved = fromIp;
     await moveNodeAddress(node.container, toIp, fromIp);
@@ -123,7 +123,7 @@ describe('a node the chain lists after its move announces once it is listed', fu
     this.timeout(300000);
     const node = client(MOVER);
     const listedAt = Date.now();
-    await clearRpcFailures(toIp);
+    await Promise.all([fromIp, toIp].map((ip) => clearRpcFailures(ip)));
     await setNodeAddress(fromIp, toIp, { scope: 'all' });
 
     await node.waitForEvent('app:running', (d) => d.ip === newSocket, 180000, { afterId: anchor });
