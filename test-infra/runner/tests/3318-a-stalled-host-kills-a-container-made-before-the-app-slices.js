@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer } from '../framework/container.js';
+import { execInContainer, restartFluxos } from '../framework/container.js';
 import { waitForUp, waitForAppInstalled } from '../framework/wait.js';
 import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { buildSeedableTestApp } from '../framework/seed-helper.js';
@@ -81,6 +81,9 @@ describe('a stalled host kills a container made before the app slices', function
     await client.holdCheckpoint(BEFORE_START, identifier);
     await recreateOutsideSlices(container, containerOf(appName));
     await client.releaseCheckpoint(BEFORE_START, identifier);
+    // A start that has not read the installed apps yet: with the read refused below,
+    // the node has no other way to name the app.
+    await restartFluxos(container);
     await waitForUp(client, appName, 'the app is up outside the slices');
     scope = await containerCgroup(container, containerOf(appName));
     runningBefore = await canRun(container, scope);
