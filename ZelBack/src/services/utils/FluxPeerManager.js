@@ -120,7 +120,8 @@ class FluxPeerManager extends EventEmitter {
 
     this.#syncPeerThreshold = config.fluxapps.appSyncPeerThreshold;
     this.#syncDegradedThreshold = config.fluxapps.appSyncDegradedThreshold;
-    this.#aboveThreshold = false;
+    // A threshold of zero asks for no peers, so it holds before the first.
+    this.#aboveThreshold = this.#syncPeerThreshold === 0;
 
     /**
      * Hash message handlers — set by fluxCommunication.js to break circular dependency.
