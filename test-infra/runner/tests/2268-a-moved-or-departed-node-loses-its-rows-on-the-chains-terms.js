@@ -5,7 +5,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { moveNodeAddress } from '../framework/container.js';
 import {
-  clearNodeAddress, clearNodeStatus, getState, removeFromNodeList, restoreToNodeList, setNodeAddress, setNodeStatus,
+  clearNodeAddress, clearNodeStatus, clearRpcFailures, failRpc, getState, removeFromNodeList, restoreToNodeList, setNodeAddress, setNodeStatus,
 } from '../framework/daemon-control.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -28,11 +28,15 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // A node the list dropped whose own daemon still says CONFIRMED: the list decides,
 // so its rows go within a list update, whatever it says of itself.
 //
+// A node that told its move and left the list before the chain listed it at the
+// new address: its rows stood there on its word, and there is no word left.
+//
 // Nodes 1 and 2 watch. Node 0 never tells its move, node 3 moves and is dropped,
-// node 4 is dropped.
+// node 4 is dropped, node 5 tells its move and is dropped before the chain lists it.
 const SILENT = 0;
 const MOVED_THEN_GONE = 3;
 const DROPPED = 4;
+const TOLD_THEN_GONE = 5;
 const WATCHERS = [1, 2];
 const API_PORT = 16127;
 const BEFORE_RECONCILE = 'ownAddress:beforeReconcile';
@@ -55,6 +59,7 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
     [SILENT]: `e2esilent${stamp}`,
     [MOVED_THEN_GONE]: `e2emovedgone${stamp}`,
     [DROPPED]: `e2edropped${stamp}`,
+    [TOLD_THEN_GONE]: `e2etoldgone${stamp}`,
   };
   const client = (i) => env.clients[i];
   const socketOf = (ip) => `${ip}:${API_PORT}`;
@@ -89,7 +94,7 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
     this.timeout(900000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 5,
+      nodes: 6,
       tickerAutostart: false,
       configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S } },
     });
@@ -160,6 +165,30 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
 
     await Promise.all(WATCHERS.map((j) => waitFor(async () => (await rowsAt(j, oldSocket, apps[MOVED_THEN_GONE])).length === 0, {
       timeout: LIST_UPDATES_MS, interval: 1000, label: `node ${j} evicts the node that moved and left`,
+    })));
+  });
+
+  it('takes the rows of a node that told its move and left the list before the chain listed it there', async function () {
+    this.timeout(DETECTION_MS + 300000);
+    const node = client(TOLD_THEN_GONE);
+    const fromIp = node.ip;
+    const toIp = fromIp.replace(/\.\d+$/, '.245');
+    const newSocket = socketOf(toIp);
+    await failRpc(toIp, 'createconfirmationtransaction', { times: 1000 });
+    await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
+    moved.push(fromIp);
+    await moveNodeAddress(node.container, toIp, fromIp);
+    await node.followTo(toIp);
+    await Promise.all(WATCHERS.map((j) => waitFor(async () => (await rowsAt(j, newSocket, apps[TOLD_THEN_GONE])).length === 1 && await awaitingMove(j, newSocket) > 0, {
+      timeout: DETECTION_MS, interval: 3000, label: `fixture: node ${j} carried the rows and leaves them to the chain`,
+    })));
+
+    dropped.push(fromIp);
+    await removeFromNodeList(fromIp);
+    await clearRpcFailures(toIp);
+
+    await Promise.all(WATCHERS.map((j) => waitFor(async () => (await rowsAt(j, newSocket, apps[TOLD_THEN_GONE])).length === 0, {
+      timeout: LIST_UPDATES_MS, interval: 1000, label: `node ${j} evicts the node that told its move and left`,
     })));
   });
 

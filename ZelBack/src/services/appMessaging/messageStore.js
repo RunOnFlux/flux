@@ -1105,12 +1105,35 @@ async function handleEvictedEvent({ ip, evictedAt }) {
 }
 
 /**
- * Whether the node that held `ip` has moved, not left: the chain moved it to an
- * address the node list holds, within ADDRESS_MOVE_GRACE_BLOCKS. Its rows wait
- * for its signed move, the only thing that can say which apps it kept. Past the
- * blocks they do not: a node that keeps its collateral and starts empty sends no
- * move. While the chain's record is behind the node list, or cannot be read, the
- * address is not judged.
+ * Whether a node has told of a move to `ip` that the chain has not reached: a
+ * recorded move here from an address the node list still holds under the move's
+ * signer. The chain lists a node at a new address only once it has confirmed
+ * there, and rows are carried on its word before that.
+ * @param {string} ip Socket address.
+ * @returns {Promise<boolean>}
+ */
+async function moveHereAwaitsChain(ip) {
+  const moves = await registryManager.addressMovesTo(ip);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [from, { signer }] of moves) {
+    // eslint-disable-next-line no-await-in-loop
+    const node = await networkStateService.getFluxnodeBySocketAddress(from);
+    if (node && (!signer || node.pubkey === signer)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the rows at an address the node list does not hold wait on a move, in
+ * place of being evicted:
+ * - the node there told of a move here that the chain has not reached
+ *   (moveHereAwaitsChain);
+ * - the node that held it has moved, not left: the chain moved it to an address
+ *   the list holds, within ADDRESS_MOVE_GRACE_BLOCKS. Its rows wait for its signed
+ *   move, the only thing that can say which apps it kept. Past the blocks they do
+ *   not: a node that keeps its collateral and starts empty sends no move.
+ * While the chain's record is behind the node list, or cannot be read, the address
+ * is not judged.
  * @param {string} ip Socket address.
  * @returns {Promise<boolean>}
  */
@@ -1118,9 +1141,10 @@ async function rowsAwaitMove(ip) {
   if (!fluxnodeAddressRecord.holds(networkStateService.highestConfirmedHeight())) return true;
   let moved;
   try {
+    if (await moveHereAwaitsChain(ip)) return true;
     moved = await fluxnodeAddressRecord.movedAwayFrom(ip);
   } catch (error) {
-    log.warn(`rowsAwaitMove - the fluxnode address record cannot be read for ${ip}: ${error.message}`);
+    log.warn(`rowsAwaitMove - the moves of ${ip} cannot be read: ${error.message}`);
     return true;
   }
   if (!moved || fluxnodeAddressRecord.highestRecorded() - moved.height >= ADDRESS_MOVE_GRACE_BLOCKS) return false;
