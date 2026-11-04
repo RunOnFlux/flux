@@ -46,6 +46,7 @@ const networkStateService = require('./networkStateService');
 const { peerManager } = require('./utils/peerState');
 const { normalizeSocketAddress } = require('./utils/socketAddressUtils');
 const { sendSignedMessage } = require('./fluxCommunicationMessagesSender');
+const peerCodec = require('./utils/peerCodec');
 const linkCrypto = require('./utils/linkCrypto');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -153,6 +154,10 @@ async function withNodeAuthSlot(call) {
   }
 }
 
+function sendLinkFrame(data, peer) {
+  return sendSignedMessage(data, peer, { encode: peerCodec.encodeLinkFrame });
+}
+
 function isLive(peer, link) {
   return peer.link === link && peer.isAlive;
 }
@@ -170,7 +175,7 @@ function fail(peer, link, reason) {
   // peer this end will not authenticate, so it settles now rather than at its
   // deadline. Unsent when this node cannot sign, or when the peer gave up first.
   if (reason !== FAILURE.NO_KEY && reason !== FAILURE.PEER_GAVE_UP) {
-    sendSignedMessage({ type: CONFIRM_TYPE, version: 1, mac: null }, peer).catch((error) => log.error(error));
+    sendLinkFrame({ type: CONFIRM_TYPE, version: 1, mac: null }, peer).catch((error) => log.error(error));
   }
 }
 
@@ -236,7 +241,7 @@ async function deriveKeys(peer, link) {
     return;
   }
   Object.assign(link, linkCrypto.directionKeys(secret, link.localNonce, link.peerNonce));
-  await sendSignedMessage({ type: CONFIRM_TYPE, version: 1, mac: linkCrypto.confirmMac(link.sendKey) }, peer);
+  await sendLinkFrame({ type: CONFIRM_TYPE, version: 1, mac: linkCrypto.confirmMac(link.sendKey) }, peer);
   if (link.peerConfirm) checkConfirm(peer, link);
 }
 
@@ -275,7 +280,7 @@ function openLink(peer, ownAddress) {
       fail(peer, link, FAILURE.NO_KEY);
       return;
     }
-    await sendSignedMessage({ type: NONCE_TYPE, version: 1, nonce: link.localNonce }, peer);
+    await sendLinkFrame({ type: NONCE_TYPE, version: 1, nonce: link.localNonce }, peer);
   })().catch((error) => log.error(error));
   return { link, settled };
 }
