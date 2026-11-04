@@ -107,21 +107,22 @@ function noteSafetyObservation(appId, observation, logFn, message) {
  * @param {string} dirPath - Directory to scan
  * @param {number} limit - Stop counting once this many entries are found
  * @param {{excludeNames?: string[], excludeDirs?: string[],
- *   excludeRoot?: (name: string) => boolean, countDirs?: boolean}} options - Skips, and
- *   whether a (non-excluded) directory counts as content in its own right rather than
- *   only as a subtree to descend into.
+ *   excludeRoot?: (name: string) => boolean, countDirs?: boolean, bytesOnly?: boolean}} options
+ *   Skips, whether a (non-excluded) directory counts as content in its own right rather
+ *   than only as a subtree to descend into, and whether only a file with bytes counts,
+ *   at any depth, with a file that cannot be stat'd counting as one.
  * @returns {Promise<{count: number, unreadable: string[]}>} Entries found (capped at
  *   limit), and the absolute paths of the directories that could not be read
  */
 async function countFilesUpTo(dirPath, limit, {
-  excludeNames = [], excludeDirs = [], excludeRoot = null, countDirs = false,
+  excludeNames = [], excludeDirs = [], excludeRoot = null, countDirs = false, bytesOnly = false,
 } = {}) {
   // A file that cannot be stat'd is not shown to hold anything. It counts as empty
   // rather than as content, so a read this process is refused cannot be what keeps a
   // wiped volume looking occupied; the unreadable list above is what carries that case.
   const hasBytes = async (filePath) => fs.promises.stat(filePath)
     .then((stats) => stats.size > 0)
-    .catch(() => false);
+    .catch(() => bytesOnly);
   let count = 0;
   const unreadable = [];
   const pending = [{ dir: dirPath, isRoot: true }];
@@ -169,7 +170,7 @@ async function countFilesUpTo(dirPath, limit, {
         // the owner's own tree, where an empty file is theirs and a payload of them is
         // a payload; skipping those would read a volume of empty files as a wiped one.
         // eslint-disable-next-line no-await-in-loop
-        if (current.isRoot && !(await hasBytes(path.join(current.dir, entry.name)))) {
+        if ((current.isRoot || bytesOnly) && !(await hasBytes(path.join(current.dir, entry.name)))) {
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -235,9 +236,10 @@ const PRIVILEGED_PROBE_LIMIT = 8;
  *   regular file only
  * @returns {Promise<'found'|'none'|'unknown'>}
  */
-async function privilegedSubtreeHoldsContent(dirPath, countDirs) {
+async function privilegedSubtreeHoldsContent(dirPath, countDirs, bytesOnly = false) {
   if (!path.isAbsolute(dirPath)) return PrivilegedProbe.UNKNOWN;
-  const scope = countDirs ? ['-mindepth', '1'] : ['-type', 'f'];
+  const files = bytesOnly ? ['-type', 'f', '-size', '+0c'] : ['-type', 'f'];
+  const scope = countDirs ? ['-mindepth', '1'] : files;
   const probe = await serviceHelper.runCommand('find', {
     runAsRoot: true,
     logError: false,
@@ -293,18 +295,19 @@ function isSyncedPayloadName(name, unsyncedSubdirs = []) {
  * index over emptied data is never caught.
  * @param {string} dirPath - Directory path to check
  * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
- * @param {{countDirs?: boolean, limit?: number}} options - whether a directory is content
- *   in its own right, which the caller decides from what the index claims, and how many
- *   entries end the walk
+ * @param {{countDirs?: boolean, limit?: number, bytesOnly?: boolean}} options - whether a
+ *   directory is content in its own right, which the caller decides from what the index
+ *   claims, how many entries end the walk, and whether only a file with bytes is content
  * @returns {Promise<{hasContent: boolean, fileCount: number, readable: boolean}>}
  *   whether the scope holds the owner's data, how many entries this process counted
  *   itself (a privileged probe answers the question, never with a number), and
  *   whether the answer was established at all
  */
-async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = [], { countDirs = true, limit = 100 } = {}) {
+async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = [], { countDirs = true, limit = 100, bytesOnly = false } = {}) {
   const { count, unreadable } = await countFilesUpTo(dirPath, limit, {
     excludeRoot: (name) => !isSyncedPayloadName(name, unsyncedSubdirs),
     countDirs,
+    bytesOnly,
   });
   if (count > 0 || unreadable.length === 0) {
     return { hasContent: count > 0, fileCount: count, readable: true };
@@ -318,7 +321,7 @@ async function checkDirectoryHasSyncScopedContent(dirPath, unsyncedSubdirs = [],
   // eslint-disable-next-line no-restricted-syntax
   for (const subtree of subtrees) {
     // eslint-disable-next-line no-await-in-loop
-    const verdict = await privilegedSubtreeHoldsContent(subtree, countDirs);
+    const verdict = await privilegedSubtreeHoldsContent(subtree, countDirs, bytesOnly);
     if (verdict === PrivilegedProbe.FOUND) {
       return { hasContent: true, fileCount: count, readable: true };
     }
@@ -414,7 +417,8 @@ async function localHoldings(folderId, skipNames = []) {
  * Each read is the proof of a different failure, and they run cheapest first. The index
  * says what syncthing has seen, the local changes what this node holds that the cluster
  * does not, and the disk what neither has scanned. A file only the disk shows is handed
- * to syncthing, so the next pass answers it from the index without walking.
+ * to syncthing, so the next pass answers it from the index without walking. Nothing here
+ * is bytes-free data: an empty file holds none, and a peer holds the ones the index lists.
  *
  * Anything that cannot be established answers false.
  * @param {string} folderId
@@ -431,7 +435,7 @@ async function folderHoldsNothing(folderId, unsyncedSubdirs = [], options = {}) 
   if (!holdings || holdings.bytes !== 0) return false;
   const volume = `${appsFolder}${folderId}`;
   if (!(await isPathMounted(volume))) return false;
-  const disk = await checkDirectoryHasSyncScopedContent(volume, unsyncedSubdirs, { countDirs: false, limit: 1 });
+  const disk = await checkDirectoryHasSyncScopedContent(volume, unsyncedSubdirs, { countDirs: false, limit: 1, bytesOnly: true });
   if (disk.hasContent) {
     await syncthingService.scanFolder(folderId)
       .catch((error) => log.warn(`folderHoldsNothing - ${folderId}: could not ask syncthing to scan: ${error.message}`));
