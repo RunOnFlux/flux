@@ -8,6 +8,7 @@ const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 
 const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
+const { extractIp } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
 
 // Node specifications (shared state)
@@ -235,12 +236,19 @@ async function appGeolocationVerdict(appSpecs) {
   // The count treats such a node as unprovable and includes it, so falling
   // back here can only make this check stricter than the count, which is the
   // safe direction.
+  //
+  // The table is asked about the address this node has now. The saved
+  // geolocation describes the address it last resolved, which outlives an
+  // address change for as long as its sources are down, and a table FAIL
+  // removes an app. A node that cannot name its address is left to the
+  // self-report, which removes nothing.
   let myContinent = nodeGeo.continentCode;
   let myCountry = nodeGeo.countryCode;
   let myTableRegion = null;
   let placedBy = GeoSource.SELF;
   try {
-    const hit = nodeGeo.ip ? await ipLocationStore.lookup(nodeGeo.ip) : null;
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    const hit = localSocketAddr ? await ipLocationStore.lookup(extractIp(localSocketAddr)) : null;
     if (hit?.countryCode && hit.continentCode) {
       myContinent = hit.continentCode;
       myCountry = hit.countryCode;
