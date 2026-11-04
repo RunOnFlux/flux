@@ -4037,6 +4037,41 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(await stateMachine.folderHoldsNothing('test-app')).to.equal(false);
     });
 
+    it('reads a tree of empty files as holding nothing', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.onFirstCall().resolves([dirent('appdata', false)]);
+      fsMock.promises.readdir.onSecondCall().resolves([dirent('marker')]);
+      fsMock.promises.stat.resolves({ size: 0 });
+
+      expect(await stateMachine.folderHoldsNothing('test-app')).to.equal(true);
+      sinon.assert.notCalled(syncthingServiceMock.scanFolder);
+    });
+
+    it('finds bytes below the volume root', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.onFirstCall().resolves([dirent('appdata', false)]);
+      fsMock.promises.readdir.onSecondCall().resolves([dirent('world.db')]);
+
+      expect(await stateMachine.folderHoldsNothing('test-app')).to.equal(false);
+    });
+
+    it('takes a file it cannot stat for one with bytes', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.onFirstCall().resolves([dirent('appdata', false)]);
+      fsMock.promises.readdir.onSecondCall().resolves([dirent('private.db')]);
+      fsMock.promises.stat.rejects(Object.assign(new Error('denied'), { code: 'EACCES' }));
+
+      expect(await stateMachine.folderHoldsNothing('test-app')).to.equal(false);
+    });
+
+    it('asks root only for a file with bytes', async () => {
+      fsMock.promises.readdir.rejects(Object.assign(new Error('denied'), { code: 'EACCES' }));
+      serviceHelperMock.runCommand.resolves({ error: null, stdout: '', stderr: '' });
+
+      expect(await stateMachine.folderHoldsNothing('test-app')).to.equal(true);
+      expect(serviceHelperMock.runCommand.firstCall.args[1].params).to.include.members(['-size', '+0c']);
+    });
+
     it('leaves a directory-only volume empty', async () => {
       fsMock.promises.readdir.resolves([]);
       fsMock.promises.readdir.onFirstCall().resolves([dirent('appdata', false)]);
