@@ -2480,8 +2480,15 @@ describe('volumeExecutor tests', () => {
       fsStub.statfs = sinon.stub().resolves({ bsize: 4096, blocks: 100000, bfree: 99500 });
 
       const trickle = new Readable({ read() {} });
-      const sendingSlowly = setInterval(() => trickle.push('.'), 40);
-      setTimeout(() => { clearInterval(sendingSlowly); trickle.push(null); }, 400);
+      // Sends past the window for as many ticks as the assertion below needs, however
+      // few a loaded box gives it in any given time.
+      const sendingSlowly = setInterval(() => {
+        trickle.push('.');
+        if (fsStub.statfs.callCount > 3) {
+          clearInterval(sendingSlowly);
+          trickle.push(null);
+        }
+      }, 40);
 
       const vol = await openSession();
       await upload(vol, trickle);
