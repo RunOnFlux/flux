@@ -208,6 +208,7 @@ export function nodeClient(nodeNum) {
         'explorer:ready',
         'firewall:adjusted',
         'firewall:locked',
+        'firewall:purged',
         'fluxadm:pass',
         'firewall:containerEgressApplied',
         'firewall:defaultsWritten',
