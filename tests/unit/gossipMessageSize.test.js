@@ -177,7 +177,7 @@ describe('gossip message size tests', () => {
   it('the harness sends either side of the limits the product holds', () => {
     expect(harnessLimits).to.deep.equal({
       GOSSIP_MESSAGE_MAX_BYTES: config.fluxapps.gossipMessageMaxBytes,
-      WS_MAX_PAYLOAD_BYTES: config.fluxapps.wsMaxPayloadBytes,
+      PEER_FRAME_MAX_BYTES: config.fluxapps.peerFrameMaxBytes,
       MAX_ENTERPRISE_LENGTH,
       INSTALL_ERROR_MAX_LENGTH,
     });
@@ -185,6 +185,21 @@ describe('gossip message size tests', () => {
 
   it('a sync answer batch holds any message a node takes', () => {
     expect(config.fluxapps.syncAnswerBatchBytes).to.be.at.least(config.fluxapps.gossipMessageMaxBytes);
-    expect(config.fluxapps.wsMaxPayloadBytes).to.be.above(config.fluxapps.syncAnswerBatchBytes);
+  });
+
+  it('the frame limit holds a full sync answer: its events, their separators and its envelope', () => {
+    const { syncAnswerBatchBytes, syncAnswerBatchSize, peerFrameMaxBytes } = config.fluxapps;
+    const envelope = {
+      version: 1,
+      timestamp: Date.now(),
+      pubKey: '04'.repeat(65),
+      signature: 'A'.repeat(88),
+      data: { type: 'fluxappinstallingerrorsync', version: 1, messages: [], done: false },
+    };
+    // `T<ms>|`, inside `M<64 hex><number>|`: the transmission time and the link MAC.
+    const prefixes = 16 + 86;
+
+    expect(syncAnswerBatchBytes + syncAnswerBatchSize + JSON.stringify(envelope).length + prefixes).to.be.at.most(peerFrameMaxBytes);
+    expect(config.fluxapps.wsMaxPayloadBytes).to.be.above(peerFrameMaxBytes);
   });
 });

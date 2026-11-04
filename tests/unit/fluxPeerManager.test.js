@@ -613,6 +613,63 @@ describe('FluxPeerSocket tests', () => {
       });
     });
 
+    describe('the frame limit', () => {
+      const limit = config.fluxapps.peerFrameMaxBytes;
+      const open = (capabilities = []) => {
+        const ws = createMockWs();
+        const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+        peer.source = PEER_SOURCE.RANDOM;
+        capabilities.forEach((capability) => peer.remoteCapabilities.add(capability));
+        return ws;
+      };
+      const over = () => `{"data":{"type":"fluxapptempsync","pad":"${'x'.repeat(limit)}"}}`;
+
+      beforeEach(() => {
+        sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      });
+
+      it('closes on a frame over it from a peer that owes no sync answer, without parsing it', () => {
+        const ws = open();
+        const published = sinon.stub(fluxEventBus, 'publish');
+        const parsed = sinon.spy(JSON, 'parse');
+
+        ws.onmessage({ data: over() });
+
+        expect(parsed.called).to.equal(false);
+        sinon.assert.calledOnce(ws.close);
+        sinon.assert.calledWith(published, 'peers:frameDropped', sinon.match({ reason: 'frameLimit', type: null }));
+      });
+
+      it('takes a frame over it from a count-batching peer that owes a sync answer', async () => {
+        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        const ws = open();
+
+        ws.onmessage({ data: over() });
+        await new Promise(setImmediate);
+
+        sinon.assert.notCalled(ws.close);
+        sinon.assert.calledOnce(manager.syncResponseDispatcher);
+      });
+
+      it('holds a peer that batches by bytes to it, even while it owes a sync answer', () => {
+        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        const ws = open(['arcaneLink']);
+
+        ws.onmessage({ data: over() });
+
+        sinon.assert.calledOnce(ws.close);
+      });
+
+      it('takes a frame of exactly the limit from any peer', () => {
+        const ws = open(['arcaneLink']);
+        const shell = over().length - limit;
+
+        ws.onmessage({ data: `{"data":{"type":"fluxapptempsync","pad":"${'x'.repeat(limit - shell)}"}}` });
+
+        sinon.assert.notCalled(ws.close);
+      });
+    });
+
     it('should route sync responses to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);

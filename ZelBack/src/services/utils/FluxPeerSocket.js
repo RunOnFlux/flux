@@ -517,6 +517,15 @@ class FluxPeerSocket {
       if (!rateOK) return;
 
       const bytes = Buffer.isBuffer(evt.data) ? evt.data.length : Buffer.byteLength(evt.data, 'utf8');
+      if (bytes > config.fluxapps.peerFrameMaxBytes && !this.#owesCountBatchedSyncAnswer()) {
+        log.warn(`Closing ${this.direction} connection ${this.key}: a ${bytes} byte frame, over ${config.fluxapps.peerFrameMaxBytes} bytes`);
+        fluxEventBus.publish('peers:frameDropped', {
+          ip: this.ip, port: this.port, type: null, bytes, reason: 'frameLimit',
+        });
+        this.close(this.closeCodes.invalidMsg, 'frame over the limit');
+        return;
+      }
+
       let frame = { data: evt.data, bytes, linkVerified: false };
       // A frame under a link MAC is opened here, as it arrives: the frames reach
       // this handler in the order the peer numbered them, and nothing that holds
@@ -552,6 +561,17 @@ class FluxPeerSocket {
       }
       this.#handleFrame(frame);
     };
+  }
+
+  /**
+   * Whether this peer may send a frame over peerFrameMaxBytes: a release that
+   * batches sync answers by count alone, while it owes this node one. A peer
+   * claiming arcaneLink batches by bytes. Once minimumFluxOSAllowedVersion is at
+   * least 8.23.0 every release does, and this goes.
+   * @returns {boolean}
+   */
+  #owesCountBatchedSyncAnswer() {
+    return !this.remoteCapabilities.has(linkCrypto.CAPABILITY) && this.manager.isSyncResponseWanted(this);
   }
 
   /**

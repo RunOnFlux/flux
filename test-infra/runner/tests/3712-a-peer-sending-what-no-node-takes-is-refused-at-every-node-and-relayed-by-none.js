@@ -2,7 +2,7 @@
  * A peer sending what no node takes is refused by the node it reaches, and so
  * relayed by none: a broadcast over the per-message limit, an install error over
  * its length, an encrypted spec carrying a plain compose, an enterprise string
- * over its length, and a websocket message over the payload limit. A caller that
+ * over its length, and a frame over the frame limit. A caller that
  * opens connections and never finishes their link handshake is held to the
  * node's inbound limit and to its allowed ports, and a frame replayed on an
  * authenticated link is dropped.
@@ -33,12 +33,12 @@ import { buildEnterpriseBlob } from '../framework/enterprise-helper.js';
 import { assignPorts } from '../framework/port-allocator.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { pendingMessage, pendingMessageOn, pendingVerdict } from '../framework/unpaid-messages.js';
-import { waitFor, waitForFirstEvent, assertNoEvent } from '../framework/wait.js';
+import { waitFor, waitForFirstEvent } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import limits from '../framework/message-limits.cjs';
 
 const {
-  GOSSIP_MESSAGE_MAX_BYTES, WS_MAX_PAYLOAD_BYTES, MAX_ENTERPRISE_LENGTH, INSTALL_ERROR_MAX_LENGTH,
+  GOSSIP_MESSAGE_MAX_BYTES, PEER_FRAME_MAX_BYTES, MAX_ENTERPRISE_LENGTH, INSTALL_ERROR_MAX_LENGTH,
 } = limits;
 
 const NODES = 5;
@@ -257,31 +257,26 @@ describe('a peer sending what no node takes is refused at every node and relayed
   });
 
   // Last: the connection it closes is the stub's link to ENTRY.
-  it('closes a connection that sends a websocket message over the payload limit, and drops one within it', async function () {
+  it('closes a connection that sends a frame over the frame limit, unparsed', async function () {
     this.timeout(300000);
     const app = await buildSeedableApp({ env, name: name('payload'), instances: 1 });
-    const message = pendingMessage(app);
-    const closed = { event: 'peers:removed', matches: (d) => d.ip === stub.ip };
-    const dropped = { event: 'peers:frameDropped', matches: (d) => d.ip === stub.ip && d.type === message.type };
-    const verdictOn = (mark, label) => pendingVerdict(env.clients[ENTRY], app.hash, [closed, dropped], {
-      afterId: mark, timeout: 120000, label,
-    });
-
-    let mark = env.clients[ENTRY].getLastEventId();
-    await stub.broadcast({ ...message, padding: 'x'.repeat(WS_MAX_PAYLOAD_BYTES - 1024 * 1024) });
-    const within = await verdictOn(mark, 'ENTRY\'s verdict on a websocket message within the payload limit');
-    expect(within.event, JSON.stringify(within)).to.equal('peers:frameDropped');
-    await assertNoEvent(env.clients[ENTRY], 'peers:removed', closed.matches, 0, { afterId: mark });
-
-    mark = env.clients[ENTRY].getLastEventId();
+    const mark = env.clients[ENTRY].getLastEventId();
     const sentAt = Date.now();
-    await stub.broadcast({ ...message, padding: 'x'.repeat(WS_MAX_PAYLOAD_BYTES) });
-    const over = await verdictOn(mark, 'ENTRY\'s verdict on a websocket message over the payload limit');
-    expect(over.event, JSON.stringify(over)).to.equal('peers:removed');
-    // The code ENTRY closed with arrives at the stub; ENTRY's own record of a
-    // connection it failed is 1006.
+
+    await stub.broadcast({ ...pendingMessage(app), padding: 'x'.repeat(PEER_FRAME_MAX_BYTES) });
+
+    const dropped = await env.clients[ENTRY].waitForEvent(
+      'peers:frameDropped',
+      (d) => d.ip === stub.ip && d.reason === 'frameLimit',
+      120000,
+      { afterId: mark },
+    );
+    expect(dropped.data.type, 'a frame over the limit is not parsed to name its type').to.equal(null);
+    await env.clients[ENTRY].waitForEvent('peers:removed', (d) => d.ip === stub.ip, 60000, { afterId: mark });
     const { closes } = await stub.getStats();
     const entryIp = getSubnetConfig().nodeIp(ENTRY + 1);
-    expect(closes.filter((c) => c.ip === entryIp && c.at >= sentAt).map((c) => c.code), JSON.stringify(closes)).to.deep.equal([1009]);
+    const codes = closes.filter((c) => c.ip === entryIp && c.at >= sentAt).map((c) => c.code);
+    expect(codes, JSON.stringify(closes)).to.have.length(1);
+    expect(codes[0], 'closed as an invalid message, inbound or outbound').to.be.oneOf([4016, 4017]);
   });
 });
