@@ -9,7 +9,7 @@ import { clearNodeAddress, setNodeAddress } from '../framework/daemon-control.js
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { waitFor } from '../framework/wait.js';
+import { assertNoEvent, waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -22,7 +22,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // The chain moved the node from the address it left, which proves the move is
 // its own: its peers apply the move with the time it recorded, whether or not it
-// ran an app there, and a node that ran one has its app held at the new address.
+// ran an app there, and keep the rows of a node that ran one until they hear it.
+// Those rows follow it to the new address, keeping when it took the app, and it
+// announces them there once, the move being the one time its address changed.
 const WITH_APP = 0;
 const WITHOUT_APP = 1;
 const API_PORT = 16127;
@@ -31,6 +33,9 @@ const DETECTION_MS = 6 * 60 * 1000;
 // Production's location lifetime, so the rows at the address a node left are
 // still standing when its move is heard.
 const LOCATION_TTL_S = 30 * 60;
+// Longer than the peers take to reconnect and a capability check to run, so a
+// second announcement would be seen.
+const ANNOUNCED_ONCE_MS = 30 * 1000;
 
 describe('a move heard after the chain lists the new address', function () {
   let env;
@@ -42,12 +47,13 @@ describe('a move heard after the chain lists the new address', function () {
   const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:${API_PORT}`);
   const moveHeldBy = async (i, oldSocket, newSocket) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
     .find((event) => event.data?.newIP === newSocket);
+  const awaitingMove = async (j, socket) => (await client(j).getTestCounters())['location:awaitingMove']?.[socket] ?? 0;
 
   // Moves node `i` with the chain listing it at the new address in the next block, holds
   // it before it tells the move, and lets it go once every other node has read
   // a list from after the change. Returns where it moved, the move it recorded,
   // and the event id each other node had reached before it was let go.
-  const moveListedFirst = async (i, lastOctet) => {
+  const moveListedFirst = async (i, lastOctet, onHeld = null) => {
     const node = client(i);
     const fromIp = node.ip;
     const toIp = fromIp.replace(/\.\d+$/, `.${lastOctet}`);
@@ -74,13 +80,14 @@ describe('a move heard after the chain lists the new address', function () {
     }
 
     const toldAnchors = new Map(others(i).map((j) => [j, client(j).getLastEventId()]));
+    if (onHeld) await onHeld({ oldSocket, heldAnchor });
     await node.releaseCheckpoint(BEFORE_RECONCILE, newSocket);
     let told;
     await waitFor(async () => { told = await moveHeldBy(i, oldSocket, newSocket); return Boolean(told); }, {
       timeout: 120000, interval: 2000, label: `node ${i} records and tells its move`,
     });
     return {
-      toIp, oldSocket, newSocket, told, toldAnchors,
+      toIp, oldSocket, newSocket, told, toldAnchors, heldAnchor,
     };
   };
 
@@ -129,7 +136,26 @@ describe('a move heard after the chain lists the new address', function () {
 
   it('is applied with the time the node recorded, and its app followed to the new address, when it ran an app at the address it left', async function () {
     this.timeout(DETECTION_MS + 600000);
-    const { oldSocket, newSocket, told } = await moveListedFirst(WITH_APP, 240);
+    const node = client(WITH_APP);
+    const tookAt = (await dbClient(others(WITH_APP)[0] + 1).getAppLocations(appName))[0].runningSince;
+    let releasedAt;
+    const {
+      oldSocket, newSocket, told, heldAnchor,
+    } = await moveListedFirst(WITH_APP, 240, async ({ oldSocket: left, heldAnchor: moveAnchor }) => {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const j of others(WITH_APP)) {
+        // eslint-disable-next-line no-await-in-loop
+        await waitFor(async () => await awaitingMove(j, left) > 0, {
+          timeout: 120000, interval: 2000, label: `node ${j} finds the address unlisted and leaves its rows to the move`,
+        });
+        // eslint-disable-next-line no-await-in-loop
+        expect((await dbClient(j + 1).getAppLocations(appName)).map((row) => socketOf(row.ip)), `node ${j} holds the rows at the address the node left`).to.deep.equal([left]);
+        // eslint-disable-next-line no-await-in-loop
+        expect(await dbClient(j + 1).getAppStateEvents({ ip: left, type: 'evicted' }), `node ${j} evicted a node the chain moved`).to.have.length(0);
+      }
+      expect(node.getEventBuffer().filter((event) => event.id > moveAnchor && event.event === 'app:running'), 'announced while its move is under way').to.have.length(0);
+      releasedAt = Date.now();
+    });
 
     // eslint-disable-next-line no-restricted-syntax
     for (const j of others(WITH_APP)) {
@@ -140,10 +166,20 @@ describe('a move heard after the chain lists the new address', function () {
       });
       expect(held.data.broadcastedAt, `the time node ${j} holds for the move`).to.equal(told.data.broadcastedAt);
       // eslint-disable-next-line no-await-in-loop
-      await waitFor(async () => (await dbClient(j + 1).getAppLocations(appName)).map((row) => socketOf(row.ip)).join() === newSocket, {
-        timeout: 180000, interval: 3000, label: `node ${j} holds the app at the new address only`,
+      await waitFor(async () => {
+        const rows = await dbClient(j + 1).getAppLocations(appName);
+        return rows.map((row) => socketOf(row.ip)).join() === newSocket && new Date(rows[0].broadcastedAt).getTime() >= releasedAt;
+      }, {
+        timeout: 180000, interval: 3000, label: `node ${j} holds the node's own announcement at the new address only`,
       });
+      // eslint-disable-next-line no-await-in-loop
+      const [row] = await dbClient(j + 1).getAppLocations(appName);
+      expect(new Date(row.runningSince).getTime(), `when node ${j} holds the node took the app`).to.equal(new Date(tookAt).getTime());
     }
+
+    const announced = () => node.getEventBuffer().filter((event) => event.id > heldAnchor && event.event === 'app:running');
+    expect(announced().map((event) => event.data.ip), 'one announcement, at the new address').to.deep.equal([newSocket]);
+    await assertNoEvent(node, 'app:running', () => true, ANNOUNCED_ONCE_MS, { afterId: announced()[0].id });
   });
 
   it('is applied with the time the node recorded when it ran nothing at the address it left', async function () {

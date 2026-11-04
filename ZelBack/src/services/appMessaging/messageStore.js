@@ -16,6 +16,8 @@ const { checkAndDecryptAppSpecs, verifyEncryptedSpec } = require('../utils/enter
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
 const fluxEventBus = require('../utils/fluxEventBus');
+const fluxnodeAddressRecord = require('../fluxnodeAddressRecord');
+const networkStateService = require('../networkStateService');
 const {
   globalAppsMessages,
   globalAppsLocations,
@@ -24,6 +26,7 @@ const {
   globalAppsInstallingErrorsBroadcasts,
   globalAppStateEvents,
   appsHashesCollection,
+  ADDRESS_MOVE_GRACE_BLOCKS,
 } = require('../utils/appConstants');
 const { appsInstallingBroadcasts } = config.database.appsglobal.collections;
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -1102,10 +1105,33 @@ async function handleEvictedEvent({ ip, evictedAt }) {
 }
 
 /**
+ * Whether the node that held `ip` has moved, not left: the chain moved it to an
+ * address the node list holds, within ADDRESS_MOVE_GRACE_BLOCKS. Its rows wait
+ * for its signed move, the only thing that can say which apps it kept. Past the
+ * blocks they do not: a node that keeps its collateral and starts empty sends no
+ * move. While the chain's record is behind the node list, or cannot be read, the
+ * address is not judged.
+ * @param {string} ip Socket address.
+ * @returns {Promise<boolean>}
+ */
+async function rowsAwaitMove(ip) {
+  if (!fluxnodeAddressRecord.holds(networkStateService.highestConfirmedHeight())) return true;
+  let moved;
+  try {
+    moved = await fluxnodeAddressRecord.movedAwayFrom(ip);
+  } catch (error) {
+    log.warn(`rowsAwaitMove - the fluxnode address record cannot be read for ${ip}: ${error.message}`);
+    return true;
+  }
+  if (!moved || fluxnodeAddressRecord.highestRecorded() - moved.height >= ADDRESS_MOVE_GRACE_BLOCKS) return false;
+  return networkStateService.socketAddressInNetworkState(moved.to);
+}
+
+/**
  * Applies a node's eviction: records it, and removes the node's location rows
  * broadcast before it. A row from a broadcast after the eviction is the node
  * back on the network and stays. An eviction older than a location lifetime
- * changes nothing.
+ * changes nothing, and neither does one of a node whose rows await its move.
  *
  * @param {string} ip - The evicted node's socket address
  * @param {number} [evictedAt] - When the eviction was made, ms; now when absent
@@ -1115,6 +1141,11 @@ async function applyEviction(ip, evictedAt) {
   if (!ip) return;
   const at = evictionTime(evictedAt);
   if (at + EVICTED_EXPIRY_MS <= Date.now()) return;
+  if (await rowsAwaitMove(ip)) {
+    fluxEventBus.count('location:awaitingMove', ip);
+    return;
+  }
+  log.info(`Evicting ${ip}: removing its rows from globalAppsLocations`);
   await handleEvictedEvent({ ip, evictedAt: at });
   const [evicted] = await registryManager.currentAddressesOf([{ ip, at }]);
   const db = dbHelper.databaseConnection();
