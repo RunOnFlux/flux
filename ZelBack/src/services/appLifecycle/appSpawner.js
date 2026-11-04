@@ -26,6 +26,12 @@ const appQueryService = require('../appQuery/appQueryService');
 // the thing a caller wants to know and the thing no log line makes assertable.
 const lastCandidacy = new Map();
 
+// The spawn cache's entry for an app this node found covered by running copies. It says
+// nothing once the app is short again, unlike an attempt the node made, which paces the
+// app for the cache's twelve hours: candidates are the apps short of their count, so the
+// entry keeps a covered app from being looked at and leaves a short one to be taken.
+const APP_COVERED = 'covered';
+
 /**
  * Which stage removed each app, from the survivor snapshots taken through the
  * filter chain: tallied every pass (spawner:verdict, by app and stage), and
@@ -33,12 +39,6 @@ const lastCandidacy = new Map();
  *
  * @param {Array<[string, Set<string>]>} stages Ordered [stageName, names still in].
  */
-// The spawn cache's entry for an app this node found covered by running copies. It says
-// nothing once the app is short again, unlike an attempt the node made, which paces the
-// app for the cache's twelve hours: candidates are the apps short of their count, so the
-// entry keeps a covered app from being looked at and leaves a short one to be taken.
-const APP_COVERED = 'covered';
-
 function publishCandidacyChanges(stages) {
   if (!stages.length) return;
   const [, initial] = stages[0];
