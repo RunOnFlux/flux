@@ -4,7 +4,9 @@ import {
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { moveNodeAddress } from '../framework/container.js';
-import { clearNodeAddress, setNodeAddress } from '../framework/daemon-control.js';
+import {
+  clearNodeAddress, clearRpcFailures, failRpc, setNodeAddress,
+} from '../framework/daemon-control.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -19,7 +21,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // and still cannot be heard at an address the chain does not list, so it announces
 // nothing until the list holds it there, and then announces once.
 //
-// Node 0 moves; nodes 1, 2 and 3 are its peers. The location lifetime is
+// Its daemon refuses the confirmation until the suite lets it through, which is
+// what keeps the chain behind the move. Node 0 moves; nodes 1, 2 and 3 are its peers. The location lifetime is
 // production's, so its next timed announcement is minutes off.
 const MOVER = 0;
 const WATCHER = 1;
@@ -28,6 +31,8 @@ const DETECTION_MS = 6 * 60 * 1000;
 const LOCATION_TTL_S = 30 * 60;
 // Longer than the peers take to reconnect and a capability check to run.
 const STEADY_MS = 30 * 1000;
+const CONFIRM = 'createconfirmationtransaction';
+const REFUSED_CONFIRMATIONS = 1000;
 
 describe('a node the chain lists after its move announces once it is listed', function () {
   let env;
@@ -35,7 +40,7 @@ describe('a node the chain lists after its move announces once it is listed', fu
   let moved = null;
   const appName = `e2elistedlate${Date.now()}`;
   const client = (i) => env.clients[i];
-  const socketOf = (ip) => `${ip}:${API_PORT}`;
+  const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:${API_PORT}`);
   const peerCount = async (node) => {
     const [outbound, inbound] = await Promise.all([node.getPeers(), node.getIncomingPeers()]);
     return new Set([...(outbound.data || []), ...(inbound.data || [])]).size;
@@ -93,6 +98,7 @@ describe('a node the chain lists after its move announces once it is listed', fu
     newSocket = socketOf(toIp);
     anchor = node.getLastEventId();
 
+    await failRpc(toIp, CONFIRM, { times: REFUSED_CONFIRMATIONS });
     await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
     moved = fromIp;
     await moveNodeAddress(node.container, toIp, fromIp);
@@ -109,6 +115,7 @@ describe('a node the chain lists after its move announces once it is listed', fu
     this.timeout(300000);
     const node = client(MOVER);
     const listedAt = Date.now();
+    await clearRpcFailures(toIp);
     await setNodeAddress(fromIp, toIp, { scope: 'all' });
 
     await node.waitForEvent('app:running', (d) => d.ip === newSocket, 180000, { afterId: anchor });
