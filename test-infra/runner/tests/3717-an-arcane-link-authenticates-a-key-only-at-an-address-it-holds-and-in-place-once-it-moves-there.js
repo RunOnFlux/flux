@@ -211,11 +211,13 @@ describe('an Arcane link authenticates a key only at an address it holds, and in
       toIp, oldSocket, newSocket, observer,
     } = await moveAndHold(MOVED_BY_MOVE, 231);
     const anchor = client(observer).getLastEventId();
+    const movedAnchor = client(MOVED_BY_MOVE).getLastEventId();
 
     await client(MOVED_BY_MOVE).releaseCheckpoint(BEFORE_RECONCILE, newSocket);
 
     await authenticatedInPlace(observer, toIp, anchor, 180000, `node ${observer}'s connection from the moved node`);
     expect(await moveHeldBy(observer, oldSocket, newSocket), 'the observer upgraded the link on taking the move').to.not.equal(undefined);
+    await client(MOVED_BY_MOVE).waitForEvent('peers:linkAuthenticated', (d) => d.ip === client(observer).ip, 60000, { afterId: movedAnchor });
     const ownView = await connectionTo(MOVED_BY_MOVE, client(observer).ip);
     expect(ownView?.authenticated, 'the moved node\'s end of the link authenticated too').to.equal(true);
   });
