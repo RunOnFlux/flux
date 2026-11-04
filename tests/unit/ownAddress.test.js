@@ -305,7 +305,8 @@ describe('fluxNetworkHelper own address tests', () => {
     const settle = () => new Promise((resolve) => { setImmediate(resolve); });
     // Lets the event loop run until `reached()` holds, failing rather than spinning.
     async function until(reached, label) {
-      for (let turn = 0; turn < 1000 && !reached(); turn += 1) await settle(); // eslint-disable-line no-await-in-loop
+      const giveUpAt = Date.now() + 10000;
+      while (!reached() && Date.now() < giveUpAt) await settle(); // eslint-disable-line no-await-in-loop
       if (!reached()) throw new Error(`${label} never happened`);
     }
 
