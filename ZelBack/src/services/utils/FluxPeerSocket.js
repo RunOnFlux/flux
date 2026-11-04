@@ -50,9 +50,6 @@ function arrivedAuthenticated(msgObj) {
 // handshake runs.
 const HANDSHAKE_QUEUE_MAX = 256;
 const HANDSHAKE_QUEUE_MAX_BYTES = 1024 * 1024;
-// The largest frame read as a handshake frame: a signed nonce or confirm is well
-// under this. Anything larger is not parsed to find out what it is.
-const HANDSHAKE_FRAME_MAX_BYTES = 4096;
 // The handshake frames a connection holds awaiting verification. A handshake is
 // a nonce and a confirm from each side of its restart, so an honest peer holds
 // two or three.
@@ -538,7 +535,7 @@ class FluxPeerSocket {
 
       // Until the link handshake settles only its own two messages are handled;
       // everything else waits on the socket, in order, for the connection to join.
-      if (this.handshaking && (bytes > HANDSHAKE_FRAME_MAX_BYTES || !this.#isHandshakeFrame(frame.data))) {
+      if (this.handshaking && !this.#isHandshakeFrame(frame.data)) {
         if (this.#queuedFrames.length >= HANDSHAKE_QUEUE_MAX || this.#queuedBytes + bytes > HANDSHAKE_QUEUE_MAX_BYTES) {
           log.warn(`Closing ${this.direction} connection ${this.key}: more than ${HANDSHAKE_QUEUE_MAX} frames or ${HANDSHAKE_QUEUE_MAX_BYTES} bytes arrived before its link handshake settled`);
           this.close(this.closeCodes.invalidMsg, 'too much arrived before the link settled');
