@@ -404,9 +404,9 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   // after boot meets a door that admits by quorum. A node can link to no more
   // than the fleet's other Arcane nodes and its Arcane stubs listed at their own
   // address, so one whose quorum is more than that never reaches it and is not
-  // waited for, nor is a node not listed at its own address, which links with
-  // nothing.
-  const unlisted = new Set(env.unlistedNodes ?? []);
+  // waited for, nor is a node not listed at its own address or on a release with
+  // no links, which links with nothing.
+  const unlisted = new Set([...(env.unlistedNodes ?? []), ...(env.releaseImageNodes ?? [])]);
   const linkedStubs = (env.arcaneStubPeers ?? []).filter((index) => !unlisted.has(index));
   const arcaneNodes = env.nodeConfigs.filter((cfg) => cfg.arcane && env.clients[cfg.index] && !unlisted.has(cfg.index));
   const linkable = arcaneNodes.length - 1 + linkedStubs.length;

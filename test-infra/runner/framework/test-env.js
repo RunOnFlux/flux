@@ -1372,6 +1372,7 @@ export async function createTestEnv({
   // Indices of the nodes and stubs on another's collateral: not listed at their
   // own address, so no link of theirs authenticates.
   env.unlistedNodes = Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1);
+  env.releaseImageNodes = releaseImageNodes(nodeImageTags);
   env.answeringSyncPeers = answeringSyncPeers;
   activeEnvs.add(env);
   // A previous env's death must not fail this one's waits.
@@ -1411,11 +1412,22 @@ function mergeConfigs(base, override) {
   return result;
 }
 
+/**
+ * @param {Object<string, string>} nodeImageTags Image tag by node index.
+ * @returns {number[]} The indices of the nodes on another image than this build's.
+ */
+function releaseImageNodes(nodeImageTags) {
+  return Object.entries(nodeImageTags).filter(([, tag]) => tag !== IMAGE_TAG).map(([index]) => Number(index));
+}
+
 async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
-  // The dialing nodes no link authenticates with: legacy nodes, and nodes not
-  // listed at their own address because they run on another's collateral.
+  // The dialing nodes no link authenticates with: legacy nodes, nodes not listed
+  // at their own address because they run on another's collateral, and nodes on
+  // a release that has no links.
   const unlinkableNodeCount = new Set([
-    ...legacyNodes, ...Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1).filter((i) => !stubPeers.includes(i)),
+    ...legacyNodes,
+    ...Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1).filter((i) => !stubPeers.includes(i)),
+    ...releaseImageNodes(nodeImageTags),
   ]).size;
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
