@@ -1360,6 +1360,14 @@ describe('appSpawner tests', () => {
       expect(logStub.info.args.some((a) => a[0]?.includes?.('No app currently to be processed'))).to.be.true;
     });
 
+    it('selects an app it last found covered, now it is short of its count', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0 });
+      globalStateStub.trySpawningGlobalAppCache.set('abc123', 'covered');
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(logStub.info.args.some((a) => a[0]?.includes?.('No app currently to be processed'))).to.be.false;
+      expect(logStub.info.args.some((a) => a[0]?.includes?.('selected to try to spawn'))).to.be.true;
+    });
+
     it('should filter apps in short-term cache from selection', async () => {
       buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0 });
       globalStateStub.trySpawningGlobalAppCache.set('abc123', '');
@@ -1821,6 +1829,7 @@ describe('appSpawner tests', () => {
         globalStateStub.trySpawningGlobalAppCache.has('abc123'),
         'dropped a decline that three running copies fully justify',
       ).to.be.true;
+      expect(globalStateStub.trySpawningGlobalAppCache.get('abc123'), 'recorded as an attempt').to.equal('covered');
     });
 
     it('still claims when the network is one instance short', async () => {
