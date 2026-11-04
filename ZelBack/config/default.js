@@ -794,9 +794,17 @@ module.exports = {
     // answer. The largest app message the validator allows is under 3 MB
     // (tests/unit/gossipMessageSize.test.js).
     gossipMessageMaxBytes: 8 * 1024 * 1024,
-    // the largest websocket message a peer socket takes. A sync answer from a
-    // release that batches by count alone can reach it.
-    wsMaxPayloadBytes: 32 * 1024 * 1024,
+    // the largest frame a node takes from a peer: a sync answer of
+    // syncAnswerBatchBytes of events, a separator per event and its envelope. A
+    // frame over it closes the connection before it is parsed
+    // (utils/FluxPeerSocket.js), but for a sync answer owed by a release that
+    // batches by count alone.
+    peerFrameMaxBytes: (8 * 1024 * 1024) + (64 * 1024),
+    // the largest websocket message a peer socket takes, ws's default. Once
+    // minimumFluxOSAllowedVersion is at least 8.23.0, the first release that
+    // batches sync answers by bytes, every peer is held to peerFrameMaxBytes:
+    // this falls to that value and FluxPeerSocket's exception goes.
+    wsMaxPayloadBytes: 100 * 1024 * 1024,
     // Residential-node staging. The placement hold is immediate and is not
     // tunable; these pace only the part that moves customer data.
     residentialCheckIntervalMs: 6 * 60 * 60 * 1000, // re-evaluate the verdict
