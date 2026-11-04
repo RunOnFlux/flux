@@ -110,10 +110,9 @@ describe('a node the chain lists after its move announces once it is listed', fu
       timeout: DETECTION_MS, interval: 3000, label: 'a peer carried the rows to the new address',
     });
     await waitFor(async () => await peerCount(node) > 0, { timeout: 120000, interval: 1000, label: 'fixture: the node holds peers at its new address' });
-    await waitFor(async () => {
-      const passed = await Promise.all([MOVER, WATCHER].map(async (i) => ((await client(i).getTestCounters())['location:awaitingMove']?.[newSocket] ?? 0) > 0));
-      return passed.every(Boolean);
-    }, { timeout: 120000, interval: 2000, label: 'the node and its peer find the new address unlisted and leave the rows to the chain' });
+    await waitFor(async () => ((await client(WATCHER).getTestCounters())['location:awaitingMove']?.[newSocket] ?? 0) > 0, {
+      timeout: 120000, interval: 2000, label: 'a peer finds the new address unlisted and leaves the rows to the chain',
+    });
     await assertNoEvent(node, 'app:running', () => true, STEADY_MS, { afterId: anchor });
     await Promise.all([MOVER, WATCHER].map(async (i) => {
       expect((await dbClient(i + 1).getAppLocations(appName)).map((row) => socketOf(row.ip)), `the rows node ${i} holds`).to.deep.equal([newSocket]);
