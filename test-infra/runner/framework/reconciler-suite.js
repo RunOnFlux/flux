@@ -404,13 +404,13 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   const unlistedNodes = env.unlistedNodes ?? [];
   const stubs = [...env.stubPeerClients.keys()];
   const ring = env.clients.map((_client, index) => index).filter((index) => !unlistedNodes.includes(index));
-  const absent = ring.filter((index) => !env.clients[index] && !stubs.includes(index));
+  const unanswered = ring.filter((index) => !env.clients[index] && !stubs.includes(index));
   const ringed = env.nodeConfigs
     .filter((cfg) => env.clients[cfg.index] && ring.includes(cfg.index))
     .map(({ index, minOutgoing, minIncoming }) => ({
       index,
       floors: ringPeerFloors(index, ring, {
-        minOutgoing, minIncoming, absent, stubs,
+        minOutgoing, minIncoming, absent: unanswered, stubs,
       }),
     }));
   await waitFor(

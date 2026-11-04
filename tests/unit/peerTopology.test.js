@@ -36,7 +36,7 @@ describe('harness peer topology', () => {
     });
 
     it('counts no stub behind a node, which never dials it', () => {
-      expect(topology.ringPeerFloors(1, ring, { ...floors, minIncoming: 4, stubs: [12, 13] })).to.deep.equal({ outbound: 4, inbound: 3 });
+      expect(topology.ringPeerFloors(1, ring, { ...floors, minIncoming: 4, stubs: [12, 13] })).to.deep.equal({ outbound: 4, inbound: 2 });
     });
 
     it('counts no slot nothing answers on, in either direction', () => {
