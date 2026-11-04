@@ -51,8 +51,8 @@ export async function askToBeDialed(asker, dialer, port = 16127) {
 }
 
 // A stub holds an index in the sorted node list, so the ring routes through it,
-// but it never dials and never answers addoutgoingpeer - it cannot supply a
-// connection in either direction.
+// but it never dials and never answers addoutgoingpeer. A node's own dial reaches
+// it; nothing else connects them.
 export function dialerCount(nodeCount, stubCount = 0) {
   return Math.max(nodeCount - stubCount, 1);
 }
@@ -199,6 +199,39 @@ export function deriveAdmissionQuorum(nodeCount, absentCount, unlinkableCount) {
  */
 export function reachablePeers(dialers, absentCount = 0) {
   return Math.max(0, Math.min(dialers - 1, (2 * ringArc(dialers)) - absentCount));
+}
+
+/**
+ * What a node holds in each direction once the ring has closed, against the door's
+ * floors. It dials the slots ahead of it and is dialled from the slots behind it.
+ * A slot nothing answers on supplies neither, a stub only takes a dial, and a peer
+ * in both arcs ends up in whichever direction connects first, so it counts in
+ * neither.
+ *
+ * @param {number} index The node.
+ * @param {number[]} ring Every listed index, in list order.
+ * @param {object} shape
+ * @param {number} shape.minOutgoing
+ * @param {number} shape.minIncoming
+ * @param {number[]} [shape.absent] Listed indices nothing answers on.
+ * @param {number[]} [shape.stubs] Listed indices that take a dial and never make one.
+ * @returns {{outbound: number, inbound: number}}
+ */
+export function ringPeerFloors(index, ring, {
+  minOutgoing, minIncoming, absent = [], stubs = [],
+}) {
+  const size = ring.length;
+  const position = ring.indexOf(index);
+  const arc = (step) => Array.from(
+    { length: Math.min(size, minOutgoing) },
+    (_unused, i) => ring[(((position + (step * (i + 1))) % size) + size) % size],
+  ).filter((peer) => peer !== index && !absent.includes(peer));
+  const ahead = arc(1);
+  const behind = arc(-1);
+  return {
+    outbound: Math.min(minOutgoing, ahead.filter((peer) => !behind.includes(peer)).length),
+    inbound: Math.min(minIncoming, behind.filter((peer) => !ahead.includes(peer) && !stubs.includes(peer)).length),
+  };
 }
 
 /**

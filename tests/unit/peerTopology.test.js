@@ -27,6 +27,39 @@ describe('harness peer topology', () => {
     expect(topology.PRODUCTION_ADMISSION_LINK_TARGET).to.equal(fluxapps.admissionLinkTarget);
   });
 
+  describe('ringPeerFloors', () => {
+    const ring = Array.from({ length: 14 }, (_unused, i) => i);
+    const floors = { minOutgoing: 4, minIncoming: 2 };
+
+    it('counts a stub ahead of a node, which takes its dial', () => {
+      expect(topology.ringPeerFloors(9, ring, { ...floors, stubs: [12, 13] })).to.deep.equal({ outbound: 4, inbound: 2 });
+    });
+
+    it('counts no stub behind a node, which never dials it', () => {
+      expect(topology.ringPeerFloors(1, ring, { ...floors, minIncoming: 4, stubs: [12, 13] })).to.deep.equal({ outbound: 4, inbound: 3 });
+    });
+
+    it('counts no slot nothing answers on, in either direction', () => {
+      expect(topology.ringPeerFloors(9, ring, { ...floors, minIncoming: 4, absent: [11, 7] })).to.deep.equal({ outbound: 3, inbound: 3 });
+    });
+
+    it('never asks for more than the floor', () => {
+      expect(topology.ringPeerFloors(5, ring, { minOutgoing: 2, minIncoming: 1 })).to.deep.equal({ outbound: 2, inbound: 1 });
+    });
+
+    it('counts a peer in both arcs in neither direction', () => {
+      expect(topology.ringPeerFloors(0, [0, 1, 2], { minOutgoing: 2, minIncoming: 2 })).to.deep.equal({ outbound: 0, inbound: 0 });
+    });
+
+    it('wraps around the end of the ring', () => {
+      expect(topology.ringPeerFloors(13, ring, { ...floors, minIncoming: 4, absent: [0] })).to.deep.equal({ outbound: 3, inbound: 4 });
+    });
+
+    it('takes the ring it is given when an index is not on the list', () => {
+      expect(topology.ringPeerFloors(4, [0, 1, 2, 4, 6, 7, 8], { minOutgoing: 2, minIncoming: 2 })).to.deep.equal({ outbound: 2, inbound: 2 });
+    });
+  });
+
   it('counts the peers the worst-placed node of a ring can hold', () => {
     expect(topology.reachablePeers(1)).to.equal(0);
     expect(topology.reachablePeers(3)).to.equal(2);

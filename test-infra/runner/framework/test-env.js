@@ -1991,6 +1991,8 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       // Only an Arcane node authenticates links, and admits once it holds this many.
       arcane: !isLegacy,
       admissionQuorum: nodeConfig.fluxapps.admissionQuorum,
+      minOutgoing: nodeConfig.fluxapps.minOutgoing,
+      minIncoming: nodeConfig.fluxapps.minIncoming,
     });
   }
 
