@@ -404,7 +404,10 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
         await messageStore.removeLocationForAppRemoved(event.data.ip, event.data.appName, event.data.broadcastedAt);
       } else if (event.type === 'evicted') {
-        await messageStore.applyEviction(event.ip, Date.parse(event.createdAt));
+        // no node takes an eviction of the address it holds
+        if (!socketAddressesMatch(event.ip, fluxNetworkHelper.getKnownLocalSocketAddress())) {
+          await messageStore.applyEviction(event.ip, Date.parse(event.createdAt));
+        }
       } else if (event.type === 'ipchanged') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
         if (await messageStore.storeIPChangedMessage(event.data) === true) {

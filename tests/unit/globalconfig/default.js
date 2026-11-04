@@ -393,6 +393,7 @@ module.exports = {
     discoveryFailRetryMs: 120000,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
+    addressMoveWaitMs: 1200000,
     spawnDeferrals: {
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },

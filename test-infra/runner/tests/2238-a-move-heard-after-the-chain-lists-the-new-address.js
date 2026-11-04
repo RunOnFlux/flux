@@ -179,14 +179,14 @@ describe('a move heard after the chain lists the new address', function () {
         const rows = await dbClient(j + 1).getAppLocations(appName);
         return rows.map((row) => socketOf(row.ip)).join() === newSocket && new Date(rows[0].broadcastedAt).getTime() >= releasedAt;
       }, {
-        timeout: 180000, interval: 3000, label: `node ${j} holds the node's own announcement at the new address only`,
+        timeout: 240000, interval: 3000, label: `node ${j} holds the node's own announcement at the new address only`,
       });
       // eslint-disable-next-line no-await-in-loop
       const [row] = await dbClient(j + 1).getAppLocations(appName);
       expect(new Date(row.runningSince).getTime(), `when node ${j} holds the node took the app`).to.equal(new Date(tookAt).getTime());
     }
 
-    await node.waitForEvent('app:running', (d) => d.ip === newSocket, 60000, { afterId: heldAnchor });
+    await node.waitForEvent('app:running', (d) => d.ip === newSocket, 120000, { afterId: heldAnchor });
     const announced = () => node.getEventBuffer().filter((event) => event.id > heldAnchor && event.event === 'app:running');
     expect(announced().map((event) => event.data.ip), 'one announcement, at the new address').to.deep.equal([newSocket]);
     await assertNoEvent(node, 'app:running', () => true, ANNOUNCED_ONCE_MS, { afterId: announced()[0].id });

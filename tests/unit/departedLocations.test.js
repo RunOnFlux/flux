@@ -13,8 +13,10 @@ describe('departedLocations', () => {
   let onUpdated;
   let isReady;
   let checkpoint;
+  let own;
 
   beforeEach(() => {
+    own = '203.0.113.99:16127';
     applyEviction = sinon.stub().resolves();
     isConfirmed = sinon.stub().returns(true);
     distinctDatabase = sinon.stub().resolves([GONE, LISTED]);
@@ -29,6 +31,8 @@ describe('departedLocations', () => {
       '../appMessaging/messageStore': { applyEviction },
       '../nodeConfirmationService': { isConfirmed },
       '../networkStateService': { onUpdated, isReady },
+      '../fluxNetworkHelper': { getKnownLocalSocketAddress: () => own },
+      '../utils/socketAddressUtils': { socketAddressesMatch: (a, b) => a === b },
       '../utils/fluxEventBus': { checkpoint, Checkpoint: { LOCATIONS_BEFORE_EVICTION: 'locations:beforeEviction' } },
       '../../lib/log': { error: sinon.stub() },
     });
@@ -41,6 +45,14 @@ describe('departedLocations', () => {
 
     sinon.assert.calledOnce(applyEviction);
     expect(applyEviction.firstCall.args[0]).to.equal(GONE);
+  });
+
+  it('does not judge the address this node holds, whatever the list has reached', async () => {
+    own = GONE;
+
+    await departed.evictDepartedLocations();
+
+    sinon.assert.notCalled(applyEviction);
   });
 
   it('judges nobody while the daemon does not confirm this node', async () => {

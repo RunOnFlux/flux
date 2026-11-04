@@ -27,6 +27,7 @@ const {
   globalAppStateEvents,
   appsHashesCollection,
   ADDRESS_MOVE_GRACE_BLOCKS,
+  ADDRESS_MOVE_WAIT_MS,
 } = require('../utils/appConstants');
 const { appsInstallingBroadcasts } = config.database.appsglobal.collections;
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -1106,19 +1107,19 @@ async function handleEvictedEvent({ ip, evictedAt }) {
 
 /**
  * Whether a node has told of a move to `ip` that the chain has not reached: a
- * recorded move here from an address the node list still holds under the move's
- * signer. The chain lists a node at a new address only once it has confirmed
- * there, and rows are carried on its word before that.
+ * recorded move here, made within ADDRESS_MOVE_WAIT_MS, from an address the node
+ * list still holds under the move's signer. The chain lists a node at a new address
+ * only once it has confirmed there, and rows are carried on its word before that.
  * @param {string} ip Socket address.
  * @returns {Promise<boolean>}
  */
 async function moveHereAwaitsChain(ip) {
   const moves = await registryManager.addressMovesTo(ip);
   // eslint-disable-next-line no-restricted-syntax
-  for (const [from, { signer }] of moves) {
+  for (const [from, { at, signer }] of moves) {
     // eslint-disable-next-line no-await-in-loop
     const node = await networkStateService.getFluxnodeBySocketAddress(from);
-    if (node && (!signer || node.pubkey === signer)) return true;
+    if (Date.now() - at < ADDRESS_MOVE_WAIT_MS && node && (!signer || node.pubkey === signer)) return true;
   }
   return false;
 }

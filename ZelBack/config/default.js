@@ -780,6 +780,8 @@ module.exports = {
     discoveryMaxIterations: 100,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
+    // how long rows at an address the chain has not listed wait on a signed move to it
+    addressMoveWaitMs: 1200000,
     // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted
     pullStallMs: 90000,
     // between a node's removals of its own apps when it goes out of service (nodeStatusMonitor)

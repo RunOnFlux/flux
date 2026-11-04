@@ -6,6 +6,8 @@ const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const networkStateService = require('../networkStateService');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
 
@@ -19,7 +21,8 @@ let evicting = false;
  * for a time. Runs on each node list update, one pass at a time; an update
  * arriving during a pass is met by the next. A restarted node hears the evictions
  * it missed from its peers' state sync. A node the daemon does not confirm judges
- * nobody.
+ * nobody, and no node judges the address it holds: it knows where it is, whatever
+ * the list has reached.
  * @returns {Promise<void>}
  */
 async function evictDepartedLocations() {
@@ -28,8 +31,9 @@ async function evictDepartedLocations() {
   try {
     const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
     const addresses = await dbHelper.distinctDatabase(database, globalAppsLocations, 'ip');
+    const own = fluxNetworkHelper.getKnownLocalSocketAddress();
     // eslint-disable-next-line no-restricted-syntax
-    for (const address of addresses) {
+    for (const address of addresses.filter((candidate) => !socketAddressesMatch(candidate, own))) {
       // eslint-disable-next-line no-await-in-loop
       if (!await fluxCommunicationUtils.socketAddressInFluxList(address)) {
         // eslint-disable-next-line no-await-in-loop

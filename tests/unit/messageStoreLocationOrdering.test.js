@@ -7,7 +7,7 @@ const sinon = require('sinon');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
-const { ADDRESS_MOVE_GRACE_BLOCKS } = require('../../ZelBack/src/services/utils/appConstants');
+const { ADDRESS_MOVE_GRACE_BLOCKS, ADDRESS_MOVE_WAIT_MS } = require('../../ZelBack/src/services/utils/appConstants');
 const { requireMongo } = require('./dbTestHelper');
 
 // A shutdown or a removal speaks only for the location rows its node broadcast
@@ -135,11 +135,11 @@ describe('messageStore location ordering', () => {
     const OLD = '203.0.113.6:16127';
     const KEY = '02aa';
     const eviction = () => events.findOne({ ip, type: 'evicted' });
-    const movedHere = ({ signer = KEY, listedKey = KEY } = {}) => {
+    const movedHere = ({ signer = KEY, listedKey = KEY, at = Date.now() } = {}) => {
       sinon.stub(networkStateService, 'highestConfirmedHeight').returns(5000);
       sinon.stub(fluxnodeAddressRecord, 'holds').returns(true);
       sinon.stub(fluxnodeAddressRecord, 'movedAwayFrom').resolves(null);
-      sinon.stub(registryManager, 'addressMovesTo').resolves(new Map([[OLD, { to: ip, at: Date.now(), signer }]]));
+      sinon.stub(registryManager, 'addressMovesTo').resolves(new Map([[OLD, { to: ip, at, signer }]]));
       sinon.stub(networkStateService, 'getFluxnodeBySocketAddress').resolves(listedKey ? { pubkey: listedKey } : null);
     };
     const evictRow = async () => {
@@ -156,6 +156,20 @@ describe('messageStore location ordering', () => {
 
       expect(await find('app')).to.not.equal(null);
       expect(await eviction()).to.equal(null);
+    });
+
+    it('evicts once the wait has passed: a node can sign a move to any address', async () => {
+      movedHere({ at: Date.now() - ADDRESS_MOVE_WAIT_MS });
+      await evictRow();
+
+      expect(await find('app')).to.equal(null);
+    });
+
+    it('keeps the rows until the wait has passed', async () => {
+      movedHere({ at: Date.now() - ADDRESS_MOVE_WAIT_MS + 60 * 1000 });
+      await evictRow();
+
+      expect(await find('app')).to.not.equal(null);
     });
 
     it('evicts once the address it left has gone from the list: it moved and is gone', async () => {
