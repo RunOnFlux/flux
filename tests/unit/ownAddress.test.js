@@ -376,6 +376,65 @@ describe('fluxNetworkHelper own address tests', () => {
       }
     });
 
+    it('holds a move under way from its report until the network has been told, and says so once each way', async () => {
+      configure('198.51.100.171');
+      await holding('198.51.100.171:16127');
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.172:16127' } });
+      const changes = [];
+      fluxNetworkHelper.onOwnMoveUnderwayChange((underway) => changes.push(underway));
+      let told;
+      moved.onFirstCall().callsFake(() => new Promise((resolve) => { told = resolve; }));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      try {
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        expect(fluxNetworkHelper.ownMoveUnderway(), 'once reported').to.equal(true);
+        await until(() => told, 'the move being told');
+        expect(fluxNetworkHelper.getKnownLocalSocketAddress(), 'fixture: it has switched').to.equal('198.51.100.172:16127');
+        expect(fluxNetworkHelper.ownMoveUnderway(), 'switched and not yet told').to.equal(true);
+        told();
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.172:16127');
+        expect(fluxNetworkHelper.ownMoveUnderway(), 'told').to.equal(false);
+        expect(changes).to.deep.equal([true, false]);
+      } finally {
+        told?.();
+        stop();
+      }
+    });
+
+    it('keeps a move under way when a pass of an earlier move ends while the next is reported', async () => {
+      configure('198.51.100.173');
+      await holding('198.51.100.173:16127');
+      const report = sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.174:16127' } });
+      let told;
+      moved.onFirstCall().callsFake(() => new Promise((resolve) => { told = resolve; }));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      try {
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await until(() => told, 'the first move being told');
+        report.resolves({ status: 'success', data: { ipaddress: '198.51.100.175:16127' } });
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        const changes = [];
+        fluxNetworkHelper.onOwnMoveUnderwayChange((underway) => changes.push(underway));
+        told();
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.175:16127');
+        expect(moved.callCount, 'fixture: both moves were told').to.equal(2);
+        expect(changes, 'one end, after the second move').to.deep.equal([false]);
+      } finally {
+        told?.();
+        stop();
+      }
+    });
+
+    it('ends a move the network is not told of, once the node has switched', async () => {
+      configure('198.51.100.176');
+      await holding('198.51.100.176:16127');
+      await fluxNetworkHelper.adjustExternalIp('198.51.100.176:16127', '198.51.100.177:16127', { announceMove: false });
+
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.177:16127');
+      expect(fluxNetworkHelper.ownMoveUnderway()).to.equal(false);
+    });
+
     it('takes an address reported for it that it has moved away from as lagging its move, not as a move', async () => {
       configure('198.51.100.136');
       await holding('198.51.100.136:16127', '198.51.100.135:16127');

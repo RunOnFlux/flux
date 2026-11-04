@@ -1294,8 +1294,12 @@ export async function createTestEnv({
       ?? configOverrides?.fluxapps?.appSyncPeerThreshold
       ?? readiness.appSyncPeerThreshold;
     if (reachablePeers >= threshold) continue;
+    // A node with nobody to carry its messages meets a threshold of none, or it
+    // could never be heard. A suite that declares a threshold keeps what it asked for.
+    const declaredThreshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
+      ?? configOverrides?.fluxapps?.appSyncPeerThreshold;
     peerlessOverrides[index] = mergeConfigs(
-      { fluxapps: { appSyncFallbackMinutes: 0 } },
+      { fluxapps: { appSyncFallbackMinutes: 0, ...(declaredThreshold === undefined ? { appSyncPeerThreshold: 0, appSyncDegradedThreshold: 0 } : {}) } },
       nodeConfigOverrides[index] ?? null,
     );
   }
@@ -1310,10 +1314,6 @@ export async function createTestEnv({
   // does, and it cannot be wrong. Twenty-seven fleets in this suite set are one or two
   // nodes and have no opinion about policy at all; their authors should not have to know
   // this wait exists.
-  //
-  // A threshold of zero would not rescue them: FluxPeerManager sets #aboveThreshold only
-  // inside addPeer, so a node with no peers never flips the latch whatever the threshold
-  // is set to.
   //
   // DOES IT WANT TO is intent, and only the fixture knows. A source can answer perfectly
   // and serve a bundle the node is right to refuse - a signer the fleet does not pin, a

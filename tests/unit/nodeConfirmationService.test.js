@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { EventEmitter } = require('events');
 const proxyquire = require('proxyquire').noCallThru();
 const config = require('config');
 
@@ -16,6 +17,12 @@ describe('nodeConfirmationService', () => {
   let getFluxnodeBySocketAddressStub;
   let logStub;
   let ownAddressKnown;
+  let ownAddressChanged;
+  let ownAddressUnresolved;
+  let ownMoveChanged;
+  let listUpdated;
+  let peerManager;
+  let ownMoveUnderwayStub;
 
   beforeEach(() => {
     clock = sinon.useFakeTimers({ shouldAdvanceTime: false });
@@ -24,6 +31,9 @@ describe('nodeConfirmationService', () => {
     getFluxNodePublicKeyStub = sinon.stub();
     getFluxnodeBySocketAddressStub = sinon.stub();
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
+    peerManager = new EventEmitter();
+    peerManager.isAboveThreshold = sinon.stub().returns(true);
+    ownMoveUnderwayStub = sinon.stub().returns(false);
 
     service = proxyquire('../../ZelBack/src/services/nodeConfirmationService', {
       './daemonService/daemonServiceFluxnodeRpcs': { getFluxNodeStatus: getFluxNodeStatusStub },
@@ -31,8 +41,16 @@ describe('nodeConfirmationService', () => {
         getLocalSocketAddress: getLocalSocketAddressStub,
         getFluxNodePublicKey: getFluxNodePublicKeyStub,
         onLocalSocketAddressKnown: (listener) => { ownAddressKnown = listener; },
+        onLocalSocketAddressChange: (listener) => { ownAddressChanged = listener; },
+        onLocalSocketAddressUnresolved: (listener) => { ownAddressUnresolved = listener; },
+        onOwnMoveUnderwayChange: (listener) => { ownMoveChanged = listener; },
+        ownMoveUnderway: ownMoveUnderwayStub,
       },
-      './networkStateService': { getFluxnodeBySocketAddress: getFluxnodeBySocketAddressStub },
+      './networkStateService': {
+        getFluxnodeBySocketAddress: getFluxnodeBySocketAddressStub,
+        onUpdated: (listener) => { listUpdated = listener; },
+      },
+      './utils/FluxPeerManager': { peerManager },
       '../lib/log': logStub,
     });
   });
@@ -173,7 +191,7 @@ describe('nodeConfirmationService', () => {
       sinon.assert.calledOnceWithExactly(callback, true);
     });
 
-    it('reports one change when a poll checks while the address arriving is still being checked', async () => {
+    it('reports one change when two checks start together', async () => {
       const callback = sinon.spy();
       service.onMessageCapabilityChange(callback);
       setupConfirmed();
@@ -184,7 +202,8 @@ describe('nodeConfirmationService', () => {
       getLocalSocketAddressStub.onCall(1).returns(new Promise((resolve) => { answerFirstCheck = resolve; }));
       getLocalSocketAddressStub.resolves('1.2.3.4:16127');
       ownAddressKnown('1.2.3.4:16127');
-      await advancePoll();
+      listUpdated();
+      await clock.tickAsync(0);
       answerFirstCheck('1.2.3.4:16127');
       await clock.tickAsync(0);
 
@@ -251,10 +270,141 @@ describe('nodeConfirmationService', () => {
       expect(callback.called).to.be.false;
 
       setupConfirmed();
-      await advancePoll();
+      listUpdated();
+      await clock.tickAsync(0);
 
       expect(callback.calledOnce).to.be.true;
       expect(callback.calledWith(true)).to.be.true;
+    });
+
+    it('no capability check runs on the poll once the daemon says nothing new', async () => {
+      setupConfirmed();
+      await service.start();
+      const reads = getLocalSocketAddressStub.callCount;
+
+      await advancePoll();
+      await advancePoll();
+
+      expect(getLocalSocketAddressStub.callCount).to.equal(reads);
+    });
+
+    it('asks again when the daemon starts confirming the node', async () => {
+      const callback = sinon.spy();
+      service.onMessageCapabilityChange(callback);
+      setupNotConfirmed();
+      await service.start();
+
+      setupConfirmed();
+      await advancePoll();
+
+      sinon.assert.calledOnceWithExactly(callback, true);
+    });
+
+    it('a node below the peer threshold cannot be heard, however well listed', async () => {
+      setupConfirmed();
+      peerManager.isAboveThreshold.returns(false);
+      await service.start();
+
+      expect(service.canSendMessages()).to.be.false;
+    });
+
+    it('loses capability when its peers fall below the threshold, and regains it at the threshold', async () => {
+      const callback = sinon.spy();
+      service.onMessageCapabilityChange(callback);
+      setupConfirmed();
+      await service.start();
+
+      peerManager.isAboveThreshold.returns(false);
+      peerManager.emit('peersBelowThreshold', 3, { deliberate: false });
+      await clock.tickAsync(0);
+      expect(service.canSendMessages()).to.be.false;
+
+      peerManager.isAboveThreshold.returns(true);
+      peerManager.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      expect(service.canSendMessages()).to.be.true;
+
+      expect(callback.args).to.deep.equal([[true], [false], [true]]);
+    });
+
+    it('stays lost through its peers returning while a move is under way', async () => {
+      const callback = sinon.spy();
+      service.onMessageCapabilityChange(callback);
+      setupConfirmed();
+      await service.start();
+
+      ownMoveUnderwayStub.returns(true);
+      ownMoveChanged(true);
+      await clock.tickAsync(0);
+      peerManager.emit('peerThresholdReached', 12);
+      listUpdated();
+      ownAddressChanged('5.6.7.8:16127');
+      await clock.tickAsync(0);
+
+      expect(service.canSendMessages()).to.be.false;
+      expect(callback.args).to.deep.equal([[true], [false]]);
+    });
+
+    it('regains capability once when a move ends with the node listed and its peers held', async () => {
+      const callback = sinon.spy();
+      service.onMessageCapabilityChange(callback);
+      setupConfirmed();
+      await service.start();
+      ownMoveUnderwayStub.returns(true);
+      ownMoveChanged(true);
+      await clock.tickAsync(0);
+
+      ownMoveUnderwayStub.returns(false);
+      ownMoveChanged(false);
+      await clock.tickAsync(0);
+
+      expect(callback.args).to.deep.equal([[true], [false], [true]]);
+    });
+
+    it('loses capability when the node list stops holding it', async () => {
+      setupConfirmed();
+      await service.start();
+
+      getFluxnodeBySocketAddressStub.resolves(null);
+      listUpdated();
+      await clock.tickAsync(0);
+
+      expect(service.canSendMessages()).to.be.false;
+    });
+
+    it('loses capability when a read finds the node has no address', async () => {
+      setupConfirmed();
+      await service.start();
+
+      getLocalSocketAddressStub.resolves(null);
+      ownAddressUnresolved();
+      await clock.tickAsync(0);
+
+      expect(service.canSendMessages()).to.be.false;
+    });
+
+    it('a node with no address does not check itself in a loop', async () => {
+      setupConfirmed();
+      getLocalSocketAddressStub.resolves(null);
+      await service.start();
+      const reads = getLocalSocketAddressStub.callCount;
+
+      ownAddressUnresolved();
+      await clock.tickAsync(0);
+
+      expect(getLocalSocketAddressStub.callCount).to.equal(reads);
+    });
+
+    it('asks nothing of a node the daemon does not confirm', async () => {
+      setupNotConfirmed();
+      await service.start();
+      const reads = getLocalSocketAddressStub.callCount;
+
+      peerManager.emit('peerThresholdReached', 12);
+      listUpdated();
+      await clock.tickAsync(0);
+
+      expect(getLocalSocketAddressStub.callCount).to.equal(reads);
     });
   });
 

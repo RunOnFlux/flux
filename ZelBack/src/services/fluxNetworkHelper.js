@@ -182,8 +182,11 @@ const EGRESS_TARGET = '203.0.113.1';
 // The last address this node learned. A benchmark that does not answer clears
 // localSocketAddress but gives the node no new address, so this keeps it.
 let lastKnownSocketAddress = null;
-// A reported address this node has not yet switched to: its move is under way.
+// A reported address this node has not yet switched to.
 let reportedMoveTo = null;
+// A move of this node's own is under way: from the report of the new address
+// until the network has been told, which drops every peer it held.
+let ownMoveInProgress = false;
 // Emits 'change' with the new address when the node learns one that differs
 // from lastKnownSocketAddress, and 'known' with it when the node has an address
 // after having none.
@@ -1117,6 +1120,24 @@ function onLocalSocketAddressKnown(listener) {
 }
 
 /**
+ * @param {function(): void} listener Called each time a read of this node's
+ *   address finds it has none.
+ * @returns {void}
+ */
+function onLocalSocketAddressUnresolved(listener) {
+  localSocketAddressEvents.on('unresolved', listener);
+}
+
+/**
+ * @param {function(boolean): void} listener Called when a move of this node's
+ *   own comes under way, and when it no longer is.
+ * @returns {void}
+ */
+function onOwnMoveUnderwayChange(listener) {
+  localSocketAddressEvents.on('moveUnderway', listener);
+}
+
+/**
  * Setter for dosMessage.
  * Main goal for this is testing availability.
  *
@@ -1464,9 +1485,29 @@ function reportLocalSocketAddress(reported) {
   localSocketAddressFreshUntil = process.hrtime.bigint() + LOCAL_SOCKET_ADDRESS_TTL_NS;
   if (!ownAddressesLeft.has(address)) {
     reportedMoveTo = address;
+    setOwnMoveInProgress(true);
     localSocketAddressEvents.emit('reported', address);
   }
   return localSocketAddress;
+}
+
+/**
+ * @param {boolean} inProgress Whether a move of this node's own is under way.
+ * @returns {void}
+ */
+function setOwnMoveInProgress(inProgress) {
+  if (ownMoveInProgress === inProgress) return;
+  ownMoveInProgress = inProgress;
+  localSocketAddressEvents.emit('moveUnderway', inProgress);
+}
+
+/**
+ * Whether a move of this node's own is under way: from the report of its new
+ * address until the network has been told of it.
+ * @returns {boolean}
+ */
+function ownMoveUnderway() {
+  return ownMoveInProgress;
 }
 
 /**
@@ -2408,6 +2449,7 @@ async function reconcileOwnMove() {
     await onOwnAddressMoved(from, to, movedAt);
     await updateOwnAddressRecord({ announcedAt: movedAt });
   }
+  if (!reportedMoveTo) setOwnMoveInProgress(false);
   let appsHandled = !ipChanged || !appsDue;
   if (appsDue) {
     let restarted = true;
@@ -4201,6 +4243,9 @@ module.exports = {
   setOnOwnAddressRecorded,
   withSteadyOwnAddress,
   pendingOwnMove,
+  ownMoveUnderway,
+  onOwnMoveUnderwayChange,
+  onLocalSocketAddressUnresolved,
   setOnOwnAddressMoved,
   setInstalledAppsListedAt,
   allowPort,
