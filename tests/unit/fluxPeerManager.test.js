@@ -1346,7 +1346,7 @@ describe('FluxPeerManager tests', () => {
       });
 
       it('should step over a frame that does not verify and handle the next', async () => {
-        manager.handshakeFrameVerifier = sinon.stub().callsFake((msg) => Promise.resolve(msg.id !== 2));
+        manager.handshakeFrameVerifier = sinon.stub().callsFake((msg) => Promise.resolve(msg.timestamp !== 2));
         const peer = addJoined();
         await flush();
         [1, 2, 3].forEach((id) => peer.ws.onmessage({ data: nonce(id) }));
