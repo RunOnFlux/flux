@@ -78,6 +78,40 @@ describe('tempMessageHold', () => {
     expect(await rows.countDocuments({})).to.equal(2);
   });
 
+  it('checks a message by the route it arrived on, with its frame', async () => {
+    const frame = { data: message('a'), signature: 's' };
+    await hold.hold([{ message: message('a'), authenticated: true, relay: { message: frame, from: 'p' } }]);
+    globalState.dbReady = true;
+    await until(() => store.called);
+    expect(store.firstCall.args[1]).to.deep.include({ furtherVerification: true, authenticated: true, frame });
+  });
+
+  it('keeps the authenticated copy of a message an unauthenticated link sent first', async () => {
+    const first = { message: { first: true }, from: 'a' };
+    const second = { message: { second: true }, from: 'b' };
+    await hold.hold([{ message: message('a'), authenticated: false, relay: first }]);
+    await hold.hold([{ message: message('a'), authenticated: true, relay: second }]);
+    expect(await rows.countDocuments({})).to.equal(1);
+    const row = await rows.findOne({});
+    expect(row.authenticated).to.equal(true);
+    expect(row.relay).to.deep.equal(second);
+  });
+
+  it('keeps what relays a message when an authenticated sync answer holds it too', async () => {
+    const gossip = { message: { gossip: true }, from: 'a' };
+    await hold.hold([{ message: message('a'), authenticated: false, relay: gossip }]);
+    await hold.hold([{ message: message('a'), authenticated: true }]);
+    const row = await rows.findOne({});
+    expect(row.authenticated).to.equal(true);
+    expect(row.relay).to.deep.equal(gossip);
+  });
+
+  it('does not lose the route of an authenticated copy to a later unauthenticated one', async () => {
+    await hold.hold([{ message: message('a'), authenticated: true }]);
+    await hold.hold([{ message: message('a'), authenticated: false }]);
+    expect((await rows.findOne({})).authenticated).to.equal(true);
+  });
+
   it('survives a restart of the module', async () => {
     await hold.hold([{ message: message('a') }]);
     const restarted = loadHold();
@@ -100,7 +134,9 @@ describe('tempMessageHold', () => {
     ]);
     globalState.dbReady = true;
     await until(async () => await rows.countDocuments({}) === 0);
-    sinon.assert.calledOnceWithExactly(relay, { message: { good: true }, from: 'p' });
+    sinon.assert.calledWith(relay, { message: { good: true }, from: 'p' }, true);
+    sinon.assert.calledWith(relay, { message: { refused: true }, from: 'p' }, sinon.match.instanceOf(Error));
+    sinon.assert.calledTwice(relay);
   });
 
   it('relays nothing the store did not take as new', async () => {
@@ -108,7 +144,7 @@ describe('tempMessageHold', () => {
     await hold.hold([{ message: message('known'), relay: { message: { known: true }, from: 'p' } }]);
     globalState.dbReady = true;
     await until(async () => await rows.countDocuments({}) === 0);
-    sinon.assert.notCalled(relay);
+    sinon.assert.calledOnceWithExactly(relay, { message: { known: true }, from: 'p' }, false);
   });
 
   it('stops while the registry is rebuilt, and carries on when it opens', async () => {

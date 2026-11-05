@@ -3,6 +3,7 @@ const config = require('config');
 const sinon = require('sinon');
 const EventEmitter = require('events');
 const WebSocket = require('ws');
+const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 
@@ -605,7 +606,7 @@ describe('FluxPeerSocket tests', () => {
       });
 
       it('hands a wanted sync answer over the limit to the sync dispatcher', async () => {
-        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        sinon.stub(manager, 'isSyncArrivalWanted').returns(true);
         open().onmessage({ data: frameOf('fluxapptempsync', limit + 1) });
         await new Promise(setImmediate);
         sinon.assert.calledOnce(manager.syncResponseDispatcher);
@@ -641,7 +642,7 @@ describe('FluxPeerSocket tests', () => {
       });
 
       it('takes a frame over it from a count-batching peer that owes a sync answer', async () => {
-        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        sinon.stub(manager, 'isSyncArrivalWanted').returns(true);
         const ws = open();
 
         ws.onmessage({ data: over() });
@@ -652,7 +653,7 @@ describe('FluxPeerSocket tests', () => {
       });
 
       it('holds a peer that batches by bytes to it, even while it owes a sync answer', () => {
-        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        sinon.stub(manager, 'isSyncArrivalWanted').returns(true);
         const ws = open(['arcaneLink']);
 
         ws.onmessage({ data: over() });
@@ -1543,6 +1544,28 @@ describe('FluxPeerManager tests', () => {
 
       sinon.assert.calledWith(ws.close, CLOSE_CODES.DUPLICATE_PEER);
       clock.restore();
+    });
+  });
+
+  describe('a peer threshold of zero', () => {
+    const managerAtZero = () => {
+      const { FluxPeerManager: AtZero } = proxyquire('../../ZelBack/src/services/utils/FluxPeerManager', {
+        config: { ...config, fluxapps: { ...config.fluxapps, appSyncPeerThreshold: 0, appSyncDegradedThreshold: 0 } },
+      });
+      return new AtZero();
+    };
+
+    it('is met before the first peer', () => {
+      expect(managerAtZero().isAboveThreshold()).to.equal(true);
+    });
+
+    it('crosses no edge when a peer joins, as nothing was below it', () => {
+      const atZero = managerAtZero();
+      const crossings = [];
+      atZero.on('peerThresholdReached', (count) => crossings.push(count));
+      atZero.add(createMockWs('1.1.1.1'), '1.1.1.1', 16127, { source: PEER_SOURCE.RANDOM });
+      expect(crossings).to.deep.equal([]);
+      expect(atZero.isAboveThreshold()).to.equal(true);
     });
   });
 

@@ -573,7 +573,7 @@ class FluxPeerSocket {
    * @returns {boolean}
    */
   #owesCountBatchedSyncAnswer() {
-    return !this.remoteCapabilities.has(linkCrypto.CAPABILITY) && this.manager.isSyncResponseWanted(this);
+    return !this.remoteCapabilities.has(linkCrypto.CAPABILITY) && this.manager.isSyncArrivalWanted(this);
   }
 
   /**

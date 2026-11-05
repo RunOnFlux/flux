@@ -301,7 +301,7 @@ describe('messageStore tests', () => {
         messageVerifierStub.verifyAppMessageSignature = sinon.stub().resolves();
         messageVerifierStub.checkAndRequestApp = sinon.stub().resolves(true);
         dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
-        dbHelperStub.insertOneToDatabase.resolves();
+        dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
       });
 
       describe('on an Arcane node', () => {
@@ -555,7 +555,7 @@ describe('messageStore tests', () => {
         fluxService.isSystemSecure.resolves(false);
         messageVerifierStub.verifyAppHash = sinon.stub().resolves(true);
         messageVerifierStub.verifyAppMessageSignature = sinon.stub().resolves(true);
-        dbHelperStub.insertOneToDatabase.resolves();
+        dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
 
         await messageStore.storeAppTemporaryMessage(enterpriseMessage({ enterprise: 'A'.repeat(MAX_ENTERPRISE_LENGTH) }));
         sinon.assert.calledOnce(dbHelperStub.insertOneToDatabase);
@@ -585,7 +585,7 @@ describe('messageStore tests', () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
-      dbHelperStub.insertOneToDatabase.resolves();
+      dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
 
       messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
         config: configStub,
@@ -655,7 +655,7 @@ describe('messageStore tests', () => {
         messageVerifierStub.checkAndRequestApp = sinon.stub().resolves(true);
         dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
         dbHelperStub.findOneInDatabase.resolves(hashRecord);
-        dbHelperStub.insertOneToDatabase.resolves();
+        dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
         const getPrevious = sinon.stub().resolves({ owner: 'owner1', version: 6 });
 
         messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
@@ -734,7 +734,7 @@ describe('messageStore tests', () => {
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.insertOneToDatabase.resolves();
+      dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
 
       const result = await messageStore.storeAppPermanentMessage(message);
 
