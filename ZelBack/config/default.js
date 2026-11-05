@@ -403,6 +403,7 @@ module.exports = {
     minOutgoing: net.fluxapps.minOutgoing,
     minUniqueIpsOutgoing: net.fluxapps.minUniqueIpsOutgoing,
     minIncoming: net.fluxapps.minIncoming,
+    maxIncoming: net.fluxapps.maxIncoming,
     minUniqueIpsIncoming: net.fluxapps.minUniqueIpsIncoming,
     minHashSyncPeers: net.fluxapps.minHashSyncPeers,
     minUpTime: net.fluxapps.minUpTime,

@@ -1172,7 +1172,7 @@ class FluxPeerManager extends EventEmitter {
       const maxNumberOfConnections = this.numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming
         ? this.numberOfFluxNodes / 160
         : 9 * config.fluxapps.minIncoming;
-      const maxCon = Math.max(maxPeers, maxNumberOfConnections);
+      const maxCon = config.fluxapps.maxIncoming ?? Math.max(maxPeers, maxNumberOfConnections);
       if (this.inboundCount > maxCon) {
         setTimeout(() => {
           ws.close(CLOSE_CODES.MAX_CONNECTIONS, `Max number of incomming connections ${maxCon} reached`);

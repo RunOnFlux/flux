@@ -86,6 +86,8 @@ module.exports = {
     minOutgoing: 4,
     minUniqueIpsOutgoing: 3,
     minIncoming: 2,
+    // Above the fleet's sixteen stand-ins, so they never fill a node and shut out a real one.
+    maxIncoming: 32,
     minUniqueIpsIncoming: 2,
     minHashSyncPeers: 1,
     minUpTime: 10,
