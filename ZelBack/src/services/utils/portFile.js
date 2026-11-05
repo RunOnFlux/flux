@@ -1,7 +1,8 @@
 /**
  * The port file: where FluxOS publishes the ports it is serving on.
  *
- * Once its listeners are bound FluxOS writes /run/fluxos/fluxos.json,
+ * Once its listeners are bound and its database answers FluxOS writes
+ * /run/fluxos/fluxos.json,
  *
  *   {"apiPort": 16127, "apiPortHttps": 16128, "uiPort": 16126, "pid": 12345}
  *
@@ -107,9 +108,23 @@ function removePortFile({ dir = PORT_FILE_DIR } = {}) {
   return true;
 }
 
+/**
+ * Write the port file once `ready` settles. A reader asks /flux/health at once,
+ * and that checks what `ready` waits for.
+ * @param {Promise<*>} ready settles when FluxOS can answer
+ * @param {object} ports - as writePortFile
+ * @param {object} [options] - as writePortFile
+ * @returns {Promise<boolean>} as writePortFile
+ */
+async function writePortFileAfter(ready, ports, options) {
+  await ready;
+  return writePortFile(ports, options);
+}
+
 module.exports = {
   PORT_FILE_DIR,
   PORT_FILE_NAME,
   removePortFile,
   writePortFile,
+  writePortFileAfter,
 };

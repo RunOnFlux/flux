@@ -439,6 +439,24 @@ describe('nodeHealthService tests', () => {
       });
     });
 
+    it('should name a database that has not connected yet', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns(null);
+      const res = generateResponse();
+
+      await nodeHealthService.nodeHealth(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'The database is not connected yet',
+          failed: 'db',
+          checks: { db: 'fail' },
+        },
+      });
+    });
+
     it('nodeHealth gates on syncthing - a sustained outage fails the node', async () => {
       healthyHardware();
       syncthingService.setSyncthingRunningState(false);
