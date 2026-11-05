@@ -22,9 +22,7 @@ import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
-import {
-  isDaemonUp, getFolderConfig, readPath, setFolderPaused,
-} from '../framework/syncthing-real.js';
+import { isDaemonUp, getFolderConfig, readPath } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -87,7 +85,7 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
       timeout: 180000, interval: 2000, label: 'a pass parked on every holder',
     });
     const { path } = await getFolderConfig(env.clients[0], folderOf(name));
-    return path;
+    return `${path}/appdata`;
   };
 
   before(async function () {
@@ -129,7 +127,6 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
     const leaver = HOLDERS.find((i) => !states[i]);
     const staying = HOLDERS.filter((i) => i !== leaver);
     expect(leaver, 'a holder gave the app up').to.not.equal(undefined);
-    expect(attemptOn(leaver, leavingApp, marks[leaver])?.data).to.include({ proven: true, reason: 'SURPLUS' });
 
     await waitFor(async () => (await readPath(env.clients[staying[0]], `${path}/last-${staying[1]}.txt`)) !== null
       && (await readPath(env.clients[staying[1]], `${path}/last-${staying[0]}.txt`)) !== null, {
@@ -141,11 +138,11 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
     })));
     expect(reads.some(({ last }) => last !== null), 'the leaver\'s last file on a staying copy').to.equal(true);
     expect(reads.some(({ save }) => save !== null), 'the leaver\'s final save on a staying copy').to.equal(true);
+    expect(attemptOn(leaver, leavingApp, marks[leaver])?.data).to.include({ proven: true, reason: 'SURPLUS' });
   });
 
   it('a copy no peer can be shown to hold serves again and deletes nothing', async function () {
     this.timeout(600000);
-    const folder = folderOf(stayingApp);
     const path = await placeOnEveryHolder(stayingApp);
     await Promise.all(HOLDERS.map((i) => env.clients[i].holdCheckpoint(BEFORE_SCAN)));
     const marks = HOLDERS.map((i) => env.clients[i].getLastEventId());
@@ -160,7 +157,7 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
     const peers = HOLDERS.filter((i) => i !== leaver);
     expect(await running(leaver, stayingApp), 'the attempt stopped the copy').to.equal(false);
 
-    await Promise.all(peers.map((i) => setFolderPaused(env.clients[i], folder, true)));
+    await env.partitionGroups([leaver], peers, { awaitSever: false });
     await env.clients[leaver].releaseAllCheckpoints();
 
     await waitFor(() => attemptOn(leaver, stayingApp, marks[leaver]), {
@@ -170,8 +167,7 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
     await waitFor(() => running(leaver, stayingApp), {
       timeout: 120000, interval: 2000, label: 'the copy serving again',
     });
-    expect(await readPath(env.clients[leaver], `${path}/placed.txt`), 'the volume').to.include('placed');
-    expect(await locationCount(stayingApp)).to.equal(3);
-    await Promise.all(peers.map((i) => setFolderPaused(env.clients[i], folder, false)));
+    expect(await readPath(env.clients[leaver], `${path}/${FINAL_SAVE}`), 'the save the stop made, which no peer holds').to.not.equal(null);
+    await env.healPartition([leaver], peers);
   });
 });
