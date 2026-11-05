@@ -643,6 +643,8 @@ function makeEnvShell(networkName) {
     infraContainers,
     stubPeerClients: new Map(),
     stubContainers: new Map(),
+    // Node index -> the listed indices cutOff has cut it off from.
+    peerCuts: new Map(),
     // The death watch (armed by createTestEnv) reads both: `stopping` tells it
     // the exits from here on are ours, `infraWatch` is its docker event stream.
     stopping: false,
@@ -2388,6 +2390,21 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       await Promise.all(runningIndices.map((node) => fluxNodes[node].container.exec(
         ['sh', '-c', `iptables -D INPUT -s ${pendingIp} -j DROP || true`],
       )));
+    },
+
+    // Cuts `nodes` off from the listed peer at index `peer`, both ways, and records
+    // it in peerCuts: bootAndPeer counts no such slot in a node's peer floors. Any
+    // cut made before the fleet peers goes through here.
+    async cutOff(nodes, peer) {
+      const peerIp = getSubnetConfig().nodeIp(peer + 1);
+      await Promise.all(nodes.map(async (node) => {
+        const res = await fluxNodes[node].container.exec(['sh', '-c',
+          `iptables -I INPUT -s ${peerIp} -j DROP && iptables -I OUTPUT -d ${peerIp} -j DROP`]);
+        if (res.exitCode !== 0) {
+          throw new Error(`cutOff: node ${node} from ${peerIp} failed (exit ${res.exitCode}): ${res.output}`);
+        }
+        env.peerCuts.set(node, [...(env.peerCuts.get(node) ?? []), peer]);
+      }));
     },
 
     async partitionGroups(groupA, groupB, { awaitSever = true, severTimeoutMs = 60000 } = {}) {

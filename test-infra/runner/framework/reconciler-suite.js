@@ -400,7 +400,8 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
 
   // The door refuses a node short of either floor, and the total above can be met
   // with one direction short: a dial a stub refused waits for the next discovery
-  // pass. A node not listed at its own address holds no place on the ring.
+  // pass. A node not listed at its own address holds no place on the ring, and a
+  // slot env.cutOff has cut a node off from answers it nothing.
   const unlistedNodes = env.unlistedNodes ?? [];
   const stubs = [...env.stubPeerClients.keys()];
   const ring = env.clients.map((_client, index) => index).filter((index) => !unlistedNodes.includes(index));
@@ -410,17 +411,21 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
     .map(({ index, minOutgoing, minIncoming }) => ({
       index,
       floors: ringPeerFloors(index, ring, {
-        minOutgoing, minIncoming, absent: unanswered, stubs,
+        minOutgoing, minIncoming, absent: [...unanswered, ...(env.peerCuts.get(index) ?? [])], stubs,
       }),
     }));
   await waitFor(
     async () => {
-      const held = await Promise.all(ringed.map(async ({ index, floors }) => {
+      const short = await Promise.all(ringed.map(async ({ index, floors }) => {
         const { outbound, inbound } = await env.clients[index].getTestState('peers');
-        return outbound.filter((peer) => !peer.handshaking).length >= floors.outbound
-          && inbound.filter((peer) => !peer.handshaking).length >= floors.inbound;
+        const out = outbound.filter((peer) => !peer.handshaking).length;
+        const incoming = inbound.filter((peer) => !peer.handshaking).length;
+        return out >= floors.outbound && incoming >= floors.inbound
+          ? null
+          : `node ${index} holds ${out}/${floors.outbound} out, ${incoming}/${floors.inbound} in`;
       }));
-      return held.every(Boolean);
+      if (short.some(Boolean)) throw new Error(short.filter(Boolean).join('; '));
+      return true;
     },
     { timeout: 60000, interval: 500, label: `the door's peer floors on ${ringed.length} nodes` },
   );
