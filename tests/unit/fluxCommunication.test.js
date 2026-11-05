@@ -26,6 +26,7 @@ const messageVerifier = require('../../ZelBack/src/services/appMessaging/message
 const admissionQuorum = require('../../ZelBack/src/services/appMessaging/admissionQuorum');
 const arcaneLink = require('../../ZelBack/src/services/arcaneLink');
 const tempMessageHold = require('../../ZelBack/src/services/appMessaging/tempMessageHold');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
@@ -288,6 +289,7 @@ describe('fluxCommunication tests', () => {
     const propose = (env = envelope) => fluxCommunication.handleAppProposal({ type: 'appproposal', envelope: { ...env, timestamp: Date.now() } }, peer);
 
     beforeEach(() => {
+      globalState.dbReady = true;
       peer = fakePeer(9001);
       broadcastHashStub = sinon.stub(peerManager, 'broadcastHash');
       sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').resolves(fluxCommunicationUtils.VerifyResult.OK);
@@ -323,6 +325,17 @@ describe('fluxCommunication tests', () => {
       expect(cacheManager.announcementSeen.has(objectHash(envelope.data))).to.equal(true);
       expect(messageStore.storeAppTemporaryMessage.firstCall.args[1].frame.pubKey).to.equal('entryKey');
       expect(messageStore.storeAppTemporaryMessage.firstCall.args[1].authenticated).to.equal(true);
+    });
+
+    it('holds no opinion while its registry is rebuilt, as its checks read it', async () => {
+      globalState.dbReady = false;
+      const store = sinon.stub(messageStore, 'storeAppTemporaryMessage');
+
+      await propose();
+
+      expect(receipts()).to.eql(['received', 'refused: its registry is not ready']);
+      sinon.assert.notCalled(store);
+      globalState.dbReady = true;
     });
 
     it('should refuse, with why, a message admission does not take', async () => {
@@ -426,11 +439,12 @@ describe('fluxCommunication tests', () => {
       sender.send(JSON.stringify({ ...envelope, timestamp: Date.now() }));
       receiver.ws.onmessage({ data: sender.ws.send.firstCall.args[0] });
       await new Promise((resolve) => { setImmediate(resolve); });
-      const store = sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(false);
+      sinon.stub(tempMessageHold, 'isPaidAndMissing').resolves(false);
+      const hold = sinon.stub(tempMessageHold, 'hold').resolves(1);
 
       await fluxCommunication.handleAppMessages(delivered, '10.0.0.2', '16127');
 
-      expect(store.firstCall.args[1].authenticated).to.equal(true);
+      expect(hold.firstCall.args[0][0].authenticated).to.equal(true);
     });
 
     it('should ignore a proposal that is not an app message', async () => {
@@ -489,6 +503,18 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleAppMessages(message, '127.0.0.5', '16127');
 
       expect(cacheManager.announcementSeen.has(objectHash(message.data))).to.equal(false);
+    });
+
+    it('relays nothing the store did not take as new', () => {
+      fluxCommunication.settleHeldAppMessage({ message: { timestamp: Date.now(), data: { hash: 'h4' } }, from: 'p' }, false);
+      sinon.assert.notCalled(broadcastHashSpy);
+    });
+
+    it('reports a held message that was refused', () => {
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      fluxCommunication.settleHeldAppMessage({ message: { data: { hash: 'h5' } }, from: 'p' }, new Error('no'));
+      sinon.assert.calledOnceWithExactly(publish, 'appmessage:refused', { hash: 'h5', reason: 'no' });
+      sinon.assert.notCalled(broadcastHashSpy);
     });
 
     it('does not relay a broadcast too old for peers to take', () => {
@@ -574,7 +600,7 @@ describe('fluxCommunication tests', () => {
       wsIncoming.on = sinon.stub();
       peerManager.add(wsIncoming, wsIncoming.ip, port, { source: PEER_SOURCE.INBOUND });
 
-      fluxCommunication.relayCheckedAppMessage({ message, from: `${fromIp}:${port}` });
+      fluxCommunication.settleHeldAppMessage({ message, from: `${fromIp}:${port}` }, true);
 
       sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`, undefined);
       // Announcing is what makes it fetchable: a peer answering the hash asks for it here.
@@ -865,7 +891,8 @@ describe('fluxCommunication tests', () => {
       verify = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').resolves(fluxCommunicationUtils.VerifyResult.OK);
       sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
       sinon.stub(admissionQuorum, 'takeRelay').returns(false);
-      store = sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(false);
+      sinon.stub(tempMessageHold, 'isPaidAndMissing').resolves(false);
+      store = sinon.stub(tempMessageHold, 'hold').resolves(1);
     });
 
     // A dispatch hands its handler to setImmediate and resolves: the handler finishes
@@ -928,8 +955,8 @@ describe('fluxCommunication tests', () => {
       await handled();
 
       sinon.assert.calledTwice(store);
-      expect(store.firstCall.args[1]).to.include({ authenticated: false });
-      expect(store.secondCall.args[1]).to.include({ authenticated: true });
+      expect(store.firstCall.args[0][0].authenticated).to.equal(false);
+      expect(store.secondCall.args[0][0].authenticated).to.equal(true);
       expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
     });
 
@@ -3641,22 +3668,21 @@ describe('fluxCommunication tests', () => {
         });
 
         it('is not stored when it is over the per-message limit, and the rest of the answer is', async () => {
-          sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(true);
+          const hold = sinon.stub(tempMessageHold, 'hold').resolves(1);
           const oversized = { ...temp(), hash: 'h2', appSpecifications: { name: 'a', description: 'x'.repeat(config.fluxapps.gossipMessageMaxBytes) } };
 
           await peerManager.syncResponseDispatcher({ data: { type: 'fluxapptempsync', messages: [temp(), oversized], done: true } }, PEER_SOCKET);
 
-          sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
-          expect(messageStore.storeAppTemporaryMessage.firstCall.args[0].hash).to.equal('h1');
+          expect(hold.firstCall.args[0].map(({ message }) => message.hash)).to.deep.equal(['h1']);
           expect(completions).to.deep.equal([{ syncType: 'apptemp', peerKey: PEER }]);
         });
 
-        it('tells the store a sync answer that carried no link MAC did not arrive over an authenticated link', async () => {
-          sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(true);
+        it('holds a sync answer that carried no link MAC as unauthenticated', async () => {
+          const hold = sinon.stub(tempMessageHold, 'hold').resolves(1);
 
           await respond('handleTempSyncResponse', 'fluxapptempsync', [temp()], true);
 
-          expect(messageStore.storeAppTemporaryMessage.firstCall.args[1]).to.include({ authenticated: false });
+          expect(hold.firstCall.args[0][0].authenticated).to.equal(false);
         });
       });
 
