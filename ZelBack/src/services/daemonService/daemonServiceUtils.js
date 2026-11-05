@@ -466,14 +466,6 @@ function fluxdDataDir() {
 }
 
 /**
- * The directory fluxd keeps its chain and debug.log in, under its data directory.
- * @returns {string}
- */
-function fluxdChainDir() {
-  return path.join(fluxdDataDir(), config.daemon.chainSubdir);
-}
-
-/**
  * The fluxd daemon rpc client
  * @returns {daemonrpc.Client}
  */
@@ -517,7 +509,6 @@ module.exports = {
   executeCall,
   executeBatchCall,
   fluxdDataDir,
-  fluxdChainDir,
   FLUXD_RPC_PORT_UNPUBLISHED,
   getConfigValue,
   getFluxdClient,

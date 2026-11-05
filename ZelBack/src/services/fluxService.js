@@ -1153,7 +1153,7 @@ async function daemonDebug(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const filepath = path.join(daemonServiceUtils.fluxdChainDir(), 'debug.log');
+  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
 
   return res.download(filepath, 'debug.log');
 }
@@ -1196,7 +1196,7 @@ async function tailDaemonDebug(req, res) {
     return;
   }
 
-  const filepath = path.join(daemonServiceUtils.fluxdChainDir(), 'debug.log');
+  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
 
   const { stdout, error } = await serviceHelper.runCommand('tail', {
     params: ['-n', '100', filepath],
@@ -2082,7 +2082,7 @@ async function streamChain(req, res) {
 
     log.info(`Stream chain request received from: ${ip}`);
 
-    const base = daemonServiceUtils.fluxdChainDir();
+    const base = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir);
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [

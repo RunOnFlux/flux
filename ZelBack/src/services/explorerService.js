@@ -659,7 +659,7 @@ async function blockTimeAt(tipBlock, height) {
  * block. A node that reaches the tip after that instant has passed skips this bench
  * rather than run it alone.
  *
- * Mainnet block times, which the instant relies on:
+ * Block times on the live chain, which the instant relies on:
  *
  * | a block's time                          | written by its producer, the same on every node  |
  * | consecutive block times                 | 6 to 120 s apart, 30 s typical, never decreasing |

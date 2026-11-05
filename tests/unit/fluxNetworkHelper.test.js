@@ -2050,7 +2050,11 @@ describe('fluxNetworkHelper tests', () => {
         globalThis.userconfig = before;
       }
 
-      sinon.assert.calledOnceWithMatch(writeFileStub, sinon.match.string, sinon.match(/ipaddress: '127.0.0.67',\n[\s\S]*upnp: true,\n[\s\S]*network: 'mainnet',/));
+      sinon.assert.calledOnceWithMatch(
+        writeFileStub,
+        sinon.match.string,
+        sinon.match(/ipaddress: '127\.0\.0\.67',\n/).and(sinon.match(/upnp: true,\n/)).and(sinon.match(/network: 'mainnet',\n/)),
+      );
     });
 
     it('should not write to file if the config already has same exact ip', async () => {
