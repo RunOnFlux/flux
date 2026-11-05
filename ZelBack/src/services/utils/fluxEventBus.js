@@ -143,6 +143,9 @@ const Checkpoint = Object.freeze({
   // A peer has checked an unpaid app message another node proposed and has not
   // yet answered held. Keyed by the message hash.
   ADMISSION_BEFORE_HELD: 'admission:beforeHeld',
+  // A copy of a gossiped message is marked as verifying and is not yet verified.
+  // Keyed by the message hash.
+  GOSSIP_BEFORE_VERIFY: 'gossip:beforeVerify',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

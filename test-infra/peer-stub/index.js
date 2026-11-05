@@ -871,6 +871,24 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    // A broadcast whose signature does not cover what it carries, as a peer
+    // forging a message by its content would send it. Sent to every connected node.
+    if (req.method === 'POST' && req.url === '/forge-broadcast') {
+      const data = JSON.parse(await readBody(req));
+      const wire = JSON.parse(await serialiseAndSignBroadcast(data));
+      wire.signature = await signBtcMessage('forged', PRIVATE_KEY);
+      let sent = 0;
+      for (const ws of connectedNodes) {
+        if (ws.readyState === 1) {
+          sendTo(ws, JSON.stringify(wire));
+          sent++;
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', sent }));
+      return;
+    }
+
     // Send each connected node, again and as it was, the last frame this stub
     // sealed to it: a replay on its link.
     if (req.method === 'POST' && req.url === '/replay-last-frame') {

@@ -133,6 +133,18 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Send every connected node a message under a signature that does not verify.
+    // Answers how many it sent.
+    async forgeBroadcast(data) {
+      const res = await controlFetch(`${controlUrl}/forge-broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not forge a broadcast: ${res.status} ${await res.text()}`);
+      return res.json();
+    },
+
     // Send each connected node, again and as it was, the last frame this peer
     // sealed to it on their authenticated link. Answers how many it sent.
     async replayLastFrame() {

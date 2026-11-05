@@ -575,6 +575,12 @@ export function nodeClient(nodeNum) {
     getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),
     getPeers: () => get('/flux/connectedpeers'),
+    // The paths of the messages this node received most recently.
+    getNetworkPaths: (zelidauth) => getAuthed('/flux/networkpaths', zelidauth),
+    // Has this node create a broadcast. The route reads the raw body, so the frame is text.
+    broadcastMessage: (data, zelidauth) => request('POST', '/flux/broadcastmessage', {
+      body: data, headers: { zelidauth, 'Content-Type': 'text/plain' },
+    }),
     getIncomingPeers: () => get('/flux/incomingconnections'),
     getNodeStatus: () => get('/daemon/getzelnodestatus'),
     getBlockchainInfo: () => get('/daemon/getblockchaininfo'),
