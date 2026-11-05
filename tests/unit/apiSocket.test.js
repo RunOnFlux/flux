@@ -50,6 +50,18 @@ describe('apiSocket tests', () => {
     });
   });
 
+  describe('router mappings behind the proxy', () => {
+    const upnpService = require('../../ZelBack/src/services/upnpService');
+
+    beforeEach(() => { process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock'; });
+
+    it('leaves the public ports to configd and is ready at once', async () => {
+      expect(await upnpService.setupUPNP(16127)).to.equal(true);
+      expect(await upnpService.startMapping(16127, { learn: () => {} })).to.equal(true);
+      expect(upnpService.isUPNPReady()).to.equal(true);
+    });
+  });
+
   describe('behind the proxy', () => {
     let dir;
     let server;

@@ -12,6 +12,7 @@ const portReconciler = require('../portReconciler');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 const serviceHelper = require('../serviceHelper');
 const publicPorts = require('../utils/publicPorts');
+const { socketPath } = require('../utils/apiSocket');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
@@ -397,6 +398,9 @@ async function removeStaleUpnpMappings() {
     const removed = await upnpService.removeStaleMappings(async () => {
       const configuredApiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
       const held = [...upnpService.corePorts(listeningApiPort), ...upnpService.corePorts(configuredApiPort)];
+      if (socketPath()) {
+        [publicPorts.getApiPort(), ...publicPorts.getAlsoServing()].forEach((port) => held.push(...upnpService.corePorts(port)));
+      }
       const installedApps = await assignedPortsInstalledApps();
       installedApps.forEach((app) => held.push(...app.ports));
       return held;
