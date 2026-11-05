@@ -5,7 +5,8 @@
  *
  *   {"uiPort": 16126, "apiPort": 16127, "apiPortHttps": 16128, "alsoServing": []}
  *
- * FluxOS follows that file while running and is never restarted for a change, and republishes it
+ * alsoServing holds the API ports kept through a move, until the chain lists the new one. FluxOS
+ * follows that file while running and is never restarted for a change, and republishes it
  * in its own port file with confirmedApiPort, the API port the chain lists for this node, which
  * tells configd when a port kept through a move can go. Off the socket FluxOS's ports are its
  * configured ones.
@@ -32,7 +33,7 @@ let watcher = null;
 let retry = null;
 
 function configuredApiPort() {
-  return globalThis.userconfig.initial.apiport || config.server.apiport;
+  return globalThis.userconfig?.initial?.apiport || config.server?.apiport;
 }
 
 /**
@@ -48,6 +49,13 @@ function publish() {
 }
 
 /**
+ * @returns {number[]} The API ports kept through a move.
+ */
+function getAlsoServing() {
+  return published?.alsoServing ?? [];
+}
+
+/**
  * Records the API port the chain lists for this node.
  * @param {number} port
  * @returns {Promise<void>}
@@ -60,8 +68,14 @@ async function setConfirmedApiPort(port) {
 
 function readPorts(file) {
   try {
-    const { apiPort, apiPortHttps, uiPort } = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if ([apiPort, apiPortHttps, uiPort].every(Number.isInteger)) return { apiPort, apiPortHttps, uiPort };
+    const {
+      apiPort, apiPortHttps, uiPort, alsoServing = [],
+    } = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if ([apiPort, apiPortHttps, uiPort, ...alsoServing].every(Number.isInteger)) {
+      return {
+        apiPort, apiPortHttps, uiPort, alsoServing,
+      };
+    }
     log.error(`${file} does not hold three ports`);
   } catch (error) {
     if (error.code !== 'ENOENT') log.error(`${file} could not be read: ${error.message}`);
@@ -73,7 +87,7 @@ async function refresh(file) {
   const ports = readPorts(file);
   if (!ports) return;
   const previous = published;
-  if (previous && Object.keys(ports).every((key) => ports[key] === previous[key])) return;
+  if (JSON.stringify(previous) === JSON.stringify(ports)) return;
   published = ports;
   await publish();
   if (previous) events.emit('change', ports, previous);
@@ -109,6 +123,7 @@ function stop() {
 }
 
 module.exports = {
+  getAlsoServing,
   getApiPort,
   onChange: (listener) => events.on('change', listener),
   offChange: (listener) => events.off('change', listener),
