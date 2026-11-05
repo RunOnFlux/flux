@@ -117,10 +117,19 @@ describe('a standby that lost a delete hears the primary again', function () {
     await stopDaemon(env.clients[leaver]);
     await execInContainer(env.clients[primary].container, `rm -rf ${primaryRoot}/${STALE}`);
     await scanFolder(env.clients[primary], folder);
-    const { sequence } = await getFolderStatus(env.clients[primary], folder);
-    await loseDeviceRecords(env.clients[leaver], folder, {
-      deviceId: await getDeviceId(env.clients[primary]), names: staleItems, sequence,
+    const other = HOLDERS.find((i) => i !== primary && i !== leaver);
+    await waitFor(async () => (await readPath(env.clients[other], `${path}/${STALE}/meta.sav`)) === null, {
+      timeout: 120000, interval: 2000, label: 'the other standby took the delete',
     });
+    // Every device that holds the delete would otherwise repeat it.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const i of [primary, other]) {
+      // eslint-disable-next-line no-await-in-loop
+      const { sequence } = await getFolderStatus(env.clients[i], folder);
+      // eslint-disable-next-line no-await-in-loop
+      const dropped = await loseDeviceRecords(env.clients[leaver], folder, { deviceId: await getDeviceId(env.clients[i]), names: staleItems, sequence });
+      if (i === primary) expect(dropped, 'the primary\'s records').to.equal(staleItems.length);
+    }
     await startDaemon(env.clients[leaver]);
     await waitFor(async () => (await getRemoteState(env.clients[leaver], folder, await getDeviceId(env.clients[primary]))) === 'valid', {
       timeout: 120000, interval: 2000, label: 'the standby connected again',
