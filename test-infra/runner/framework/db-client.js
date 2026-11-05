@@ -128,6 +128,11 @@ export function dbClient(nodeNum) {
     async pendingMessageCount(query) {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappstemporarymessages').countDocuments(query);
+    async seedTempMessages(rows) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappstemporarymessages').insertMany(rows.map((row) => ({ ...row })));
+    },
+
     async tempMessageHashes() {
       const globalDb = await db('appsGlobal');
       const rows = await globalDb.collection('zelappstemporarymessages').find({}, { projection: { _id: 0, hash: 1 } }).toArray();

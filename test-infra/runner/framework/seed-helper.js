@@ -164,6 +164,30 @@ export async function buildSeedableApp({
 }
 
 /**
+ * Temp messages as a peer stores them: unpaid registrations, signed by their owner, which a
+ * node checks in full. Ports are shared, as nothing installs them.
+ * @param {number} count
+ * @param {number} ttlMs How long they are held.
+ * @returns {Promise<object[]>} Rows for dbClient.seedTempMessages.
+ */
+export async function buildTempMessages(count, ttlMs) {
+  const stamp = Date.now();
+  const rows = [];
+  for (let i = 0; i < count; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const { permanentMessage } = await buildSeedableApp({ name: `e2etemp${i}x${stamp}`, allowPortReuse: true });
+    const receivedAt = new Date();
+    const {
+      type, version, appSpecifications, hash, timestamp, signature,
+    } = permanentMessage;
+    rows.push({
+      type, version, appSpecifications, hash, timestamp, signature, receivedAt, expireAt: new Date(receivedAt.getTime() + ttlMs), arcaneSender: true,
+    });
+  }
+  return rows;
+}
+
+/**
  * The same app, one specification later.
  *
  * An owner changing a running app is most of what owners do, and until this
