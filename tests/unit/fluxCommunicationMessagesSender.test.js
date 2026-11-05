@@ -6,7 +6,11 @@ const config = require('config');
 const WebSocket = require('ws');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
 const { PassThrough } = require('stream');
+const hash = require('object-hash');
+const cacheManager = require('../../ZelBack/src/services/utils/cacheManager').default;
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+// Registers the message types, whose intents decide what a broadcast keeps.
+require('../../ZelBack/src/services/fluxCommunication');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
@@ -59,6 +63,40 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       expect(answer).to.equal(null);
       sinon.assert.notCalled(ws1.send);
+    });
+
+    describe('a message this node created', () => {
+      const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+      const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f1'.padEnd(130, '0');
+      const announcement = { type: 'fluxapprunning', version: 1, name: 'kept' };
+
+      beforeEach(() => {
+        cacheManager.announcementStore.clear();
+        sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves(pubKey);
+        sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').resolves(privateKey);
+      });
+
+      [
+        ['broadcastMessageToAll', 'outbound'],
+        ['broadcastMessageToRandomOutgoing', 'outbound'],
+        ['broadcastMessageToRandomIncoming', 'inbound'],
+      ].forEach(([sender, direction]) => {
+        it(`${sender} keeps an announcement for a peer to ask for`, async () => {
+          sinon.stub(peerManager, 'getRandomPeer').withArgs(direction).returns({ send: sinon.stub() });
+
+          await fluxCommunicationMessagesSender[sender](announcement);
+
+          expect(cacheManager.announcementStore.get(hash(announcement)).data).to.deep.equal(announcement);
+        });
+      });
+
+      it('keeps nothing of a type that is not an announcement', async () => {
+        const seq = { type: 'fluxpolicyseq', version: 1, seq: 5 };
+
+        await fluxCommunicationMessagesSender.broadcastMessageToAll(seq);
+
+        expect(cacheManager.announcementStore.has(hash(seq))).to.equal(false);
+      });
     });
 
     it('should send data to all peers (both directions)', async () => {

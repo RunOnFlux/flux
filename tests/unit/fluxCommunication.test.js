@@ -4175,7 +4175,7 @@ describe('fluxCommunication tests', () => {
       expect(first.badMessageTimestamps).to.have.length(1);
     });
 
-    it('handles the genuine copy that arrived while a forged one was being verified', async () => {
+    it('asks the sender of a copy that arrived while a forged one was being verified, and handles what it sends', async () => {
       const payload = data();
       let fail;
       verify.onFirstCall().returns(new Promise((resolve) => { fail = resolve; }));
@@ -4187,14 +4187,40 @@ describe('fluxCommunication tests', () => {
 
       const first = peerManager.messageDispatcher(forged, forger);
       await settled();
-      await peerManager.messageDispatcher(envelope(payload), genuine);
+      const copy = envelope(payload);
+      await peerManager.messageDispatcher(copy, genuine);
       fail(fluxCommunicationUtils.VerifyResult.BAD_SIGNATURE);
       await first;
+      await settled();
+
+      sinon.assert.calledOnce(verify);
+      sinon.assert.calledOnceWithExactly(request, genuine.key, objectHash(payload));
+
+      await peerManager.messageDispatcher(copy, genuine);
       await settled();
 
       sinon.assert.calledTwice(verify);
       sinon.assert.calledOnce(stored);
       expect(cacheManager.announcementSeen.has(objectHash(payload))).to.equal(true);
+    });
+
+    it('lets go of a message whose signer is blocked while its verification waits', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      const payload = data();
+      const sender = peerOf('1.1.1.1');
+      const holder = peerOf('2.2.2.2');
+      verify.onFirstCall().resolves(fluxCommunicationUtils.VerifyResult.UNREADABLE);
+
+      await peerManager.messageDispatcher(envelope(payload), sender);
+      await peerManager.messageDispatcher(envelope(payload), holder);
+      cacheManager.wsPeerCache.set('0400', true);
+      await clock.tickAsync(30 * 1000);
+      await settled();
+      cacheManager.wsPeerCache.delete('0400');
+
+      sinon.assert.calledOnce(sender.close);
+      sinon.assert.calledOnce(verify);
+      sinon.assert.calledOnceWithExactly(request, holder.key, objectHash(payload));
     });
 
     it('keeps the path a message arrived with, for the operator to read, and refuses anyone else', async () => {

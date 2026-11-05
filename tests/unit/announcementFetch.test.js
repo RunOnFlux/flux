@@ -98,46 +98,80 @@ describe('announcementFetch tests', () => {
     expect(asked()).to.deep.equal(['B']);
   });
 
-  const peer = (key) => ({ key });
+  it('asks the sender of a copy that arrived meanwhile once the copy verified fails', () => {
+    fetch.verifyingCopy(HASH);
+    fetch.copyWhileVerifying(HASH, 'H');
+    expect(asked()).to.deep.equal([]);
 
-  it('answers the copy held behind a copy that fails, and asks nobody', () => {
-    const held = { msgObj: {}, peerSocket: peer('H') };
+    fetch.rejected(HASH);
+    expect(asked()).to.deep.equal(['H']);
+  });
+
+  it('remembers no sender while no copy is verified', () => {
+    fetch.copyWhileVerifying(HASH, 'H');
+    fetch.verifyingCopy(HASH);
+    fetch.rejected(HASH);
+
+    expect(asked()).to.deep.equal([]);
+  });
+
+  it('asks a sender once, however many copies it sent, and every sender in turn', () => {
+    fetch.verifyingCopy(HASH);
+    ['F', 'F', 'F', 'H'].forEach((sender) => fetch.copyWhileVerifying(HASH, sender));
+
+    fetch.rejected(HASH);
+    fetch.verifyingCopy(HASH);
+    fetch.rejected(HASH);
+    fetch.verifyingCopy(HASH);
+    fetch.rejected(HASH);
+    expect(asked()).to.deep.equal(['F', 'H']);
+  });
+
+  it('asks a sender again that had timed out', () => {
+    latencies.A = 1;
+    fetch.announced(HASH, 'A');
+    timeout(fetch.timeoutFor('A'));
+    fetch.verifyingCopy(HASH);
+    fetch.copyWhileVerifying(HASH, 'A');
+    fetch.rejected(HASH);
+
+    expect(asked()).to.deep.equal(['A', 'A']);
+  });
+
+  it('charges no miss to a peer that timed out and then sent a copy', () => {
+    latencies.A = 1;
+    fetch.announced(HASH, 'A');
+    fetch.announced(HASH, 'B');
+    timeout(fetch.timeoutFor('A'));
+    expect(asked()).to.deep.equal(['A', 'B']);
+    fetch.verifyingCopy(HASH);
+    fetch.copyWhileVerifying(HASH, 'A');
+    fetch.delivered(HASH, 'C');
+
+    sinon.assert.notCalled(onMiss);
+  });
+
+  it('stops the timer of the peer asked when its copy arrives meanwhile, and charges it nothing', () => {
+    latencies.A = 1;
     fetch.announced(HASH, 'A');
     fetch.announced(HASH, 'B');
     fetch.verifyingCopy(HASH);
-    fetch.holdCopy(HASH, held.msgObj, held.peerSocket);
-
-    expect(fetch.rejected(HASH)).to.deep.equal(held);
+    fetch.copyWhileVerifying(HASH, 'A');
+    timeout(fetch.timeoutFor('A') * 2);
     expect(asked()).to.deep.equal(['A']);
+
+    fetch.delivered(HASH, 'C');
+    sinon.assert.notCalled(onMiss);
   });
 
-  it('holds nothing while no copy is verified', () => {
-    fetch.holdCopy(HASH, {}, peer('H'));
+  it('forgets the senders when the copy verified is delivered', () => {
     fetch.verifyingCopy(HASH);
-
-    expect(fetch.rejected(HASH)).to.equal(null);
-  });
-
-  it('holds one copy per sender, so forged copies cannot displace a genuine one', () => {
-    fetch.verifyingCopy(HASH);
-    fetch.holdCopy(HASH, { forged: 1 }, peer('F'));
-    fetch.holdCopy(HASH, { forged: 2 }, peer('F'));
-    fetch.holdCopy(HASH, { forged: 3 }, peer('F'));
-    fetch.holdCopy(HASH, { genuine: true }, peer('H'));
-
-    expect(fetch.rejected(HASH).msgObj).to.deep.equal({ forged: 1 });
-    fetch.verifyingCopy(HASH);
-    expect(fetch.rejected(HASH).msgObj).to.deep.equal({ genuine: true });
-    expect(fetch.rejected(HASH)).to.equal(null);
-  });
-
-  it('drops the held copy when the first verifies', () => {
-    fetch.verifyingCopy(HASH);
-    fetch.holdCopy(HASH, {}, peer('H'));
+    fetch.copyWhileVerifying(HASH, 'H');
     fetch.delivered(HASH, 'A');
     fetch.verifyingCopy(HASH);
+    fetch.rejected(HASH);
 
-    expect(fetch.rejected(HASH)).to.equal(null);
+    expect(asked()).to.deep.equal([]);
   });
 
   it('charges a miss to a peer that timed out only once another delivers', () => {
