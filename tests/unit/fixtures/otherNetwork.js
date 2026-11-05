@@ -77,6 +77,7 @@ module.exports = {
     minOutgoing: 4,
     minUniqueIpsOutgoing: 3,
     minIncoming: 2,
+    incomingCapFloor: 32,
     minUniqueIpsIncoming: 2,
     minHashSyncPeers: 1,
     minUpTime: 10,

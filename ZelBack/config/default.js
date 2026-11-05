@@ -418,6 +418,7 @@ module.exports = {
     minOutgoing: net.fluxapps.minOutgoing,
     minUniqueIpsOutgoing: net.fluxapps.minUniqueIpsOutgoing,
     minIncoming: net.fluxapps.minIncoming,
+    incomingCapFloor: net.fluxapps.incomingCapFloor,
     minUniqueIpsIncoming: net.fluxapps.minUniqueIpsIncoming,
     minHashSyncPeers: net.fluxapps.minHashSyncPeers,
     minUpTime: net.fluxapps.minUpTime,
