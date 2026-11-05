@@ -202,12 +202,59 @@ describe('messageStore tests', () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
-      dbHelperStub.insertOneToDatabase.resolves();
+      dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
 
       const result = await messageStore.storeAppTemporaryMessage(message, { furtherVerification: false });
 
       expect(result).to.be.true;
       expect(dbHelperStub.insertOneToDatabase.calledOnce).to.be.true;
+    });
+
+    describe('how long a temp message is kept', () => {
+      const HOUR = 60 * 60 * 1000;
+      const fixture = (timestamp) => ({
+        type: 'fluxappregister', version: 1, appSpecifications: { name: 'test' }, hash: 'hash123', timestamp, signature: 'sig123',
+      });
+      const storedExpiry = () => dbHelperStub.insertOneToDatabase.firstCall.args[2].expireAt.getTime();
+
+      beforeEach(() => {
+        messageVerifierStub.checkAppMessageExistence.resolves(null);
+        messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+        dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+        dbHelperStub.findOneInDatabase.resolves(null);
+        dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
+      });
+
+      it('ends an hour after it was signed, however late it reached this node', async () => {
+        const signed = Date.now() - 50 * 60 * 1000;
+        await messageStore.storeAppTemporaryMessage(fixture(signed), { furtherVerification: false });
+        expect(storedExpiry()).to.equal(signed + HOUR);
+      });
+
+      it('stores nothing past that hour', async () => {
+        const result = await messageStore.storeAppTemporaryMessage(fixture(Date.now() - HOUR - 1000), { furtherVerification: false });
+        expect(result).to.equal(false);
+        expect(dbHelperStub.insertOneToDatabase.called).to.equal(false);
+      });
+
+      it('ends no later than a message signed now, when dated ahead of this node', async () => {
+        const before = Date.now();
+        await messageStore.storeAppTemporaryMessage(fixture(before + 24 * HOUR), { furtherVerification: false });
+        expect(storedExpiry()).to.be.at.most(Date.now() + HOUR);
+      });
+
+      it('keeps a paid message for its promotion, whatever its age', async () => {
+        dbHelperStub.findOneInDatabase.resolves({ height: 5, value: 1 });
+        const before = Date.now();
+        await messageStore.storeAppTemporaryMessage(fixture(before - 5 * HOUR), { furtherVerification: false });
+        expect(storedExpiry()).to.be.at.least(before + HOUR);
+      });
+
+      it('answers false for a copy another check stored first', async () => {
+        dbHelperStub.insertOneToDatabase.resolves(undefined);
+        const result = await messageStore.storeAppTemporaryMessage(fixture(Date.now()), { furtherVerification: false });
+        expect(result).to.equal(false);
+      });
     });
 
     it('should handle database errors gracefully', async () => {
@@ -580,6 +627,7 @@ describe('messageStore tests', () => {
         },
       });
 
+      dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
       // v5→v6 update should be accepted — version policy is enforced at API layer, not here
       const result = await messageStore.storeAppTemporaryMessage(message);
 

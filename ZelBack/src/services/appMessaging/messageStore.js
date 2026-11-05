@@ -7,7 +7,7 @@ const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
 const unpaidAdmission = require('./unpaidAdmission');
-const { insertTemporaryMessage } = require('./temporaryMessageRecord');
+const { insertTemporaryMessage, temporaryMessageExpiry } = require('./temporaryMessageRecord');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
@@ -159,6 +159,10 @@ async function storeAppTemporaryMessage(message, options = {}) {
     appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED, message.hash);
   }
 
+  // A message past its signed hour is held by no node that keeps time. A paid one waits
+  // for its promotion, whatever its age.
+  if (!isAppRequested && temporaryMessageExpiry(messageTimestamp) <= Date.now()) return false;
+
   // A paid message is taken whatever it carries; an unpaid one only within its
   // sender's allowance, decided before the verification below.
   let admission = { fields: {} };
@@ -270,7 +274,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
     if (options.beforeWrite && !(await options.beforeWrite())) return false;
 
     // message does not exist anywhere and is ok, store it
-    await insertTemporaryMessage({
+    const inserted = await insertTemporaryMessage({
       appSpecifications: appSpecFormatted,
       type: message.type, // shall be fluxappregister, fluxappupdate
       version: messageVersion,
@@ -278,7 +282,9 @@ async function storeAppTemporaryMessage(message, options = {}) {
       timestamp: messageTimestamp,
       signature: message.signature,
       arcaneSender: message.arcaneSender,
-    }, admission.fields);
+    }, admission.fields, { paid: isAppRequested });
+    // Another copy passed its checks alongside this one and was stored first.
+    if (!inserted) return false;
     // it is stored and rebroadcasted
     if (isAppRequested) {
       if (result && result.txid && result.height) {
