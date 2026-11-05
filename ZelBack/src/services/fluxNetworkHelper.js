@@ -12,6 +12,7 @@ const net = require('net');
 const util = require('util');
 const log = require('../lib/log');
 const { callerAddress, socketPath } = require('./utils/apiSocket');
+const publicPorts = require('./utils/publicPorts');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
@@ -1288,7 +1289,7 @@ async function getLocalSocketAddress(options = {}) {
     return localSocketAddress;
   }
   const decided = await getDecidedAddress();
-  if (decided) return reportLocalSocketAddress(`${decided}:${userconfig.initial.apiport || config.server.apiport}`);
+  if (decided) return reportLocalSocketAddress(`${decided}:${publicPorts.getApiPort()}`);
   const benchmarkResponse = await benchmarkService.getBenchmarks();
   const { status, data: { ipaddress = null } = {} } = benchmarkResponse;
   // The benchmark IP can be a bare IP or ip:port depending on the node's API port,
@@ -2220,7 +2221,10 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
 async function confirmOwnAddress(record) {
   const status = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
   const listed = status?.status === 'success' ? status.data?.ip : null;
-  if (listed && socketAddressesMatch(listed, record.socketAddress)) return true;
+  if (listed && socketAddressesMatch(listed, record.socketAddress)) {
+    await publicPorts.setConfirmedApiPort(extractPort(record.socketAddress));
+    return true;
+  }
   if (record.confirmationAcceptedAt === record.movedAt) return false;
   const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
   if (result?.status === 'success' && result.data?.status !== 'Fail to send') {
@@ -2247,6 +2251,9 @@ async function confirmOwnAddress(record) {
  */
 async function reconcileOwnMove() {
   const record = await ownAddressRecord();
+  if (record?.socketAddress && (!record.movedFrom || record.settledAt === record.movedAt)) {
+    await publicPorts.setConfirmedApiPort(extractPort(record.socketAddress));
+  }
   if (!record?.movedFrom || !record.movedAt || record.settledAt === record.movedAt) return;
   const {
     socketAddress: to, movedFrom: from, movedAt, ipChanged, announce,
@@ -2485,6 +2492,22 @@ async function handleOwnAddressPass(current) {
   }
 }
 
+/**
+ * Moves this node to the ports the proxy now serves: opens them, drops the peers it dialled so
+ * they meet it at the new port, and reports the new address, which runs the own-address move.
+ * @param {{apiPort: number, apiPortHttps: number, uiPort: number}} ports
+ * @returns {Promise<void>}
+ */
+async function followPublicPorts({ apiPort, apiPortHttps, uiPort }) {
+  log.info(`own address - the proxy now serves the API on ${apiPort}`);
+  if (await ufw.isFirewallActive()) {
+    await Promise.all([apiPort, apiPortHttps, uiPort, +apiPort + 2].map((port) => allowPort(port)));
+  }
+  peerManager.dropOutboundConnections();
+  const known = getKnownLocalSocketAddress();
+  if (known) reportLocalSocketAddress(`${extractIp(known)}:${apiPort}`);
+}
+
 // The listener watching this node's own address, while one is.
 let ownAddressListener = null;
 
@@ -2500,6 +2523,7 @@ function startOwnAddressWatch() {
     ownAddressListener = (address) => { handleOwnAddress(address); };
     onLocalSocketAddressChange(ownAddressListener);
     localSocketAddressEvents.on('reported', ownAddressListener);
+    publicPorts.onChange(followPublicPorts);
     const known = getKnownLocalSocketAddress();
     if (known) handleOwnAddress(known);
   }
@@ -2508,6 +2532,7 @@ function startOwnAddressWatch() {
       offLocalSocketAddressChange(ownAddressListener);
       localSocketAddressEvents.off('reported', ownAddressListener);
     }
+    publicPorts.offChange(followPublicPorts);
     ownAddressListener = null;
     clearTimeout(ownAddressRetry);
     ownAddressRetry = null;
@@ -3682,7 +3707,7 @@ function reportUfwLocked() {
  * @returns {Promise<string[][]>}
  */
 async function nodeFirewallRules() {
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const apiPort = publicPorts.getApiPort();
   const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, config.daemon.port, ...config.server.allowedPorts];
   const rules = [['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']];
   // this should also be limit, but existing nodes use allow (needs to be updated)
