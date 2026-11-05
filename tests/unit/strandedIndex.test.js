@@ -194,6 +194,19 @@ describe('strandedIndex tests', () => {
     sinon.assert.notCalled(writes.refetchDeviceIndex);
   });
 
+  it('does not act on an unproven answer that says everything it would need to', async () => {
+    identity.askSigned.resolves({
+      verdict: IdentityVerdict.UNVERIFIABLE,
+      answer: {
+        folder: FOLDER,
+        records: { [ITEM]: deleteOf(['KMX:574', 'LSS:773']), [DIR]: deleteOf(['KMX:574', 'LSS:773']) },
+      },
+    });
+
+    expect((await twoPasses()).code).to.equal('PRIMARY_UNPROVEN');
+    sinon.assert.notCalled(writes.refetchDeviceIndex);
+  });
+
   it('does not act on an answer about another folder', async () => {
     identity.askSigned.resolves({ verdict: IdentityVerdict.VERIFIED, answer: { folder: 'other', records: {} } });
 

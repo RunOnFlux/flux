@@ -3806,6 +3806,26 @@ function isElectedPrimaryHere(appName, localSocketAddr, now = Date.now()) {
 }
 
 /**
+ * The other holder running a component, in its own words: what the election reads, so it
+ * holds when FDM names nobody.
+ * @param {Array<{ip: string}>} locations The app's locations.
+ * @param {string} localSocketAddr This node, never asked.
+ * @param {object} ctx As peerComponentState, without `label` and `logPrefix`.
+ * @returns {Promise<string|null>} The holder's socket address.
+ */
+async function peerRunning(locations, localSocketAddr, ctx) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { ip } of locations) {
+    if (!socketAddressesMatch(ip, localSocketAddr)) {
+      // eslint-disable-next-line no-await-in-loop
+      const state = await peerComponentState(ip, { ...ctx, label: 'holder', logPrefix: 'Give-up-an-app pass' });
+      if (state === PeerComponent.RUNNING) return ip;
+    }
+  }
+  return null;
+}
+
+/**
  * Whether this node should give up an app, and why.
  *
  * Three reasons, one answer. SURPLUS: the app runs on more nodes than it needs
@@ -4327,18 +4347,23 @@ async function checkAndRemoveApplicationInstance({
         }
         // An attempt is the one action of a pass, and stopped a copy for it.
         if (attempted) return;
-        // A standby of a running primary that no peer can be shown to hold may be holding
-        // what the primary deleted.
-        if (safety.code === 'NO_SYNCED_PEER' && safety.component?.syncMode === 'g'
-          && isElectedPrimaryHere(installedApp.name, localSocketAddr) === false) {
-          const primary = mastersRunningGSyncthingApps.get(safety.component.identifier);
+        // A copy of a g: component no peer can be shown to hold may be holding what the
+        // node running it deleted.
+        if (safety.code === 'NO_SYNCED_PEER' && safety.component?.syncMode === 'g') {
+          const { component } = safety;
           // eslint-disable-next-line no-await-in-loop
-          const stranded = await strandedIndex.repairIfStranded(safety.component.folderId, primary);
-          fluxEventBus.publish('giveUp:strandedIndex', {
-            appName: installedApp.name, folderId: safety.component.folderId, code: stranded.code,
+          const primary = await peerRunning(runningAppList, localSocketAddr, {
+            appIds: [component.folderId], identifier: component.identifier, appName: installedApp.name, liveness,
           });
+          // eslint-disable-next-line no-await-in-loop
+          const stranded = primary ? await strandedIndex.repairIfStranded(component.folderId, primary) : null;
+          if (stranded) {
+            fluxEventBus.publish('giveUp:strandedIndex', {
+              appName: installedApp.name, folderId: component.folderId, code: stranded.code,
+            });
+          }
           // A folder restart is the one action of this pass.
-          if (stranded.code === strandedIndex.StrandedCode.REFETCHED) return;
+          if (stranded?.code === strandedIndex.StrandedCode.REFETCHED) return;
         }
         // eslint-disable-next-line no-continue
         continue;
