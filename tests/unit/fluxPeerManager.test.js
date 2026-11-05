@@ -673,7 +673,7 @@ describe('FluxPeerSocket tests', () => {
     it('should route sync responses to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+      sinon.stub(manager, 'isSyncArrivalWanted').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -692,7 +692,7 @@ describe('FluxPeerSocket tests', () => {
     it('should fall through to messageDispatcher when the response is not wanted', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncResponseWanted').returns(false);
+      sinon.stub(manager, 'isSyncArrivalWanted').returns(false);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
@@ -711,7 +711,7 @@ describe('FluxPeerSocket tests', () => {
     it('should route all four sync response types to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+      sinon.stub(manager, 'isSyncArrivalWanted').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;

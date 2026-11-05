@@ -33,6 +33,7 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
 const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
+const tempMessageHold = require('./appMessaging/tempMessageHold');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
@@ -93,7 +94,6 @@ function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 const {
   cpuCheckIntervalMs,
   forceRemovalIntervalMs,
-  tempMsgTtlS,
 } = config.fluxapps;
 
 // State objects for monitoring services
@@ -180,12 +180,18 @@ async function prepareDatabaseSchema() {
   // no need to drop temporary messages
   const databaseTemp = db.db(config.database.appsglobal.database);
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), [
-    { key: { receivedAt: 1 }, expireAfterSeconds: tempMsgTtlS },
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { receivedAt: 1 } },
     // every check of whether a pending message is held
-    { key: { hash: 1 } },
+    { key: { hash: 1 }, unique: true, recover: dbHelper.dedupeByKey },
     // the unpaid allowances, appMessaging/unpaidAdmission.js
     { key: { clientTag: 1 } },
     { key: { originKey: 1 } },
+  ]);
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsHeldMessages), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { heldAt: 1 } },
+    { key: { key: 1 }, unique: true },
   ]);
   log.info('Temporary database prepared');
   log.info('Preparing Flux Apps locations');
@@ -250,6 +256,9 @@ async function prepareDatabaseSchema() {
     { key: { name: 1, hash: 1 }, name: 'query for getting flux app install errors location based on specs name and hash' },
     { key: { name: 1, hash: 1, ip: 1 }, name: 'query for getting flux app install errors location based on specs name and hash and node ip' },
   ]);
+  // A ttl index passes over a row whose expireAt is not a date, so such a row stays for ever.
+  await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations)
+    .deleteMany({ expireAt: { $not: { $type: 'date' } } });
   log.info('App installing errors locations prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
@@ -468,6 +477,8 @@ async function startFluxFunctions() {
     // it is the only thing that knows whether an arriving answer is still
     // wanted. The peer manager asks rather than keeping its own copy.
     peerManager.syncResponseWanted = (peerSocket) => orchestrator.isSyncResponseWanted(peerSocket);
+    peerManager.syncArrivalWanted = (peerSocket) => orchestrator.isSyncArrivalWanted(peerSocket);
+    await untilSucceeds('Held message count', () => tempMessageHold.start(fluxCommunication.settleHeldAppMessage));
 
     // The other half of the peer-gated fallback. The orchestrator stops a node
     // whose peer set keeps collapsing from ever reaching READY, which is silent;

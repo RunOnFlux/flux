@@ -25,6 +25,7 @@ const messageStore = require('../../ZelBack/src/services/appMessaging/messageSto
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const admissionQuorum = require('../../ZelBack/src/services/appMessaging/admissionQuorum');
 const arcaneLink = require('../../ZelBack/src/services/arcaneLink');
+const tempMessageHold = require('../../ZelBack/src/services/appMessaging/tempMessageHold');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
@@ -423,14 +424,54 @@ describe('fluxCommunication tests', () => {
       peerManager.reset();
       await dbHelper.initiateDB();
       broadcastHashSpy = sinon.stub(peerManager, 'broadcastHash');
+      sinon.stub(tempMessageHold, 'isPaidAndMissing').resolves(false);
+      sinon.stub(tempMessageHold, 'hold').resolves(1);
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
+    it('holds a message for checking, with what relays it afterwards', async () => {
+      const store = sinon.stub(messageStore, 'storeAppTemporaryMessage');
+      const message = { data: { type: 'fluxappregister', hash: 'h1' } };
+
+      await fluxCommunication.handleAppMessages(message, '127.0.0.5', '16127');
+
+      sinon.assert.calledOnceWithExactly(tempMessageHold.hold, [{ message: message.data, authenticated: false, relay: { message, from: '127.0.0.5:16127' } }]);
+      sinon.assert.notCalled(store);
+    });
+
+    it('stores a message the chain has paid for straight away, as a hash sync waits on it', async () => {
+      tempMessageHold.isPaidAndMissing.resolves(true);
+      const store = sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(false);
+      const message = { data: { type: 'fluxappregister', hash: 'h1' } };
+
+      await fluxCommunication.handleAppMessages(message, '127.0.0.5', '16127');
+
+      sinon.assert.calledOnceWithExactly(store, message.data, { frame: message, authenticated: false });
+      sinon.assert.notCalled(tempMessageHold.hold);
+    });
+
+    it('releases the filter for a message it could not keep', async () => {
+      tempMessageHold.hold.rejects(new Error('database gone'));
+      const message = { data: { type: 'fluxappregister', hash: 'h2' } };
+      cacheManager.announcementSeen.set(objectHash(message.data), true);
+
+      await fluxCommunication.handleAppMessages(message, '127.0.0.5', '16127');
+
+      expect(cacheManager.announcementSeen.has(objectHash(message.data))).to.equal(false);
+    });
+
+    it('does not relay a broadcast too old for peers to take', () => {
+      const message = { timestamp: Date.now() - 10 * 60 * 1000, data: { type: 'fluxappregister', hash: 'h3' } };
+
+      fluxCommunication.settleHeldAppMessage({ message, from: '127.0.0.5:16127' }, true);
+
+      sinon.assert.notCalled(broadcastHashSpy);
+    });
+
     it('should broadcast the app message if a proper data is given', async () => {
-      sinon.stub(messageStore, 'storeAppTemporaryMessage').returns(true);
       const fromIp = '127.0.0.5';
       const port = '16127';
       const appSpecifications = {
@@ -473,6 +514,7 @@ describe('fluxCommunication tests', () => {
       const messageToHash = type + version + JSON.stringify(appSpecifications) + timestamp + signature;
       const hash = await generalService.messageHash(messageToHash);
       const message = {
+        timestamp: Date.now(),
         data:
         {
           type,
@@ -504,7 +546,7 @@ describe('fluxCommunication tests', () => {
       wsIncoming.on = sinon.stub();
       peerManager.add(wsIncoming, wsIncoming.ip, port, { source: PEER_SOURCE.INBOUND });
 
-      await fluxCommunication.handleAppMessages(message, fromIp, port);
+      fluxCommunication.relayCheckedAppMessage({ message, from: `${fromIp}:${port}` });
 
       sinon.assert.calledOnceWithExactly(broadcastHashSpy, objectHash(message.data), `${fromIp}:${port}`, undefined);
       // Announcing is what makes it fetchable: a peer answering the hash asks for it here.
@@ -2496,7 +2538,8 @@ describe('fluxCommunication tests', () => {
         sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
         const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(fluxCommunicationUtils.VerifyResult.OK);
         sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
-        const storeAppTemporaryMessageStub = sinon.stub(messageStore, 'storeAppTemporaryMessage').returns(false);
+        sinon.stub(tempMessageHold, 'isPaidAndMissing').resolves(false);
+        const holdStub = sinon.stub(tempMessageHold, 'hold').resolves(1);
         daemonServiceMiscRpcsStub.returns({
           data:
           {
@@ -2507,11 +2550,10 @@ describe('fluxCommunication tests', () => {
         await fluxCommunication.initiateAndHandleConnection(ip);
 
         await waitForWsConnected(wsserver);
-        await waitFor(() => storeAppTemporaryMessageStub.called);
+        await waitFor(() => holdStub.called);
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
-        // the frame travels with the message: it is the origin of a live announcement
-        sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, { frame: JSON.parse(message), authenticated: false });
+        expect(holdStub.firstCall.args[0][0].message).to.deep.equal(JSON.parse(message).data);
       });
     }
 
@@ -3234,6 +3276,7 @@ describe('fluxCommunication tests', () => {
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, progressHandler);
       wanted = (socket) => socket === PEER_SOCKET;
       sinon.stub(peerManager, 'isSyncResponseWanted').callsFake((socket) => wanted(socket));
+      sinon.stub(peerManager, 'isSyncArrivalWanted').callsFake((socket) => wanted(socket));
       // The dispatcher verifies the envelope before it reaches a handler, and
       // these fixtures carry no signature. Stubbed so the chain under test is
       // arrival -> queue -> handler rather than the envelope check.
@@ -3546,26 +3589,25 @@ describe('fluxCommunication tests', () => {
           type: 'fluxappregister', version: 1, signature: 'sig', timestamp: Date.now(), hash: 'h1', appSpecifications: { name: 'a' },
         });
 
-        it('this node\'s database could not store ends the apptemp request', async () => {
-          sinon.stub(messageStore, 'storeAppTemporaryMessage').rejects(new MongoNetworkTimeoutError('connection timed out'));
+        it('that this node could not keep ends the apptemp request', async () => {
+          sinon.stub(tempMessageHold, 'hold').rejects(new MongoNetworkTimeoutError('connection timed out'));
 
           await respond('handleTempSyncResponse', 'fluxapptempsync', [temp(), temp()], true);
 
-          expect(writeFailures, 'a response the node could not store left the request open').to.deep.equal([PEER]);
-          expect(completions, 'a response the node could not store was counted').to.deep.equal([]);
-          sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
+          expect(writeFailures, 'a response the node could not keep left the request open').to.deep.equal([PEER]);
+          expect(completions, 'a response the node could not keep was counted').to.deep.equal([]);
         });
 
-        it('that fails its own checks is skipped, and the rest of the answer counted', async () => {
-          sinon.stub(messageStore, 'storeAppTemporaryMessage')
-            .onFirstCall().rejects(new Error('Invalid Flux App specifications'))
-            .onSecondCall().resolves(true);
+        it('counts as answered once it is kept, before any of it is checked', async () => {
+          const store = sinon.stub(messageStore, 'storeAppTemporaryMessage');
+          const hold = sinon.stub(tempMessageHold, 'hold').resolves(2);
 
           await respond('handleTempSyncResponse', 'fluxapptempsync', [temp(), temp()], true);
 
-          expect(writeFailures, 'a message the peer got wrong ended the request').to.deep.equal([]);
+          expect(writeFailures).to.deep.equal([]);
           expect(completions).to.deep.equal([{ syncType: 'apptemp', peerKey: PEER }]);
-          sinon.assert.calledTwice(messageStore.storeAppTemporaryMessage);
+          expect(hold.firstCall.args[0]).to.have.length(2);
+          sinon.assert.notCalled(store);
         });
 
         it('is not stored when it is over the per-message limit, and the rest of the answer is', async () => {
@@ -3732,23 +3774,30 @@ describe('fluxCommunication tests', () => {
       ['apprunning', 'fluxapprunningsync', [], () => [serviceHelper, 'processInSlices']],
       ['appinstalling', 'fluxappinstallingsync', [], () => [serviceHelper, 'processInSlices']],
       ['apperrors', 'fluxappinstallingerrorssync', [], () => [serviceHelper, 'processInSlices']],
-      ['apptemp', 'fluxapptempsync', [{ hash: 'abc' }], () => [messageStore, 'storeAppTemporaryMessage']],
+      ['apptemp', 'fluxapptempsync', [{ hash: 'abc' }], () => [tempMessageHold, 'hold']],
     ];
 
     arrivalCases.forEach(([syncType, wireType, messages, slowStep]) => {
-      it(`announces a ${syncType} arrival before anything processes it`, async () => {
+      it(`runs no clock against a peer while its ${syncType} chunks are worked through`, async () => {
         const dispatch = peerManager.syncResponseDispatcher;
+        const busy = [];
+        const onBusy = (peerKey) => busy.push(peerKey);
+        appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_BUSY, onBusy);
+        let busyAtWork = null;
         let progressAtWork = null;
         const [owner, method] = slowStep();
         sinon.stub(owner, method).callsFake(async () => {
+          busyAtWork = [...busy];
           progressAtWork = [...progress];
           return true;
         });
 
         await dispatch({ data: { type: wireType, messages, done: false } }, PEER_SOCKET);
+        appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_BUSY, onBusy);
 
-        expect(progressAtWork, 'the peer was still silent when its own answer was already in hand')
-          .to.deep.equal([PEER]);
+        expect(busyAtWork, 'the clock ran while this node did the work').to.deep.equal([PEER]);
+        expect(progressAtWork, 'the clock restarted before the work ended').to.deep.equal([]);
+        expect(progress, 'the clock never restarted').to.deep.equal([PEER]);
       });
     });
   });

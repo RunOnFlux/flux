@@ -108,6 +108,7 @@ module.exports = {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsinstallinglocations', // stores install location of flux apps as documents containing name, ip, obtainedAt
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -664,7 +665,8 @@ module.exports = {
     // key kept the old mechanism's number for three months while nothing read
     // it. The 24h the code has actually run since is the value.
     installErrorTtlS: 86400,
-    tempMsgTtlS: 3600, // collection-level index, serviceManager.js
+    tempMsgTtlS: 3600, // from the time a temp message was signed, or was received by a node holding it for checking
+    tempCheckConcurrency: 4,
     // How many unpaid app messages a node holds, within tempMsgTtlS, from one
     // client (by its client tag) and from one admitting operator (by the key that
     // signed the frame admitting them). A message without a client tag is not
