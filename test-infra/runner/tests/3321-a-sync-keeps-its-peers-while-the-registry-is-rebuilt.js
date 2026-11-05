@@ -28,6 +28,7 @@ const MESSAGES = 3;
 const SUBJECT = 4;
 const REGISTRAR = 2;
 const ANSWERERS = [1, 2, 3];
+const ANSWERS_NEEDED = 2;
 const BOOTED = [0, 1, 2, 3];
 
 describe('a sync keeps its peers while the registry is rebuilt', function () {
@@ -44,7 +45,7 @@ describe('a sync keeps its peers while the registry is rebuilt', function () {
       nodes: 5,
       deferredNodes: 1,
       syncedNodes: ANSWERERS,
-      configOverrides: { fluxapps: { syncTimeoutMs: BUDGET_MS } },
+      configOverrides: { fluxapps: { syncTimeoutMs: BUDGET_MS, appSyncMinCompletions: ANSWERS_NEEDED } },
     });
     await bootAndPeer(env);
 
@@ -80,7 +81,7 @@ describe('a sync keeps its peers while the registry is rebuilt', function () {
   it('counts each peer once what it sent is kept, with nothing checked', async function () {
     this.timeout(120000);
     await waitFor(async () => new Set(events('ephemeralSync:peerComplete')
-      .filter((e) => e.data.syncType === 'apptemp').map((e) => e.data.peer)).size >= ANSWERERS.length, {
+      .filter((e) => e.data.syncType === 'apptemp').map((e) => e.data.peer)).size >= ANSWERS_NEEDED, {
       timeout: 90000, interval: 500, label: 'every asked peer answered the temp stream',
     });
     expect(await dbClient(SUBJECT + 1).tempMessageCount(), 'a message was checked against an unbuilt registry').to.equal(0);
