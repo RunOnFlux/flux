@@ -49,6 +49,7 @@ const forkedHashes = new Map();
 // fluxd keeps a stale branch's headers and answers getblockheader for them.
 const staleHeaders = new Map();
 let forkCount = 0;
+let mempool = [];
 
 function hashAt(height) {
   return forkedHashes.get(height) ?? `000000000000stub${height}`;
@@ -430,7 +431,7 @@ const rpcHandlers = {
   },
 
   getmempoolinfo: () => ({ size: 0, bytes: 0, usage: 0 }),
-  getrawmempool: () => [],
+  getrawmempool: () => mempool,
 
   viewdeterministiczelnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
   viewdeterministicfluxnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
@@ -1116,6 +1117,11 @@ control.post('/add-block-fixture', (req, res) => {
 // Replaces the active chain from fromHeight to the tip with a branch of the same
 // length: new hashes, and none of the replaced blocks' transactions. The replaced
 // blocks' headers stay answerable, as fluxd's do for a stale branch.
+control.post('/mempool', (req, res) => {
+  mempool = Array.isArray(req.body?.txids) ? req.body.txids : [];
+  res.json({ mempool });
+});
+
 control.post('/fork', (req, res) => {
   const fromHeight = Number(req.body?.fromHeight);
   if (!Number.isInteger(fromHeight) || fromHeight < 1 || fromHeight > currentHeight) {

@@ -43,6 +43,9 @@ let isSynced = false;
 // been processed since the scanned height was last set without a hash.
 let lastScannedBlock = null;
 
+// fluxd refuses a reorganisation of this many blocks or more (MAX_REORG_LENGTH, main.h).
+const MAX_REORG_BLOCKS = 40;
+
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 // When the work below that is paced by the chain is due.
@@ -212,8 +215,8 @@ async function processSoftFork(txid, height, message) {
 
 /**
  * The payment record this node holds for an app message hash, or null. A record whose transaction
- * the chain does not hold (notOnChain) is no payment: it is removed, so the block paying that hash
- * records the payment in its place.
+ * the chain does not hold (notOnChain), or whose block a reorganisation replaced (replaced), is
+ * removed, so the block paying that hash records the payment in its place.
  * @param {object} database the daemon database
  * @param {string} hash
  * @returns {Promise<object|null>}
@@ -221,11 +224,11 @@ async function processSoftFork(txid, height, message) {
 async function standingAppPayment(database, hash) {
   const record = await dbHelper.findOneInDatabase(database, appsHashesCollection, { hash }, {
     projection: {
-      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, notOnChain: 1,
+      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, notOnChain: 1, replaced: 1,
     },
   });
-  if (!record?.notOnChain) return record;
-  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, { hash, notOnChain: true });
+  if (!record?.notOnChain && record?.replaced === undefined) return record;
+  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, { hash });
   log.info(`Explorer - payment of ${hash} recorded at txid ${record.txid} height ${record.height} is not on the chain; recording the one this block holds`);
   return null;
 }
@@ -557,6 +560,7 @@ async function processBlock(blockHeight) {
       }
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+      await settleReplacedPayments(database, scannedHeight);
       fluxEventBus.publish('block:processed', { height: scannedHeight });
     } else if (blockDataVerbose.height % 500 === 0) {
       log.info(`Processing Explorer Number of Transactions: ${appsTransactions.length}.`);
@@ -653,6 +657,7 @@ async function prepareCollections() {
       key: { hash: 1 }, name: 'query for getting app hash', unique: true, recover: keepEarliestPayment,
     },
     { key: { message: 1 }, name: 'query for getting app hashes depending if we have message' },
+    { key: { replaced: 1 }, name: 'query for getting replaced app payments', sparse: true },
     // a record without a position is indexed under null, so the boot backfill reads only those
     { key: { txIndex: 1 }, name: 'query for getting app hashes without a position' },
   ]);
@@ -696,8 +701,8 @@ async function resetExplorerCollections() {
  * @returns {boolean} Value set to true after database is restored.
  */
 async function restoreDatabaseToBlockheightState(height) {
-  if (!height) {
-    throw new Error('No blockheight for restoring provided');
+  if (!Number.isInteger(height) || height < 0) {
+    throw new Error('No valid blockheight for restoring provided');
   }
   // Whole-collection deletes and updates: they run on the maintenance client.
   const dbopen = dbHelper.databaseConnection();
@@ -706,7 +711,7 @@ async function restoreDatabaseToBlockheightState(height) {
   const query = { height: { $gt: height } };
 
   // restore appsHashes collection
-  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
+  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, { ...query, replaced: { $exists: false } });
   await fluxnodeAddressRecord.restoreToHeight(height, database);
   log.info('Rescanning Blockchain Parameters!');
   const databaseUpdates = dbHelper.onMaintenanceClient(dbopen.db(config.database.chainparams.database));
@@ -1014,14 +1019,16 @@ async function scannedBlockAt(database, height) {
 /**
  * The highest block the explorer processed that is still on fluxd's active chain,
  * found by walking back from `block` along the branch it was on: one getblockhash
- * per height, and one getblockheader per block left behind.
+ * per height, and one getblockheader per block left behind, for no more blocks than
+ * fluxd reorganises.
  * @param {{height: number, hash: string}} block A processed block no longer on the active chain.
  * @returns {Promise<{height: number, hash: string}|null>} Null when fluxd does not
- *   know a block of the branch.
+ *   know a block of the branch, or the walk passes the deepest reorganisation.
  */
 async function forkPoint(block) {
   let { height, hash } = block;
-  while (height > 0) {
+  const deepest = Math.max(block.height - MAX_REORG_BLOCKS, 0);
+  while (height > 0 && height >= deepest) {
     // eslint-disable-next-line no-await-in-loop
     const active = await daemonServiceBlockchainRpcs.getBlockHash({ params: { index: height } });
     if (active.status !== 'success') return null;
@@ -1036,9 +1043,56 @@ async function forkPoint(block) {
 }
 
 /**
+ * Keeps the records of paid messages above `height` as replaced: a reorganisation returns
+ * their transactions to fluxd's mempool, so each still counts as paid until it is mined
+ * again, or leaves the mempool (settleReplacedPayments).
+ * @param {object} database The daemon database.
+ * @param {number} height The height being restored to.
+ * @param {number} tip The last block processed on the replaced branch.
+ * @returns {Promise<void>}
+ */
+async function markReplacedPayments(database, height, tip) {
+  await dbHelper.updateInDatabase(database, appsHashesCollection,
+    { height: { $gt: height }, message: true, notOnChain: { $ne: true }, replaced: { $exists: false } },
+    { $set: { replaced: tip } });
+}
+
+/**
+ * Past the branch a reorganisation replaced, a replaced payment no block has paid again and
+ * fluxd's mempool does not hold will not be mined: it is not on the chain, and the registry is
+ * rebuilt without it. The mempool is asked afresh, as a cached answer may name a transaction
+ * since dropped. An unanswered call is asked again on the next block.
+ * @param {object} database The daemon database.
+ * @param {number} height The block just processed.
+ * @returns {Promise<void>}
+ */
+async function settleReplacedPayments(database, height) {
+  try {
+    const replaced = await dbHelper.findInDatabase(database, appsHashesCollection,
+      { replaced: { $lt: height } }, { projection: { _id: 0, hash: 1, txid: 1 } });
+    if (!replaced.length) return;
+    const mempool = await daemonServiceUtils.executeCall('getRawMemPool', [false], { useCache: false });
+    if (mempool.status !== 'success') throw new Error(mempool.data?.message ?? 'fluxd did not answer');
+    const pending = new Set(mempool.data);
+    const hashes = replaced.filter(({ txid }) => !pending.has(txid)).map(({ hash }) => hash);
+    if (!hashes.length) return;
+    await dbHelper.updateInDatabase(database, appsHashesCollection, { hash: { $in: hashes } },
+      { $set: { notOnChain: true }, $unset: { replaced: '' } });
+    log.warn(`Explorer - ${hashes.length} replaced app payments were not mined again, rebuilding the registry`);
+    await registryManager.reindexGlobalAppsInformation();
+    fluxEventBus.publish('explorer:paymentsDropped', { hashes });
+  } catch (error) {
+    log.error(`Explorer - replaced payments not settled: ${error.message}`);
+  }
+}
+
+/**
  * Restores the explorer's collections to the last processed block still on
  * fluxd's active chain, or explorerDeepRestoreBlocks below `parent` when that
- * block is not found.
+ * block is not found. fluxd refuses a reorganisation of MAX_REORG_BLOCKS or more,
+ * so that restore lies below any fork fluxd can make; the block after it is
+ * processed without a parent check, and a chain rewound past the restore by hand
+ * is not detected.
  * @param {object} database The daemon database.
  * @param {{height: number, hash: string}} parent The processed block the next block does not follow.
  * @returns {Promise<number>} The height restored to.
@@ -1049,6 +1103,7 @@ async function rewindToFork(database, parent) {
   const height = fork ? fork.height : Math.max(parent.height - deepRestoreBlocks, 0);
   log.warn(`Explorer - block ${parent.height + 1} does not follow ${parent.hash}: chain reorganised, `
     + `${fork ? `restoring to ${fork.height}` : `fork not found, restoring to ${height}`}`);
+  await markReplacedPayments(database, height, parent.height);
   await restoreDatabaseToBlockheightState(height);
   fluxEventBus.publish('explorer:reorganised', { parentHeight: parent.height, restoredTo: height, forkFound: Boolean(fork) });
   if (fork) {
@@ -1676,6 +1731,7 @@ module.exports = {
   scheduleUpnpBench,
   // Test seam: each unit test starts from a node that has processed no block.
   resetBlockCadenceForTests: () => { cadence = new BlockCadence(); },
+  settleReplacedPayments,
   forgetScannedBlockForTests: () => { lastScannedBlock = null; },
   reindexExplorer,
   rescanExplorer,

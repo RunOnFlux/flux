@@ -674,6 +674,31 @@ describe('explorerService tests', () => {
         sinon.assert.notCalled(removeDocumentsStub);
       });
 
+      it('searches no deeper than fluxd reorganises, and restores below that', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.resolves({ status: 'success', data: 'other' });
+        getBlockHeaderStub.resolves({ status: 'success', data: { previousblockhash: 'older' } });
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.callCount(getBlockHashStub, 41);
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { height: { $gt: base + 1 - 100 } });
+      });
+
+      it('keeps a paid record above the fork as replaced, naming the tip it was replaced at', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+        getBlockHeaderStub.resolves({ status: 'success', data: { previousblockhash: 'a100' } });
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(dbHelper.updateInDatabase, sinon.match.object, 'zelappshashes',
+          { height: { $gt: base }, message: true }, { $set: { replaced: base + 1 } });
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { replaced: { $exists: false } });
+      });
+
       it('writes a processed block\'s hash with its height', async () => {
         const height = 900500;
         chain[height] = blockAt(height, 'a500', 'a499');
@@ -801,6 +826,56 @@ describe('explorerService tests', () => {
     });
   });
 
+  describe('settleReplacedPayments', () => {
+    const database = {};
+    let find; let mempool; let update; let reindex;
+
+    beforeEach(() => {
+      find = sinon.stub(dbHelper, 'findInDatabase').resolves([{ hash: 'h1', txid: 't1' }]);
+      mempool = sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
+      update = sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      reindex = sinon.stub(registryManager, 'reindexGlobalAppsInformation').resolves(true);
+    });
+
+    afterEach(() => sinon.restore());
+
+    it('reads only records whose replaced branch the scan has passed', async () => {
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.calledWithMatch(find, database, 'zelappshashes', { replaced: { $lt: 500 } });
+    });
+
+    it('asks nothing of fluxd with nothing replaced', async () => {
+      find.resolves([]);
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.notCalled(mempool);
+    });
+
+    it('asks the mempool past the cache', async () => {
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.calledOnceWithExactly(mempool, 'getRawMemPool', [false], { useCache: false });
+    });
+
+    it('marks a payment the mempool does not hold as not on the chain, and rebuilds the registry', async () => {
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.calledWithMatch(update, database, 'zelappshashes', { hash: { $in: ['h1'] } },
+        { $set: { notOnChain: true }, $unset: { replaced: '' } });
+      sinon.assert.calledOnce(reindex);
+    });
+
+    it('leaves a payment fluxd may still mine counted as paid', async () => {
+      mempool.resolves({ status: 'success', data: ['t1'] });
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.notCalled(update);
+      sinon.assert.notCalled(reindex);
+    });
+
+    it('decides nothing when fluxd does not answer, and does not stop the block', async () => {
+      mempool.resolves({ status: 'error', data: { message: 'busy' } });
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.notCalled(update);
+    });
+  });
+
   describe('restoreDatabaseToBlockheightState tests', () => {
     let removeDocumentsFromCollectionStub;
     let updateInDatabaseStub;
@@ -819,7 +894,13 @@ describe('explorerService tests', () => {
     });
 
     it('should throw if height was not passed', async () => {
-      await expect(explorerService.restoreDatabaseToBlockheightState(undefined)).to.eventually.be.rejectedWith('No blockheight for restoring provided');
+      await expect(explorerService.restoreDatabaseToBlockheightState(undefined)).to.eventually.be.rejectedWith('No valid blockheight for restoring provided');
+    });
+
+    it('takes height 0 as a height', async () => {
+      removeDocumentsFromCollectionStub.returns(true);
+      await explorerService.restoreDatabaseToBlockheightState(0);
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappshashes', { height: { $gt: 0 } });
     });
 
     it('should remove and update db properly, no rescan parameter passed', async () => {

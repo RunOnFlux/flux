@@ -54,6 +54,11 @@ export async function forkChain(fromHeight) {
   return post('/fork', { fromHeight });
 }
 
+// The transactions getrawmempool answers with.
+export async function setMempool(txids) {
+  return post('/mempool', { txids });
+}
+
 export async function advanceBlocks(count) {
   for (let i = 0; i < count; i++) {
     // eslint-disable-next-line no-await-in-loop
