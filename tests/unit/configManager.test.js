@@ -389,7 +389,7 @@ describe('configManager tests', () => {
       const Module = require('module');
       const original = Module._load;
       Module._load = function stubbedLoad(request, parent, ...rest) {
-        if (request === '../../../../config/userconfig' && parent && parent.filename === configManagerPath) {
+        if (request === require.resolve('../../config/userconfig') && parent && parent.filename === configManagerPath) {
           if (result instanceof Error) throw result;
           return result;
         }
