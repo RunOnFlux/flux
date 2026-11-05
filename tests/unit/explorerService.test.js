@@ -1296,6 +1296,29 @@ describe('explorerService tests', () => {
         { upsert: true },
       );
     });
+    it('waits for the block instead of recovering when the daemon does not have it yet', async () => {
+      const blockHeight = 100000;
+      const isInsightExplorer = true;
+      explorerService.setBlockProccessingCanContinue(true);
+      // synced for processBlock's own gate, then unsynced so the poll it schedules
+      // returns without re-processing.
+      daemonServiceMiscRpcsStub.onFirstCall().returns({ data: { synced: true, height: 99999 } });
+      daemonServiceMiscRpcsStub.onSecondCall().returns({ data: { synced: false } });
+      // The daemon does not have this height yet: getblockhash answers -8.
+      daemonServiceBlockchainRpcsStub.returns({
+        status: 'error',
+        data: { code: -8, message: 'Block height out of range' },
+      });
+      const logErrorSpy = sinon.spy(log, 'error');
+
+      await explorerService.processBlock(blockHeight, isInsightExplorer);
+
+      // Not treated as a failure to recover from (which would rebuild the DB and
+      // retry with no delay); it is polled for instead.
+      expect(logErrorSpy.calledWith('Block processor encountered an error.')).to.equal(false);
+      explorerService.setBlockProccessingCanContinue(false);
+    });
+
     it('runs the work whose period a burst of blocks passed once, on the block that reaches the tip', async () => {
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
@@ -1411,28 +1434,6 @@ describe('explorerService tests', () => {
 
       sinon.assert.calledOnce(dropped);
       expect(dropped.firstCall.args[0].client).to.equal(dbHelper.maintenanceConnection());
-
-    it('waits for the block instead of recovering when the daemon does not have it yet', async () => {
-      const blockHeight = 100000;
-      const isInsightExplorer = true;
-      explorerService.setBlockProccessingCanContinue(true);
-      // synced for processBlock's own gate, then unsynced so the poll it schedules
-      // returns without re-processing.
-      daemonServiceMiscRpcsStub.onFirstCall().returns({ data: { synced: true, height: 99999 } });
-      daemonServiceMiscRpcsStub.onSecondCall().returns({ data: { synced: false } });
-      // The daemon does not have this height yet: getblockhash answers -8.
-      daemonServiceBlockchainRpcsStub.returns({
-        status: 'error',
-        data: { code: -8, message: 'Block height out of range' },
-      });
-      const logErrorSpy = sinon.spy(log, 'error');
-
-      await explorerService.processBlock(blockHeight, isInsightExplorer);
-
-      // Not treated as a failure to recover from (which would rebuild the DB and
-      // retry with no delay); it is polled for instead.
-      expect(logErrorSpy.calledWith('Block processor encountered an error.')).to.equal(false);
-      explorerService.setBlockProccessingCanContinue(false);
     });
   });
 
