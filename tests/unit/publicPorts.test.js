@@ -68,6 +68,23 @@ describe('publicPorts tests', () => {
     publicPorts.offChange(moved);
   });
 
+  it('tells of the end of a move and keeps the ports kept through it', async () => {
+    const moved = sinon.stub();
+    publicPorts.onChange(moved);
+    publish({
+      uiPort: 16146, apiPort: 16147, apiPortHttps: 16148, alsoServing: [16127],
+    });
+    await publicPorts.start({ file });
+    expect(publicPorts.getAlsoServing()).to.deep.equal([16127]);
+    publish({
+      uiPort: 16146, apiPort: 16147, apiPortHttps: 16148, alsoServing: [],
+    });
+    await settle();
+    sinon.assert.calledOnce(moved);
+    expect(publicPorts.getAlsoServing()).to.deep.equal([]);
+    publicPorts.offChange(moved);
+  });
+
   it('does not count a rewrite of the same ports as a move', async () => {
     const moved = sinon.stub();
     publicPorts.onChange(moved);

@@ -2529,9 +2529,11 @@ function handleOwnAddress(current) {
  * Moves this node to the ports the proxy now serves: opens them, drops the peers it dialled so
  * they meet it at the new port, and takes the new address, whose change runs the own-address move.
  * @param {{apiPort: number, apiPortHttps: number, uiPort: number}} ports
+ * @param {{apiPort: number}} previous - the ports before this change
  * @returns {Promise<void>}
  */
-async function followPublicPorts({ apiPort, apiPortHttps, uiPort }) {
+async function followPublicPorts({ apiPort, apiPortHttps, uiPort }, previous) {
+  if (apiPort === previous.apiPort) return;
   log.info(`own address - the proxy now serves the API on ${apiPort}`);
   if (await ufw.isFirewallActive()) {
     await Promise.all([apiPort, apiPortHttps, uiPort, +apiPort + 2].map((port) => allowPort(port)));

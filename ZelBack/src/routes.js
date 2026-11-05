@@ -311,7 +311,7 @@ module.exports = (app) => {
   app.get('/flux/routerip', cache('1 day'), asyncRoute((req, res) => {
     return fluxService.getRouterIP(req, res);
   }));
-  app.get('/flux/apiport', cache('1 day'), asyncRoute((req, res) => {
+  app.get('/flux/apiport', asyncRoute((req, res) => {
     return fluxService.getAPIPort(req, res);
   }));
   app.get('/flux/enterpriseappowners', cache('1 hour'), asyncRoute((req, res) => {
