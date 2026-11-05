@@ -310,12 +310,20 @@ describe('appEvacuationSafety tests', () => {
       deps.findSyncedPeer.resolves(null);
     });
 
-    it('is safe to remove with no synced peer', async () => {
+    it('passes the peer check with no synced peer, and goes on to the stop', async () => {
       deps.folderHoldsNothing.resolves(true);
 
       const result = await appEvacuationSafety.canSafelyRemoveApp('quiet', deps);
 
-      expect(result.safe).to.equal(true);
+      expect(result.code).to.equal('STOP_REQUIRED');
+    });
+
+    it('is safe to remove once its attempt has handed it back', async () => {
+      deps.folderHoldsNothing.resolves(true);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('quiet', { ...deps, handedBack: new Set(['web_quiet']) });
+
+      expect(result).to.include({ safe: true, code: 'SYNCED_ELSEWHERE' });
     });
 
     it('refuses a copy that cannot show it holds nothing', async () => {
@@ -350,6 +358,88 @@ describe('appEvacuationSafety tests', () => {
       });
 
       expect(result).to.include({ safe: false, code: 'ONLY_HOST' });
+    });
+  });
+
+  describe('a copy that can write', () => {
+    const rApp = (compose) => ({
+      name: 'multi', version: 8, instances: 2, compose,
+    });
+    beforeEach(() => {
+      deps.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127'));
+      deps.isElectedPrimary = sinon.stub().resolves(false);
+    });
+
+    it('is stopped before it is removed, with what the attempt needs', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(rApp([{ name: 'web', containerData: 'r:/data|ml:cache:/cache' }]));
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('multi', deps);
+
+      expect(result).to.include({ safe: false, code: 'STOP_REQUIRED' });
+      expect(result.stop).to.have.length(1);
+      expect(result.stop[0]).to.include({ identifier: 'web_multi', folderId: 'fluxweb_multi' });
+      expect(result.stop[0].unsyncedSubdirs).to.deep.equal(['cache']);
+    });
+
+    it('takes s: as it takes r:', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(rApp([{ name: 'web', containerData: 's:/data' }]));
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('multi', deps);
+
+      expect(result.code).to.equal('STOP_REQUIRED');
+    });
+
+    it('is stopped whether or not this node reads it as running: a copy that has just exited is as unscanned', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(rApp([{ name: 'web', containerData: 'r:/data' }]));
+      deps.isComponentRunningLocally = sinon.stub().resolves(false);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('multi', deps);
+
+      expect(result.code).to.equal('STOP_REQUIRED');
+    });
+
+    it('is not stopped while no peer holds it: nothing would come of the stop', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(rApp([{ name: 'web', containerData: 'r:/data' }]));
+      deps.findSyncedPeer.resolves(null);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('multi', deps);
+
+      expect(result.code).to.equal('NO_SYNCED_PEER');
+    });
+
+    it('leaves a g: component to its election and names only what is left', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(rApp([
+        { name: 'server', containerData: 'g:/data' },
+        { name: 'db', containerData: 'r:/mysql' },
+      ]));
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('multi', deps);
+
+      expect(result.code).to.equal('STOP_REQUIRED');
+      expect(result.stop.map(({ identifier }) => identifier)).to.deep.equal(['db_multi']);
+    });
+
+    it('stands a g: primary down first', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(rApp([
+        { name: 'server', containerData: 'g:/data' },
+        { name: 'db', containerData: 'r:/mysql' },
+      ]));
+      deps.isElectedPrimary = sinon.stub().resolves(true);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('multi', deps);
+
+      expect(result.code).to.equal('STAND_DOWN_REQUIRED');
+    });
+
+    it('still names a component the attempt did not cover', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(rApp([
+        { name: 'a', containerData: 'r:/a' },
+        { name: 'b', containerData: 'r:/b' },
+      ]));
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('multi', { ...deps, handedBack: new Set(['a_multi']) });
+
+      expect(result.stop.map(({ identifier }) => identifier)).to.deep.equal(['b_multi']);
     });
   });
 
@@ -395,7 +485,7 @@ describe('appEvacuationSafety tests', () => {
       });
       deps.isElectedPrimary = sinon.stub().resolves(null);
 
-      const result = await appEvacuationSafety.canSafelyRemoveApp('shared1', deps);
+      const result = await appEvacuationSafety.canSafelyRemoveApp('shared1', { ...deps, handedBack: new Set(['db_shared1']) });
 
       expect(result.safe).to.equal(true);
       expect(deps.isElectedPrimary.called).to.equal(false);

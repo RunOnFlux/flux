@@ -99,6 +99,8 @@ function otherHostCount(locations, localSocketAddr) {
  *   election cannot say. Required - null and false are not interchangeable here.
  * @param {Function} deps.isComponentRunningLocally Whether a component
  *   identifier is running on this node right now. Required.
+ * @param {Set<string>} [deps.handedBack] Identifiers of the r: and s: components an
+ *   attempt has stopped, scanned and proven (leavingCopy).
  * @returns {Promise<{safe: boolean, code: string, reason: string}>} `code` is
  *   the machine-readable verdict - a refusal because the election cannot answer
  *   reads identically to an idle pass without it, and a node stuck that way
@@ -113,6 +115,7 @@ async function canSafelyRemoveApp(appName, deps) {
     isElectedPrimary,
     isComponentRunningLocally,
     shuttingDownDevices,
+    handedBack = new Set(),
   } = deps;
 
   try {
@@ -247,6 +250,19 @@ async function canSafelyRemoveApp(appName, deps) {
           standDown: runningIdentifiers,
         };
       }
+    }
+
+    // The other copies of an r: or s: component run alongside this one, so there is no
+    // role to hand over: everything else has passed, and what is left is that this
+    // copy can write after any check. `stop` names what the attempt stops.
+    const stop = synced.filter((component) => component.syncMode !== 'g' && !handedBack.has(component.identifier));
+    if (stop.length) {
+      return {
+        safe: false,
+        code: 'STOP_REQUIRED',
+        reason: 'a copy that can write is stopped and scanned before it is removed',
+        stop,
+      };
     }
 
     return {

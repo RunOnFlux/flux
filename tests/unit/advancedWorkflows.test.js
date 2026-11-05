@@ -8537,6 +8537,119 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     });
   });
 
+  describe('a copy that can write leaves in one attempt', () => {
+    const leavingCopy = require('../../ZelBack/src/services/appLifecycle/leavingCopy');
+    const stop = [{ identifier: 'web_appone', folderId: 'fluxweb_appone', unsyncedSubdirs: [] }];
+    const proven = { proven: true, code: 'PROVEN', reason: 'held' };
+
+    beforeEach(() => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      evacuationSafety.canSafelyRemoveApp.onFirstCall().resolves({
+        safe: false, code: 'STOP_REQUIRED', reason: 'stop first', stop,
+      });
+      evacuationSafety.canSafelyRemoveApp.onSecondCall().resolves({ safe: true, code: 'SYNCED_ELSEWHERE', reason: 'held' });
+      sinon.stub(leavingCopy, 'stopAndProve').resolves(proven);
+      sinon.stub(leavingCopy, 'giveBack');
+      sinon.stub(leavingCopy, 'removed');
+      sinon.stub(syncthingFolderStateMachine, 'findSyncedPeer');
+      sinon.stub(syncthingFolderStateMachine, 'folderHoldsNothing');
+      sinon.stub(registryManager, 'shuttingDownNodes').resolves([]);
+    });
+
+    it('removes on the attempt\'s proof and the gate again, on that one pass', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.stopAndProve, stop, sinon.match.func);
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+      const { handedBack } = evacuationSafety.canSafelyRemoveApp.secondCall.args[1];
+      expect([...handedBack]).to.deep.equal(['web_appone']);
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+      sinon.assert.calledOnceWithExactly(leavingCopy.removed, stop);
+      sinon.assert.notCalled(leavingCopy.giveBack);
+    });
+
+    it('proves a copy by a peer holding it', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves({ deviceID: 'PEER' });
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(true);
+      sinon.assert.notCalled(syncthingFolderStateMachine.folderHoldsNothing);
+    });
+
+    it('proves a copy with no synced peer by its holding nothing', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves(null);
+      syncthingFolderStateMachine.folderHoldsNothing.resolves(true);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(true);
+      sinon.assert.calledWith(syncthingFolderStateMachine.folderHoldsNothing, 'fluxweb_appone', []);
+    });
+
+    it('does not prove a copy no peer holds and that holds something', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves(null);
+      syncthingFolderStateMachine.folderHoldsNothing.resolves(false);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(false);
+    });
+
+    it('gives back an attempt that cannot prove, and acts on nothing else that pass', async () => {
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+      leavingCopy.stopAndProve.resolves({ proven: false, code: 'COPY_NOT_HELD', reason: 'no peer' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.calledOnce(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('gives back a proven attempt the gate then refuses', async () => {
+      evacuationSafety.canSafelyRemoveApp.onSecondCall().resolves({ safe: false, code: 'BELOW_INSTANCE_COUNT', reason: 'short' });
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('gives back a copy the removal did not remove', async () => {
+      appUninstaller.removeAppLocally.resolves(RemovalOutcome.BUSY);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.notCalled(leavingCopy.removed);
+    });
+
+    it('gives back a copy when the removal throws', async () => {
+      appUninstaller.removeAppLocally.rejects(new Error('docker gone'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+    });
+
+    it('gives back an attempt that outlived its turn', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      daemonServiceUtils.executeCall.withArgs('getBlockCount').resolves({ status: 'success', data: GIVE_UP_PASS.height + GIVE_UP_PASS.period });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+    });
+  });
+
   describe('the safety gate applies to BOTH reasons', () => {
     it('refuses a surplus removal that is not safe', async () => {
       // Before this, surplus removal deleted on an instance count alone - one of
