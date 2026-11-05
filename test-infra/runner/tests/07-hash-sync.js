@@ -79,9 +79,9 @@ describe('Hash sync: late-joining node', function () {
     expect(counts.resolved).to.be.greaterThan(0);
   });
 
-  it('resolves it before the registry is built, as a hash sync takes a paid message at once', async function () {
-    const complete = env.clients[env.lastNodeIndex].getEventBuffer().find((e) => e.event === 'hashSync:complete');
-    expect(complete?.data.missing, 'the registry was built with the message missing').to.equal(0);
+  it('resolves it on the first pass, so the registry is built with it', async function () {
+    const record = await dbClient(env.nodeCount).appHashRecord(appHash);
+    expect(record.syncAttempts, 'a hash sync gave up on a message peers were answering').to.equal(0);
   });
 
   it('should create permanent message from resolved hash', async function () {
