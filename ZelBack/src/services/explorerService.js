@@ -477,7 +477,7 @@ async function blockTimeAt(tipBlock, height) {
  * block. A node that reaches the tip after that instant has passed skips this bench
  * rather than run it alone.
  *
- * Mainnet block times, which the instant relies on:
+ * Block times on the live chain, which the instant relies on:
  *
  * | a block's time                          | written by its producer, the same on every node  |
  * | consecutive block times                 | 6 to 120 s apart, 30 s typical, never decreasing |
@@ -542,9 +542,10 @@ async function processBlock(blockHeight) {
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
-    if (blockDataVerbose.height > 699420 && blockDataVerbose.height < 862002) {
-      // speed up sync as there were no app messages between these two blocks
-      return after(Step.block(862002));
+    const skip = config.fluxapps.explorerInsightSkipRanges
+      .find(({ from, to }) => blockDataVerbose.height > from && blockDataVerbose.height < to);
+    if (skip) {
+      return after(Step.block(skip.to));
     }
     await processInsight(blockDataVerbose, database);
     await fluxnodeAddressRecord.recordBlock(blockDataVerbose);
