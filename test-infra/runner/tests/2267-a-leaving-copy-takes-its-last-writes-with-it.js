@@ -1,5 +1,5 @@
 /*
- * A copy leaving an r: app takes what it wrote last with it: a file written just before
+ * A copy leaving an r: or s: app takes what it wrote last with it: a file written just before
  * the pass, which no index shows yet, and the save the app makes on SIGTERM. A copy that
  * cannot show a peer holds it serves again.
  *
@@ -29,13 +29,14 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const GIVEUP_BEFORE_PASS = 'giveUp:beforePass';
 const BEFORE_SCAN = 'leavingCopy:beforeScan';
 
-describe('a copy leaving an r: app takes its last writes with it', function () {
+describe('a copy leaving an r: or s: app takes its last writes with it', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
   const stamp = Date.now();
   const leavingApp = `e2eleaving${stamp}`;
   const stayingApp = `e2estaying${stamp}`;
+  const sharedApp = `e2eshared${stamp}`;
   const HOLDERS = [0, 1, 2];
   const FINAL_SAVE = 'final-save.txt';
   const folderOf = (name) => `flux${name}_${name}`;
@@ -49,7 +50,7 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
   const attemptOn = (i, name, afterId) => env.clients[i].getEventBuffer()
     .find((entry) => entry.event === 'giveUp:attempt' && entry.id > afterId && entry.data.appName === name);
 
-  const placeOnEveryHolder = async (name) => {
+  const placeOnEveryHolder = async (name, mode = 'r') => {
     await Promise.all(HOLDERS.map((i) => env.clients[i].holdCheckpoint(GIVEUP_BEFORE_PASS)));
     await installOnNodes(env, await buildSeedableApp({
       env,
@@ -57,14 +58,14 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
       instances: 2,
       compose: [{
         name,
-        description: 'r: component',
+        description: 'a component that can write',
         repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
         ports: [],
         domains: [''],
         environmentParameters: ['WRITE_FILE=/appdata/placed.txt', 'WRITE_CONTENT=placed', `WRITE_ON_SIGNAL=/appdata/${FINAL_SAVE}`],
         commands: [],
         containerPorts: [80],
-        containerData: 'r:/appdata',
+        containerData: `${mode}:/appdata`,
         cpu: 0.1,
         ram: 100,
         hdd: 1,
@@ -101,7 +102,7 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
     await Promise.all(env.clients.map((c, i) => waitFor(() => isDaemonUp(c), {
       timeout: 180000, interval: 3000, label: `syncthing daemon up on node ${i}`,
     })));
-    await Promise.all([leavingApp, stayingApp].map((name) => pushTestApp(name, 'v1', name, { user: 1000 })));
+    await Promise.all([leavingApp, stayingApp, sharedApp].map((name) => pushTestApp(name, 'v1', name, { user: 1000 })));
   });
 
   after(async function () {
@@ -109,9 +110,8 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
     await env?.teardown();
   });
 
-  it('a surplus copy\'s last file and final save reach a copy that stays', async function () {
-    this.timeout(600000);
-    const path = await placeOnEveryHolder(leavingApp);
+  const leavesWithItsWrites = async (name, mode) => {
+    const path = await placeOnEveryHolder(name, mode);
     const marks = HOLDERS.map((i) => env.clients[i].getLastEventId());
     await Promise.all(HOLDERS.map(async (i) => {
       const write = await execInContainer(env.clients[i].container,
@@ -120,10 +120,10 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
     }));
     await Promise.all(HOLDERS.map((i) => env.clients[i].releaseAllCheckpoints()));
 
-    await waitFor(async () => (await locationCount(leavingApp)) === 2, {
+    await waitFor(async () => (await locationCount(name)) === 2, {
       timeout: 300000, interval: 1000, label: 'the surplus copy gone',
     });
-    const states = await Promise.all(HOLDERS.map((i) => running(i, leavingApp)));
+    const states = await Promise.all(HOLDERS.map((i) => running(i, name)));
     const leaver = HOLDERS.find((i) => !states[i]);
     const staying = HOLDERS.filter((i) => i !== leaver);
     expect(leaver, 'a holder gave the app up').to.not.equal(undefined);
@@ -138,7 +138,17 @@ describe('a copy leaving an r: app takes its last writes with it', function () {
     })));
     expect(reads.some(({ last }) => last !== null), 'the leaver\'s last file on a staying copy').to.equal(true);
     expect(reads.some(({ save }) => save !== null), 'the leaver\'s final save on a staying copy').to.equal(true);
-    expect(attemptOn(leaver, leavingApp, marks[leaver])?.data).to.include({ proven: true, reason: 'SURPLUS' });
+    expect(attemptOn(leaver, name, marks[leaver])?.data).to.include({ proven: true, reason: 'SURPLUS' });
+  };
+
+  it('a surplus r: copy\'s last file and final save reach a copy that stays', async function () {
+    this.timeout(600000);
+    await leavesWithItsWrites(leavingApp, 'r');
+  });
+
+  it('a surplus s: copy\'s last file and final save reach a copy that stays', async function () {
+    this.timeout(600000);
+    await leavesWithItsWrites(sharedApp, 's');
   });
 
   it('a copy no peer can be shown to hold serves again and deletes nothing', async function () {
