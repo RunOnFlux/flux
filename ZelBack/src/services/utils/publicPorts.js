@@ -90,7 +90,7 @@ async function refresh(file) {
   if (JSON.stringify(previous) === JSON.stringify(ports)) return;
   published = ports;
   await publish();
-  if (previous) events.emit('change', ports, previous);
+  events.emit('change', ports, previous);
 }
 
 /**
