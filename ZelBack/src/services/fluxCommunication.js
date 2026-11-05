@@ -1024,13 +1024,15 @@ function noteBadMessage(peerSocket, verifyResult) {
 /**
  * What a peer has been asked for in the current hashFetchMissWindowMs.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
- * @returns {{startedAt: number, misses: number, served: number}}
+ * @returns {{startedAt: number, misses: number, served: number, reported: boolean}}
  */
 function fetchRecordOf(peerSocket) {
   const now = Date.now();
   const { fetchRecord } = peerSocket;
   if (now - fetchRecord.startedAt < config.fluxapps.hashFetchMissWindowMs) return fetchRecord;
-  Object.assign(fetchRecord, { startedAt: now, misses: 0, served: 0 });
+  Object.assign(fetchRecord, {
+    startedAt: now, misses: 0, served: 0, reported: false,
+  });
   return fetchRecord;
 }
 
@@ -1038,15 +1040,22 @@ function fetchRecordOf(peerSocket) {
  * A peer announced a message, did not deliver it when asked, and another peer
  * did. A peer that delivers at all keeps its connection through a burst that
  * outruns it: one that announces and never delivers misses nearly everything.
+ * Below hashFetchDisconnectFrom the connection stays, and the peer is logged once
+ * in a window, as many times as it would have been disconnected.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
  */
 function noteFetchMiss(peerSocket) {
   const record = fetchRecordOf(peerSocket);
   record.misses += 1;
-  const { hashFetchMissesToDisconnect, hashFetchMissesPerServed } = config.fluxapps;
-  if (record.misses >= hashFetchMissesToDisconnect && record.misses > hashFetchMissesPerServed * record.served) {
-    log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key}: ${record.misses} announced messages not delivered, ${record.served} delivered`);
+  const { hashFetchMissesToDisconnect, hashFetchMissesPerServed, hashFetchDisconnectFrom } = config.fluxapps;
+  if (record.misses < hashFetchMissesToDisconnect || record.misses <= hashFetchMissesPerServed * record.served) return;
+  const outcome = `${peerSocket.direction} peer ${peerSocket.key}: ${record.misses} announced messages not delivered, ${record.served} delivered`;
+  if (serviceHelper.semverAtLeast(config.minimumFluxOSAllowedVersion, hashFetchDisconnectFrom)) {
+    log.warn(`Disconnecting ${outcome}`);
     peerSocket.close(peerSocket.closeCodes.badOrigin, 'announced messages it did not deliver');
+  } else if (!record.reported) {
+    record.reported = true;
+    log.warn(`Keeping ${outcome}`);
   }
 }
 

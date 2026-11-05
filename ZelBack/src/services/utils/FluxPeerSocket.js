@@ -205,7 +205,9 @@ class FluxPeerSocket {
     this.nakWindowStart = Date.now();
     this.lastTransmissionDelay = null;
     this.badMessageTimestamps = [];
-    this.fetchRecord = { startedAt: Date.now(), misses: 0, served: 0 };
+    this.fetchRecord = {
+      startedAt: Date.now(), misses: 0, served: 0, reported: false,
+    };
     this.remoteCapabilities = new Set();
     // This connection's Arcane link handshake (services/arcaneLink.js): null
     // until it opens, and never carried to another connection.
