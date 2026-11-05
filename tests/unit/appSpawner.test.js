@@ -137,7 +137,7 @@ describe('appSpawner tests', () => {
       },
       '../generalService': {
         checkSynced: sinon.stub().resolves(true),
-        isNodeStatusConfirmed: sinon.stub().resolves(true),
+        isNodeStatusConfirmed: sinon.stub().resolves(opts.nodeConfirmed ?? true),
         nodeTier: sinon.stub().resolves('cumulus'),
         // A spec's nodes[] entry names this node by socket address OR by collateral
         // outpoint; the spawner resolves the latter once per pass.
@@ -149,6 +149,7 @@ describe('appSpawner tests', () => {
         // A read can settle the benchmark verdict's hold, as the real one does.
         getBenchmarks: sinon.stub().callsFake(async () => {
           if (opts.benchmarkReadHolds) heldByBenchmarkRead = true;
+          if (opts.benchmarkUnreachable) return { status: 'error' };
           return { status: 'success', data: { ipaddress: '192.168.1.1' } };
         }),
       },
@@ -402,6 +403,25 @@ describe('appSpawner tests', () => {
 
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
+      expect(aggregateStub.called).to.equal(false);
+    });
+
+    it('still reports a node that is not confirmed when fluxbench cannot be reached', async () => {
+      buildModule({ benchmarkUnreachable: true, nodeConfirmed: false });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('Flux Node not Confirmed')).to.equal(true);
+      expect(infoLoggedIncludes('FluxBench status Error')).to.equal(false);
+    });
+
+    it('still checks for expired apps, and installs nothing, when fluxbench cannot be reached', async () => {
+      buildModule({ benchmarkUnreachable: true, globalStateOverrides: { firstExecutionAfterItsSynced: true } });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('Explorer Synced, checking for expired apps')).to.equal(true);
+      expect(infoLoggedIncludes('FluxBench status Error')).to.equal(true);
       expect(aggregateStub.called).to.equal(false);
     });
 

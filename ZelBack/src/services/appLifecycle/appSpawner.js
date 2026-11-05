@@ -200,10 +200,6 @@ async function trySpawningGlobalApplication() {
     // Read before the hold is tested: the reply settles the benchmark verdict's
     // hold, so this pass acts on the verdict as it stands now.
     const benchmarkResponse = await benchmarkService.getBenchmarks();
-    if (benchmarkResponse.status === 'error') {
-      log.info('FluxBench status Error. Global applications will not be installed');
-      return installDelay;
-    }
 
     if (placementHold.isPlacementHeld()) {
       log.info(`Node held back from new placements (${placementHold.getPlacementHold()}). Global applications will not be installed`);
@@ -231,6 +227,11 @@ async function trySpawningGlobalApplication() {
       return spawnReconfirmDelayMs;
     }
     globalState.fluxNodeWasAlreadyConfirmed = true;
+
+    if (benchmarkResponse.status === 'error') {
+      log.info('FluxBench status Error. Global applications will not be installed');
+      return installDelay;
+    }
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (localSocketAddr) log.info(`Gathered IP ${localSocketAddr}`);
