@@ -2279,6 +2279,7 @@ function scheduleDiscovery(ms) {
 }
 
 async function runDiscoveryPass() {
+  fluxEventBus.count('discovery:pass');
   discoveryTimer = null;
   discoveryDueAt = Infinity;
   discoveryInPass = true;
