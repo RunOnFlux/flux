@@ -387,12 +387,6 @@ async function stop(req, res) {
 
 // == Fluxnode ==
 /**
- * To show status of benchmarks.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-/**
  * Holds placement while fluxbench's last finished cycle did not pass. fluxbench
  * reports `verdict` as passed, unmeasured or failed, and null until a cycle has
  * finished; it changes only when a cycle finishes. A fluxbench that does not
@@ -409,6 +403,12 @@ function holdPlacementOnVerdict(data) {
   placementHold.setPlacementHold(BENCHMARK_VERDICT, `Benchmark verdict: ${verdict}`);
 }
 
+/**
+ * To show status of benchmarks.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
 async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
 
