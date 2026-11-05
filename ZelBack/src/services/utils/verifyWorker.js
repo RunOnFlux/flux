@@ -1,5 +1,5 @@
 const { parentPort } = require('worker_threads');
-const bitcoinMessage = require('bitcoinjs-message');
+const bitcoinMessage = require('./bitcoinMessage');
 const { pubKeyToAddr } = require('./fluxCryptoUtils');
 
 const BTC_PUBKEY_HASH = '00';
