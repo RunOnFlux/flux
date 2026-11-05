@@ -8,6 +8,7 @@ const config = require('config');
 const configDefault = require('../../config/default');
 
 const log = require('../lib/log');
+const { logDir } = require('../../runtimePaths');
 const { callerAddress } = require('./utils/apiSocket');
 const publicPorts = require('./utils/publicPorts');
 const configManager = require('./utils/configManager');
@@ -174,6 +175,12 @@ async function fluxBackendFolder(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function getCurrentCommitId() {
+  // An image holds no .git; its build records the commit.
+  if (isArcane) {
+    const built = await fs.readFile(path.join(REPO_ROOT, 'BUILD'), 'utf8').catch(() => null);
+    if (built) return built.trim().slice(0, 7);
+  }
+
   // Fix - this breaks if head in detached state? (or something, can't remember)
   const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
     cwd: REPO_ROOT,
@@ -1255,8 +1262,7 @@ async function tailBenchmarkDebug(req, res) {
  * @returns {Promise<object>} FluxOS .log file.
  */
 async function fluxLog(res, filelog) {
-  const homeDirPath = path.join(__dirname, '../../../');
-  const filepath = `${homeDirPath}${filelog}.log`;
+  const filepath = path.join(logDir(), `${filelog}.log`);
 
   return res.download(filepath, `${filelog}.log`);
 }
@@ -1355,8 +1361,7 @@ async function tailFluxLog(req, res, logfile) {
     return;
   }
 
-  const homeDirPath = path.join(__dirname, '../../../');
-  const filepath = path.join(homeDirPath, `${logfile}.log`);
+  const filepath = path.join(logDir(), `${logfile}.log`);
 
   const { stdout, error } = await serviceHelper.runCommand('tail', {
     params: ['-n', '100', filepath],
