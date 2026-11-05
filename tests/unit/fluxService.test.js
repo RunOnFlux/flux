@@ -1542,12 +1542,11 @@ describe('fluxService tests', () => {
     it('tails the debug.log fluxd keeps for the network', async () => {
       verifyPrivilegeStub.returns(true);
       runCmdStub.resolves({ error: null, stdout: 'tail' });
-      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/home/flux/.flux');
       const res = generateResponse();
 
       await labFluxService.tailDaemonDebug(undefined, res);
 
-      sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', '/home/flux/.flux/labnet/debug.log'] });
+      sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', '/dat/var/lib/fluxd/labnet/debug.log'] });
     });
   });
 
