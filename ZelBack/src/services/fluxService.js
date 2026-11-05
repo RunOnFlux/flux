@@ -8,6 +8,7 @@ const config = require('config');
 const configDefault = require('../../config/default');
 
 const log = require('../lib/log');
+const { callerAddress } = require('./utils/apiSocket');
 const configManager = require('./utils/configManager');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
@@ -1883,7 +1884,7 @@ async function streamChainPreparation(req, res) {
   try {
     prepLock = true;
 
-    let ip = req.socket.remoteAddress;
+    let ip = callerAddress(req);
     if (!ip) {
       safeSetResponseStatus(res, 400, 'Socket closed.');
       return;
@@ -2061,7 +2062,7 @@ async function streamChain(req, res) {
      * connections coming in via a private address. (Flux websockets need the remote address
      * or they think there is only one inbound connnection)
      */
-    let ip = req.socket.remoteAddress;
+    let ip = callerAddress(req);
     if (!ip) {
       safeSetResponseStatus(res, 400, 'Socket closed.');
       return;

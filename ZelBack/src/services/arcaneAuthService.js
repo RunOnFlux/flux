@@ -1,4 +1,5 @@
 const log = require('../lib/log');
+const { callerAddress } = require('./utils/apiSocket');
 const messageHelper = require('./messageHelper');
 const fluxConfigdClient = require('./utils/fluxConfigdClient');
 
@@ -65,7 +66,7 @@ async function authChallengeHandler(req, res) {
       return res.status(502).json(errMessage);
     }
 
-    const ipAddress = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || req.headers?.['x-forwarded-for'];
+    const ipAddress = callerAddress(req);
     if (!ipAddress) {
       const errMessage = messageHelper.createErrorMessage(
         'Unable to determine requester IP address',
@@ -114,7 +115,7 @@ async function configSyncHandler(req, res) {
       return res.status(502).json(errMessage);
     }
 
-    const ipAddress = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || req.headers?.['x-forwarded-for'];
+    const ipAddress = callerAddress(req);
     if (!ipAddress) {
       const errMessage = messageHelper.createErrorMessage(
         'Unable to determine requester IP address',

@@ -3,6 +3,7 @@ const config = require('config');
 const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
+const { callerAddress } = require('./utils/apiSocket');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageStore = require('./appMessaging/messageStore');
@@ -1750,7 +1751,7 @@ async function addOutgoingPeer(req, res) {
     const peerIp = extractIp(ip);
     const peerPort = extractPort(ip);
 
-    const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+    const remoteIP = callerAddress(req);
 
     const remoteIP4 = remoteIP.replace('::ffff:', '');
 

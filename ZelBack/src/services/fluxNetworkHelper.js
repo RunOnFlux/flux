@@ -11,6 +11,7 @@ const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const log = require('../lib/log');
+const { callerAddress, socketPath } = require('./utils/apiSocket');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
@@ -740,7 +741,7 @@ const MAX_KEEPALIVE_PORTS = config.fluxapps.maxAppsPerNode * MAX_TESTABLE_PORTS 
  * @returns {string} the address, or '' when there is none to act on
  */
 function addressToProbe(req, namedAddress, mayName) {
-  const remoteIp = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
+  const remoteIp = (callerAddress(req) || '').replace(/^::ffff:/i, '');
   return mayName === true ? (namedAddress || remoteIp) : remoteIp;
 }
 
@@ -3954,6 +3955,8 @@ async function applyContainerEgressRules(bridges) {
  * Allow Node to bind to privileged without sudo
  */
 async function allowNodeToBindPrivilegedPorts() {
+  // Behind the front proxy FluxOS binds no port.
+  if (socketPath()) return;
   try {
     const cmdAsync = util.promisify(nodecmd.run);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";

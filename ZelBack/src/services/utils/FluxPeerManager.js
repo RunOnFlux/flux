@@ -1,6 +1,7 @@
 const { EventEmitter } = require('events');
 const config = require('config');
 const log = require('../../lib/log');
+const { callerAddress } = require('./apiSocket');
 const serviceHelper = require('../serviceHelper');
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./FluxPeerSocket');
 const { DEFAULT_API_PORT, compareSocketAddresses } = require('./socketAddressUtils');
@@ -1189,7 +1190,7 @@ class FluxPeerManager extends EventEmitter {
 
       let ipv4Peer;
       try {
-        ipv4Peer = (req.socket.remoteAddress || '').replace('::ffff:', '');
+        ipv4Peer = (callerAddress(req) || '').replace('::ffff:', '');
       } catch (error) {
         log.error(error);
         return;
