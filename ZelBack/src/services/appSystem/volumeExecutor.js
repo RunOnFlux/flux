@@ -12,6 +12,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const jobRegistry = require('../utils/jobRegistry');
 const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
+const { callerAddress } = require('../utils/apiSocket');
 const { Writable, pipeline } = require('node:stream');
 const { createWriteStream, createReadStream } = require('node:fs');
 const { AsyncLock } = require('../utils/asyncLock');
@@ -726,7 +727,7 @@ async function serveImageToPeer(req, res) {
     // IPv6 caller could never match the network state whatever it held, and the
     // 403 it received said nothing about why. Stripping just the prefix leaves
     // such an address intact to be compared as itself.
-    const remote = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
+    const remote = (callerAddress(req) || '').replace(/^::ffff:/i, '');
     if (!remote) {
       res.status(400).end();
       return;
