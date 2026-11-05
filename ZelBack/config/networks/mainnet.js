@@ -169,6 +169,8 @@ module.exports = {
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
     minIncoming: 4,
+    // The inbound connection limit never falls below this.
+    incomingCapFloor: 0,
     minUniqueIpsIncoming: 3,
     minHashSyncPeers: 12,
     minUpTime: 1800, // 30 mins
