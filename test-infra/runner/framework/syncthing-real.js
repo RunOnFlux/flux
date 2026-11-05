@@ -234,6 +234,7 @@ export async function startDaemon(client, { timeout = 60000, interval = 1000, pa
 // Writes into a STOPPED daemon's folder database the state a lost index update leaves:
 // nothing of a device's for the named items, and the sequence reached with that device
 // past them, so the device has no reason to send them again. The node's own records stay.
+// Answers how many records it dropped.
 export async function loseDeviceRecords(client, folderId, { deviceId, names, sequence }) {
   const script = `
 import glob, json, sqlite3, sys
@@ -246,7 +247,8 @@ slots = ','.join('?' * len(names))
 items = [row[0] for row in db.execute('select idx from file_names where name in (' + slots + ')', names)]
 slots = ','.join('?' * len(items))
 gone = db.execute('delete from files where device_idx = ? and name_idx in (' + slots + ')', [peer] + items).rowcount
-db.execute('update files set local_flags = (local_flags | 16) & ~32 where device_idx != ? and name_idx in (' + slots + ')', [peer] + items)
+local = db.execute("select idx from devices where device_id like '7777777%'").fetchone()[0]
+db.execute('update files set local_flags = (local_flags | 16) & ~32 where device_idx = ? and name_idx in (' + slots + ')', [local] + items)
 db.execute('update indexids set sequence = ? where device_idx = ?', (sequence, peer))
 db.commit()
 print(gone)
@@ -255,9 +257,8 @@ print(gone)
     'python3', '-c', script, await execInContainer(client.container, `echo ${SYNCTHING_HOME}`).then((home) => home.stdout.trim()),
     folderId, deviceId, JSON.stringify(names), String(sequence),
   ]);
-  if (r.exitCode !== 0 || Number(r.stdout.trim()) !== names.length) {
-    throw new Error(`syncthing-real: could not lose ${names.length} record(s): ${r.output}`);
-  }
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: could not lose the records: ${r.output}`);
+  return Number(r.stdout.trim());
 }
 
 // Stop the node's own daemon outright, as a machine going down stops it.
