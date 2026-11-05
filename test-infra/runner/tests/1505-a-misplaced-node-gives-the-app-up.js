@@ -37,7 +37,7 @@ import { waitFor } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING } from '../framework/residential-fleet.js';
-import { keysOf, nextOwnedTurn, untilOwnedTurnEndsMs } from '../framework/handback-turns.js';
+import { keysOf, nextOwnedTurn, turnOwner } from '../framework/handback-turns.js';
 import { allowFromNow } from '../framework/time-budget.js';
 
 const subnet = getSubnetConfig();
@@ -74,10 +74,15 @@ const TURN_MS = RESIDENTIAL_PACING.residentialTurnMs;
  * @param {number[]} holders 1-based nodes holding the app.
  * @returns {number} Milliseconds.
  */
-function handBackWaitMs(node, holders) {
-  const turns = { holders: keysOf(holders), owners: keysOf([node]), turnMs: TURN_MS };
+function handBackWaitMs(node, holders, rivalHolders = []) {
+  const [own] = keysOf([node]);
+  const turns = { holders: keysOf(holders), owners: [own], turnMs: TURN_MS };
   const first = nextOwnedTurn({ ...turns, fromMs: Date.now() });
-  return untilOwnedTurnEndsMs({ ...turns, fromMs: first.startMs + TURN_MS }) + (2 * PASS_MS);
+  // A pass removes one app, so a turn this node also owns of an app it holds and is
+  // leaving goes to whichever is installed first.
+  let turn = first.turn + 1;
+  while (turnOwner(turns.holders, turn) !== own || (rivalHolders.length && turnOwner(keysOf(rivalHolders), turn) === own)) turn += 1;
+  return Math.max(0, (turn + 1) * TURN_MS - Date.now()) + (2 * PASS_MS);
 }
 
 describe('1505: a node the table places outside an app\'s geolocation gives the app up', function () {
@@ -199,7 +204,12 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
   });
 
   it('the moved node gives MOVES up and the free DE node takes it', async function () {
-    const waitMs = handBackWaitMs(moved + 1, (await installedInstanceIndices(env, MOVES)).map((i) => i + 1));
+    const toNodes = (indices) => indices.map((i) => i + 1);
+    const waitMs = handBackWaitMs(
+      moved + 1,
+      toNodes(await installedInstanceIndices(env, MOVES)),
+      toNodes(await installedInstanceIndices(env, STALLS)),
+    );
     allowFromNow(this, waitMs + 360000);
     await drive(moved, async () => decided(moved, MOVES, gaveUp), waitMs, `node ${moved} gives ${MOVES} up as misplaced`);
 
