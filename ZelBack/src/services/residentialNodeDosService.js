@@ -70,7 +70,7 @@ const MAX_CONFIRMATION_GAP_MS = CHECK_INTERVAL_MS * 2;
 // and still decides before the next pass block exists, so a whole pass always
 // separates two holders acting, and a departure has that pass to reach every
 // other holder before the next owner reads the count.
-const TURN_MS = config.fluxapps.residentialTurnMs;
+const TURN_MS = config.fluxapps.handbackTurnMs;
 // Minimum gap between this node's departures. The give-up-an-app pass runs every
 // 11 blocks (~22 min), which unpaced would empty the busiest node in the fleet in
 // about four hours; there is no deadline here and slower is strictly safer.

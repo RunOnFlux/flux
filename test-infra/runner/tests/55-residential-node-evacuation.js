@@ -712,8 +712,8 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     const budgetMs = untilOwnedTurnEndsMs({
       holders: keysOf(fleetNodes(env)),
       owners: keysOf([TARGET]),
-      turnMs: RESIDENTIAL_PACING.residentialTurnMs,
-      fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
+      turnMs: RESIDENTIAL_PACING.handbackTurnMs,
+      fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.handbackTurnMs,
     }) + (2 * PASS_MS);
     allowFromNow(this, budgetMs + 180000);
     await driveUntil(client, async () => removal() !== undefined, { timeoutMs: budgetMs });
@@ -921,9 +921,9 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
     const budgetMs = untilOwnedTurnEndsMs({
       holders: keysOf(fleetNodes(env)),
       owners: keysOf([TARGET]),
-      turnMs: RESIDENTIAL_PACING.residentialTurnMs,
-      fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
-    }) + RESIDENTIAL_PACING.residentialTurnMs + (2 * PASS_MS);
+      turnMs: RESIDENTIAL_PACING.handbackTurnMs,
+      fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.handbackTurnMs,
+    }) + RESIDENTIAL_PACING.handbackTurnMs + (2 * PASS_MS);
     allowFromNow(this, budgetMs + 120000);
     await driveUntil(client, async () => released() !== undefined, { timeoutMs: budgetMs });
     await startTicker();

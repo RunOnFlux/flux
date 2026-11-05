@@ -63,7 +63,7 @@ const TICKING_NODE = 0;
 
 // The give-up pass and the handback turn the residential fleets run on: a
 // misplaced holder leaves by the same turn rule as an evacuating one.
-const TURN_MS = RESIDENTIAL_PACING.residentialTurnMs;
+const TURN_MS = RESIDENTIAL_PACING.handbackTurnMs;
 
 /**
  * How long until `node` can have handed back an app held by `holders`: to the
@@ -140,7 +140,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
           // ever landing (see suite 55).
           daemonInfoIntervalMs: 1000,
           removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
-          residentialTurnMs: TURN_MS,
+          handbackTurnMs: TURN_MS,
         },
       },
     });

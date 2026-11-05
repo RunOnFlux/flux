@@ -27,7 +27,7 @@ describe('coupled harness knobs track production', () => {
     const { fluxapps } = productionConfig();
 
     expect(knobs.PRODUCTION.removeFluxAppsPeriod).to.equal(fluxapps.removeFluxAppsPeriod);
-    expect(knobs.PRODUCTION.residentialTurnMs).to.equal(fluxapps.residentialTurnMs);
+    expect(knobs.PRODUCTION.handbackTurnMs).to.equal(fluxapps.handbackTurnMs);
     expect(knobs.PRODUCTION.peerSetDipWindowMinutes).to.equal(fluxapps.peerSetDipWindowMinutes);
     expect(knobs.PRODUCTION.peerSetDipEvaluateMs).to.equal(fluxapps.peerSetDipEvaluateMs);
   });
@@ -77,7 +77,7 @@ describe('coupled harness knobs track production', () => {
     const { fluxapps } = productionConfig();
     const pass = fluxapps.removeFluxAppsPeriod * knobs.PON_SPEED_MULTIPLIER * knobs.PRODUCTION.blockMs;
 
-    expect(knobs.productionTurnRatio()).to.equal(fluxapps.residentialTurnMs / pass);
+    expect(knobs.productionTurnRatio()).to.equal(fluxapps.handbackTurnMs / pass);
     // Two is the property: a holder acts on the second pass of its turn.
     expect(knobs.productionTurnRatio()).to.be.at.least(2);
   });
@@ -96,14 +96,14 @@ describe('coupled harness knobs track production', () => {
     const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833, locationTtlS: 63 };
     const pass = knobs.giveUpPassMs(fleet, knobs.harnessBlockCostMs(fleet));
 
-    expect(() => knobs.assertTurnPacing({ ...fleet, residentialTurnMs: Math.floor(2 * pass) }))
+    expect(() => knobs.assertTurnPacing({ ...fleet, handbackTurnMs: Math.floor(2 * pass) }))
       .to.throw(/holds too few give-up passes/);
   });
 
   it('accepts what the derivation produces for suite 55\'s fleet', () => {
     const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833, locationTtlS: 63 };
 
-    expect(() => knobs.assertTurnPacing({ ...fleet, residentialTurnMs: knobs.derivedTurnMs(fleet) })).to.not.throw();
+    expect(() => knobs.assertTurnPacing({ ...fleet, handbackTurnMs: knobs.derivedTurnMs(fleet) })).to.not.throw();
   });
 
   it('rejects a fleet where a departure cannot be seen before the next holder decides', () => {
@@ -113,7 +113,7 @@ describe('coupled harness knobs track production', () => {
     const fleet = { removeFluxAppsPeriod: 1, explorerPollIntervalMs: 300 };
     expect(knobs.giveUpPassMs(fleet, knobs.harnessBlockCostMs(fleet))).to.be.below(knobs.DEPARTURE_ANNOUNCE_MS);
 
-    expect(() => knobs.assertTurnPacing({ ...fleet, residentialTurnMs: knobs.derivedTurnMs(fleet) }))
+    expect(() => knobs.assertTurnPacing({ ...fleet, handbackTurnMs: knobs.derivedTurnMs(fleet) }))
       .to.throw(/cannot be announced before the next holder decides/);
   });
 
@@ -122,7 +122,7 @@ describe('coupled harness knobs track production', () => {
     const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833, locationTtlS: 63 };
 
     expect(() => knobs.assertTurnPacing({
-      ...fleet, residentialTurnMs: knobs.announcementLeftAtRenewalMs(63),
+      ...fleet, handbackTurnMs: knobs.announcementLeftAtRenewalMs(63),
     })).to.throw(/outlasts a renewed announcement/);
   });
 
@@ -208,6 +208,6 @@ describe('coupled harness knobs track production', () => {
     // check must not push anyone toward a tighter number than they wanted.
     const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 };
 
-    expect(() => knobs.assertCoupledRatios({ ...fleet, residentialTurnMs: 60 * 60 * 1000 })).to.not.throw();
+    expect(() => knobs.assertCoupledRatios({ ...fleet, handbackTurnMs: 60 * 60 * 1000 })).to.not.throw();
   });
 });
