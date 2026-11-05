@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
+const hash = require('object-hash');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
@@ -11,6 +12,8 @@ const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./ut
 const fluxEventBus = require('./utils/fluxEventBus');
 const globalState = require('./utils/globalState');
 const { Privilege, authOf } = require('./utils/privileges');
+const { declaredIntent } = require('./utils/messageRoutes');
+const { INTENT } = require('./utils/messageIntent');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
@@ -271,6 +274,21 @@ async function announcePolicySeq(seq) {
 }
 
 /**
+ * Keep a message this node created, for a peer that received it to ask for it
+ * again: a copy that arrives while another is verified is dropped, and its sender
+ * is asked if that copy fails.
+ * @param {string} serialised The signed broadcast.
+ * @returns {object} The signed broadcast, parsed.
+ */
+function keepOwnBroadcast(serialised) {
+  const message = JSON.parse(serialised);
+  if (declaredIntent(message.data.type) === INTENT.ANNOUNCE) {
+    cacheManager.announcementStore.set(hash(message.data), message);
+  }
+  return message;
+}
+
+/**
  * Relay a message to all connected peers (both directions), excluding the sender.
  * @param {string} data Serialised message data.
  * @param {string} [excludeKey] Peer key (ip:port) to exclude (the sender).
@@ -286,8 +304,9 @@ async function relay(data, excludeKey) {
 async function broadcastMessageToAll(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   if (!serialisedData) return null;
+  const message = keepOwnBroadcast(serialisedData);
   await relay(serialisedData);
-  return JSON.parse(serialisedData);
+  return message;
 }
 
 /**
@@ -297,6 +316,7 @@ async function broadcastMessageToAll(dataToBroadcast) {
 async function broadcastMessageToRandomOutgoing(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   if (!serialisedData) return;
+  keepOwnBroadcast(serialisedData);
   const peer = peerManager.getRandomPeer('outbound');
   if (peer) peer.send(serialisedData);
 }
@@ -308,6 +328,7 @@ async function broadcastMessageToRandomOutgoing(dataToBroadcast) {
 async function broadcastMessageToRandomIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   if (!serialisedData) return;
+  keepOwnBroadcast(serialisedData);
   const peer = peerManager.getRandomPeer('inbound');
   if (peer) peer.send(serialisedData);
 }

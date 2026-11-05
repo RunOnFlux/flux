@@ -155,14 +155,15 @@ class FluxCacheManager {
     //                      |                       |                    | verification, so it is
     //                      |                       |                    | what bounds that cost
     //   announcementStore  | hash(data) -> message | announcements this | serves a peer that
-    //                      |                       | node announced     | asks for the hash
+    //                      |                       | node announced or  | asks for the hash
+    //                      |                       | created            |
     //
     // A node receives around 2.4k messages a minute from 26 peers, of which about 135
     // are distinct - so the filter collapses roughly eighteen copies into one, and it
     // sits in front of verification because that is the work being saved.
     //
-    // The store holds only what this node announced, which is exactly the set a peer
-    // can legitimately request: a request follows an announcement. Policy bundles,
+    // The store holds only what this node announced or created, which is exactly the
+    // set a peer can legitimately request. Policy bundles,
     // asks and answers never enter it, so its entries no longer carry the payload of
     // messages nobody will ever fetch by hash.
     //

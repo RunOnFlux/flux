@@ -508,8 +508,8 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
  *
  * The store is written here rather than at dispatch because this is where a message
  * becomes something a peer can ask for: a request follows an announcement, and only a
- * verified message reaches a handler. Nothing this node never announced is ever asked
- * of it, so nothing else needs keeping.
+ * verified message reaches a handler. The sender keeps what this node creates, the one
+ * other thing a peer asks of it.
  * @param {object} message The verified signed envelope, as it will be handed over.
  * @param {string} excludeKey The peer it came from, which has it already.
  */
@@ -545,8 +545,8 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
 async function handleRequestMessageHash(messageHash, fromIP, port) {
   try {
     // The store, not the filter: this hands the message over, so it needs the message.
-    // A request follows an announcement, so what a peer can ask for is what this node
-    // announced, which is exactly what the store holds.
+    // What a peer can ask for is what this node announced or created, which is exactly
+    // what the store holds.
     if (announcementStore.has(messageHash)) {
       const message = announcementStore.get(messageHash);
       if (message) {
@@ -1117,18 +1117,6 @@ async function getNetworkPaths(req, res) {
   return res.json(messageHelper.createDataMessage(paths));
 }
 
-/**
- * The copy of a message being verified failed: a copy held behind it is
- * dispatched, and otherwise the next announcer is asked.
- * @param {string} messageHash
- */
-function rejectCopy(messageHash) {
-  const held = announcementFetch.rejected(messageHash);
-  if (!held) return;
-  // eslint-disable-next-line no-use-before-define
-  setImmediate(() => dispatchFluxMessage(held.msgObj, held.peerSocket).catch((error) => log.error(error)));
-}
-
 async function dispatchFluxMessage(msgObj, peerSocket) {
   const codes = peerSocket.closeCodes;
   const {
@@ -1204,7 +1192,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   const settles = !(isArcane && APP_MESSAGE_TYPES.has(msgObj.data.type) && !arrivedAuthenticated(msgObj));
   if (claimedSlot) {
     if (announcementSeen.has(messageHash)) {
-      announcementFetch.holdCopy(messageHash, msgObj, peerSocket);
+      announcementFetch.copyWhileVerifying(messageHash, peerSocket.key);
       return;
     }
     if (settles) {
@@ -1230,6 +1218,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     }
     // Nothing here judged the message; the peer is what was refused.
     releaseSlot();
+    if (claimedSlot) announcementFetch.rejected(messageHash);
     return;
   }
   const currentTimeStamp = Date.now();
@@ -1248,7 +1237,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
       }, BROADCAST_VERIFY_RETRY_MS);
     } else {
       releaseSlot();
-      if (claimedSlot) rejectCopy(messageHash);
+      if (claimedSlot) announcementFetch.rejected(messageHash);
       log.warn(`Dropping a ${msgObj.data?.type} from ${peerSocket.direction} peer ${peerSocket.key}: the database did not answer within its window`);
     }
   } else if (verifyResult === VerifyResult.OK) {
@@ -1257,7 +1246,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
       // A copy that cannot settle the message leaves the node still wanting it.
       if (claimedSlot) {
         if (settles) announcementFetch.delivered(messageHash, peerSocket.key);
-        else rejectCopy(messageHash);
+        else announcementFetch.rejected(messageHash);
         noteNetworkPath(messageHash, msgObj);
       }
       const handler = handlerFor(msgObj.data.type);
@@ -1279,19 +1268,19 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     } else {
       // Signed by a real node and outside the window, which is what a replay looks like.
       releaseSlot();
-      if (claimedSlot) rejectCopy(messageHash);
+      if (claimedSlot) announcementFetch.rejected(messageHash);
       peerSocket.sendNak(messageHash, NAK_REASON.STALE);
     }
   } else if (verifyResult === VerifyResult.NODE_NOT_FOUND) {
     releaseSlot();
-    if (claimedSlot) rejectCopy(messageHash);
+    if (claimedSlot) announcementFetch.rejected(messageHash);
     // Originator's node is not in the deterministic list — stale list or node went offline.
     // The relay peer is not at fault. Drop the message, don't punish the relay.
     log.warn(`Dropping message from ${peerSocket.direction} peer ${peerSocket.key}: originator pubkey ${pubKey} not found in node list`);
     fluxEventBus.publish('network:originatorNotListed', { type: msgObj.data?.type, pubKey, relay: peerSocket.key });
   } else {
     releaseSlot();
-    if (claimedSlot) rejectCopy(messageHash);
+    if (claimedSlot) announcementFetch.rejected(messageHash);
     noteBadMessage(peerSocket, verifyResult);
   }
 }

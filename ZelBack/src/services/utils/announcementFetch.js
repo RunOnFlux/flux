@@ -8,9 +8,9 @@
 // message.
 //
 // A copy under verification holds the message's seen mark without yet being the
-// message, so an announcement arriving meanwhile is kept as a fallback for the
-// copy failing, and each copy arriving meanwhile is held for the same reason: one
-// per sender, so forged copies cannot take the place of a genuine one.
+// message, so the sender of an announcement or of another copy arriving meanwhile
+// is kept as a fallback for the copy failing. A second copy's bytes are dropped, so
+// no number of forged copies costs memory or takes the place of a genuine one.
 //
 // A miss is charged to a peer that was asked and did not deliver, only once
 // another peer delivers: that proves the message existed. A timer that fired late
@@ -28,8 +28,6 @@ const NO_LATENCY_MS = config.fluxapps.hashFetchDefaultMs;
 /** @type {Map<string, {asked: ?string, fallbacks: Set<string>, timedOut: Set<string>, timer: ?NodeJS.Timeout, attempts: number}>} */
 const fetches = new Map();
 const verifying = new Set();
-/** @type {Map<string, Map<string, {msgObj: object, peerSocket: object}>>} */
-const heldCopies = new Map();
 const missesOf = new Map();
 
 let wiring = {
@@ -144,17 +142,24 @@ function verifyingCopy(hash) {
 }
 
 /**
- * A copy of `hash` arrived while another is verified. Kept unless its sender
- * already has one held.
+ * A copy of `hash` arrived from `peerKey` while another is verified: its sender
+ * holds the message, or claims to, and is asked if the copy verified fails. A
+ * peer that sent a copy has answered, so its timer stops.
  * @param {string} hash
- * @param {object} msgObj
- * @param {object} peerSocket
+ * @param {string} peerKey
  */
-function holdCopy(hash, msgObj, peerSocket) {
+function copyWhileVerifying(hash, peerKey) {
   if (!verifying.has(hash)) return;
-  const held = heldCopies.get(hash) ?? new Map();
-  if (!held.has(peerSocket.key)) held.set(peerSocket.key, { msgObj, peerSocket });
-  heldCopies.set(hash, held);
+  const entry = fetches.get(hash) ?? {
+    asked: null, fallbacks: new Set(), timedOut: new Set(), timer: null, attempts: 0,
+  };
+  fetches.set(hash, entry);
+  entry.fallbacks.add(peerKey);
+  entry.timedOut.delete(peerKey);
+  if (entry.asked !== peerKey) return;
+  entry.asked = null;
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = null;
 }
 
 /**
@@ -165,7 +170,6 @@ function holdCopy(hash, msgObj, peerSocket) {
  */
 function delivered(hash, peerKey) {
   verifying.delete(hash);
-  heldCopies.delete(hash);
   const owed = missesOf.get(peerKey);
   if (owed > 1) missesOf.set(peerKey, owed - 1);
   else missesOf.delete(peerKey);
@@ -181,26 +185,16 @@ function delivered(hash, peerKey) {
 }
 
 /**
- * The copy of `hash` did not verify. A copy held behind it is answered for the
- * caller to handle; otherwise the next fallback is asked at once.
+ * The copy of `hash` did not verify: the next fallback is asked at once.
  * @param {string} hash
- * @returns {?{msgObj: object, peerSocket: object}}
  */
 function rejected(hash) {
   verifying.delete(hash);
-  const held = heldCopies.get(hash);
-  if (held) {
-    const [[sender, copy]] = held;
-    held.delete(sender);
-    if (held.size === 0) heldCopies.delete(hash);
-    return copy;
-  }
   const entry = fetches.get(hash);
-  if (!entry) return null;
+  if (!entry) return;
   if (entry.timer) clearTimeout(entry.timer);
   entry.timer = null;
   askNext(hash, entry);
-  return null;
 }
 
 /**
@@ -235,10 +229,9 @@ function reset() {
   fetches.forEach((entry) => { if (entry.timer) clearTimeout(entry.timer); });
   fetches.clear();
   verifying.clear();
-  heldCopies.clear();
   missesOf.clear();
 }
 
 module.exports = {
-  announced, verifyingCopy, holdCopy, delivered, rejected, peerGone, timeoutFor, wire, reset,
+  announced, verifyingCopy, copyWhileVerifying, delivered, rejected, peerGone, timeoutFor, wire, reset,
 };
