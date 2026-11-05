@@ -30,6 +30,10 @@ describe('networkPath tests', () => {
     expect(verifies(a, text, framed.networkPath[0][1])).to.equal(true);
   });
 
+  it('signs a text under a label of its own', () => {
+    expect(networkPath.hopText('previous', 1250, '1.1.1.1:16127')).to.equal('fluxnetworkpath|previous|1250|1.1.1.1:16127');
+  });
+
   it('chains each hop to the signature before it', () => {
     const a = key();
     const b = key();

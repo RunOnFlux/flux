@@ -5,13 +5,14 @@
 // is diagnostic: nothing decides anything from it.
 //
 // Each hop is [offsetMs, signature]: when it was sent, as an offset from the
-// broadcast's timestamp, and the node's signature over the hop before it, the
-// message's hash, that time and the address it was sent to. Naming the receiver
-// and chaining the previous signature means no later node can edit, invent or
-// remove a hop without breaking the chain; a node can misstate only its own
-// time. The signature recovers the signer's key, so a hop carries no address:
-// a reader walks back from itself, each hop's signer naming the address the hop
-// before it was sent to.
+// broadcast's timestamp, and the node's signature over a label of its own, the
+// hop before it or the message's hash, that time and the address it was sent to.
+// The label keeps a hop from being the bytes of anything else the key signs, and
+// is never sent. Naming the receiver and chaining the previous signature means no
+// later node can edit, invent or remove a hop without breaking the chain; a node
+// can misstate only its own time. The signature recovers the signer's key, so a
+// hop carries no address: a reader walks back from itself, each hop's signer
+// naming the address the hop before it was sent to.
 
 const hash = require('object-hash');
 const bitcoinMessage = require('bitcoinjs-message');
@@ -19,6 +20,7 @@ const secp256k1 = require('secp256k1');
 
 const MAX_HOPS = 16;
 const HOP_SHAPE = /^[A-Za-z0-9+/]{87}=$/;
+const HOP_LABEL = 'fluxnetworkpath';
 
 /**
  * The text a hop signs.
@@ -28,7 +30,7 @@ const HOP_SHAPE = /^[A-Za-z0-9+/]{87}=$/;
  * @returns {string}
  */
 function hopText(previous, sentAt, toAddress) {
-  return `${previous}|${sentAt}|${toAddress}`;
+  return `${HOP_LABEL}|${previous}|${sentAt}|${toAddress}`;
 }
 
 /**
