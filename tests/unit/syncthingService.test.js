@@ -389,6 +389,21 @@ describe('syncthingService tests', () => {
   });
 
 
+  describe('refetchesDroppedDevicesForVersion', () => {
+    [
+      ['v2.0.15', false], ['v2.1.1', false], ['v2.1.2', true], ['v2.1.5', true], ['2.1.7', true],
+      ['v2.2.0', true], ['v3.0.0', true], ['v1.30.0', false], ['v2.1.5-rc.1', true],
+    ].forEach(([version, expected]) => {
+      it(`reads ${version} as ${expected}`, () => {
+        expect(syncthingService.refetchesDroppedDevicesForVersion(version)).to.equal(expected);
+      });
+    });
+
+    it('throws on a version it cannot read', () => {
+      expect(() => syncthingService.refetchesDroppedDevicesForVersion('unknown')).to.throw('cannot be read');
+    });
+  });
+
   describe('drainFoldersToPeers', () => {
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
     const peer = 'PEER111-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';

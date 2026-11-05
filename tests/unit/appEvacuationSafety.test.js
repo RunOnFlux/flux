@@ -326,10 +326,11 @@ describe('appEvacuationSafety tests', () => {
       expect(result).to.include({ safe: true, code: 'SYNCED_ELSEWHERE' });
     });
 
-    it('refuses a copy that cannot show it holds nothing', async () => {
+    it('refuses a copy that cannot show it holds nothing, naming the component', async () => {
       const result = await appEvacuationSafety.canSafelyRemoveApp('quiet', deps);
 
       expect(result).to.include({ safe: false, code: 'NO_SYNCED_PEER' });
+      expect(result.component).to.include({ identifier: 'web_quiet', folderId: 'fluxweb_quiet' });
     });
 
     it('asks about the folder in the component\'s synced scope', async () => {

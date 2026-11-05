@@ -8650,6 +8650,43 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     });
   });
 
+  describe('a copy no peer holds', () => {
+    const strandedIndex = require('../../ZelBack/src/services/appMonitoring/strandedIndex');
+    const component = { identifier: 'server_appone', folderId: 'fluxserver_appone', syncMode: 'g' };
+    const noPeer = {
+      safe: false, code: 'NO_SYNCED_PEER', reason: 'no peer', component,
+    };
+
+    beforeEach(() => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      evacuationSafety.canSafelyRemoveApp.resolves(noPeer);
+      sinon.stub(strandedIndex, 'repairIfStranded').resolves({ code: 'NOTHING_STRANDED' });
+    });
+
+    it('leaves a copy alone while the election names no other primary', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('leaves a non-g: copy alone', async () => {
+      evacuationSafety.canSafelyRemoveApp.resolves({ ...noPeer, component: { ...component, syncMode: 'r' } });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
+    });
+
+    it('leaves a refusal of any other kind alone', async () => {
+      evacuationSafety.canSafelyRemoveApp.resolves({ ...noPeer, code: 'ONLY_HOST' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
+    });
+  });
+
   describe('the safety gate applies to BOTH reasons', () => {
     it('refuses a surplus removal that is not safe', async () => {
       // Before this, surplus removal deleted on an instance count alone - one of
