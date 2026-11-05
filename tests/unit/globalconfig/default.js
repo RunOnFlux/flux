@@ -270,6 +270,7 @@ module.exports = {
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
     minIncoming: 4,
+    incomingCapFloor: 0,
     minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
     availabilityCheckIntervalMs: 300000,

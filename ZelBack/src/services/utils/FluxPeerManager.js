@@ -877,6 +877,17 @@ class FluxPeerManager extends EventEmitter {
   // --- Close code classification ---
 
   /**
+   * How many inbound connections a node takes: it grows with the network, within
+   * four and nine times the inbound minimum, and never falls below the network's floor.
+   * @param {number} numberOfFluxNodes
+   * @returns {number}
+   */
+  static incomingCap(numberOfFluxNodes) {
+    const { minIncoming, incomingCapFloor } = config.fluxapps;
+    return Math.max(4 * minIncoming, Math.min(numberOfFluxNodes / 160, 9 * minIncoming), incomingCapFloor);
+  }
+
+  /**
    * Should we queue this peer for reconnection?
    * Whitelist approach: only reconnect for codes that mean "peer went away unexpectedly".
    * Everything else (policy, auth, admin close, duplicate) means "don't retry".
@@ -1168,11 +1179,7 @@ class FluxPeerManager extends EventEmitter {
           metadata.remoteFluxUptime = Number(req.headers['x-flux-uptime']);
         }
       }
-      const maxPeers = 4 * config.fluxapps.minIncoming;
-      const maxNumberOfConnections = this.numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming
-        ? this.numberOfFluxNodes / 160
-        : 9 * config.fluxapps.minIncoming;
-      const maxCon = Math.max(maxPeers, maxNumberOfConnections);
+      const maxCon = FluxPeerManager.incomingCap(this.numberOfFluxNodes);
       if (this.inboundCount > maxCon) {
         setTimeout(() => {
           ws.close(CLOSE_CODES.MAX_CONNECTIONS, `Max number of incomming connections ${maxCon} reached`);

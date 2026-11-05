@@ -183,6 +183,11 @@ describe('network profiles', () => {
       expect(lab.analytics.url).to.equal('');
     });
 
+    it('holds the inbound limit at a network\'s floor, and leaves mainnet\'s calculation alone', () => {
+      expect(resolveFor({}).fluxapps.incomingCapFloor).to.equal(0);
+      expect(resolveFor({ network: 'labnet' }).fluxapps.incomingCapFloor).to.equal(32);
+    });
+
     it('applies every app rule from labnet\'s first block, at mainnet\'s heights on mainnet', () => {
       const ruleHeights = {
         minimumInstancesV8Block: 2176519,
