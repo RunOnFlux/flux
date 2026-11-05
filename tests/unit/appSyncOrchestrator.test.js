@@ -1089,6 +1089,33 @@ describe('AppSyncOrchestrator', () => {
         await orchestrator.stop();
       });
 
+      it('completes the attempt that replaced one still held', async () => {
+        const peers = makeEligiblePeers(3);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        blockEmitter.emit('blocksProcessed', 2555000);
+        await clock.tickAsync(0);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+        peerEmitter.emit('peersBelowThreshold', 1);
+        await clock.tickAsync(0);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+
+        release();
+        await clock.tickAsync(0);
+        release();
+        await clock.tickAsync(0);
+
+        expect(allComplete(), 'the second attempt\'s answers were dropped').to.have.lengthOf(1);
+        await orchestrator.stop();
+      });
+
       it('completes nothing on release after the attempt was reset', async () => {
         const peers = makeEligiblePeers(3);
         getEligibleSyncPeersStub = sinon.stub().returns(peers);
@@ -1175,6 +1202,32 @@ describe('AppSyncOrchestrator', () => {
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 1; i <= 4; i += 1) blockEmitter.emit('blocksProcessed', 2555000 + i);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state).to.equal(mod.STATES.READY);
+      expect(globalStateStub.appStateAuthoritative).to.equal(true);
+    });
+
+    it('grants authority by the block timer only once what is held has been checked', async () => {
+      proxyquireMap['./tempMessageHold'].isEmpty = sinon.stub().returns(false);
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 2 });
+      getEligibleSyncPeersStub = sinon.stub().returns([]);
+      const orchestrator = new mod.AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(),
+      });
+      orchestrator.onMessageCapabilityChange(true);
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      for (let i = 1; i <= 4; i += 1) blockEmitter.emit('blocksProcessed', 2555000 + i);
+      await clock.tickAsync(0);
+      expect(orchestrator.state, 'ready with messages unchecked').to.not.equal(mod.STATES.READY);
+      expect(globalStateStub.appStateAuthoritative, 'authoritative with messages unchecked').to.equal(false);
+
+      proxyquireMap['./tempMessageHold'].isEmpty.returns(true);
+      blockEmitter.emit('blocksProcessed', 2555005);
       await clock.tickAsync(0);
 
       expect(orchestrator.state).to.equal(mod.STATES.READY);

@@ -103,6 +103,14 @@ describe('tempMessageHold', () => {
     sinon.assert.calledOnceWithExactly(relay, { message: { good: true }, from: 'p' });
   });
 
+  it('relays nothing the store did not take as new', async () => {
+    store.resolves(false);
+    await hold.hold([{ message: message('known'), relay: { message: { known: true }, from: 'p' } }]);
+    globalState.dbReady = true;
+    await until(async () => await rows.countDocuments({}) === 0);
+    sinon.assert.notCalled(relay);
+  });
+
   it('stops while the registry is rebuilt, and carries on when it opens', async () => {
     globalState.dbReady = true;
     store.callsFake(async () => { globalState.dbReady = false; return true; });
