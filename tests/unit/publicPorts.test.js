@@ -41,14 +41,15 @@ describe('publicPorts tests', () => {
     expect(publicPorts.getApiPort()).to.equal(16147);
   });
 
-  it('publishes the ports it finds and tells nobody of a move', async () => {
+  it('publishes the ports it finds, with no ports before them', async () => {
     const moved = sinon.stub();
     publicPorts.onChange(moved);
     publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128, alsoServing: [] });
     await publicPorts.start({ file });
     expect(publicPorts.getApiPort()).to.equal(16127);
     sinon.assert.calledOnce(written);
-    sinon.assert.notCalled(moved);
+    sinon.assert.calledOnce(moved);
+    expect(moved.firstCall.args[1]).to.equal(null);
     publicPorts.offChange(moved);
   });
 
@@ -61,9 +62,9 @@ describe('publicPorts tests', () => {
       uiPort: 16136, apiPort: 16137, apiPortHttps: 16138, alsoServing: [16127],
     });
     await settle();
-    sinon.assert.calledOnce(moved);
-    expect(moved.firstCall.args[0].apiPort).to.equal(16137);
-    expect(moved.firstCall.args[1].apiPort).to.equal(16127);
+    sinon.assert.calledTwice(moved);
+    expect(moved.secondCall.args[0].apiPort).to.equal(16137);
+    expect(moved.secondCall.args[1].apiPort).to.equal(16127);
     expect(publicPorts.getApiPort()).to.equal(16137);
     publicPorts.offChange(moved);
   });
@@ -80,7 +81,7 @@ describe('publicPorts tests', () => {
       uiPort: 16146, apiPort: 16147, apiPortHttps: 16148, alsoServing: [],
     });
     await settle();
-    sinon.assert.calledOnce(moved);
+    sinon.assert.calledTwice(moved);
     expect(publicPorts.getAlsoServing()).to.deep.equal([]);
     publicPorts.offChange(moved);
   });
@@ -94,7 +95,7 @@ describe('publicPorts tests', () => {
       uiPort: 16126, apiPort: 16127, apiPortHttps: 16128, alsoServing: [],
     });
     await settle();
-    sinon.assert.notCalled(moved);
+    sinon.assert.calledOnce(moved);
     publicPorts.offChange(moved);
   });
 

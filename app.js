@@ -8,15 +8,11 @@ const express = require('express');
 const apiServer = require('./apiServer');
 const portFile = require('./ZelBack/src/services/utils/portFile');
 const apiSocket = require('./ZelBack/src/services/utils/apiSocket');
-const publicPorts = require('./ZelBack/src/services/utils/publicPorts');
 
 async function initiate() {
   const apiPort = await apiServer.initiate();
   // Behind the front proxy the UI has its own unit and the proxy owns the public ports.
-  if (apiSocket.socketPath()) {
-    await publicPorts.start();
-    return;
-  }
+  if (apiSocket.socketPath()) return;
   if (process.argv[2] === '--dev') {
     log.info('Running FluxOS development server.');
     // The development server serves no UI of its own.
