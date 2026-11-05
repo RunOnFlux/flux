@@ -298,7 +298,8 @@ async function ensureIndex(collection, spec, options = {}, recover = null) {
     if (!conflict) throw err;
     const specKeys = JSON.stringify(spec);
     const indexes = await collection.listIndexes().toArray();
-    const match = err.codeName === 'IndexKeySpecsConflict'
+    // An index given no name takes one generated from its key, so the key finds it.
+    const match = err.codeName === 'IndexKeySpecsConflict' && options.name
       ? indexes.find((idx) => idx.name === options.name)
       : indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
     if (match?.name) {

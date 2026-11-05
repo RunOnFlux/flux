@@ -12,6 +12,9 @@ const sinon = require('sinon');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
+const config = require('config');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const { requireMongo } = require('./dbTestHelper');
 const { ensureIndex, ensureIndexes, dedupeByKey } = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
 
@@ -91,6 +94,23 @@ describe('dbHelper ensureIndex', () => {
     await ensureIndex(collection, { 'compose.repotag': 1 }, { name: 'by image' });
 
     sinon.assert.calledOnceWithExactly(collection.dropIndex, 'by image');
+    sinon.assert.calledTwice(createIndex);
+  });
+
+  it('drops an unnamed index\'s generated-name twin by its key, and recreates', async () => {
+    const conflict = new Error('An existing index has the same name as the requested index');
+    conflict.codeName = 'IndexKeySpecsConflict';
+    const createIndex = sinon.stub();
+    createIndex.onFirstCall().rejects(conflict);
+    createIndex.onSecondCall().resolves('hash_1');
+    const collection = stubCollection(createIndex);
+    collection.listIndexes.returns({
+      toArray: async () => [{ key: { _id: 1 }, name: '_id_' }, { key: { hash: 1 }, name: 'hash_1' }],
+    });
+
+    await ensureIndex(collection, { hash: 1 }, { unique: true });
+
+    sinon.assert.calledOnceWithExactly(collection.dropIndex, 'hash_1');
     sinon.assert.calledTwice(createIndex);
   });
 
@@ -310,5 +330,24 @@ describe('dbHelper ensureIndexes', () => {
     });
 
     await expect(ensureIndexes(collection, [{ key: { a: 1 } }])).to.be.rejectedWith('not authorized');
+  });
+
+  describe('against a real collection', () => {
+    before(requireMongo);
+
+    it('makes a real non-unique index unique, repairing the rows that block it', async () => {
+      await dbHelper.initiateDB();
+      const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection('ensureindexupgrade');
+      await collection.drop().catch(() => {});
+      await collection.createIndex({ hash: 1 });
+      await collection.insertMany([{ hash: 'a' }, { hash: 'a' }, { hash: 'b' }]);
+
+      await ensureIndex(collection, { hash: 1 }, { unique: true }, dedupeByKey);
+
+      const index = (await collection.indexes()).find((i) => i.name === 'hash_1');
+      expect(index.unique).to.equal(true);
+      expect(await collection.countDocuments({})).to.equal(2);
+      await collection.drop();
+    });
   });
 });
