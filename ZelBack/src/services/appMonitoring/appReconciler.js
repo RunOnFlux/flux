@@ -404,16 +404,16 @@ async function effectiveDesiredRunning(identifier, spec, exitCode) {
     const reason = operatorStop.startRequested ? 'startAwaitsElection' : 'operatorStopped';
     return { desired: false, reason, force: operatorStop.force };
   }
-  if (spec.isG || spec.isR) {
-    const cd = controllerDesired.get(identifier) ?? null;
-    // No controller opinion yet. controllerDesired is in-memory, so a FluxOS
-    // restart wipes it while the container keeps running (Docker is independent of
-    // the FluxOS process). Take no action - leave the container as-is until the
-    // masterSlave/syncthing decider re-derives intent. Treating "unset" as "stop"
-    // here would bounce every running syncthing app on every FluxOS restart.
-    if (cd === null) return { desired: null, reason: 'awaitingController', force: false };
-    if (cd !== 'running') return { desired: false, reason: 'controllerDesired', force: false };
-  }
+  const cd = controllerDesired.get(identifier) ?? null;
+  // No controller opinion yet. controllerDesired is in-memory, so a FluxOS
+  // restart wipes it while the container keeps running (Docker is independent of
+  // the FluxOS process). Take no action - leave the container as-is until the
+  // masterSlave/syncthing decider re-derives intent. Treating "unset" as "stop"
+  // here would bounce every running syncthing app on every FluxOS restart.
+  if ((spec.isG || spec.isR) && cd === null) return { desired: null, reason: 'awaitingController', force: false };
+  // An s: component has no decider. A stop written for one is a copy being handed
+  // back (leavingCopy).
+  if (cd !== null && cd !== 'running') return { desired: false, reason: 'controllerDesired', force: false };
   const desired = policyAllowsRun(getRestartPolicy(spec), exitCode);
   // Only an operator asks for a hard kill; every other stop reason is a drain.
   return { desired, reason: desired ? 'running' : 'policy', force: false };
@@ -1152,7 +1152,7 @@ async function reconcile(rawIdentifier) {
   // (a folder a decider has just stopped, or wiped). The writer's own enqueue
   // drives the next pass, so not starting here needs no retry. Nothing awaits
   // between this check and the start.
-  if ((spec.isG || spec.isR) && controllerDesired.writes(identifier) !== opinionWrites) {
+  if (controllerDesired.writes(identifier) !== opinionWrites) {
     log.info(`appReconciler - ${identifier}: a controller opinion was written during this pass, not starting it`);
     return;
   }
