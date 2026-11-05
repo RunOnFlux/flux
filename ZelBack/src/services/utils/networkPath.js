@@ -15,7 +15,7 @@
 // naming the address the hop before it was sent to.
 
 const hash = require('object-hash');
-const bitcoinMessage = require('bitcoinjs-message');
+const bitcoinMessage = require('./bitcoinMessage');
 const secp256k1 = require('secp256k1');
 
 const MAX_HOPS = 16;

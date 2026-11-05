@@ -1,6 +1,6 @@
 const { expect } = require('chai');
 const crypto = require('crypto');
-const bitcoinMessage = require('bitcoinjs-message');
+const bitcoinMessage = require('../../ZelBack/src/services/utils/bitcoinMessage');
 const hash = require('object-hash');
 const networkPath = require('../../ZelBack/src/services/utils/networkPath');
 
