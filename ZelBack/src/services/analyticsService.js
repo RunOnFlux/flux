@@ -1,6 +1,7 @@
 const config = require('config');
 const axios = require('axios');
 const log = require('../lib/log');
+const apiSocket = require('./utils/apiSocket');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 
 // Buffer: Map<zelidauthString, Array<event>>
@@ -186,7 +187,7 @@ function analyticsMiddleware(req, res, next) {
 
   res.once('finish', () => {
     try {
-      const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+      const clientIp = (apiSocket.socketPath() ? null : req.headers['x-forwarded-for']?.split(',')[0]?.trim()) || apiSocket.callerAddress(req);
 
       const event = {
         apiEndpoint: req.originalUrl || req.url,

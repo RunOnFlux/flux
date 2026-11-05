@@ -5,9 +5,12 @@ const serviceHelper = require('../../services/serviceHelper');
 const { trackTerminalSession } = require('../../services/analyticsService');
 
 const log = require('../log');
+const apiSocket = require('../../services/utils/apiSocket');
+
+const { callerAddress } = apiSocket;
 
 async function dockerTerminalHandler(socket) {
-  const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim() || socket.handshake.address;
+  const clientIp = (apiSocket.socketPath() ? callerAddress(socket.request) : socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim()) || socket.handshake.address;
 
   // One terminal per connection, owned by the connection rather than by the
   // message that opened it.
