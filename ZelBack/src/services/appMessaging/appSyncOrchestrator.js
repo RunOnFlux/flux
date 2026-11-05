@@ -1090,6 +1090,7 @@ class AppSyncOrchestrator {
 
   async #rebuildDb() {
     try {
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.APPSYNC_BEFORE_REBUILD);
       log.info('AppSyncOrchestrator - Rebuilding globalAppsInformation');
       await registryManager.reindexGlobalAppsInformation();
       this.#dbRebuilt = true;

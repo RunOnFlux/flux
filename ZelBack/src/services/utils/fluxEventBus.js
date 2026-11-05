@@ -57,6 +57,9 @@ const Checkpoint = Object.freeze({
   // An election pass is about to decide a g: component it does not skip. Keyed
   // by the component identifier.
   MASTERSLAVE_BEFORE_DECISION: 'masterSlave:beforeDecision',
+  // The hash sync is done and the registry has not begun to be rebuilt, so
+  // dbReady is still closed.
+  APPSYNC_BEFORE_REBUILD: 'appSync:beforeRebuild',
   // A state-sync attempt's budget has run out and the attempt is still open.
   APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
   // A state sync has every answer it needs and the node has not yet become
