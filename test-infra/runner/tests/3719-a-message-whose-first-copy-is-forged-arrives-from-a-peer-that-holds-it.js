@@ -4,16 +4,18 @@
  * that comes while the forged one is verified, keeps their senders, and asks
  * them once it fails.
  *
- * The fleet is a triangle of SUBJECT, RELAY on this build, and RELEASED on 8.22.0,
- * and a stub that only SUBJECT dials. Each case fixes the order with the checkpoint
+ * The fleet is SUBJECT and RELAY on this build, RELEASED on 8.22.0, and a stub
+ * that SUBJECT and RELAY dial. The ring links SUBJECT to the other two and not them
+ * to each other. Each case fixes the order with the checkpoint
  * before verification: the stub's forged copy is held there while the genuine copy
  * arrives, so that copy is dropped and only its sender remains. The message is a
- * team broadcast, whose content the test chooses, so the forgery can come first.
+ * team broadcast, whose content the test chooses, so the forgery can come first. It
+ * names the origin's address under the stub's key, so its copy fails verification.
  *
- *   - RELAY creates the message. It keeps what it creates, so it answers when asked
- *     and SUBJECT's path names it, though RELEASED also relays the message.
- *   - RELEASED creates the message. 8.22.0 keeps nothing it creates, so it cannot
- *     answer and SUBJECT fetches from RELAY, which relayed it.
+ *   - RELAY creates the message and no other node holds it. It keeps what it
+ *     creates, so it answers when asked and SUBJECT's path names it.
+ *   - RELAY dials RELEASED, which then creates the message. 8.22.0 keeps nothing it
+ *     creates, so it cannot answer and SUBJECT fetches from RELAY, which relayed it.
  *
  * The harness shows the order of events on real 8.22.0 and current nodes. It does
  * not show mainnet latency.
@@ -30,6 +32,7 @@ import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { nodeKey } from '../framework/keys.js';
+import { askToBeDialed } from '../framework/peer-topology.js';
 import { upgradeBase } from '../framework/upgrade-base.js';
 
 const { tag: BASE_TAG } = upgradeBase(fileURLToPath(import.meta.url));
@@ -45,12 +48,14 @@ describe('a message whose first copy is forged arrives from a peer that holds it
   let stub;
   dumpLogsOnFailure(() => env);
 
-  const ipChange = (n) => ({
-    type: 'fluxipchanged',
-    version: 1,
-    oldIP: `203.0.113.${n}:16127`,
-    newIP: `203.0.113.${n + 100}:16127`,
+  const nodeIp = (index) => getSubnetConfig().nodeIp(index + 1);
+  const running = (origin) => ({
+    type: 'fluxapprunning',
+    version: 2,
+    apps: [{ name: `e2eforged${origin}${Date.now()}`, hash: 'a'.repeat(64), runningSince: new Date().toISOString() }],
+    ip: nodeIp(origin),
     broadcastedAt: Date.now(),
+    osUptime: 86400,
   });
 
   /**
@@ -65,16 +70,15 @@ describe('a message whose first copy is forged arrives from a peer that holds it
   async function forgedFirst(origin, message, whileHeld = async () => {}) {
     const subject = env.clients[SUBJECT];
     const key = objectHash(message);
-    const originIp = getSubnetConfig().nodeIp(origin + 1);
     const from = subject.getLastEventId();
     await subject.holdCheckpoint(BEFORE_VERIFY, key);
     try {
-      expect((await stub.forgeBroadcast(message)).sent).to.equal(1);
+      expect((await stub.forgeBroadcast(message)).sent).to.equal(2);
       await subject.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_VERIFY && d.key === key, 30000, { afterId: from });
 
       const answer = await env.clients[origin].broadcastMessage(message, env.clients[origin].zelidauth);
       expect(answer.data.status, `the broadcast from node ${origin}: ${JSON.stringify(answer.data)}`).to.equal('success');
-      await waitFor(async () => (await subject.getDecisionCount('gossip:copyWhileVerifying', key, originIp)) >= 1, {
+      await waitFor(async () => (await subject.getDecisionCount('gossip:copyWhileVerifying', key, nodeIp(origin))) >= 1, {
         timeout: 30000, interval: 200, label: 'the subject kept the sender of the copy that arrived while the forged one was held',
       });
       await whileHeld();
@@ -102,8 +106,8 @@ describe('a message whose first copy is forged arrives from a peer that holds it
     });
     await bootAndPeer(env);
     stub = env.stubPeerClients.get(STUB);
-    await waitFor(async () => (await stub.getStats()).connectionsOpen === 1, {
-      timeout: 60000, interval: 1000, label: 'the subject dialled the stub',
+    await waitFor(async () => (await stub.getStats()).connectionsOpen === 2, {
+      timeout: 60000, interval: 1000, label: 'the subject and the relay dialled the stub',
     });
   });
 
@@ -114,7 +118,7 @@ describe('a message whose first copy is forged arrives from a peer that holds it
 
   it('fetches from the node that created the message, which keeps what it creates', async function () {
     this.timeout(180000);
-    const path = await forgedFirst(RELAY, ipChange(1));
+    const path = await forgedFirst(RELAY, running(RELAY));
 
     expect(path.verified).to.equal(true);
     expect(path.hops).to.have.length(1);
@@ -123,10 +127,12 @@ describe('a message whose first copy is forged arrives from a peer that holds it
 
   it('fetches from a relay when an 8.22.0 node created the message', async function () {
     this.timeout(180000);
-    const message = ipChange(2);
     const from = env.clients[RELAY].getLastEventId();
-    const path = await forgedFirst(RELEASED, message, () => env.clients[RELAY].waitForEvent(
-      'network:ipchanged', (d) => d.oldIP === message.oldIP, 30000, { afterId: from },
+    await askToBeDialed(env.clients[RELEASED], env.clients[RELAY]);
+    await env.clients[RELAY].waitForEvent('peers:added', (d) => d.ip === nodeIp(RELEASED), 60000, { afterId: from });
+
+    const path = await forgedFirst(RELEASED, running(RELEASED), () => env.clients[RELAY].waitForEvent(
+      'network:apprunning', (d) => d.ip === nodeIp(RELEASED) && d.relayed, 30000, { afterId: from },
     ));
 
     expect(path.verified).to.equal(true);
