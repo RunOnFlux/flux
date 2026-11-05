@@ -380,6 +380,29 @@ async function folderConfig(folderId) {
 }
 
 /**
+ * Has syncthing hear a device's index of a folder again: the device leaves the folder and
+ * comes back, held against every other write so the monitor's device list cannot land
+ * between the two. Syncthing answers a config write once the folder has restarted, and
+ * the restart is what drops the device's records. A device left out by a failure comes
+ * back with the monitor's next write.
+ * @param {string} folderId
+ * @param {string} deviceId
+ * @returns {Promise<boolean>} True when both writes landed.
+ */
+function refetchDeviceIndex(folderId, deviceId) {
+  return exclusive([folderId], async () => {
+    const folder = await folderConfig(folderId);
+    if (!folder) return false;
+    const without = folder.devices.filter(({ deviceID }) => deviceID !== deviceId);
+    if (without.length === folder.devices.length) return false;
+    const left = await patchNow(folderId, { devices: without });
+    if (left.status !== 'success') return false;
+    const back = await patchNow(folderId, { devices: folder.devices });
+    return back.status === 'success';
+  });
+}
+
+/**
  * Scans a folder whose type is about to change, and answers whether syncthing
  * confirmed the scan finished. The folder is not held while it scans: a scan
  * writes no config.
@@ -496,6 +519,7 @@ module.exports = {
   pauseAllFolders,
   putFolders,
   patchFolder,
+  refetchDeviceIndex,
   deleteFolder,
   mark,
   publishWritable,

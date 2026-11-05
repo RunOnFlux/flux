@@ -206,6 +206,7 @@ async function canSafelyRemoveApp(appName, deps) {
           safe: false,
           code: 'NO_SYNCED_PEER',
           reason: `no connected peer that is staying up holds ${component.folderId} in full`,
+          component,
         };
       }
     }

@@ -368,6 +368,7 @@ export function nodeClient(nodeNum) {
         'giveUp:considered',
         'giveUp:safety',
         'giveUp:attempt',
+        'giveUp:strandedIndex',
         'giveUp:standDown',
         'giveUp:passSkipped',
         'giveUp:passStarted',

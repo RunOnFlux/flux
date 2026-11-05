@@ -53,6 +53,7 @@ const {
   PeerComponent, peerComponentState, componentStateOnPeers, componentStateOnOtherHolders, peerUndecided,
 } = require('../appMonitoring/peerComponent');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
+const strandedIndex = require('../appMonitoring/strandedIndex');
 const syncthingServiceModule = require('../syncthingService');
 const registryManagerModule = require('../appDatabase/registryManager');
 const { getContainerDataFlags, requiresSyncing } = require('../appMonitoring/syncthingMonitorHelpers');
@@ -4330,6 +4331,19 @@ async function checkAndRemoveApplicationInstance({
         }
         // An attempt is the one action of a pass, and stopped a copy for it.
         if (attempted) return;
+        // A standby of a running primary that no peer can be shown to hold may be holding
+        // what the primary deleted.
+        if (safety.code === 'NO_SYNCED_PEER' && safety.component?.syncMode === 'g'
+          && isElectedPrimaryHere(installedApp.name, localSocketAddr) === false) {
+          const primary = mastersRunningGSyncthingApps.get(safety.component.identifier);
+          // eslint-disable-next-line no-await-in-loop
+          const stranded = await strandedIndex.repairIfStranded(safety.component.folderId, primary);
+          fluxEventBus.publish('giveUp:strandedIndex', {
+            appName: installedApp.name, folderId: safety.component.folderId, code: stranded.code,
+          });
+          // A folder restart is the one action of this pass.
+          if (stranded.code === strandedIndex.StrandedCode.REFETCHED) return;
+        }
         // eslint-disable-next-line no-continue
         continue;
       }
