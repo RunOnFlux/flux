@@ -69,6 +69,9 @@ const Checkpoint = Object.freeze({
   // A give-up pass has decided to hand an app back and has not yet checked the
   // chain height or started the removal. Keyed by the app name.
   GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',
+  // A copy is stopped to be handed back and its folder is not yet scanned. Keyed by
+  // the folder id.
+  LEAVING_COPY_BEFORE_SCAN: 'leavingCopy:beforeScan',
   // A removal is committed, has told the network if it tells it, and has not yet
   // torn anything down. Keyed by the app name.
   REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',

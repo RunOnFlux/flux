@@ -31,6 +31,7 @@ const folderStates = require('./folderStates');
 const localChangeCheck = require('./localChangeCheck');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
+const leavingCopy = require('../appLifecycle/leavingCopy');
 const { componentStateOnOtherHolders, PeerComponent } = require('./peerComponent');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
@@ -1783,7 +1784,7 @@ async function handleReceiveOnlyTransition(params) {
 
     if (containerDataFlags.includes('r')) {
       log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (leader)`);
-      appReconciler.setControllerDesired(appId, 'running', 'syncthing leader start');
+      requestStart(appId, 'syncthing leader start');
     }
 
     cache.restarted = true;
@@ -1844,7 +1845,7 @@ async function handleReceiveOnlyTransition(params) {
         fluxEventBus.count('syncthing:emptyClusterJoin', appId, holdsData ? 'holdsData' : 'holdsNothing');
         decideType(syncthingFolder, containerDataFlags, 'sendreceive');
         if (containerDataFlags.includes('r')) {
-          appReconciler.setControllerDesired(appId, 'running', 'syncthing empty cluster join');
+          requestStart(appId, 'syncthing empty cluster join');
         }
         cache.restarted = true;
         return { syncthingFolder, cache };
@@ -1904,7 +1905,7 @@ async function handleReceiveOnlyTransition(params) {
       decideType(syncthingFolder, containerDataFlags, 'sendreceive');
       if (containerDataFlags.includes('r')) {
         log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (synced)`);
-        appReconciler.setControllerDesired(appId, 'running', 'syncthing synced start');
+        requestStart(appId, 'syncthing synced start');
       }
       cache.restarted = true;
       return { syncthingFolder, cache };
@@ -2023,6 +2024,18 @@ async function handleNewApp(params) {
 }
 
 /**
+ * Asks the reconciler to run a component, unless an attempt to hand its copy back
+ * holds it stopped.
+ * @param {string} appId - App ID
+ * @param {string} reason - Why, for the log and the event
+ * @returns {void}
+ */
+function requestStart(appId, reason) {
+  if (leavingCopy.isLeaving(appId)) return;
+  appReconciler.setControllerDesired(appId, 'running', reason);
+}
+
+/**
  * Ensure an r: component whose folder is syncing is desired running: requested
  * when it is not running, adopted when it already is and this process holds no
  * opinion.
@@ -2037,7 +2050,7 @@ async function ensureContainerRunning(appId, containerDataFlags) {
 
     if (!containerInspect.State.Running) {
       log.info(`ensureContainerRunning - ${appId} is not running, requesting start`);
-      appReconciler.setControllerDesired(appId, 'running', 'syncthing r: ensure-running');
+      requestStart(appId, 'syncthing r: ensure-running');
     } else if (!appReconciler.hasControllerOpinion(appId)) {
       await appReconciler.adoptControllerDesired(appId, 'running', 'syncthing r: running');
     }

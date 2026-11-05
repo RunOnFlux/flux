@@ -45,6 +45,7 @@ const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
 const primaryRole = require('./primaryRole');
+const leavingCopy = require('./leavingCopy');
 const handbackTurns = require('../utils/handbackTurns');
 const primaryRoleChanges = require('./primaryRoleChanges');
 const { createPeerFolderLiveness } = require('../appMonitoring/peerFolderLiveness');
@@ -4003,6 +4004,8 @@ async function checkAndRemoveApplicationInstance({
   }
   giveUpPassLock.register();
   fluxEventBus.publish('giveUp:passStarted', { height });
+  // The copies under this pass's attempt: at most one app's, as a pass acts once.
+  let attempted = null;
   // To check if more than allowed instances of application are running
   // check if synced
   try {
@@ -4221,8 +4224,7 @@ async function checkAndRemoveApplicationInstance({
         continue;
       }
 
-      // eslint-disable-next-line no-await-in-loop
-      const safety = await evacuationSafety.canSafelyRemoveApp(installedApp.name, {
+      const askSafety = (handedBack) => evacuationSafety.canSafelyRemoveApp(installedApp.name, {
         appLocation: registryManager.appLocation,
         getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
         findSyncedPeer: syncthingFolderStateMachine.findSyncedPeer,
@@ -4230,14 +4232,38 @@ async function checkAndRemoveApplicationInstance({
         isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
         isComponentRunningLocally,
         shuttingDownDevices,
+        handedBack,
       });
-      fluxEventBus.publish('giveUp:safety', {
+      const reportSafety = (verdict) => fluxEventBus.publish('giveUp:safety', {
         appName: installedApp.name,
         reason: decision.reason,
-        safe: safety.safe,
-        code: safety.code,
-        detail: safety.reason,
+        safe: verdict.safe,
+        code: verdict.code,
+        detail: verdict.reason,
       });
+      // eslint-disable-next-line no-await-in-loop
+      let safety = await askSafety();
+      reportSafety(safety);
+      if (safety.code === 'STOP_REQUIRED') {
+        // The attempt, and the gate again on what it leaves: the count, a peer that has
+        // since announced its shutdown and a backup are all a moment old by then.
+        attempted = safety.stop;
+        // eslint-disable-next-line no-await-in-loop
+        const exclude = await shuttingDownDevices();
+        // eslint-disable-next-line no-await-in-loop
+        const attempt = await leavingCopy.stopAndProve(attempted, async ({ folderId, unsyncedSubdirs }) => (
+          Boolean(await syncthingFolderStateMachine.findSyncedPeer(folderId, { exclude }))
+          || syncthingFolderStateMachine.folderHoldsNothing(folderId, unsyncedSubdirs)
+        ));
+        fluxEventBus.publish('giveUp:attempt', {
+          appName: installedApp.name, reason: decision.reason, proven: attempt.proven, code: attempt.code, detail: attempt.reason,
+        });
+        safety = attempt.proven
+          // eslint-disable-next-line no-await-in-loop
+          ? await askSafety(new Set(attempted.map(({ identifier }) => identifier)))
+          : { safe: false, code: attempt.code, reason: attempt.reason };
+        reportSafety(safety);
+      }
       if (safety.code === 'STAND_DOWN_REQUIRED' && (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED')) {
         // Every other condition has already passed - a connected peer holds each
         // synced folder in full, and the app is at strength - so the only thing
@@ -4302,6 +4328,8 @@ async function checkAndRemoveApplicationInstance({
         } else {
           log.warn(`${installedApp.name} has been refused ${refusals} passes running (${decision.reason}, ${safety.code}): ${safety.reason}`);
         }
+        // An attempt is the one action of a pass, and stopped a copy for it.
+        if (attempted) return;
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -4333,6 +4361,10 @@ async function checkAndRemoveApplicationInstance({
         return;
       }
       log.warn(`Application ${installedApp.name} locally removed`);
+      if (attempted) {
+        leavingCopy.removed(attempted);
+        attempted = null;
+      }
       if (decision.reason === 'EVACUATION') {
         residentialNodeDosService.noteEvacuated(installedApp.name);
       }
@@ -4343,6 +4375,7 @@ async function checkAndRemoveApplicationInstance({
   } catch (error) {
     log.error(error);
   } finally {
+    if (attempted) leavingCopy.giveBack(attempted);
     giveUpPassLock.disable();
     fluxEventBus.publish('giveUp:passEnded', { height });
   }
