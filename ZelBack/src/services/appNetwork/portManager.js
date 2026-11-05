@@ -11,6 +11,7 @@ const upnpService = require('../upnpService');
 const portReconciler = require('../portReconciler');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 const serviceHelper = require('../serviceHelper');
+const publicPorts = require('../utils/publicPorts');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
@@ -254,8 +255,7 @@ async function restoreFluxPortsSupport() {
   try {
     const isUPNP = upnpService.isUPNP();
 
-    const { userconfig } = globalThis;
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const apiPort = publicPorts.getApiPort();
     const homePort = +apiPort - 1;
     const apiPortSSL = +apiPort + 1;
     const syncthingPort = +apiPort + 2;

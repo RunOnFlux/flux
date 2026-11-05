@@ -401,6 +401,18 @@ class FluxPeerManager extends EventEmitter {
   }
 
   /**
+   * Drops the peers this node dialled, so they re-dial it and learn its new port. Inbound peers
+   * reached a port that is still served.
+   * @returns {number} how many peers were dropped
+   */
+  dropOutboundConnections() {
+    const keys = [...this.#outboundKeys];
+    keys.forEach((key) => this.evict(key, CLOSE_CODES.DEAD_CONNECTION, 'port moved'));
+    log.info(`Dropped ${keys.length} dialled peers after a port move`);
+    return keys.length;
+  }
+
+  /**
    * Evict every peer, and abandon every dial awaiting a verdict, with one close
    * code, as a teardown this node made itself.
    * @param {number} closeCode
