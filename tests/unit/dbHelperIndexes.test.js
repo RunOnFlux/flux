@@ -335,6 +335,21 @@ describe('dbHelper ensureIndexes', () => {
   describe('against a real collection', () => {
     before(requireMongo);
 
+    it('clears both indexes when one holds the requested name and another the requested key', async () => {
+      await dbHelper.initiateDB();
+      const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection('ensureindexupgrade');
+      await collection.drop().catch(() => {});
+      await collection.insertOne({ a: 1, b: 1 });
+      await collection.createIndex({ a: 1 });
+      await collection.createIndex({ b: 1 }, { name: 'wanted' });
+
+      await ensureIndex(collection, { a: 1 }, { name: 'wanted' });
+
+      const indexes = (await collection.indexes()).filter((i) => i.name !== '_id_');
+      expect(indexes.map((i) => [i.name, Object.keys(i.key)[0]])).to.deep.equal([['wanted', 'a']]);
+      await collection.drop();
+    });
+
     it('makes a real non-unique index unique, repairing the rows that block it', async () => {
       await dbHelper.initiateDB();
       const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection('ensureindexupgrade');
