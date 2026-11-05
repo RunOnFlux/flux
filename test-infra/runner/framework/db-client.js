@@ -199,6 +199,16 @@ export function dbClient(nodeNum) {
     async pendingMessageCount(query) {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappstemporarymessages').countDocuments(query);
+    async tempMessageHashes() {
+      const globalDb = await db('appsGlobal');
+      const rows = await globalDb.collection('zelappstemporarymessages').find({}, { projection: { _id: 0, hash: 1 } }).toArray();
+      return rows.map((row) => row.hash).sort();
+    },
+
+    async heldMessageHashes() {
+      const globalDb = await db('appsGlobal');
+      const rows = await globalDb.collection('zelappsheldmessages').find({}, { projection: { _id: 0, 'message.hash': 1 } }).toArray();
+      return rows.map((row) => row.message.hash).sort();
     },
 
     async locationCount() {
