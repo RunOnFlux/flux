@@ -21,6 +21,8 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const proxyquire = require('proxyquire');
+const { networks, configWith } = require('./fixtures/networkConfig');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -645,6 +647,35 @@ describe('explorerService tests', () => {
 
       sinon.assert.calledOnceWithExactly(checkAndRemoveApplicationInstanceStub, {
         height: tip, period, time: timeOf(multiple), previousTime: timeOf(multiple - period),
+      });
+    });
+
+    describe('the network\'s skip ranges', () => {
+      const block = {
+        tx: [], height: 700000, hash: 'h700000', previousblockhash: 'h699999', confirmations: 2, time: 1700000000,
+      };
+
+      beforeEach(() => {
+        daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: block });
+      });
+
+      it('skips the heights a range names', async () => {
+        const step = await explorerService.processBlock(700000);
+
+        expect(step).to.deep.equal({ next: explorerService.Step.block(862002), waitMs: 0 });
+        sinon.assert.neverCalledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 700000 } });
+      });
+
+      it('scans every height on a network with no range', async () => {
+        const labExplorer = proxyquire('../../ZelBack/src/services/explorerService', {
+          config: configWith({ fluxapps: { explorerInsightSkipRanges: networks.labnet.fluxapps.explorerInsightSkipRanges } }),
+        });
+
+        const step = await labExplorer.processBlock(700000);
+
+        expect(step).to.deep.equal({ next: labExplorer.Step.block(700001), waitMs: 0 });
+        sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 700000 } });
       });
     });
 

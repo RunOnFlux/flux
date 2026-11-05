@@ -7,7 +7,7 @@ const mockUserConfig = {
     ipaddress: '127.0.0.1',
     zelid: '1TestZelID123',
     kadena: 'kadena:test?chainid=0',
-    testnet: false,
+    network: 'mainnet',
     development: false,
     apiport: 16127,
     routerIP: '192.168.1.1',
@@ -93,7 +93,7 @@ describe('configManager tests', () => {
       expect(config.initial).to.have.property('ipaddress');
       expect(config.initial).to.have.property('zelid');
       expect(config.initial).to.have.property('kadena');
-      expect(config.initial).to.have.property('testnet');
+      expect(config.initial).to.have.property('network');
       expect(config.initial).to.have.property('development');
       expect(config.initial).to.have.property('apiport');
       expect(config.initial).to.have.property('routerIP');
@@ -108,7 +108,7 @@ describe('configManager tests', () => {
 
       expect(configManager.getConfigValue('initial.zelid')).to.equal('1TestZelID123');
       expect(configManager.getConfigValue('initial.apiport')).to.equal(16127);
-      expect(configManager.getConfigValue('initial.testnet')).to.equal(false);
+      expect(configManager.getConfigValue('initial.network')).to.equal('mainnet');
     });
 
     it('should return undefined for non-existent paths', () => {
@@ -169,11 +169,11 @@ describe('configManager tests', () => {
       // Simulate config update with new values
       const updatedConfig = JSON.parse(JSON.stringify(mockUserConfig));
       updatedConfig.initial.apiport = 16137;
-      updatedConfig.initial.testnet = true;
+      updatedConfig.initial.network = 'labnet';
       globalThis.userconfig = updatedConfig;
 
       expect(configManager.getConfigValue('initial.apiport')).to.equal(16137);
-      expect(configManager.getConfigValue('initial.testnet')).to.equal(true);
+      expect(configManager.getConfigValue('initial.network')).to.equal('labnet');
     });
   });
 
@@ -265,7 +265,7 @@ describe('configManager tests', () => {
           ipaddress: '10.0.0.1',
           zelid: 'GlobalConfigTest',
           kadena: '',
-          testnet: true,
+          network: 'labnet',
           development: true,
           apiport: 16147,
           routerIP: '',

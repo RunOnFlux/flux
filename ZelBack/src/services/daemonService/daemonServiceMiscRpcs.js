@@ -2,34 +2,13 @@ const config = require('config');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const log = require('../../lib/log');
-const configManager = require('../utils/configManager');
 const fluxEventBus = require('../utils/fluxEventBus');
 
-/**
- * Get the default daemon header based on testnet configuration
- * @returns {number} Default header height
- */
-function getDefaultDaemonHeader() {
-  const isTestnet = globalThis.userconfig.initial?.testnet === true;
-  return isTestnet ? 377006 : 1136836;
-}
-
 let currentDaemonHeight = 0;
-let currentDaemonHeader = getDefaultDaemonHeader();
-let previousTestnetValue = globalThis.userconfig.initial?.testnet;
+let currentDaemonHeader = config.daemon.initialHeaderFloor;
 let lastSuccessfulRpcCall = null; // Track last successful getBlockchainInfo call
 // Called with the daemon's height after each poll that reads it.
 const heightListeners = new Set();
-
-// Listen for config changes and reset header if testnet mode changes
-configManager.on('configReloaded', (newConfig) => {
-  const newTestnetValue = newConfig.initial?.testnet;
-  if (newTestnetValue !== previousTestnetValue) {
-    previousTestnetValue = newTestnetValue;
-    currentDaemonHeader = getDefaultDaemonHeader();
-    log.info(`Testnet mode changed, reset daemon header to ${currentDaemonHeader}`);
-  }
-});
 
 /**
  * Whether fluxd keeps the insight explorer's indexes. False only before fluxd
