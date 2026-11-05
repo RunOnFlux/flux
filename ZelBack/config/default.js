@@ -818,7 +818,7 @@ module.exports = {
     // to run when it is renewed (locationTtlS less the announce interval, 65
     // minutes), or no holder's announcement outlasts the turn it would act in.
     // Asserted against production's own config in the unit tests.
-    residentialTurnMs: 60 * 60 * 1000,
+    handbackTurnMs: 60 * 60 * 1000,
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
