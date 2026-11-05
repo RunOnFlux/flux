@@ -9406,6 +9406,46 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'NOT_LEAVING' }]);
       });
 
+      [
+        ['the read fails', () => geolocationVerdict.rejects(new Error('database busy'))],
+        ['the specification cannot be read', () => registryManager.getApplicationGlobalSpecifications.resolves(null)],
+        ['the region is unproven', () => geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.UNKNOWN, source: null, reason: 'not set' })],
+      ].forEach(([name, arrange]) => {
+        it(`stays stood down when ${name}`, async () => {
+          const published = sinon.spy(fluxEventBus, 'publish');
+          await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+          arrange();
+
+          await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+          expect(releases(published)).to.deep.equal([]);
+          sinon.assert.calledOnce(stop);
+        });
+      });
+
+      it('leaves on the owned turn however long the placement stays unread', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        const stoodDown = turnOwnedBy(OWN_KEY);
+        await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(stoodDown, 2 * PASS_S));
+        geolocationVerdict.rejects(new Error('database busy'));
+        let owned = stoodDown + 1;
+        while (handbackTurns.turnOwner(KEYS, owned) !== OWN_KEY) owned += 1;
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(owned + 1, 2 * PASS_S));
+
+        expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'OWNED_TURN_PASSED' }]);
+      });
+
+      it('stands for election again on the table no longer placing it wrong, whatever its own report', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+        geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.FAIL, source: hwRequirements.GeoSource.SELF, reason: 'report' });
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'NOT_LEAVING' }]);
+      });
+
       it('stays stood down while the app is still misplaced', async () => {
         const published = sinon.spy(fluxEventBus, 'publish');
         await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());

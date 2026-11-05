@@ -4114,23 +4114,23 @@ async function checkAndRemoveApplicationInstance({
     // table's word moves an installed app: the node's own ip-api report can be
     // wrong about where it is, and an unproven region is not a wrong one; both
     // still refuse an install. Anything that cannot be read moves nothing.
-    const readMisplaced = async (appName) => {
+    const readPlacement = async (appName) => {
       try {
         const spec = await registryManager.getApplicationGlobalSpecifications(appName);
-        if (!spec) return null;
+        if (!spec) return { misplaced: null, unread: true };
         const geo = await hwRequirements.appGeolocationVerdict(spec);
         const onTable = geo.verdict === hwRequirements.GeoVerdict.FAIL && geo.source === hwRequirements.GeoSource.TABLE;
-        return onTable ? geo : null;
+        return { misplaced: onTable ? geo : null, unread: geo.verdict === hwRequirements.GeoVerdict.UNKNOWN };
       } catch (error) {
         log.warn(`Give-up-an-app pass: geolocation of ${appName} unreadable: ${error.message}`);
-        return null;
+        return { misplaced: null, unread: true };
       }
     };
     // Once per app per pass.
-    const misplacedByApp = new Map();
-    const misplacedVerdict = async (appName) => {
-      if (!misplacedByApp.has(appName)) misplacedByApp.set(appName, await readMisplaced(appName));
-      return misplacedByApp.get(appName);
+    const placementByApp = new Map();
+    const placementOf = async (appName) => {
+      if (!placementByApp.has(appName)) placementByApp.set(appName, await readPlacement(appName));
+      return placementByApp.get(appName);
     };
     // A stand-down for an app that left by any route has nothing left to hold,
     // and one for an app this node is no longer leaving has nothing left to
@@ -4141,7 +4141,10 @@ async function checkAndRemoveApplicationInstance({
       const appName = standDownOwner(identifier);
       const held = heldNames.has(appName);
       // eslint-disable-next-line no-await-in-loop
-      const stillLeaving = held && (evacuating || await misplacedVerdict(appName) !== null);
+      const placement = held ? await placementOf(appName) : null;
+      // A placement that could not be read says nothing has changed: only an answer ends
+      // a leave, and the owned turn below ends it for good.
+      const stillLeaving = held && (evacuating || placement.misplaced !== null || placement.unread);
       if (!held) {
         standingDown.delete(identifier);
       } else if (!stillLeaving) {
@@ -4160,14 +4163,15 @@ async function checkAndRemoveApplicationInstance({
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await registryManager.appLocation(installedApp.name);
       // eslint-disable-next-line no-await-in-loop
-      const misplaced = await misplacedVerdict(installedApp.name);
+      const { misplaced } = await placementOf(installedApp.name);
       const leaving = evacuating || misplaced !== null;
-      if (leaving && ownKey === null) {
+      const stoodDownHere = [...standingDown.keys()].some((identifier) => standDownOwner(identifier) === installedApp.name);
+      if ((leaving || stoodDownHere) && ownKey === null) {
         // eslint-disable-next-line no-await-in-loop
         ownKey = await fluxNetworkHelper.getFluxNodePublicKey();
       }
       // eslint-disable-next-line no-await-in-loop
-      const holders = leaving ? await registryManager.signedHoldersOf(installedApp.name, pass.timeMs) : [];
+      const holders = leaving || stoodDownHere ? await registryManager.signedHoldersOf(installedApp.name, pass.timeMs) : [];
       // A stood-down component that has owned a whole turn since, without the
       // app leaving, is released. A component stopped here and running nowhere
       // is a worse state than the one the stand-down exists to fix, so the node
