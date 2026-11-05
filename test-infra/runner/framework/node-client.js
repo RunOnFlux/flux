@@ -208,6 +208,7 @@ export function nodeClient(nodeNum) {
         'explorer:ready',
         // a block that did not follow the last processed one, and the height the records were restored to
         'explorer:reorganised',
+        'explorer:paymentsDropped',
         'firewall:adjusted',
         'firewall:locked',
         'firewall:purged',
