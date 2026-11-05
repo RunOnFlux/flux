@@ -1196,7 +1196,9 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   const settles = !(isArcane && APP_MESSAGE_TYPES.has(msgObj.data.type) && !arrivedAuthenticated(msgObj));
   if (claimedSlot) {
     if (announcementSeen.has(messageHash)) {
-      announcementFetch.copyWhileVerifying(messageHash, peerSocket.key);
+      if (announcementFetch.copyWhileVerifying(messageHash, peerSocket.key)) {
+        fluxEventBus.count('gossip:copyWhileVerifying', messageHash, peerSocket.ip);
+      }
       return;
     }
     if (settles) {
@@ -1228,6 +1230,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   const currentTimeStamp = Date.now();
   const { VerifyResult } = fluxCommunicationUtils;
   if (claimedSlot) announcementFetch.verifyingCopy(messageHash);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GOSSIP_BEFORE_VERIFY, messageHash);
   const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
 
   if (verifyResult === VerifyResult.UNREADABLE) {

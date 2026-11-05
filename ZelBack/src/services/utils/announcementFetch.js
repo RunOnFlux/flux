@@ -147,19 +147,21 @@ function verifyingCopy(hash) {
  * peer that sent a copy has answered, so its timer stops.
  * @param {string} hash
  * @param {string} peerKey
+ * @returns {boolean} Whether the sender was kept.
  */
 function copyWhileVerifying(hash, peerKey) {
-  if (!verifying.has(hash)) return;
+  if (!verifying.has(hash)) return false;
   const entry = fetches.get(hash) ?? {
     asked: null, fallbacks: new Set(), timedOut: new Set(), timer: null, attempts: 0,
   };
   fetches.set(hash, entry);
   entry.fallbacks.add(peerKey);
   entry.timedOut.delete(peerKey);
-  if (entry.asked !== peerKey) return;
+  if (entry.asked !== peerKey) return true;
   entry.asked = null;
   if (entry.timer) clearTimeout(entry.timer);
   entry.timer = null;
+  return true;
 }
 
 /**
