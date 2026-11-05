@@ -150,6 +150,7 @@ async function checkNodeFitness() {
   // db: a fast read proves the local database answers
   try {
     const db = dbHelper.databaseConnection();
+    if (!db) throw new Error('The database is not connected yet');
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     await dbHelper.findOneInDatabase(database, collection, { loginPhrase: 'TestLoginPhraseForDBTest' }, {});

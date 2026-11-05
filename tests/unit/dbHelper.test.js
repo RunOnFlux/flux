@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const config = require('config');
 const { ObjectId, MongoClient } = require('mongodb');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { requireMongo } = require('./dbTestHelper');
@@ -58,6 +59,19 @@ describe('dbHelper tests', () => {
 
       expect(dbConnection).to.not.be.null;
       expect(dbConnection.s.url).to.equal(mongoUrl);
+    });
+  });
+
+  describe('whenConnected tests', () => {
+    it('settles once the first connection is made', async () => {
+      const fresh = proxyquire('../../ZelBack/src/services/dbHelper', {});
+      const pending = Symbol('pending');
+      expect(await Promise.race([fresh.whenConnected(), Promise.resolve(pending)])).to.equal(pending);
+
+      await fresh.initiateDB();
+
+      expect(await Promise.race([fresh.whenConnected().then(() => 'settled'), Promise.resolve(pending)])).to.equal('settled');
+      await fresh.closeDbConnection();
     });
   });
 
