@@ -60,7 +60,8 @@ async function makeDirectory(dir) {
 
 /**
  * Write the port file, with this process's id. Never rejects.
- * @param {{apiPort: number, apiPortHttps: number, uiPort?: number}} ports - the bound ports
+ * @param {{apiPort: number, apiPortHttps: number, uiPort?: number, confirmedApiPort?: number}} ports -
+ *   the ports served on, and behind the proxy the API port the chain lists
  * @param {{dir?: string}} [options] - the directory the file is written in
  * @returns {Promise<boolean>} True when the file was written.
  */
@@ -71,6 +72,7 @@ async function writePortFile(ports, { dir = PORT_FILE_DIR } = {}) {
     apiPort: ports.apiPort,
     apiPortHttps: ports.apiPortHttps,
     uiPort: ports.uiPort,
+    confirmedApiPort: ports.confirmedApiPort,
     pid: process.pid,
   });
   try {

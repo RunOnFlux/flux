@@ -9,6 +9,7 @@ const configDefault = require('../../config/default');
 
 const log = require('../lib/log');
 const { callerAddress } = require('./utils/apiSocket');
+const publicPorts = require('./utils/publicPorts');
 const configManager = require('./utils/configManager');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
@@ -1104,9 +1105,7 @@ function getRouterIP(req, res) {
  * @returns {object} Message.
  */
 function getAPIPort(req, res) {
-  const { userconfig } = globalThis;
-  const routerIP = userconfig.initial.apiport || '16127';
-  const message = messageHelper.createDataMessage(routerIP);
+  const message = messageHelper.createDataMessage(publicPorts.getApiPort());
   return res ? res.json(message) : message;
 }
 
