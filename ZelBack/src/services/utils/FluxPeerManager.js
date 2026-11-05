@@ -105,6 +105,8 @@ class FluxPeerManager extends EventEmitter {
    */
   syncResponseWanted = null;
 
+  syncArrivalWanted = null;
+
   #ownSocketAddress = null;
   /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
   #peerUpdateTimer = null;
@@ -954,6 +956,17 @@ class FluxPeerManager extends EventEmitter {
   isSyncResponseWanted(peerSocket) {
     if (!this.syncResponseWanted) return false;
     return this.syncResponseWanted(peerSocket);
+  }
+
+  /**
+   * Whether a sync response arriving now is taken. Narrower than isSyncResponseWanted,
+   * which also holds while work already received is finished.
+   * @param {object} peerSocket
+   * @returns {boolean}
+   */
+  isSyncArrivalWanted(peerSocket) {
+    if (!this.syncArrivalWanted) return false;
+    return this.syncArrivalWanted(peerSocket);
   }
 
   // --- Liveness ---

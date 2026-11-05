@@ -88,6 +88,7 @@ module.exports = {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsInstallingLocations',
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt

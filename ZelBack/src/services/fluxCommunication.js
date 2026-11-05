@@ -4,7 +4,6 @@ const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const dbHelper = require('./dbHelper');
 const messageStore = require('./appMessaging/messageStore');
 const messageVerifier = require('./appMessaging/messageVerifier');
 const admissionQuorum = require('./appMessaging/admissionQuorum');
@@ -57,7 +56,9 @@ const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 const announcementFetch = require('./utils/announcementFetch');
 const networkPath = require('./utils/networkPath');
+const globalState = require('./utils/globalState');
 const verifyPool = require('./utils/verifyPool');
+const tempMessageHold = require('./appMessaging/tempMessageHold');
 const { Privilege, authOf } = require('./utils/privileges');
 
 // The random peers discovery keeps beyond the deterministic ring (fluxapps).
@@ -84,22 +85,16 @@ const SYNC_EVENTS_PER_SLICE = 250;
  */
 async function handleAppMessages(message, fromIP, port) {
   try {
-    if (admissionQuorum.takeRelay(message.data?.hash, arrivedAuthenticated(message))) return;
-    // check if we have it in database and if not add
-    // if not in database, rebroadcast to all connections
-    // do furtherVerification of message
-    const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data, {
-      frame: message, authenticated: arrivedAuthenticated(message),
-    });
-    if (rebroadcastToPeers === true) {
-      fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
-      announceToPeers(message, `${fromIP}:${port}`);
-    } else if (rebroadcastToPeers instanceof Error) {
-      fluxEventBus.publish('network:appmessageRefused', {
-        hash: message.data?.hash, type: message.data?.type, name: message.data?.appSpecifications?.name, reason: rebroadcastToPeers.message,
-      });
+    const authenticated = arrivedAuthenticated(message);
+    if (admissionQuorum.takeRelay(message.data?.hash, authenticated)) return;
+    if (await tempMessageHold.isPaidAndMissing(message.data?.hash)) {
+      await messageStore.storeAppTemporaryMessage(message.data, { frame: message, authenticated });
+      return;
     }
+    await tempMessageHold.hold([{ message: message.data, authenticated, relay: { message, from: `${fromIP}:${port}` } }]);
   } catch (error) {
+    // Not kept, so a copy from another peer has to be let through.
+    announcementSeen.delete(hash(message.data));
     log.error(error);
     fluxEventBus.publish('network:appmessageRefused', {
       hash: message.data?.hash, type: message.data?.type, name: message.data?.appSpecifications?.name, reason: error.message,
@@ -122,6 +117,11 @@ async function handleAppProposal(msg, peer) {
   if (!admissionQuorum.isMessageHash(appHash) || !APP_MESSAGE_TYPES.has(envelope.data.type)) return;
   const { RECEIPT_STATE } = admissionQuorum;
   admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.RECEIVED);
+  // Its checks read the registry, so a node rebuilding it holds no opinion.
+  if (!globalState.dbReady) {
+    admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.REFUSED, 'its registry is not ready');
+    return;
+  }
   // Only the first proposal of a message runs its checks; every proposer is
   // answered from them.
   if (!admissionQuorum.openProposal(appHash, peer)) return;
@@ -187,6 +187,25 @@ function dispatchLinkMessage(msg, peer) {
 }
 
 /**
+ * What a held message's check came to: passed on while its broadcast is fresh enough for
+ * peers to take it, or reported as refused.
+ * @param {{message: object, from: string}} held
+ * @param {boolean|Error} outcome What the store answered, or the error that refused it.
+ * @returns {void}
+ */
+function settleHeldAppMessage({ message, from }, outcome) {
+  if (outcome instanceof Error) {
+    fluxEventBus.publish('network:appmessageRefused', {
+      hash: message.data?.hash, type: message.data?.type, name: message.data?.appSpecifications?.name, reason: outcome.message,
+    });
+    return;
+  }
+  if (outcome !== true) return;
+  fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
+  if (fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, Date.now())) announceToPeers(message, from);
+}
+
+/**
  * The broadcasts of a sync response that verify. Rejects when any of them
  * could not be verified because the database did not answer: the response is
  * then not all recorded, and its peer has not answered.
@@ -233,32 +252,16 @@ async function handleTempSyncResponse(message, peerSocket) {
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleTempSyncResponse - Received ${messages.length} temp messages from ${peerKey} (done: ${!!done})`);
-    let stored = 0;
-    let writeFailed = false;
-    for (const msg of messages) {
-      try {
-        const result = await messageStore.storeAppTemporaryMessage(msg, {
-          furtherVerification: true, authenticated: arrivedAuthenticated(message),
-        });
-        if (result === true || result === false) stored += 1;
-      } catch (err) {
-        log.error(`Temp sync message failed: ${err.message}`);
-        // A message this node's database could not record leaves the answer
-        // incomplete; one that fails its own checks is the peer's, and is skipped.
-        if (dbHelper.isDatabaseError(err)) {
-          writeFailed = true;
-          break;
-        }
-      }
-    }
-    if (writeFailed) {
-      // What this peer sent is not all recorded, so its request ends here and
-      // another peer is asked; the rest of its answer is not read.
-      log.warn(`handleTempSyncResponse - a write failed, ending ${peerKey}'s request`);
+    const authenticated = arrivedAuthenticated(message);
+    try {
+      await tempMessageHold.hold(messages.map((msg) => ({ message: msg, authenticated })));
+    } catch (err) {
+      // What this peer sent is not all kept, so its request ends here and another
+      // peer is asked; the rest of its answer is not read.
+      log.warn(`handleTempSyncResponse - a write failed, ending ${peerKey}'s request: ${err.message}`);
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
       return;
     }
-    log.info(`handleTempSyncResponse - Processed ${stored} of ${messages.length} messages`);
     // COUNTED LIKE THE REST. A peer is credited once it has delivered every
     // stream it was asked for, so the record that admits its responses stays
     // open until this one has ended too - the three surveys finishing first no
@@ -1386,7 +1389,7 @@ async function verifySyncEnvelope(msgObj) {
 async function dispatchSyncResponse(msgObj, peerSocket) {
   try {
     const peerKey = peerSocket.key;
-    if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+    if (!peerManager.isSyncArrivalWanted(peerSocket)) return;
 
     // THE QUEUE IS THE ORDER, so nothing that can reorder may sit in front of
     // it. Chunks carry meaning by position: the sender sorts by timestamp and
@@ -1410,29 +1413,17 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
     const drainer = !state.processing;
     if (drainer) state.processing = true;
 
-    // THE PEER SPOKE, AND IT REALLY WAS THE PEER. Two different questions used
-    // to be split at the wrong seam: arrival on one side, everything else on
-    // the other. The seam that matters is whose statement it is.
+    // WHOSE TIME IT IS. Whether a peer signed what it sent is about the PEER, and
+    // the envelope is answered as soon as the check comes back, whatever the queue
+    // is doing. Working through what it sent is about US: while its chunks are
+    // here no clock runs against it, and its clock restarts when they are done.
     //
-    // Whether a peer signed what it sent is about the PEER, and it is a
-    // signature check. Storing two thousand messages, or re-verifying every
-    // pending registration, is about US. So the envelope is answered here, as
-    // soon as the check comes back and whatever the queue is doing, and the
-    // payload work stays in the drain below.
-    //
-    // Announced at arrival rather than after that work, because a peer that
-    // answered all four requests correctly and instantly went unheard for as
-    // long as WE took on the first of them - and was recorded as having said
-    // nothing and set aside, with the three answers queued behind it discarded
-    // on the way out.
-    //
-    // And unverifiable bytes are not the peer speaking. Credited as progress
-    // they renewed the deadline that exists to take the slot back, so a peer
-    // streaming rubbish inside every stall window held one of the answers this
-    // node needs for the whole attempt while never answering at all.
+    // Unverifiable bytes are not the peer speaking, so they stop no clock, and a
+    // peer streaming rubbish does not hold a slot it never answers.
     const verdict = await chunk.verdict;
     if (verdict === fluxCommunicationUtils.VerifyResult.OK && !msgObj?.data?.refused) {
-      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, peerKey);
+      state.spoke = true;
+      appSyncEvents.emit(state.processing ? SYNC_EVENTS.EPHEMERAL_SYNC_BUSY : SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, peerKey);
     }
 
     if (!drainer) return;
@@ -1463,9 +1454,11 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
 
     state.processing = false;
     syncChunkQueues.delete(peerKey);
+    if (state.spoke) appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, peerKey);
   } catch (error) {
     log.error(error);
     syncChunkQueues.delete(peerSocket.key);
+    appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_PROGRESS, peerSocket.key);
   }
 }
 
@@ -2787,6 +2780,7 @@ module.exports = {
   handleAppInstallingMessage,
   handleAppInstallingErrorMessage,
   handleTempSyncResponse,
+  settleHeldAppMessage,
   handleAppRunningSyncResponse,
   handleAppInstallingSyncResponse,
   handleAppInstallingErrorsSyncResponse,
