@@ -65,12 +65,15 @@ describe('dbHelper tests', () => {
   describe('whenConnected tests', () => {
     it('settles once the first connection is made', async () => {
       const fresh = proxyquire('../../ZelBack/src/services/dbHelper', {});
-      const pending = Symbol('pending');
-      expect(await Promise.race([fresh.whenConnected(), Promise.resolve(pending)])).to.equal(pending);
+      const answer = () => Promise.race([
+        fresh.whenConnected().then(() => 'settled'),
+        new Promise((resolve) => { setTimeout(resolve, 50, 'pending'); }),
+      ]);
+      expect(await answer()).to.equal('pending');
 
       await fresh.initiateDB();
 
-      expect(await Promise.race([fresh.whenConnected().then(() => 'settled'), Promise.resolve(pending)])).to.equal('settled');
+      expect(await answer()).to.equal('settled');
       await fresh.closeDbConnection();
     });
   });
