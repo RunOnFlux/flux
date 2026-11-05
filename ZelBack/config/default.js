@@ -695,7 +695,9 @@ module.exports = {
     // late means this node is behind. hashFetchesMax is how many messages are
     // fetched at once. A peer's connection ends at hashFetchMissesToDisconnect
     // misses within hashFetchMissWindowMs, while it has missed more than
-    // hashFetchMissesPerServed for each message it served there.
+    // hashFetchMissesPerServed for each message it served there, once
+    // minimumFluxOSAllowedVersion is at least hashFetchDisconnectFrom, the first
+    // release that fetches from one peer.
     hashFetchRttMultiplier: 3,
     hashFetchBaseMs: 100,
     hashFetchDefaultMs: 500,
@@ -705,6 +707,7 @@ module.exports = {
     hashFetchMissesToDisconnect: 20,
     hashFetchMissesPerServed: 10,
     hashFetchMissWindowMs: 600000,
+    hashFetchDisconnectFrom: '8.23.0',
     // A connection between two Arcane nodes joins the peer set when its link
     // handshake settles, or unauthenticated at this deadline.
     linkHandshakeDeadlineMs: 10000,

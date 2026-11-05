@@ -4106,7 +4106,9 @@ describe('fluxCommunication tests', () => {
       direction: 'outgoing',
       closeCodes: { badOrigin: 4001, blocked: 4002 },
       badMessageTimestamps: [],
-      fetchRecord: { startedAt: Date.now(), misses: 0, served: 0 },
+      fetchRecord: {
+        startedAt: Date.now(), misses: 0, served: 0, reported: false,
+      },
       msgMap: new Map([['newHash', 0], ['requestHash', 0]]),
       close: sinon.stub(),
       sendNak: () => {},
@@ -4228,7 +4230,27 @@ describe('fluxCommunication tests', () => {
       expect([...broadcast.firstCall.args[2]]).to.deep.equal(['1.1.1.1:16127', '2.2.2.2:16127']);
     });
 
+    const atTheFloor = () => sinon.stub(serviceHelper, 'semverAtLeast')
+      .withArgs(config.minimumFluxOSAllowedVersion, config.fluxapps.hashFetchDisconnectFrom).returns(true);
+
+    it('keeps a peer past the limit below hashFetchDisconnectFrom, logged once a window', () => {
+      const warn = sinon.stub(log, 'warn');
+      const peer = peerOf('1.1.1.1');
+      for (let i = 1; i < config.fluxapps.hashFetchMissesToDisconnect; i += 1) fluxCommunication.noteFetchMiss(peer);
+      sinon.assert.notCalled(warn);
+
+      for (let i = 0; i < 5; i += 1) fluxCommunication.noteFetchMiss(peer);
+      sinon.assert.notCalled(peer.close);
+      sinon.assert.calledOnce(warn);
+      expect(warn.firstCall.args[0]).to.include('Keeping outgoing peer 1.1.1.1:16127: 20 announced messages not delivered, 0 delivered');
+
+      peer.fetchRecord.startedAt = Date.now() - config.fluxapps.hashFetchMissWindowMs;
+      for (let i = 0; i < config.fluxapps.hashFetchMissesToDisconnect; i += 1) fluxCommunication.noteFetchMiss(peer);
+      sinon.assert.calledTwice(warn);
+    });
+
     it('disconnects a peer at hashFetchMissesToDisconnect misses inside the window, not before', () => {
+      atTheFloor();
       const peer = peerOf('1.1.1.1');
       for (let i = 1; i < config.fluxapps.hashFetchMissesToDisconnect; i += 1) fluxCommunication.noteFetchMiss(peer);
       sinon.assert.notCalled(peer.close);
@@ -4238,6 +4260,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('keeps a peer that serves at least one in hashFetchMissesPerServed, and cuts one that does not', () => {
+      atTheFloor();
       const { hashFetchMissesToDisconnect, hashFetchMissesPerServed } = config.fluxapps;
       const served = hashFetchMissesToDisconnect;
       const peer = peerOf('1.1.1.1');
@@ -4250,6 +4273,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('starts a new record once the window has passed', () => {
+      atTheFloor();
       const peer = peerOf('1.1.1.1');
       peer.fetchRecord = {
         startedAt: Date.now() - config.fluxapps.hashFetchMissWindowMs, misses: config.fluxapps.hashFetchMissesToDisconnect, served: 0,

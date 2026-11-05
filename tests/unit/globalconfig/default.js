@@ -347,6 +347,7 @@ module.exports = {
     hashFetchMissesToDisconnect: 20,
     hashFetchMissesPerServed: 10,
     hashFetchMissWindowMs: 600000,
+    hashFetchDisconnectFrom: '8.23.0',
     untaggedRefusedFrom: '8.23.0',
     admissionQuorum: 3,
     admissionLinkTarget: 5,
