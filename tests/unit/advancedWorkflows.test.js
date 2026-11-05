@@ -8661,9 +8661,46 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
       evacuationSafety.canSafelyRemoveApp.resolves(noPeer);
       sinon.stub(strandedIndex, 'repairIfStranded').resolves({ code: 'NOTHING_STRANDED' });
+      peerIdentityService.askSigned.resolves({
+        verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+        answer: { held: [], purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+      });
     });
 
-    it('leaves a copy alone while the election names no other primary', async () => {
+    const heldBy = (address) => peerIdentityService.askSigned.withArgs(address).resolves({
+      verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+      answer: { held: [component.folderId], purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+    });
+
+    it('asks about the node a peer shows is running the component, FDM or no FDM', async () => {
+      heldBy('5.6.7.8:16127');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(strandedIndex.repairIfStranded, component.folderId, '5.6.7.8:16127');
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does nothing more this pass once a folder has restarted', async () => {
+      heldBy('5.6.7.8:16127');
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+      strandedIndex.repairIfStranded.resolves({ code: 'REFETCHED' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnce(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('goes on to the next app when nothing restarted', async () => {
+      heldBy('5.6.7.8:16127');
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('leaves a copy alone while no peer shows it runs the component', async () => {
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(strandedIndex.repairIfStranded);
@@ -8671,6 +8708,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     });
 
     it('leaves a non-g: copy alone', async () => {
+      heldBy('5.6.7.8:16127');
       evacuationSafety.canSafelyRemoveApp.resolves({ ...noPeer, component: { ...component, syncMode: 'r' } });
 
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
@@ -8679,6 +8717,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     });
 
     it('leaves a refusal of any other kind alone', async () => {
+      heldBy('5.6.7.8:16127');
       evacuationSafety.canSafelyRemoveApp.resolves({ ...noPeer, code: 'ONLY_HOST' });
 
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
