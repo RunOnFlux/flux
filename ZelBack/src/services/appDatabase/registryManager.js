@@ -1605,12 +1605,13 @@ async function availableApps(_req, res) {
     return allApps;
   } catch (error) {
     log.error(error);
+    if (!res) throw error;
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    return res.json(errorResponse);
   }
 }
 
@@ -1686,9 +1687,9 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
     }
   }
 
-  const localApps = await availableApps();
-  const appExists = localApps.find((localApp) => localApp.name.toLowerCase() === appSpecFormatted.name.toLowerCase());
-  if (appExists) {
+  const appsLocalDatabase = dbopen.db(config.database.appslocal.database);
+  const localApp = await dbHelper.findOneInDatabase(appsLocalDatabase, localAppsInformation, appsQuery, appsProjection);
+  if (appResult || localApp) {
     throw new Error(`Flux App ${appSpecFormatted.name} already assigned to local application. Flux App has to be registered under different name.`);
   }
   if (appSpecFormatted.name.toLowerCase() === 'share') {
