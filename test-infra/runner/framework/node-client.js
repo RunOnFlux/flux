@@ -367,6 +367,7 @@ export function nodeClient(nodeNum) {
         'reconciler:swept',
         'giveUp:considered',
         'giveUp:safety',
+        'giveUp:attempt',
         'giveUp:standDown',
         'giveUp:passSkipped',
         'giveUp:passStarted',
