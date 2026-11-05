@@ -50,6 +50,7 @@ const SHUTDOWN_PAUSE_MS = 3000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 const portFile = require('./ZelBack/src/services/utils/portFile');
 const apiSocket = require('./ZelBack/src/services/utils/apiSocket');
+const publicPorts = require('./ZelBack/src/services/utils/publicPorts');
 const fluxdCredentials = require('./ZelBack/src/services/daemonService/fluxdCredentials');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -216,6 +217,8 @@ async function initiate() {
     }
 
     log.info(`Flux listening on ${socketPath}!`);
+    // Before the functions below, each of which reads the node's ports as it starts.
+    await publicPorts.start();
     systemdNotify.notifyReady();
     setAxiosDefaults([server.socketIo]);
     serviceManager.startFluxFunctions();
