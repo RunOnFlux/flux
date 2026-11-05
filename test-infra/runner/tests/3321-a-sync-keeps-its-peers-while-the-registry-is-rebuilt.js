@@ -27,7 +27,8 @@ const BUDGET_MS = 60000;
 const MESSAGES = 3;
 const SUBJECT = 4;
 const REGISTRAR = 2;
-const ANSWERERS = [1, 2, 3];
+// The subject's two peers, so both can answer it.
+const ANSWERERS = [0, 3];
 const ANSWERS_NEEDED = 2;
 const BOOTED = [0, 1, 2, 3];
 
