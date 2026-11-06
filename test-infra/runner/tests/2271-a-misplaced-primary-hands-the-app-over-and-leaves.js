@@ -22,6 +22,7 @@ import {
 } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
+import { clearMaster, electMaster, resetFdm } from '../framework/fdm-control.js';
 import { getFolderConfig, isDaemonUp, readPath } from '../framework/syncthing-real.js';
 import { allowFromNow } from '../framework/time-budget.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -131,6 +132,7 @@ describe('a misplaced primary hands the app over and leaves', function () {
       timeout: 300000, interval: 3000, label: 'one holder is the primary',
     });
     moved = holders[(await Promise.all(holders.map(running))).indexOf(true)];
+    await electMaster(appName, subnet.nodeIp(moved + 1));
     free = [...Array(NODES).keys()].find((i) => !holders.includes(i));
     root = (await getFolderConfig(env.clients[moved], folder)).path;
     await waitFor(async () => (await Promise.all(holders.map((i) => readPath(env.clients[i], `${root}/appdata/placed.txt`))))
@@ -156,6 +158,7 @@ describe('a misplaced primary hands the app over and leaves', function () {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ domains: 1 }),
     }).catch(() => {});
+    await resetFdm().catch(() => {});
     await env?.teardown();
   });
 
@@ -164,6 +167,7 @@ describe('a misplaced primary hands the app over and leaves', function () {
     allowFromNow(this, waitMs + 420000);
     await drive(moved, async () => Boolean(event(moved, 'giveUp:standDown')), waitMs, 'the primary stood down');
     expect(await running(moved), 'the moved node stopped').to.equal(false);
+    await clearMaster(appName);
 
     const others = holders.filter((i) => i !== moved);
     await drive(others[0], async () => (await Promise.all(others.map(running))).some(Boolean), 300000, 'a holder took over');
