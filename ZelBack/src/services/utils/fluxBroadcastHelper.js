@@ -1,5 +1,6 @@
 const serviceHelper = require('../serviceHelper');
 const { nodeSigner } = require('./nodeSigner');
+const { validPath } = require('./networkPath');
 
 /**
  * A signature over a message, as this node - or null when it cannot sign.
@@ -44,7 +45,32 @@ async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   });
 }
 
+/**
+ * What signs a broadcast. A frame's other fields are its sender's alone, so nothing
+ * a node keeps or passes on carries them.
+ * @param {object} frame
+ * @returns {{version: number, timestamp: number, pubKey: string, signature: string}}
+ */
+function envelopeOf({
+  version, timestamp, pubKey, signature,
+}) {
+  return {
+    version, timestamp, pubKey, signature,
+  };
+}
+
+/**
+ * A broadcast as a node holds and passes it on: what is signed, and the path it took.
+ * @param {object} frame
+ * @returns {object}
+ */
+function signedBroadcast(frame) {
+  return { ...envelopeOf(frame), data: frame.data, networkPath: validPath(frame.networkPath) };
+}
+
 module.exports = {
+  envelopeOf,
+  signedBroadcast,
   serialiseAndSignFluxBroadcast,
   getFluxMessageSignature,
 };

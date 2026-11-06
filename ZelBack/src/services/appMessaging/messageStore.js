@@ -16,6 +16,7 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
+const { envelopeOf } = require('../utils/fluxBroadcastHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
 const fluxnodeAddressRecord = require('../fluxnodeAddressRecord');
 const networkStateService = require('../networkStateService');
@@ -1206,7 +1207,8 @@ async function handleIPChangedEvent({ message, envelope }) {
   );
 }
 
-function storeAppStateEvent(type, payload) {
+function storeAppStateEvent(type, received) {
+  const payload = received.envelope ? { ...received, envelope: envelopeOf(received.envelope) } : received;
   switch (type) {
     case APP_STATE_EVENT_TYPES.APPRUNNING: return handleAppRunningEvent(payload);
     case APP_STATE_EVENT_TYPES.SIGTERM: return handleSigtermEvent(payload);

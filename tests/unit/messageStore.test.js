@@ -1301,6 +1301,24 @@ describe('messageStore tests', () => {
       dbHelperStub.databaseConnection.returns(mockDb);
     });
 
+    [
+      ['sigterm', { ip: '1.2.3.4', broadcastedAt: 1000 }],
+      ['appremoved', { ip: '1.2.3.4', appName: 'a', broadcastedAt: 1000 }],
+      ['ipchanged', { oldIP: '1.2.3.4', newIP: '1.2.3.5', broadcastedAt: 1000 }],
+    ].forEach(([type, message]) => {
+      it(`stores of a ${type} envelope only what signs it`, async () => {
+        const envelope = {
+          version: 1, timestamp: 1000, pubKey: 'pk', signature: 'sig', padding: 'added by a peer',
+        };
+
+        await messageStore.storeAppStateEvent(type, { message, envelope });
+
+        const written = JSON.stringify(collectionStub.updateOne.firstCall.args[1]);
+        expect(written).to.include('"signature":"sig"');
+        expect(written).to.not.include('added by a peer');
+      });
+    });
+
     it('should store apprunning v2 event with correct dedupKey', async () => {
       const payload = {
         signedBroadcast: {

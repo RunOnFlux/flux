@@ -607,6 +607,23 @@ describe('fluxCommunication tests', () => {
       expect(cacheManager.announcementStore.has(objectHash(message.data))).to.equal(true);
     }).timeout(10000);
 
+    it('keeps for its peers only what a broadcast is', async () => {
+      const hop = [5, `${'a'.repeat(87)}=`];
+      const data = { type: 'fluxappregister', hash: 'a'.repeat(64) };
+      const frame = {
+        version: 1, timestamp: 1, pubKey: 'key', signature: 's', data, networkPath: [hop], padding: 'x'.repeat(100),
+      };
+
+      fluxCommunication.settleHeldAppMessage({ message: frame, from: '1.2.3.4:16127' }, new Error('refused'));
+      expect(cacheManager.announcementStore.has(objectHash(data))).to.equal(false);
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      fluxCommunication.settleHeldAppMessage({ message: frame, from: '1.2.3.4:16127' }, true);
+
+      expect(cacheManager.announcementStore.get(objectHash(data))).to.deep.equal({
+        version: 1, timestamp: 1, pubKey: 'key', signature: 's', data, networkPath: [hop],
+      });
+    });
+
     it('should not send broadcast if signature is invalid', async () => {
       const fromIp = '127.0.0.5';
       const port = '16127';

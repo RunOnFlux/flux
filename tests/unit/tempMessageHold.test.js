@@ -19,6 +19,9 @@ const until = async (condition) => {
 
 describe('tempMessageHold', () => {
   const message = (hash, extra = {}) => ({ hash, type: 'fluxappregister', ...extra });
+  const frameOf = (data, signature = 's', networkPath = []) => ({
+    version: 1, timestamp: 1, pubKey: 'key', signature, data, networkPath,
+  });
   let store;
   let hold;
   let rows;
@@ -79,31 +82,77 @@ describe('tempMessageHold', () => {
   });
 
   it('checks a message by the route it arrived on, with its frame', async () => {
-    const frame = { data: message('a'), signature: 's' };
-    await hold.hold([{ message: message('a'), authenticated: true, relay: { message: frame, from: 'p' } }]);
+    const frame = frameOf(message('a'));
+    await hold.hold([{ message: frame.data, authenticated: true, relay: { message: frame, from: 'p' } }]);
     globalState.dbReady = true;
     await until(() => store.called);
     expect(store.firstCall.args[1]).to.deep.include({ furtherVerification: true, authenticated: true, frame });
   });
 
+  it('hands over the frame around the message it checks, as a live frame carries it', async () => {
+    const frame = frameOf(message('a'));
+    await hold.hold([{ message: frame.data, relay: { message: frame, from: 'p' } }]);
+    globalState.dbReady = true;
+    await until(() => store.called);
+    expect(store.firstCall.args[1].frame.data).to.equal(store.firstCall.args[0]);
+  });
+
+  it('gives the message back in the text it was signed over', async () => {
+    const data = message('a', { zeta: 1, alpha: { yankee: [2, { beta: 3 }], bravo: null }, epoch: 1793960000000 });
+    const frame = frameOf(JSON.parse(JSON.stringify(data)));
+    await hold.hold([{ message: frame.data, relay: { message: frame, from: 'p' } }]);
+    globalState.dbReady = true;
+    await until(() => store.called);
+    expect(JSON.stringify(store.firstCall.args[1].frame.data)).to.equal(JSON.stringify(data));
+  });
+
+  it('holds the message once', async () => {
+    const frame = frameOf(message('a'));
+    await hold.hold([{ message: frame.data, relay: { message: frame, from: 'p' } }]);
+    const row = await rows.findOne({});
+    expect(row.envelope).to.deep.equal({
+      version: 1, timestamp: 1, pubKey: 'key', signature: 's',
+    });
+    expect(row).to.not.have.property('relay');
+  });
+
+  it('keeps nothing of a frame but what is signed and its path', async () => {
+    const hop = [5, `${'a'.repeat(87)}=`];
+    const frame = { ...frameOf(message('a'), 's', [hop]), padding: 'x'.repeat(1000) };
+    await hold.hold([{ message: frame.data, relay: { message: frame, from: 'p' } }]);
+    globalState.dbReady = true;
+    await until(() => relay.called);
+    const passedOn = relay.firstCall.args[0].message;
+    expect(passedOn).to.not.have.property('padding');
+    expect(passedOn.networkPath).to.deep.equal([hop]);
+  });
+
+  it('keeps no path that is not one', async () => {
+    const frame = frameOf(message('a'), 's', [['not a hop']]);
+    await hold.hold([{ message: frame.data, relay: { message: frame, from: 'p' } }]);
+    expect((await rows.findOne({})).networkPath).to.deep.equal([]);
+  });
+
   it('keeps the authenticated copy of a message an unauthenticated link sent first', async () => {
-    const first = { message: { first: true }, from: 'a' };
-    const second = { message: { second: true }, from: 'b' };
+    const first = { message: frameOf(message('a'), 'first'), from: 'a' };
+    const second = { message: frameOf(message('a'), 'second'), from: 'b' };
     await hold.hold([{ message: message('a'), authenticated: false, relay: first }]);
     await hold.hold([{ message: message('a'), authenticated: true, relay: second }]);
     expect(await rows.countDocuments({})).to.equal(1);
     const row = await rows.findOne({});
     expect(row.authenticated).to.equal(true);
-    expect(row.relay).to.deep.equal(second);
+    expect(row.envelope.signature).to.equal('second');
+    expect(row.from).to.equal('b');
   });
 
   it('keeps what relays a message when an authenticated sync answer holds it too', async () => {
-    const gossip = { message: { gossip: true }, from: 'a' };
+    const gossip = { message: frameOf(message('a'), 'gossip'), from: 'a' };
     await hold.hold([{ message: message('a'), authenticated: false, relay: gossip }]);
     await hold.hold([{ message: message('a'), authenticated: true }]);
     const row = await rows.findOne({});
     expect(row.authenticated).to.equal(true);
-    expect(row.relay).to.deep.equal(gossip);
+    expect(row.envelope.signature).to.equal('gossip');
+    expect(row.from).to.equal('a');
   });
 
   it('does not lose the route of an authenticated copy to a later unauthenticated one', async () => {
@@ -128,23 +177,23 @@ describe('tempMessageHold', () => {
   it('relays only what passed its checks and came with something to relay', async () => {
     store.withArgs(sinon.match({ hash: 'refused' })).rejects(new Error('Flux App already registered'));
     await hold.hold([
-      { message: message('good'), relay: { message: { good: true }, from: 'p' } },
+      { message: message('good'), relay: { message: frameOf(message('good')), from: 'p' } },
       { message: message('fromsync') },
-      { message: message('refused'), relay: { message: { refused: true }, from: 'p' } },
+      { message: message('refused'), relay: { message: frameOf(message('refused')), from: 'p' } },
     ]);
     globalState.dbReady = true;
     await until(async () => await rows.countDocuments({}) === 0);
-    sinon.assert.calledWith(relay, { message: { good: true }, from: 'p' }, true);
-    sinon.assert.calledWith(relay, { message: { refused: true }, from: 'p' }, sinon.match.instanceOf(Error));
+    sinon.assert.calledWith(relay, { message: frameOf(message('good')), from: 'p' }, true);
+    sinon.assert.calledWith(relay, { message: frameOf(message('refused')), from: 'p' }, sinon.match.instanceOf(Error));
     sinon.assert.calledTwice(relay);
   });
 
   it('relays nothing the store did not take as new', async () => {
     store.resolves(false);
-    await hold.hold([{ message: message('known'), relay: { message: { known: true }, from: 'p' } }]);
+    await hold.hold([{ message: message('known'), relay: { message: frameOf(message('known')), from: 'p' } }]);
     globalState.dbReady = true;
     await until(async () => await rows.countDocuments({}) === 0);
-    sinon.assert.calledOnceWithExactly(relay, { message: { known: true }, from: 'p' }, false);
+    sinon.assert.calledOnceWithExactly(relay, { message: frameOf(message('known')), from: 'p' }, false);
   });
 
   it('stops while the registry is rebuilt, and carries on when it opens', async () => {
