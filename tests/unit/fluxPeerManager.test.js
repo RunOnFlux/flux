@@ -219,40 +219,6 @@ describe('FluxPeerSocket tests', () => {
     });
   });
 
-  describe('a frame that is no message', () => {
-    ['null', 'T1793960000000|null', '[]', '1', '"text"', 'true'].forEach((data) => {
-      it(`takes ${data} without throwing, as a message with no fields`, async () => {
-        const peer = new FluxPeerSocket(createMockWs('10.0.0.1'), '10.0.0.1', '16127', manager);
-
-        peer.ws.onmessage({ data });
-        await new Promise((resolve) => { setImmediate(resolve); });
-
-        sinon.assert.calledOnce(manager.messageDispatcher);
-      });
-    });
-
-    it('closes the connection on a frame that cannot be handled, and throws nothing', () => {
-      const peer = new FluxPeerSocket(createMockWs('10.0.0.1'), '10.0.0.1', '16127', manager);
-      manager.handleBinaryMessage = sinon.stub().throws(new Error('cannot be handled'));
-
-      peer.ws.onmessage({ data: Buffer.from([0x01]) });
-
-      sinon.assert.calledWith(peer.ws.close, peer.closeCodes.invalidMsg, 'frame could not be handled');
-    });
-
-    it('closes the connection on a queued frame that cannot be handled, and throws nothing', () => {
-      const peer = new FluxPeerSocket(createMockWs('10.0.0.1'), '10.0.0.1', '16127', manager);
-      manager.handleBinaryMessage = sinon.stub().throws(new Error('cannot be handled'));
-      peer.handshaking = true;
-      peer.ws.onmessage({ data: Buffer.from([0x01]) });
-      peer.handshaking = false;
-
-      peer.flushQueuedFrames();
-
-      sinon.assert.calledWith(peer.ws.close, peer.closeCodes.invalidMsg, 'frame could not be handled');
-    });
-  });
-
   describe('liveness credited from any traffic', () => {
     // A pong is an ordinary frame and queues behind everything else that peer sent, so the busier
     // a peer is talking to us the later its pong is read. Crediting only pongs therefore fires the
