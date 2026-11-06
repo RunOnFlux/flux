@@ -1,9 +1,9 @@
 const EventEmitter = require('node:events');
-const path = require('node:path');
 const fs = require('node:fs');
 const { watch } = require('node:fs/promises');
 const hash = require('object-hash');
 const config = require('config');
+const runtimePaths = require('../../../runtimePaths');
 
 /**
  * Whether a node maps its ports through UPnP, from its network settings: an api
@@ -66,7 +66,7 @@ function renderUserConfig(initial) {
 class ConfigManager extends EventEmitter {
   constructor() {
     super();
-    this.configPath = path.join(__dirname, '../../../../config/userconfig.js');
+    this.configPath = runtimePaths.userconfigPath();
     this.initialHash = null;
     this.loadConfig();
   }
@@ -78,12 +78,12 @@ class ConfigManager extends EventEmitter {
   loadConfig(isReload = false) {
     try {
       // Clear cache if reloading
-      if (isReload && require.cache[require.resolve('../../../../config/userconfig')]) {
-        delete require.cache[require.resolve('../../../../config/userconfig')];
+      if (isReload && require.cache[this.configPath]) {
+        delete require.cache[this.configPath];
       }
 
       // eslint-disable-next-line global-require
-      const userconfig = require('../../../../config/userconfig');
+      const userconfig = require(this.configPath);
 
       // The writers rewrite this file whole, so a read can land between the truncate
       // and the write. require() resolves an empty or truncated file to an object
@@ -168,7 +168,7 @@ class ConfigManager extends EventEmitter {
    */
   async startWatching(log, onReload) {
     try {
-      const configDir = path.join(__dirname, '../../../../config');
+      const configDir = runtimePaths.userconfigDir();
       const watcher = watch(configDir);
       // eslint-disable-next-line
       for await (const event of watcher) {

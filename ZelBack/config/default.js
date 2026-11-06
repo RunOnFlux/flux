@@ -1,5 +1,5 @@
 // eslint-disable-next-line prefer-const
-let userconfig = require('../../config/userconfig');
+let userconfig = require(require('../runtimePaths').userconfigPath());
 const volumeToolsImage = require('./volumeToolsImage.json');
 const networks = require('./networks');
 

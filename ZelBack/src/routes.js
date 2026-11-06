@@ -311,7 +311,7 @@ module.exports = (app) => {
   app.get('/flux/routerip', cache('1 day'), asyncRoute((req, res) => {
     return fluxService.getRouterIP(req, res);
   }));
-  app.get('/flux/apiport', cache('1 day'), asyncRoute((req, res) => {
+  app.get('/flux/apiport', asyncRoute((req, res) => {
     return fluxService.getAPIPort(req, res);
   }));
   app.get('/flux/enterpriseappowners', cache('1 hour'), asyncRoute((req, res) => {
@@ -684,7 +684,7 @@ module.exports = (app) => {
 
   // GET PROTECTED API - Fluxnode Owner
   app.get('/daemon/stop', asyncRoute((req, res) => {
-    return daemonServiceControlRpcs.stop(req, res);
+    return fluxService.stopDaemon(req, res);
   }));
   app.get('/daemon/reindex', asyncRoute((req, res) => {
     return fluxService.reindexDaemon(req, res);
@@ -777,7 +777,7 @@ module.exports = (app) => {
     return benchmarkService.signFluxTransaction(req, res);
   }));
   app.get('/benchmark/stop', asyncRoute((req, res) => {
-    return benchmarkService.stop(req, res);
+    return fluxService.stopBenchmark(req, res);
   }));
 
   // GET PROTECTED API - FluxTeam
@@ -791,10 +791,10 @@ module.exports = (app) => {
     return daemonServiceNetworkRpcs.ping(req, res);
   }));
   app.get('/daemon/startbenchmark', asyncRoute((req, res) => {
-    return daemonServiceBenchmarkRpcs.startBenchmarkD(req, res);
+    return fluxService.startBenchmarkByDaemon(req, res);
   }));
   app.get('/daemon/stopbenchmark', asyncRoute((req, res) => {
-    return daemonServiceBenchmarkRpcs.stopBenchmarkD(req, res);
+    return fluxService.stopBenchmarkByDaemon(req, res);
   }));
 
   app.get('/flux/startbenchmark', asyncRoute((req, res) => {

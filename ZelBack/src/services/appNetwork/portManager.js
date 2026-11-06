@@ -11,6 +11,8 @@ const upnpService = require('../upnpService');
 const portReconciler = require('../portReconciler');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 const serviceHelper = require('../serviceHelper');
+const publicPorts = require('../utils/publicPorts');
+const { socketPath } = require('../utils/apiSocket');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
@@ -45,7 +47,15 @@ const APP_DESCRIPTION_PREFIX = 'Flux_App_';
 
 // The api port this FluxOS listens on, read once as apiServer reads it: a config
 // reload can name another without a restart.
-const listeningApiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
+const startupApiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
+
+/**
+ * @returns {number|string} The API port this node is reached on: the one the proxy serves when
+ *   behind it, the one it listens on otherwise.
+ */
+function listeningApiPort() {
+  return socketPath() ? publicPorts.getApiPort() : startupApiPort;
+}
 
 /**
  * Check if ports in array are unique
@@ -254,8 +264,7 @@ async function restoreFluxPortsSupport() {
   try {
     const isUPNP = upnpService.isUPNP();
 
-    const { userconfig } = globalThis;
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const apiPort = publicPorts.getApiPort();
     const homePort = +apiPort - 1;
     const apiPortSSL = +apiPort + 1;
     const syncthingPort = +apiPort + 2;
@@ -391,11 +400,14 @@ async function restoreAppsPortsPass() {
 async function removeStaleUpnpMappings() {
   try {
     await globalState.waitForBootContainerStateSettled();
-    await serviceHelper.delay(upnpService.msUntilCleanupSlot(listeningApiPort));
+    await serviceHelper.delay(upnpService.msUntilCleanupSlot(listeningApiPort()));
     if (!upnpService.isUPNP() || globalState.shutdownInProgress) return;
     const removed = await upnpService.removeStaleMappings(async () => {
       const configuredApiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
-      const held = [...upnpService.corePorts(listeningApiPort), ...upnpService.corePorts(configuredApiPort)];
+      const held = [...upnpService.corePorts(listeningApiPort()), ...upnpService.corePorts(configuredApiPort)];
+      if (socketPath()) {
+        [publicPorts.getApiPort(), ...publicPorts.getAlsoServing()].forEach((port) => held.push(...upnpService.corePorts(port)));
+      }
       const installedApps = await assignedPortsInstalledApps();
       installedApps.forEach((app) => held.push(...app.ports));
       return held;
@@ -417,14 +429,14 @@ async function refreshPortsInSlot() {
   try {
     const cycleMs = config.fluxapps.portRestoreIntervalMs;
     await globalState.waitForBootContainerStateSettled();
-    let waitMs = upnpService.msUntilRefreshSlot(listeningApiPort, cycleMs);
+    let waitMs = upnpService.msUntilRefreshSlot(listeningApiPort(), cycleMs);
     while (!globalState.shutdownInProgress) {
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(waitMs);
       // eslint-disable-next-line no-await-in-loop
       if (!globalState.shutdownInProgress) await restorePortsSupport();
       // a pass ended at its slot's very start must not run twice in it
-      waitMs = upnpService.msUntilRefreshSlot(listeningApiPort, cycleMs) || cycleMs;
+      waitMs = upnpService.msUntilRefreshSlot(listeningApiPort(), cycleMs) || cycleMs;
     }
   } catch (error) {
     log.error(`refreshPortsInSlot - ${error.message}`);
@@ -1503,8 +1515,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '', {
  */
 async function callOtherNodeToKeepUpnpPortsOpen() {
   try {
-    const { userconfig } = globalThis;
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const apiPort = publicPorts.getApiPort();
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
       return;

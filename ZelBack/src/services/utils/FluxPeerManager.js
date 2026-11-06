@@ -1,6 +1,7 @@
 const { EventEmitter } = require('events');
 const config = require('config');
 const log = require('../../lib/log');
+const { callerAddress } = require('./apiSocket');
 const serviceHelper = require('../serviceHelper');
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./FluxPeerSocket');
 const { DEFAULT_API_PORT, compareSocketAddresses } = require('./socketAddressUtils');
@@ -397,6 +398,18 @@ class FluxPeerManager extends EventEmitter {
     const count = this.#evictAll(CLOSE_CODES.DEAD_CONNECTION, 'address moved');
     log.info(`Dropped all ${count} peers, still accepting connections`);
     return count;
+  }
+
+  /**
+   * Drops the peers this node dialled, so they re-dial it and learn its new port. Inbound peers
+   * reached a port that is still served.
+   * @returns {number} how many peers were dropped
+   */
+  dropOutboundConnections() {
+    const keys = [...this.#outboundKeys];
+    keys.forEach((key) => this.evict(key, CLOSE_CODES.DEAD_CONNECTION, 'port moved'));
+    log.info(`Dropped ${keys.length} dialled peers after a port move`);
+    return keys.length;
   }
 
   /**
@@ -1189,7 +1202,7 @@ class FluxPeerManager extends EventEmitter {
 
       let ipv4Peer;
       try {
-        ipv4Peer = (req.socket.remoteAddress || '').replace('::ffff:', '');
+        ipv4Peer = (callerAddress(req) || '').replace('::ffff:', '');
       } catch (error) {
         log.error(error);
         return;

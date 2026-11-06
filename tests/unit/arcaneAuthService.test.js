@@ -60,7 +60,7 @@ describe('arcaneAuthService proxy tests', () => {
       sinon.assert.calledWith(logInfoStub, sinon.match(/Challenge generated for.*via flux-configd/));
     });
 
-    it('should extract IP from connection.remoteAddress if req.ip is not available', async () => {
+    it('should extract IP from socket.remoteAddress if req.ip is not available', async () => {
       const mockChallenge = {
         challenge: 'b'.repeat(64),
         blockHeight: 54321,
@@ -70,7 +70,7 @@ describe('arcaneAuthService proxy tests', () => {
       callFluxConfigdRPCStub.resolves(mockChallenge);
 
       const req = {
-        connection: {
+        socket: {
           remoteAddress: '10.0.0.50',
         },
       };
@@ -87,16 +87,11 @@ describe('arcaneAuthService proxy tests', () => {
       });
     });
 
-    it('should extract IP from x-forwarded-for header', async () => {
-      const mockChallenge = {
-        challenge: 'c'.repeat(64),
-        blockHeight: 99999,
-        expiresAt: Date.now() + 30000,
-      };
-
-      callFluxConfigdRPCStub.resolves(mockChallenge);
-
+    it('should not take the IP from a caller\'s x-forwarded-for header', async () => {
       const req = {
+        socket: {
+          remoteAddress: '10.0.0.50',
+        },
         headers: {
           'x-forwarded-for': '203.0.113.42',
         },
@@ -107,10 +102,12 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
+      callFluxConfigdRPCStub.resolves({ challenge: 'c'.repeat(64), blockHeight: 99999, expiresAt: Date.now() + 30000 });
+
       await arcaneAuthService.authChallengeHandler(req, res);
 
       sinon.assert.calledWith(callFluxConfigdRPCStub, 'arcane.generate_challenge', {
-        ip_address: '203.0.113.42',
+        ip_address: '10.0.0.50',
       });
     });
 

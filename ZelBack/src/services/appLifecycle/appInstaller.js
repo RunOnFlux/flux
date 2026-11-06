@@ -28,6 +28,7 @@ const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
 const portReconciler = require('../portReconciler');
 const globalState = require('../utils/globalState');
+const fluxosTrial = require('../utils/fluxosTrial');
 const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -745,6 +746,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
  * @returns {Promise<string>} One of InstallOutcome.
  */
 async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+  await fluxosTrial.settled();
   // Published for every outcome but INSTALLED, which has app:installed of its own.
   const announce = (outcome) => {
     if (test || outcome === InstallOutcome.INSTALLED) return;

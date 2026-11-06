@@ -2599,6 +2599,16 @@ describe('fluxService tests', () => {
       globalThis.userconfig = originalUserConfig;
     });
 
+    it('is refused on ArcaneOS, where configd owns the file', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      await fluxServiceOnArcane.adjustRouterIP({ params: { routerip: '10.0.0.1' } }, res);
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.include('router address');
+    });
+
     it('should return error when unauthorized ', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(false);
@@ -2657,6 +2667,16 @@ describe('fluxService tests', () => {
       sinon.restore();
       // Restore original userconfig
       globalThis.userconfig = originalUserConfig;
+    });
+
+    it('is refused on ArcaneOS, where configd owns the file', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      await fluxServiceOnArcane.adjustAPIPort({ params: { apiport: '16157' } }, res);
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.include('API port');
     });
 
     it('should return error when unauthorized ', async () => {
@@ -3884,6 +3904,49 @@ describe('fluxService tests', () => {
       await fluxService.updateFlux(undefined, generateResponse());
       await clock.tickAsync(5000);
       expect(pm2Restarts()).to.have.length(1);
+    });
+  });
+
+  describe('daemon and benchmark control on ArcaneOS', () => {
+    let runCommandStub;
+
+    beforeEach(() => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    });
+
+    afterEach(() => { sinon.restore(); });
+
+    ['stopDaemon', 'stopBenchmark', 'startBenchmarkByDaemon', 'stopBenchmarkByDaemon'].forEach((endpoint) => {
+      it(`${endpoint} is refused`, async () => {
+        const res = generateResponse();
+        await fluxServiceOnArcane[endpoint]({}, res);
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+        expect(res.json.firstCall.args[0].data.message).to.include('ArcaneOS');
+      });
+    });
+
+    it('restartFluxOS is refused and runs nothing', async () => {
+      const res = generateResponse();
+      await fluxServiceOnArcane.restartFluxOS({}, res);
+      sinon.assert.notCalled(runCommandStub);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
+    ['startDaemon', 'restartDaemon', 'reindexDaemon', 'updateDaemon',
+      'startBenchmark', 'restartBenchmark', 'updateBenchmark'].forEach((endpoint) => {
+      it(`${endpoint} is refused and runs nothing`, async () => {
+        const res = generateResponse();
+        await fluxServiceOnArcane[endpoint]({}, res);
+        sinon.assert.notCalled(runCommandStub);
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+      });
+
+      it(`${endpoint} still runs off ArcaneOS`, async () => {
+        const res = generateResponse();
+        await fluxService[endpoint]({}, res);
+        sinon.assert.calledOnce(runCommandStub);
+      });
     });
   });
 });
