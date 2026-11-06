@@ -23,6 +23,7 @@ const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
+const publicPorts = require('./utils/publicPorts');
 const appInspector = require('./appManagement/appInspector');
 const availabilityChecker = require('./appMonitoring/availabilityChecker');
 const nodeStatusMonitor = require('./appMonitoring/nodeStatusMonitor');
@@ -89,7 +90,6 @@ const { version: fluxVersion } = require('../../../package.json');
 // Initialize globalState caches with cacheManager
 globalState.initializeCaches(cacheManager);
 
-const apiPort = userconfig.initial.apiport || config.server.apiport;
 
 const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
@@ -319,6 +319,7 @@ function startRouterAddressUpkeep() {
 
 async function startFluxFunctions() {
   try {
+    const apiPort = publicPorts.getApiPort();
     if (!config.server.allowedPorts.includes(+apiPort)) {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit(systemdNotify.EXIT_CONFIG);

@@ -2493,18 +2493,47 @@ async function handleOwnAddressPass(current) {
 }
 
 /**
- * Moves this node to the ports the proxy now serves: opens them, drops the peers it dialled so
- * they meet it at the new port, and reports the new address, which runs the own-address move.
- * @param {{apiPort: number, apiPortHttps: number, uiPort: number}} ports
- * @param {{apiPort: number}|null} previous - the ports before this change, null at the first
+ * The ports behind one API port: the UI's, the API's, HTTPS and syncthing's.
+ * @param {number} apiPort
+ * @returns {number[]}
+ */
+function portsOfApiPort(apiPort) {
+  return [apiPort - 1, apiPort, apiPort + 1, apiPort + 2];
+}
+
+/**
+ * What a change of the proxy's ports does to the firewall.
+ * @param {{apiPort: number, alsoServing: number[]}} ports
+ * @param {{apiPort: number, alsoServing: number[]}|null} previous
+ * @returns {{open: number[], close: number[]}}
+ */
+function firewallChanges({ apiPort, alsoServing }, previous) {
+  const served = [apiPort, ...alsoServing].flatMap(portsOfApiPort);
+  const before = previous ? [previous.apiPort, ...previous.alsoServing].flatMap(portsOfApiPort) : [];
+  return {
+    open: served.filter((port) => !before.includes(port)),
+    close: before.filter((port) => !served.includes(port)),
+  };
+}
+
+/**
+ * Follows the ports the proxy serves. Each one served is open in the firewall, a port kept through
+ * a move included, and a port no longer served is closed. A new API port drops the peers this node
+ * dialled, so they meet it at the new port, and reports the new address, which runs the
+ * own-address move.
+ * @param {{apiPort: number, alsoServing: number[]}} ports
+ * @param {{apiPort: number, alsoServing: number[]}|null} previous - the ports before this change,
+ *   null at the first
  * @returns {Promise<void>}
  */
-async function followPublicPorts({ apiPort, apiPortHttps, uiPort }, previous) {
+async function followPublicPorts({ apiPort, alsoServing }, previous) {
+  if (await ufw.isFirewallActive()) {
+    const { open, close } = firewallChanges({ apiPort, alsoServing }, previous);
+    await Promise.all(open.map((port) => allowPort(port)));
+    await Promise.all(close.map((port) => deleteAllowPortRule(port)));
+  }
   if (apiPort === previous?.apiPort) return;
   log.info(`own address - the proxy now serves the API on ${apiPort}`);
-  if (await ufw.isFirewallActive()) {
-    await Promise.all([apiPort, apiPortHttps, uiPort, +apiPort + 2].map((port) => allowPort(port)));
-  }
   peerManager.dropOutboundConnections();
   const known = getKnownLocalSocketAddress();
   if (known) reportLocalSocketAddress(`${extractIp(known)}:${apiPort}`);
@@ -4078,6 +4107,7 @@ module.exports = {
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
+  firewallChanges,
   allowAppPorts,
   allowTestPort,
   deleteAppPortRules,
