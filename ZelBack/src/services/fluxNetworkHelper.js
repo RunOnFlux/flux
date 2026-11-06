@@ -1675,10 +1675,9 @@ async function checkCgroupsAllowed(cgroupDriver, { cgroupRoot = '/sys/fs/cgroup'
  * Whether fluxd keeps the address index (insightexplorer=1), which FluxOS reads
  * to order app payments and to bootstrap the explorer.
  *
- * Asked once, when fluxd first answers at startup. The setting is read from
- * flux.conf, which FluxOS reads only at startup, so the verdict stands until
+ * Asked once, when fluxd first answers at startup, so the verdict stands until
  * FluxOS next starts.
- * @param {boolean} insightExplorer Whether flux.conf turns the index on.
+ * @param {boolean} insightExplorer Whether fluxd keeps the index.
  * @returns {boolean} True when it does.
  */
 function checkInsightExplorerAllowed(insightExplorer) {
