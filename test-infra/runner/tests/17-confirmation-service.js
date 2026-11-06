@@ -6,8 +6,9 @@ import {
 } from '../framework/wait.js';
 import {
   advanceBlock, enableRpcFailure, disableAllRpcFailure,
-  removeFromNodeList, resetNodeList, driveUntil,
+  removeFromNodeList, resetNodeList, driveUntil, stopTicker,
 } from '../framework/daemon-control.js';
+import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 describe('Confirmation service: CONFIRMED detection', function () {
@@ -41,7 +42,8 @@ describe('Confirmation service: node list removal → message capability lost', 
     env = await createTestEnv({ hookCtx: this, nodes: 3, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
-    await advanceBlock();
+    await bootAndPeer(env);
+    await stopTicker();
     await waitForMessageCapabilityChanged(env.clients[0], true, 30000);
   });
 

@@ -569,11 +569,11 @@ class FluxPeerSocket {
    * Whether this peer may send a frame over peerFrameMaxBytes: a release that
    * batches sync answers by count alone, while it owes this node one. A peer
    * claiming arcaneLink batches by bytes. Once minimumFluxOSAllowedVersion is at
-   * least 8.23.0 every release does, and this goes.
+   * least 8.24.0 every release does, and this goes.
    * @returns {boolean}
    */
   #owesCountBatchedSyncAnswer() {
-    return !this.remoteCapabilities.has(linkCrypto.CAPABILITY) && this.manager.isSyncResponseWanted(this);
+    return !this.remoteCapabilities.has(linkCrypto.CAPABILITY) && this.manager.isSyncArrivalWanted(this);
   }
 
   /**
@@ -713,7 +713,7 @@ class FluxPeerSocket {
 
     // Around the gossip pipeline: these keep their arrival order.
     if (isOrdered(msgObj.data?.type)) {
-      if (manager.syncResponseDispatcher && manager.isSyncResponseWanted(this)) {
+      if (manager.syncResponseDispatcher && manager.isSyncArrivalWanted(this)) {
         setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
         return;
       }

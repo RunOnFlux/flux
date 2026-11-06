@@ -67,6 +67,51 @@ describe('serviceManager prepareDatabaseSchema', () => {
   });
 });
 
+describe('serviceManager prepareDatabaseSchema, temp messages and install errors', () => {
+  afterEach(() => sinon.restore());
+
+  async function prepared() {
+    const deletes = {};
+    const collection = (name) => ({ collectionName: name, deleteMany: async (query) => { deletes[name] = query; } });
+    sinon.stub(dbHelper, 'maintenanceConnection').returns({ db: () => ({ collection }) });
+    sinon.stub(dbHelper, 'updateInDatabase').resolves();
+    sinon.stub(dbHelper, 'dropCollection').resolves();
+    const indexes = sinon.stub(dbHelper, 'ensureIndexes').resolves();
+    sinon.stub(dbHelper, 'ensureNewestAppMessageIndex').resolves();
+    sinon.stub(appTamperingDetectionService, 'prepareIncidentRollup').resolves();
+    sinon.stub(appTamperingDetectionService, 'checkNodeReboot').resolves();
+    sinon.stub(appsRuntimeState, 'prepareCollection').resolves();
+    sinon.stub(appPlacements, 'prepareCollection').resolves();
+    sinon.stub(upnpMappingRecord, 'writeWaiting').resolves();
+    sinon.stub(explorerService, 'prepareCollections').resolves();
+    sinon.stub(dbHelper, 'repairNanInAppsMessagesDb').rejects(new Error('stop here'));
+    await expect(prepareDatabaseSchema()).to.be.rejectedWith('stop here');
+    return { deletes, indexes };
+  }
+
+  const specsOf = (indexes, name) => indexes.getCalls().find((c) => c.args[0].collectionName === name).args[1];
+
+  it('holds a temp message once, ended by its expireAt', async () => {
+    const { indexes } = await prepared();
+    const specs = specsOf(indexes, 'zelappstemporarymessages');
+    expect(specs.find((s) => s.key.hash === 1).unique).to.equal(true);
+    expect(specs.find((s) => s.key.expireAt === 1).expireAfterSeconds).to.equal(0);
+    expect(specs.find((s) => s.key.receivedAt === 1).expireAfterSeconds, 'a ttl on receipt still runs').to.equal(undefined);
+  });
+
+  it('holds one row per message for checking, ended by its expireAt', async () => {
+    const { indexes } = await prepared();
+    const specs = specsOf(indexes, 'zelappsheldmessages');
+    expect(specs.find((s) => s.key.key === 1).unique).to.equal(true);
+    expect(specs.find((s) => s.key.expireAt === 1).expireAfterSeconds).to.equal(0);
+  });
+
+  it('removes install error rows a ttl index cannot', async () => {
+    const { deletes } = await prepared();
+    expect(deletes.appsInstallingErrorsLocations).to.deep.equal({ expireAt: { $not: { $type: 'date' } } });
+  });
+});
+
 describe('serviceManager apps availability DOS state', () => {
   afterEach(() => {
     fluxNetworkHelper.setDosMessage(null);

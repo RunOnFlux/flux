@@ -23,6 +23,10 @@ describe('peerNotification tests', () => {
   let placementsOfStub;
   let waitForBackfillStub;
   let waitForLocalSocketAddressStub;
+  let getKnownLocalSocketAddressStub;
+  let capabilityChanged;
+  let listUpdated;
+  let ownMoveChanged;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -60,6 +64,8 @@ describe('peerNotification tests', () => {
     },
     '../fluxNetworkHelper': {
       waitForLocalSocketAddress: waitForLocalSocketAddressStub,
+      getKnownLocalSocketAddress: getKnownLocalSocketAddressStub,
+      onOwnMoveUnderwayChange: (listener) => { ownMoveChanged = listener; },
     },
     '../geolocationService': {
       isStaticIP: sinon.stub().returns(true),
@@ -108,8 +114,9 @@ describe('peerNotification tests', () => {
     },
     '../nodeConfirmationService': {
       canSendMessages: sinon.stub().returns(true),
-      onMessageCapabilityChange: sinon.stub(),
+      onMessageCapabilityChange: (listener) => { capabilityChanged = listener; },
     },
+    '../networkStateService': { onUpdated: (listener) => { listUpdated = listener; } },
     '../utils/globalState': {
       departingApps,
       testInstallingApps,
@@ -136,6 +143,7 @@ describe('peerNotification tests', () => {
     waitForBootDrainSettledStub = sinon.stub().resolves();
     waitForBackfillStub = sinon.stub().resolves();
     waitForLocalSocketAddressStub = sinon.stub().resolves('192.168.1.1:16127');
+    getKnownLocalSocketAddressStub = sinon.stub().returns('192.168.1.1:16127');
     storeAppRunningMessageStub = sinon.stub().resolves();
     storeAppStateEventStub = sinon.stub().resolves();
     broadcastMessageToAllStub = sinon.stub().resolves('signed');
@@ -534,6 +542,18 @@ describe('peerNotification tests', () => {
       expect(message.ip).to.equal('192.168.1.1:16127');
     });
 
+    // A move of this node's own switches its address inside the cycle lock, so
+    // the address is the one held when the snapshot is stamped.
+    it('announces at the address this node holds when the snapshot is taken', async () => {
+      waitForLocalSocketAddressStub.resolves('192.168.1.1:16127');
+      getKnownLocalSocketAddressStub.callsFake(() => (announceCycle.locked ? '192.168.1.2:16127' : '192.168.1.1:16127'));
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.ip).to.equal('192.168.1.2:16127');
+    });
+
     // A removal waits for a cycle in flight; a cycle still waiting for the node's
     // address has taken no snapshot and holds up no removal.
     it('is not in flight while it waits for the node\'s address', async () => {
@@ -718,4 +738,113 @@ describe('peerNotification tests', () => {
     });
   });
 
+  describe('announcing after losing and regaining message capability', () => {
+    const settle = async () => {
+      for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => { setImmediate(resolve); }); // eslint-disable-line no-await-in-loop
+    };
+    const started = async () => {
+      peerNotification.initialize();
+      peerNotification.startBroadcasting();
+      await settle();
+      broadcastMessageToAllStub.resetHistory();
+    };
+
+    afterEach(() => peerNotification.stopBroadcasting());
+
+    it('announces at once when capability returns with no move behind it', async () => {
+      await started();
+
+      capabilityChanged(true);
+      await settle();
+
+      sinon.assert.calledOnce(broadcastMessageToAllStub);
+    });
+
+    it('announces a move on its third list update after capability returns, and once', async () => {
+      await started();
+      ownMoveChanged(true);
+      ownMoveChanged(false);
+      capabilityChanged(false);
+
+      capabilityChanged(true);
+      listUpdated();
+      listUpdated();
+      await settle();
+      sinon.assert.notCalled(broadcastMessageToAllStub);
+
+      listUpdated();
+      await settle();
+      sinon.assert.calledOnce(broadcastMessageToAllStub);
+
+      listUpdated();
+      listUpdated();
+      listUpdated();
+      await settle();
+      sinon.assert.calledOnce(broadcastMessageToAllStub);
+    });
+
+    it('counts list updates from capability returning, not from the move', async () => {
+      await started();
+      ownMoveChanged(true);
+      listUpdated();
+      listUpdated();
+      listUpdated();
+      await settle();
+      sinon.assert.notCalled(broadcastMessageToAllStub);
+
+      capabilityChanged(true);
+      listUpdated();
+      await settle();
+      sinon.assert.notCalled(broadcastMessageToAllStub);
+    });
+
+    it('starts the count again when capability goes and returns', async () => {
+      await started();
+      ownMoveChanged(true);
+      capabilityChanged(true);
+      listUpdated();
+      listUpdated();
+      capabilityChanged(false);
+      listUpdated();
+      await settle();
+      sinon.assert.notCalled(broadcastMessageToAllStub);
+
+      capabilityChanged(true);
+      listUpdated();
+      listUpdated();
+      await settle();
+      sinon.assert.notCalled(broadcastMessageToAllStub);
+      listUpdated();
+      await settle();
+      sinon.assert.calledOnce(broadcastMessageToAllStub);
+    });
+
+    it('needs no further announcement for a move a timed cycle has announced', async () => {
+      await started();
+      ownMoveChanged(true);
+      capabilityChanged(true);
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+      await settle();
+      sinon.assert.calledOnce(broadcastMessageToAllStub);
+
+      listUpdated();
+      listUpdated();
+      listUpdated();
+      await settle();
+      sinon.assert.calledOnce(broadcastMessageToAllStub);
+    });
+
+    it('announces nothing while it is not broadcasting', async () => {
+      peerNotification.initialize();
+      ownMoveChanged(true);
+
+      capabilityChanged(true);
+      listUpdated();
+      listUpdated();
+      listUpdated();
+      await settle();
+
+      sinon.assert.notCalled(broadcastMessageToAllStub);
+    });
+  });
 });

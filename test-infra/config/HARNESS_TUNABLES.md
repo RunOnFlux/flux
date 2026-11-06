@@ -84,7 +84,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.minUniqueIpsIncoming` | 3 | 2 | 1.5x |
 | `fluxapps.minUniqueIpsOutgoing` | 7 | 3 | 2.3x |
 | `fluxapps.minUpTime` | 1800 | 10 | 180.0x |
-| `fluxapps.nodeMonitorCheckTimeoutMs` | 10000 | 5000 | 2.0x |
 | `fluxapps.nodeMonitorConfirmationLossDelayMs` | 1200000 | 10000 | 120.0x |
 | `fluxapps.nodeMonitorDosRecoveryDelayMs` | 600000 | 10000 | 60.0x |
 | `fluxapps.nodeMonitorErrorRecoveryDelayMs` | 120000 | 5000 | 24.0x |

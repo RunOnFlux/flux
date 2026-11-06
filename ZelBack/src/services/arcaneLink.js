@@ -173,9 +173,13 @@ function fail(peer, link, reason) {
   });
   // A handshake settles at both ends together: a confirm with no MAC tells the
   // peer this end will not authenticate, so it settles now rather than at its
-  // deadline. Unsent when this node cannot sign, or when the peer gave up first.
-  if (reason !== FAILURE.NO_KEY && reason !== FAILURE.PEER_GAVE_UP) {
-    sendLinkFrame({ type: CONFIRM_TYPE, version: 1, mac: null }, peer).catch((error) => log.error(error));
+  // deadline. It names the peer's nonce, so it speaks for this handshake alone.
+  // Unsent when this node cannot sign, when the peer gave up first, or when the
+  // peer sent no nonce to name, which leaves the peer to its deadline.
+  if (reason !== FAILURE.NO_KEY && reason !== FAILURE.PEER_GAVE_UP && linkCrypto.isHex32(link.peerNonce)) {
+    sendLinkFrame({
+      type: CONFIRM_TYPE, version: 1, mac: null, nonce: link.peerNonce,
+    }, peer).catch((error) => log.error(error));
   }
 }
 
@@ -396,8 +400,8 @@ async function handleNonce(msg, peer) {
 }
 
 /**
- * A peer's proof that it derived the secret, one per link; or, with no MAC,
- * its word that its own handshake failed. A peer sends its confirm after its
+ * A peer's proof that it derived the secret, one per link; or, with no MAC and
+ * this link's nonce, its word that its own handshake failed. A peer sends its confirm after its
  * nonce, so a link takes one only once it holds the peer's nonce: a confirm
  * that arrives before it belongs to a handshake this link replaced.
  * @param {object} msg Verified envelope.
@@ -407,7 +411,7 @@ function handleConfirm(msg, peer) {
   const { link } = peer;
   if (!link || link.failed || !link.peerNonce) return;
   if (msg.data?.mac === null) {
-    if (msg.pubKey === link.peerPubKey) peerGaveUp(peer, link);
+    if (msg.pubKey === link.peerPubKey && msg.data.nonce === link.localNonce) peerGaveUp(peer, link);
     return;
   }
   if (link.peerConfirm) return;

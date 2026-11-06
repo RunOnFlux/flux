@@ -60,6 +60,8 @@ const RECORD_BLOCKS = 890;
 // Within fluxd's 500-640 blocks between a node's confirmations.
 const STUB_CONFIRMATION_INTERVAL = 600;
 
+const BEFORE_EVICTION = 'locations:beforeEviction';
+
 describe('a move signed by another node is refused', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -176,6 +178,8 @@ describe('a move signed by another node is refused', function () {
     const stubAddress = socketAddr(STUB_INDEX + 1);
     const stubMovedAgain = stubAddress.replace(/:\d+$/, ':16167');
 
+    // The row stands for as long as the forged move has to take it.
+    await Promise.all(realNodes.map((i) => env.clients[i].holdCheckpoint(BEFORE_EVICTION, holder)));
     const anchors = realNodes.map((i) => env.clients[i].getLastEventId());
     await removeFromNodeList(holder.split(':')[0]);
     await Promise.all(realNodes.map((i) => env.clients[i].waitForEvent('networkstate:updated', (d) => d.nodes === REAL_NODES, 120000, { afterId: anchors[i] })));
@@ -205,6 +209,7 @@ describe('a move signed by another node is refused', function () {
       // eslint-disable-next-line no-await-in-loop
       expect(await rowsAt(i, stubAddress), `node ${i} gave the unlisted holder's row to the stub peer`).to.not.include(appName);
     }
+    await Promise.all(realNodes.map((i) => env.clients[i].releaseCheckpoint(BEFORE_EVICTION, holder)));
   });
 
   it('refuses a move the chain made more than 640 blocks ago, and holds one it made in the last block', async function () {

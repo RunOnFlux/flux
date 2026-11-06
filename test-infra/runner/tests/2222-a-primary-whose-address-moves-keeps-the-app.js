@@ -6,7 +6,9 @@ import { expect } from 'chai';
 import { moveNodeAddress } from '../framework/container.js';
 import { setNodeAddress, clearNodeAddress } from '../framework/daemon-control.js';
 import { clearMaster, resetFdm } from '../framework/fdm-control.js';
-import { waitFor, waitForUp, waitForAppRemoved } from '../framework/wait.js';
+import {
+  waitFor, waitForUp, waitForAppRemoved, waitForElectionDecisions, electionDecisionCount,
+} from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -37,6 +39,11 @@ import { peerDeathMs } from '../framework/coupled-knobs.js';
 // longer than the detection budget - and the suite checks that every dead
 // connection was still counted when the move was noticed.
 //
+// The primary is held inside its move, once it has recorded it and before it
+// acts on it, while the election passes on it: each pass reads FDM naming the
+// old address against this node's own address and its location rows, which
+// must agree with each other whichever side of the move they are read on.
+//
 // A = the standby, B = the primary, C = a bystander the discovery ring needs.
 
 const SIGTERM_EXPIRY_S = 120;
@@ -48,6 +55,9 @@ if (peerDeathMs(ADDRESS_MOVE_PEERS) <= DETECTION_MS) {
 // Election passes after the move in which the primary could stand down: FDM
 // names its old address on every one of them.
 const PASSES_WATCHED_MS = 3 * 60 * 1000;
+// Election passes on the primary while it is held inside its move.
+const PASSES_HELD = 3;
+const BEFORE_RECONCILE = 'ownAddress:beforeReconcile';
 const TAKEOVER_MS = 6 * 60 * 1000;
 
 describe('a primary whose address moves keeps the app', function () {
@@ -77,11 +87,22 @@ describe('a primary whose address moves keeps the app', function () {
   });
 
   it('runs on at its new address while FDM names the one it left', async function () {
-    this.timeout(DETECTION_MS + PASSES_WATCHED_MS + 180000);
+    this.timeout(DETECTION_MS + PASSES_WATCHED_MS + 240000);
     movedAt = Date.now();
+    const movedSocket = `${movedIp}:16127`;
+    await client(B).holdCheckpoint(BEFORE_RECONCILE, movedSocket);
+    const beforeMove = client(B).getLastEventId();
     await moveNodeAddress(client(B).container, movedIp, oldIp);
     const followed = await client(B).followTo(movedIp);
     await setNodeAddress(oldIp, movedIp, { scope: 'publicip' });
+
+    await client(B).waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RECONCILE && d.key === movedSocket, DETECTION_MS, { afterId: beforeMove });
+    const observed = await electionDecisionCount(client(B), fleet.identifier, 'primaryObserved');
+    await waitForElectionDecisions(client(B), fleet.identifier, 'primaryObserved', PASSES_HELD, { from: observed, timeout: 60000 });
+    expect(client(B).getEventBuffer().filter((e) => e.event === 'primaryRole:changed' && e.id > beforeMove
+      && e.data.identifier === fleet.identifier && e.data.from === 'primary'),
+      'the primary gave up its role while held inside its move').to.deep.equal([]);
+    await client(B).releaseCheckpoint(BEFORE_RECONCILE, movedSocket);
 
     // A node that detects its move restarts its apps for the new address.
     const restarted = (d) => d.identifier === fleet.identifier && d.action === 'restarted';

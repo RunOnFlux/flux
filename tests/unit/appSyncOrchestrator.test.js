@@ -166,6 +166,7 @@ describe('AppSyncOrchestrator', () => {
       '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
       './appHashSyncService': { syncMissingHashes: syncMissingHashesStub, getMissingHashes: getMissingHashesStub, resetHashSyncForUpgrade: resetHashSyncForUpgradeStub },
+      './tempMessageHold': { drained: sinon.stub().resolves(), isEmpty: sinon.stub().returns(true) },
       './peerNotification': {
         checkAndNotifyPeersOfRunningApps: checkAndNotifyStub,
         startBroadcasting: startBroadcastingStub,
@@ -1088,6 +1089,33 @@ describe('AppSyncOrchestrator', () => {
         await orchestrator.stop();
       });
 
+      it('completes the attempt that replaced one still held', async () => {
+        const peers = makeEligiblePeers(3);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        blockEmitter.emit('blocksProcessed', 2555000);
+        await clock.tickAsync(0);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+        peerEmitter.emit('peersBelowThreshold', 1);
+        await clock.tickAsync(0);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+
+        release();
+        await clock.tickAsync(0);
+        release();
+        await clock.tickAsync(0);
+
+        expect(allComplete(), 'the second attempt\'s answers were dropped').to.have.lengthOf(1);
+        await orchestrator.stop();
+      });
+
       it('completes nothing on release after the attempt was reset', async () => {
         const peers = makeEligiblePeers(3);
         getEligibleSyncPeersStub = sinon.stub().returns(peers);
@@ -1174,6 +1202,32 @@ describe('AppSyncOrchestrator', () => {
       blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 1; i <= 4; i += 1) blockEmitter.emit('blocksProcessed', 2555000 + i);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state).to.equal(mod.STATES.READY);
+      expect(globalStateStub.appStateAuthoritative).to.equal(true);
+    });
+
+    it('grants authority by the block timer only once what is held has been checked', async () => {
+      proxyquireMap['./tempMessageHold'].isEmpty = sinon.stub().returns(false);
+      const mod = loadWithConfig({ appSyncFallbackMinutes: 2 });
+      getEligibleSyncPeersStub = sinon.stub().returns([]);
+      const orchestrator = new mod.AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(),
+      });
+      orchestrator.onMessageCapabilityChange(true);
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      for (let i = 1; i <= 4; i += 1) blockEmitter.emit('blocksProcessed', 2555000 + i);
+      await clock.tickAsync(0);
+      expect(orchestrator.state, 'ready with messages unchecked').to.not.equal(mod.STATES.READY);
+      expect(globalStateStub.appStateAuthoritative, 'authoritative with messages unchecked').to.equal(false);
+
+      proxyquireMap['./tempMessageHold'].isEmpty.returns(true);
+      blockEmitter.emit('blocksProcessed', 2555005);
       await clock.tickAsync(0);
 
       expect(orchestrator.state).to.equal(mod.STATES.READY);
@@ -1614,6 +1668,73 @@ describe('AppSyncOrchestrator', () => {
       await orchestrator.stop();
     });
 
+    describe('the budget bounds waiting on peers, not this node\'s work', () => {
+      async function askedPeers(count = 3) {
+        const peers = makeEligiblePeers(count);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        return { orchestrator, peers };
+      }
+      const answer = (peerKey, types = ['apprunning', 'appinstalling', 'apperrors', 'apptemp']) => types
+        .forEach((type) => appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, type, peerKey));
+
+      it('lets queued work finish when it runs out, and credits it', async () => {
+        const { orchestrator, peers } = await askedPeers();
+        answer(peers[1].key);
+        answer(peers[2].key);
+        answer(peers[0].key, ['apptemp', 'appinstalling', 'apperrors']);
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_BUSY, peers[0].key);
+        await clock.tickAsync(SYNC_TIMEOUT_MS + 1);
+
+        expect(orchestrator.isSyncResponseWanted(peers[0]), 'the budget cut off work already here').to.equal(true);
+        answer(peers[0].key, ['apprunning']);
+        await clock.tickAsync(0);
+
+        expect(logStub.info.getCalls().map((c) => String(c.args[0])).join()).to.include('All state syncs complete');
+        await orchestrator.stop();
+      });
+
+      it('takes nothing new from a peer it is finishing, so a peer cannot hold the attempt open', async () => {
+        const { orchestrator, peers } = await askedPeers();
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_BUSY, peers[0].key);
+        await clock.tickAsync(SYNC_TIMEOUT_MS + 1);
+
+        expect(orchestrator.isSyncArrivalWanted(peers[0]), 'a dripping peer outlived the budget').to.equal(false);
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, peers[0].key);
+        expect(orchestrator.isSyncResponseWanted(peers[0]), 'finished work left the request open').to.equal(false);
+        await orchestrator.stop();
+      });
+
+      it('ends a request with no work when it runs out', async () => {
+        const { orchestrator, peers } = await askedPeers();
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, peers[1].key);
+        await clock.tickAsync(SYNC_TIMEOUT_MS + 1);
+        expect(orchestrator.isSyncResponseWanted(peers[1])).to.equal(false);
+        await orchestrator.stop();
+      });
+
+      it('stops once enough peers have answered, with the hold still to check', async () => {
+        let drained;
+        proxyquireMap['./tempMessageHold'].drained = sinon.stub().returns(new Promise((resolve) => { drained = resolve; }));
+        const { orchestrator, peers } = await askedPeers();
+        peers.forEach((peer) => answer(peer.key));
+        await clock.tickAsync(SYNC_TIMEOUT_MS * 2);
+
+        const said = () => logStub.info.getCalls().map((c) => String(c.args[0])).join();
+        expect(logStub.warn.getCalls().map((c) => String(c.args[0])).join(), 'the budget ended a sync already answered').to.not.include('Sync timeout');
+        expect(said(), 'complete before what it brought was checked').to.not.include('All state syncs complete');
+        expect(globalStateStub.appStateAuthoritative, 'authoritative with messages unchecked').to.not.equal(true);
+
+        drained();
+        await clock.tickAsync(0);
+        expect(said()).to.include('All state syncs complete');
+        await orchestrator.stop();
+      });
+    });
+
     // THE BUDGET BOUNDS THE ATTEMPT, not one round of an open-ended series.
     // When it runs out the attempt is over: the block fallback is what carries
     // this node to readiness, and nobody is asked anything more. Without that,
@@ -1844,6 +1965,26 @@ describe('AppSyncOrchestrator', () => {
 
       expect(extra.filter((p) => p.send.called).length, 'silent peers were never replaced').to.equal(3);
       for (const peer of peers) expect(peer.send.callCount, 'a silent peer was asked twice').to.equal(4);
+    });
+
+    it('runs no clock against a peer while this node works through what it sent', async () => {
+      const { orchestrator, peers } = await askThree(12);
+
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_BUSY, peers[0].key);
+      await clock.tickAsync(STALL_MS * 3);
+
+      expect(orchestrator.isSyncResponseWanted(peers[0]), 'an honest peer was blamed for this node\'s own work').to.equal(true);
+    });
+
+    it('restarts a peer\'s clock when that work ends, so a peer that then stops is replaced', async () => {
+      const { orchestrator, peers } = await askThree(12);
+
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_BUSY, peers[0].key);
+      await clock.tickAsync(STALL_MS * 3);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_PROGRESS, peers[0].key);
+      await clock.tickAsync(STALL_MS + 1);
+
+      expect(orchestrator.isSyncResponseWanted(peers[0]), 'a stalled peer kept its slot').to.equal(false);
     });
 
     it('keeps a peer that is still sending, past the first-response deadline', async () => {

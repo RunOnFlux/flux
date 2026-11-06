@@ -57,6 +57,9 @@ const Checkpoint = Object.freeze({
   // An election pass is about to decide a g: component it does not skip. Keyed
   // by the component identifier.
   MASTERSLAVE_BEFORE_DECISION: 'masterSlave:beforeDecision',
+  // The hash sync is done and the registry has not begun to be rebuilt, so
+  // dbReady is still closed.
+  APPSYNC_BEFORE_REBUILD: 'appSync:beforeRebuild',
   // A state-sync attempt's budget has run out and the attempt is still open.
   APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
   // A state sync has every answer it needs and the node has not yet become
@@ -129,6 +132,9 @@ const Checkpoint = Object.freeze({
   // This node has recorded a move of its own address and has not yet acted on
   // it. Keyed by the address it moved to.
   OWN_ADDRESS_BEFORE_RECONCILE: 'ownAddress:beforeReconcile',
+  // This node finds an address with location rows the node list does not hold,
+  // and has not yet evicted it. Keyed by the address.
+  LOCATIONS_BEFORE_EVICTION: 'locations:beforeEviction',
   // Boot has read the location record of an app it held unconfirmed, and has not
   // yet released the app or acted on the answer. Keyed by app name.
   BOOT_BEFORE_LOCATION_DECISION: 'boot:beforeLocationDecision',

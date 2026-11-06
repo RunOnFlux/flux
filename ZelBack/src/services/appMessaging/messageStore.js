@@ -7,7 +7,7 @@ const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
 const unpaidAdmission = require('./unpaidAdmission');
-const { insertTemporaryMessage } = require('./temporaryMessageRecord');
+const { insertTemporaryMessage, temporaryMessageExpiry } = require('./temporaryMessageRecord');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
@@ -15,7 +15,10 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { checkAndDecryptAppSpecs, verifyEncryptedSpec } = require('../utils/enterpriseHelper');
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
+const { envelopeOf } = require('../utils/fluxBroadcastHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
+const fluxnodeAddressRecord = require('../fluxnodeAddressRecord');
+const networkStateService = require('../networkStateService');
 const {
   globalAppsMessages,
   globalAppsLocations,
@@ -24,6 +27,8 @@ const {
   globalAppsInstallingErrorsBroadcasts,
   globalAppStateEvents,
   appsHashesCollection,
+  ADDRESS_MOVE_GRACE_BLOCKS,
+  ADDRESS_MOVE_WAIT_MS,
 } = require('../utils/appConstants');
 const { appsInstallingBroadcasts } = config.database.appsglobal.collections;
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -60,12 +65,33 @@ const APP_STATE_EVENT_TYPES = Object.freeze({
   IPCHANGED: 'ipchanged',
 });
 
+/**
+ * A value a message carries, as an update pipeline takes it.
+ * @param {*} value
+ * @returns {{$literal: *}}
+ */
+function asData(value) {
+  return { $literal: value };
+}
+
+/**
+ * The expression for a field of a row a report writes: the report's value when it
+ * is newer than the row, otherwise the row's, or the report's when the row has none.
+ * @param {object} isNewer Expression: the report is newer than the row.
+ * @param {string} field
+ * @param {*} value The report's value.
+ * @returns {object} Aggregation expression.
+ */
+function newerOrHeld(isNewer, field, value) {
+  return { $cond: [isNewer, asData(value), { $ifNull: [`$${field}`, asData(value)] }] };
+}
+
 function buildConditionalUpsert(broadcastedAt, conditionalFields, options = {}) {
   const alwaysSetFields = options.alwaysSetFields ?? {};
   const incomingDate = new Date(broadcastedAt);
   const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
   const set = Object.fromEntries(
-    Object.entries(conditionalFields).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
+    Object.entries(conditionalFields).map(([k, v]) => [k, newerOrHeld(isNewer, k, v)]),
   );
   Object.assign(set, alwaysSetFields);
   return [{ $set: set }];
@@ -154,6 +180,10 @@ async function storeAppTemporaryMessage(message, options = {}) {
     block = result.height;
     appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED, message.hash);
   }
+
+  // A message past its signed hour is held by no node that keeps time. A paid one waits
+  // for its promotion, whatever its age.
+  if (!isAppRequested && temporaryMessageExpiry(messageTimestamp) <= Date.now()) return false;
 
   // A paid message is taken whatever it carries; an unpaid one only within its
   // sender's allowance, decided before the verification below.
@@ -266,7 +296,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
     if (options.beforeWrite && !(await options.beforeWrite())) return false;
 
     // message does not exist anywhere and is ok, store it
-    await insertTemporaryMessage({
+    const inserted = await insertTemporaryMessage({
       appSpecifications: appSpecFormatted,
       type: message.type, // shall be fluxappregister, fluxappupdate
       version: messageVersion,
@@ -274,7 +304,9 @@ async function storeAppTemporaryMessage(message, options = {}) {
       timestamp: messageTimestamp,
       signature: message.signature,
       arcaneSender: message.arcaneSender,
-    }, admission.fields);
+    }, admission.fields, { paid: isAppRequested });
+    // Another copy passed its checks alongside this one and was stored first.
+    if (!inserted) return false;
     // it is stored and rebroadcasted
     if (isAppRequested) {
       if (result && result.txid && result.height) {
@@ -450,7 +482,7 @@ async function storeAppRunningMessage(message) {
       staticIp: message.staticIp,
     };
     const conditionalSet = Object.fromEntries(
-      Object.entries(incoming).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
+      Object.entries(incoming).map(([k, v]) => [k, newerOrHeld(isNewer, k, v)]),
     );
     conditionalSet.runningSince = runningSinceOf(isNewer, runningSince, ip !== message.ip);
 
@@ -899,13 +931,13 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
     for (const app of apps) {
       const setFields = {
-        name: app.name,
-        ip,
-        hash: { $cond: [isNewer, app.hash, { $ifNull: ['$hash', app.hash] }] },
+        name: asData(app.name),
+        ip: asData(ip),
+        hash: newerOrHeld(isNewer, 'hash', app.hash),
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
         expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
-        osUptime: { $cond: [isNewer, data.osUptime, { $ifNull: ['$osUptime', data.osUptime] }] },
-        staticIp: { $cond: [isNewer, data.staticIp ?? null, { $ifNull: ['$staticIp', data.staticIp ?? null] }] },
+        osUptime: newerOrHeld(isNewer, 'osUptime', data.osUptime),
+        staticIp: newerOrHeld(isNewer, 'staticIp', data.staticIp ?? null),
       };
       const runningSince = data.runningSince ? new Date(data.runningSince) : (app.runningSince ? new Date(app.runningSince) : null);
       if (runningSince) {
@@ -1102,10 +1134,57 @@ async function handleEvictedEvent({ ip, evictedAt }) {
 }
 
 /**
+ * Whether a node has told of a move to `ip` that the chain has not reached: a
+ * recorded move here, made within ADDRESS_MOVE_WAIT_MS, from an address the node
+ * list still holds under the move's signer. The chain lists a node at a new address
+ * only once it has confirmed there, and rows are carried on its word before that.
+ * @param {string} ip Socket address.
+ * @returns {Promise<boolean>}
+ */
+async function moveHereAwaitsChain(ip) {
+  const moves = await registryManager.addressMovesTo(ip);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [from, { at, signer }] of moves) {
+    // eslint-disable-next-line no-await-in-loop
+    const node = await networkStateService.getFluxnodeBySocketAddress(from);
+    if (Date.now() - at < ADDRESS_MOVE_WAIT_MS && node && (!signer || node.pubkey === signer)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the rows at an address the node list does not hold wait on a move, in
+ * place of being evicted:
+ * - the node there told of a move here that the chain has not reached
+ *   (moveHereAwaitsChain);
+ * - the node that held it has moved, not left: the chain moved it to an address
+ *   the list holds, within ADDRESS_MOVE_GRACE_BLOCKS. Its rows wait for its signed
+ *   move, the only thing that can say which apps it kept. Past the blocks they do
+ *   not: a node that keeps its collateral and starts empty sends no move.
+ * While the chain's record is behind the node list, or cannot be read, the address
+ * is not judged.
+ * @param {string} ip Socket address.
+ * @returns {Promise<boolean>}
+ */
+async function rowsAwaitMove(ip) {
+  if (!fluxnodeAddressRecord.holds(networkStateService.highestConfirmedHeight())) return true;
+  let moved;
+  try {
+    if (await moveHereAwaitsChain(ip)) return true;
+    moved = await fluxnodeAddressRecord.movedAwayFrom(ip);
+  } catch (error) {
+    log.warn(`rowsAwaitMove - the moves of ${ip} cannot be read: ${error.message}`);
+    return true;
+  }
+  if (!moved || fluxnodeAddressRecord.highestRecorded() - moved.height >= ADDRESS_MOVE_GRACE_BLOCKS) return false;
+  return networkStateService.socketAddressInNetworkState(moved.to);
+}
+
+/**
  * Applies a node's eviction: records it, and removes the node's location rows
  * broadcast before it. A row from a broadcast after the eviction is the node
  * back on the network and stays. An eviction older than a location lifetime
- * changes nothing.
+ * changes nothing, and neither does one of a node whose rows await its move.
  *
  * @param {string} ip - The evicted node's socket address
  * @param {number} [evictedAt] - When the eviction was made, ms; now when absent
@@ -1115,6 +1194,11 @@ async function applyEviction(ip, evictedAt) {
   if (!ip) return;
   const at = evictionTime(evictedAt);
   if (at + EVICTED_EXPIRY_MS <= Date.now()) return;
+  if (await rowsAwaitMove(ip)) {
+    fluxEventBus.count('location:awaitingMove', ip);
+    return;
+  }
+  log.info(`Evicting ${ip}: removing its rows from globalAppsLocations`);
   await handleEvictedEvent({ ip, evictedAt: at });
   const [evicted] = await registryManager.currentAddressesOf([{ ip, at }]);
   const db = dbHelper.databaseConnection();
@@ -1142,7 +1226,8 @@ async function handleIPChangedEvent({ message, envelope }) {
   );
 }
 
-function storeAppStateEvent(type, payload) {
+function storeAppStateEvent(type, received) {
+  const payload = received.envelope ? { ...received, envelope: envelopeOf(received.envelope) } : received;
   switch (type) {
     case APP_STATE_EVENT_TYPES.APPRUNNING: return handleAppRunningEvent(payload);
     case APP_STATE_EVENT_TYPES.SIGTERM: return handleSigtermEvent(payload);
@@ -1284,8 +1369,8 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
       updateOne: {
         filter: { name: data.name, ip: data.ip },
         update: [{ $set: {
-          name: data.name,
-          ip: data.ip,
+          name: asData(data.name),
+          ip: asData(data.ip),
           broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
           expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
         } }],
@@ -1398,10 +1483,10 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
       updateOne: {
         filter: { name: data.name, hash: data.hash, ip: data.ip },
         update: [{ $set: {
-          name: data.name,
-          hash: data.hash,
-          ip: data.ip,
-          error: { $cond: [isNewer, data.error, { $ifNull: ['$error', data.error] }] },
+          name: asData(data.name),
+          hash: asData(data.hash),
+          ip: asData(data.ip),
+          error: newerOrHeld(isNewer, 'error', data.error),
           broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
           expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
         } }],

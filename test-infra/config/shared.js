@@ -168,7 +168,6 @@ module.exports = {
     nodeMonitorDosRecoveryDelayMs: 10000,
     nodeMonitorConfirmationLossDelayMs: 10000,
     nodeMonitorErrorRecoveryDelayMs: 5000,
-    nodeMonitorCheckTimeoutMs: 5000,
     bootDelayMultiplier: 0.01,
     spawnDelayMs: 10000,
     removalSpacingMs: 1000,

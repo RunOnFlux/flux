@@ -1,13 +1,9 @@
 // Node Status Monitor - Monitors node status and uninstalls apps if node is not confirmed
-const axios = require('axios');
 const config = require('config');
-const dbHelper = require('../dbHelper');
 const serviceHelper = require('../serviceHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const fluxCommunicationUtils = require('../fluxCommunicationUtils');
-const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
-const networkStateService = require('../networkStateService');
+const departedLocations = require('./departedLocations');
 const appKill = require('../appLifecycle/appKill');
 const dockerService = require('../dockerService');
 const { RemovalOutcome } = require('../utils/removalOutcome');
@@ -15,7 +11,6 @@ const { withinDeadline, TIMED_OUT } = require('../utils/withinDeadline');
 const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
-const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
 let removalInProgress = false;
 let unloadingForHostStall = false;
@@ -48,7 +43,6 @@ async function removeWithinDeadline(removeAppLocallyFn, name) {
 }
 
 // Database collections
-const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 /**
  * Remove every installed app but `skip`, one after another.
@@ -328,78 +322,8 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
       await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'node not confirmed');
       await serviceHelper.delay(config.fluxapps.nodeMonitorConfirmationLossDelayMs ?? 1200000);
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
-    } if (nodeConfirmationService.isConfirmed()) {
-      log.info('monitorNodeStatus - Node is Confirmed');
-      // Everything above this point is app removal and needs no node list. What
-      // follows compares every app location against it, so an unknown list
-      // makes every location read as departed and sends the whole set down the
-      // HTTP probe path. The accessors wait for the list, and this loop only
-      // re-arms once it has finished, so it checks and comes back rather than
-      // awaiting in here - the same shape as the branches above.
-      if (!networkStateService.isReady()) {
-        log.info('monitorNodeStatus - node list not known yet, deferring the location sweep');
-        await serviceHelper.delay(config.fluxapps.nodeMonitorCheckIntervalMs ?? 120000);
-        return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
-      }
-      // lets remove from locations when nodes are no longer confirmed
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      const variable = 'ip';
-      // we already have the exact same data
-      const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
-      const appsLocationCount = appslocations.length;
-      log.info(`monitorNodeStatus - Found ${appsLocationCount} distinct IP's on appslocations`);
-
-      const appsLocationsNotOnNodelist = [];
-
-      const iterChunk = async (chunk) => {
-        const promises = chunk.map(async (location) => {
-          const found = await fluxCommunicationUtils.socketAddressInFluxList(location);
-          if (!found) appsLocationsNotOnNodelist.push(location);
-        });
-        await Promise.all(promises);
-      };
-
-      const chunkSize = 250;
-      let startIndex = 0;
-      let endIndex = Math.min(chunkSize, appsLocationCount);
-
-      while (startIndex < appsLocationCount) {
-        const chunk = appslocations.slice(startIndex, endIndex);
-        // eslint-disable-next-line no-await-in-loop
-        await iterChunk(chunk);
-
-        startIndex = endIndex;
-        endIndex += chunk.length;
-      }
-
-      log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
-      // eslint-disable-next-line no-restricted-syntax
-      for (const location of appsLocationsNotOnNodelist) {
-        log.info(`monitorNodeStatus - Checking IP ${location}.`);
-        const ip = extractIp(location);
-        const port = extractPort(location);
-        const { CancelToken } = axios;
-        const source = CancelToken.source();
-        let isResolved = false;
-        const timeout = config.fluxapps.nodeMonitorCheckTimeoutMs ?? 10000;
-        setTimeout(() => {
-          if (!isResolved) {
-            source.cancel('Operation canceled by the user.');
-          }
-        }, timeout * 2);
-        // eslint-disable-next-line no-await-in-loop
-        const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch(() => null);
-        isResolved = true;
-        if (response && response.data && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
-          log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
-        } else {
-          log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
-          // eslint-disable-next-line no-await-in-loop
-          await messageStore.applyEviction(location, Date.now());
-        }
-      }
     }
+    log.info('monitorNodeStatus - Node is Confirmed');
     await serviceHelper.delay(config.fluxapps.nodeMonitorIntervalMs ?? 1200000);
     monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
   } catch (error) {
@@ -418,6 +342,7 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
  */
 async function start(installedAppsFn, removeAppLocallyFn) {
   await globalState.waitForBootContainerStateSettled();
+  departedLocations.start();
   monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
 }
 

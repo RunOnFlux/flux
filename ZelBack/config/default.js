@@ -108,6 +108,7 @@ module.exports = {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsinstallinglocations', // stores install location of flux apps as documents containing name, ip, obtainedAt
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -664,7 +665,8 @@ module.exports = {
     // key kept the old mechanism's number for three months while nothing read
     // it. The 24h the code has actually run since is the value.
     installErrorTtlS: 86400,
-    tempMsgTtlS: 3600, // collection-level index, serviceManager.js
+    tempMsgTtlS: 3600, // from the time a temp message was signed, or was received by a node holding it for checking
+    tempCheckConcurrency: 4,
     // How many unpaid app messages a node holds, within tempMsgTtlS, from one
     // client (by its client tag) and from one admitting operator (by the key that
     // signed the frame admitting them). A message without a client tag is not
@@ -703,7 +705,7 @@ module.exports = {
     hashFetchMissesToDisconnect: 20,
     hashFetchMissesPerServed: 10,
     hashFetchMissWindowMs: 600000,
-    hashFetchDisconnectFrom: '8.23.0',
+    hashFetchDisconnectFrom: '8.24.0',
     // A connection between two Arcane nodes joins the peer set when its link
     // handshake settles, or unauthenticated at this deadline.
     linkHandshakeDeadlineMs: 10000,
@@ -711,7 +713,7 @@ module.exports = {
     // minimumFluxOSAllowedVersion is at least this, an unpaid message without a
     // client tag is refused; below it one is taken from any peer, uncounted
     // (services/appMessaging/unpaidAdmission.js).
-    untaggedRefusedFrom: '8.23.0',
+    untaggedRefusedFrom: '8.24.0',
     // Admitting an unpaid app message (services/appMessaging/admissionQuorum.js).
     // Only an ArcaneOS node admits one, only while it holds admissionQuorum
     // authenticated links on distinct IPs, and answers success only once peers on
@@ -780,6 +782,8 @@ module.exports = {
     discoveryMaxIterations: 100,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
+    // how long rows at an address the chain has not listed wait on a signed move to it
+    addressMoveWaitMs: 1200000,
     // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted
     pullStallMs: 90000,
     // between a node's removals of its own apps when it goes out of service (nodeStatusMonitor)
@@ -800,7 +804,7 @@ module.exports = {
     // batches by count alone.
     peerFrameMaxBytes: (8 * 1024 * 1024) + (64 * 1024),
     // the largest websocket message a peer socket takes, ws's default. Once
-    // minimumFluxOSAllowedVersion is at least 8.23.0, the first release that
+    // minimumFluxOSAllowedVersion is at least 8.24.0, the first release that
     // batches sync answers by bytes, every peer is held to peerFrameMaxBytes:
     // this falls to that value and FluxPeerSocket's exception goes.
     wsMaxPayloadBytes: 100 * 1024 * 1024,
@@ -822,8 +826,6 @@ module.exports = {
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
-    nodeMonitorCheckIntervalMs: 120000,
-    nodeMonitorCheckTimeoutMs: 10000,
     spawnDeferrals: {
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },

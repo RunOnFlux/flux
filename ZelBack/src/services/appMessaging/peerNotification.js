@@ -2,6 +2,7 @@ const os = require('os');
 const config = require('config');
 const dbHelper = require('../dbHelper');
 const nodeConfirmationService = require('../nodeConfirmationService');
+const networkStateService = require('../networkStateService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
@@ -121,12 +122,40 @@ async function stopBroadcasting() {
   await cycleFinished;
 }
 
+// How many of its own list updates a node that moved waits before it announces.
+// Its peers refuse an announcement at an address their lists do not hold yet, and
+// each list updates on its own schedule, on a block and not within 25 s of the last
+// update. Three of this node's updates span all but a peer that has fallen behind,
+// which keeps the rows the move carried and hears the next timed announcement.
+const LIST_UPDATES_AFTER_MOVE = 3;
+
+// A move of this node's own has not been announced at its new address.
+let moveUnannounced = false;
+// This node's list updates still to come before it announces that move.
+let listUpdatesDue = 0;
+
+function onListUpdated() {
+  if (!listUpdatesDue) return;
+  listUpdatesDue -= 1;
+  if (listUpdatesDue) return;
+  log.info('peerNotification - peers have had time to list this node where it moved, broadcasting');
+  checkAndNotifyPeersOfRunningApps();
+}
+
 function initialize() {
+  fluxNetworkHelper.onOwnMoveUnderwayChange((underway) => {
+    if (underway) moveUnannounced = true;
+  });
+  networkStateService.onUpdated(onListUpdated);
   nodeConfirmationService.onMessageCapabilityChange((capable) => {
-    if (capable && broadcasting) {
-      log.info('peerNotification - Message capability regained, triggering immediate broadcast');
-      checkAndNotifyPeersOfRunningApps();
+    listUpdatesDue = 0;
+    if (!capable || !broadcasting) return;
+    if (moveUnannounced) {
+      listUpdatesDue = LIST_UPDATES_AFTER_MOVE;
+      return;
     }
+    log.info('peerNotification - Message capability regained, triggering immediate broadcast');
+    checkAndNotifyPeersOfRunningApps();
   });
 }
 
@@ -161,7 +190,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     // Every app installed at start has a record before the first snapshot reads them.
     await appPlacements.waitForBackfill();
 
-    const localSocketAddr = await fluxNetworkHelper.waitForLocalSocketAddress();
+    await fluxNetworkHelper.waitForLocalSocketAddress();
 
     // A cycle is in flight from the snapshot to the broadcast, and a removal waits
     // for it so the two go out in the order they happened. The waits above are
@@ -172,8 +201,11 @@ async function checkAndNotifyPeersOfRunningApps() {
     // Stamped where the snapshot is taken, not where the message is built: every
     // consumer reads broadcastedAt as the time these apps were installed here, and
     // a stamp taken after the per-app reads below would out-rank a removal that
-    // happened while they ran.
+    // happened while they ran. The address is read with it: a move of this node's
+    // own switches its address inside the cycle lock, so the two are on the same
+    // side of it, and the move carries every row reported before it.
     const snapshotAt = Date.now();
+    const localSocketAddr = fluxNetworkHelper.getKnownLocalSocketAddress();
     const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
@@ -284,6 +316,8 @@ async function checkAndNotifyPeersOfRunningApps() {
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });
       fluxEventBus.publish('app:running', { apps, ip: appRunningMessage.ip, unannounced: refused.map((application) => application?.name ?? null) });
       log.info(`App Running Message broadcasted: ${apps.length} apps`);
+      moveUnannounced = false;
+      listUpdatesDue = 0;
     } catch (err) {
       log.error(err);
     }

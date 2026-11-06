@@ -87,6 +87,7 @@ module.exports = {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsInstallingLocations',
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -344,8 +345,8 @@ module.exports = {
     hashFetchMissesToDisconnect: 20,
     hashFetchMissesPerServed: 10,
     hashFetchMissWindowMs: 600000,
-    hashFetchDisconnectFrom: '8.23.0',
-    untaggedRefusedFrom: '8.23.0',
+    hashFetchDisconnectFrom: '8.24.0',
+    untaggedRefusedFrom: '8.24.0',
     admissionQuorum: 3,
     admissionLinkTarget: 5,
     admissionTimeoutMs: 10000,
@@ -393,6 +394,7 @@ module.exports = {
     discoveryFailRetryMs: 120000,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
+    addressMoveWaitMs: 1200000,
     spawnDeferrals: {
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },
@@ -441,7 +443,6 @@ module.exports = {
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
-    nodeMonitorCheckTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,
     imageUpdateInitialDelayMinMs: 600000,
     imageUpdateInitialDelayMaxMs: 1800000,

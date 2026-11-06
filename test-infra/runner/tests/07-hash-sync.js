@@ -79,6 +79,11 @@ describe('Hash sync: late-joining node', function () {
     expect(counts.resolved).to.be.greaterThan(0);
   });
 
+  it('resolves it on the first pass, so the registry is built with it', async function () {
+    const record = await dbClient(env.nodeCount).appHashRecord(appHash);
+    expect(record.syncAttempts, 'a hash sync gave up on a message peers were answering').to.equal(0);
+  });
+
   it('should create permanent message from resolved hash', async function () {
     const count = await dbClient(env.nodeCount).permanentMessageCount();
     expect(count).to.be.greaterThan(0);

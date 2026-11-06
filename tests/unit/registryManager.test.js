@@ -4,6 +4,8 @@ const sinon = require('sinon');
 const config = require('config');
 const { ObjectId, Collection } = require('mongodb');
 const proxyquire = require('proxyquire');
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
@@ -20,6 +22,8 @@ const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { requireMongo } = require('./dbTestHelper');
 const { verifyEncryptedSpec } = require('../../ZelBack/src/services/utils/enterpriseHelper');
 const unpaidAdmission = require('../../ZelBack/src/services/appMessaging/unpaidAdmission');
+
+chai.use(chaiAsPromised);
 
 describe('registryManager tests', () => {
   before(requireMongo);
@@ -702,13 +706,17 @@ describe('registryManager tests', () => {
   });
 
   describe('storeAppInstallingMessage tests', () => {
-    const validMessage = {
-      type: 'fluxappinstalling',
-      version: 1,
-      broadcastedAt: Date.now(),
-      name: 'TestApp',
-      ip: '192.168.1.1:16127',
-    };
+    let validMessage;
+
+    beforeEach(() => {
+      validMessage = {
+        type: 'fluxappinstalling',
+        version: 1,
+        broadcastedAt: Date.now(),
+        name: 'TestApp',
+        ip: '192.168.1.1:16127',
+      };
+    });
 
     it('should store a valid app installing message', async () => {
       const result = await registryManager.storeAppInstallingMessage(validMessage);
@@ -1045,6 +1053,22 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('availableApps when the database does not answer', () => {
+    afterEach(() => sinon.restore());
+
+    it('throws to an internal caller, which has no list to read', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').rejects(new Error('operation was interrupted'));
+      await expect(registryManager.availableApps()).to.be.rejectedWith('operation was interrupted');
+    });
+
+    it('answers a route with the error', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').rejects(new Error('operation was interrupted'));
+      const res = { json: sinon.stub().returnsArg(0) };
+      const answer = await registryManager.availableApps(undefined, res);
+      expect(answer.status).to.equal('error');
+    });
+  });
+
   describe('checkApplicationRegistrationNameConflicts tests', () => {
     beforeEach(async () => {
       const collection = config.database.appsglobal.collections.appsInformation;
@@ -1061,6 +1085,33 @@ describe('registryManager tests', () => {
         // Collection doesn't exist
       }
       await dbHelper.insertOneToDatabase(database, collection, existingApp);
+    });
+
+    it('never reads the whole registry for one name', async () => {
+      const whole = sinon.spy(dbHelper, 'findInDatabase');
+      await registryManager.checkApplicationRegistrationNameConflicts({ name: 'FreshApp', owner: 'x' });
+      expect(whole.called, 'a name check loaded every app').to.equal(false);
+      whole.restore();
+    });
+
+    it('refuses a name a local app holds, in any case', async () => {
+      const localDatabase = db.db(config.database.appslocal.database);
+      const collection = config.database.appslocal.collections.appsInformation;
+      await localDatabase.collection(collection).deleteMany({ name: 'LocalOne' });
+      await dbHelper.insertOneToDatabase(localDatabase, collection, { name: 'LocalOne' });
+      await expect(registryManager.checkApplicationRegistrationNameConflicts({ name: 'localone', owner: 'x' }))
+        .to.be.rejectedWith('already assigned to local application');
+      await localDatabase.collection(collection).deleteMany({ name: 'LocalOne' });
+    });
+
+    it('still refuses a name whose registered app has outlived its term, with no hash known to be older', async () => {
+      const daemon = db.db(config.database.daemon.database);
+      const hashes = config.database.daemon.collections.appsHashes;
+      await daemon.collection(hashes).deleteMany({ hash: 'late' });
+      await dbHelper.insertOneToDatabase(daemon, hashes, { hash: 'late', txid: 't', height: 99999999 });
+      await expect(registryManager.checkApplicationRegistrationNameConflicts({ name: 'ExistingApp', owner: 'x' }, 'late'))
+        .to.be.rejectedWith('already assigned to local application');
+      await daemon.collection(hashes).deleteMany({ hash: 'late' });
     });
 
     it('should throw error if app name already exists', async () => {
@@ -1833,9 +1884,10 @@ describe('registryManager tests', () => {
 
   describe('appLocationFromEvents tests', () => {
     const eventsCollection = config.database.appsglobal.collections.appStateEvents;
-    const now = Date.now();
+    let now;
 
     beforeEach(async () => {
+      now = Date.now();
       try {
         await database.collection(eventsCollection).drop();
       } catch (err) {
