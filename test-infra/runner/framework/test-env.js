@@ -1464,8 +1464,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // this one mongod at boot, and on disk each creation waits on a sync, which
   // makes a ten-node fleet's setup take about a minute; on tmpfs, a few seconds.
   // The data lives as long as the container, which is the fleet's lifetime.
+  // FluxOS runs no server-side JavaScript, so a fleet's mongod holds none.
   const mongo = await new StaticIpContainer('mongo:8@sha256:a706cb4e493bcd0262f345b3b0c78732ca0e54301f0d7bbe2b66f26313ce7ccb')
-    .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
+    .withCommand(['--noscripting', '--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withUlimits({ nofile: { soft: 65536, hard: 65536 } })
     .withTmpFs({ '/data/db': 'rw,size=4g' })
     .withStaticIp(networkName, MONGO_IP)
