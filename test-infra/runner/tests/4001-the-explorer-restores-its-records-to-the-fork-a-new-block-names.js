@@ -8,8 +8,9 @@
  * The fixture records an app payment at height H, then replaces H with a block that
  * carries no transaction, so the payment's record exists only on the branch fluxd has
  * left. The next block mined is the first the explorer can see the fork from: it names
- * the replacement for H as its parent. Restored to H - 1, the record is gone; a node
- * that never compared parents keeps it, which is the outcome this suite tells apart.
+ * the replacement for H as its parent. Restored to H - 1, the record is no payment; a
+ * node that never compared parents keeps it as one, which is the outcome this suite
+ * tells apart.
  *
  * The daemon stub is not fluxd: the fork is a control call, and fluxd's choice of
  * branch (most work) is not exercised.
@@ -82,7 +83,7 @@ describe('the explorer restores its records to the fork a new block names, and o
     await advanceBlock();
 
     await tipProcessed(mark);
-    expect(await db.appHashRecord(hash), 'the payment on the branch fluxd left').to.equal(null);
+    expect((await db.appHashRecord(hash))?.notOnChain, 'the payment on the branch fluxd left').to.equal(true);
     const reorganised = client.getEventBuffer()
       .filter((e) => e.id > mark && e.event === 'explorer:reorganised')
       .map((e) => e.data);

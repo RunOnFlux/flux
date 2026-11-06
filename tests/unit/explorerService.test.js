@@ -928,10 +928,12 @@ describe('explorerService tests', () => {
 
   describe('settleReplacedPayments', () => {
     const database = {};
-    let find; let mempool; let update; let reindex;
+    let find; let mempool; let update; let reindex; let storedMessage;
 
     beforeEach(() => {
       find = sinon.stub(dbHelper, 'findInDatabase').resolves([{ hash: 'h1', txid: 't1' }]);
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      storedMessage = sinon.stub(dbHelper, 'findOneInDatabase').resolves({ hash: 'h1' });
       mempool = sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
       update = sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
       reindex = sinon.stub(registryManager, 'reindexGlobalAppsInformation').resolves(true);
@@ -960,6 +962,20 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(update, database, 'zelappshashes', { hash: { $in: ['h1'] } },
         { $set: { notOnChain: true }, $unset: { replaced: '' } });
       sinon.assert.calledOnce(reindex);
+    });
+
+    it('rebuilds nothing for a payment whose message this node does not store', async () => {
+      storedMessage.resolves(null);
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.calledWithMatch(update, database, 'zelappshashes', { hash: { $in: ['h1'] } },
+        { $set: { notOnChain: true }, $unset: { replaced: '' } });
+      sinon.assert.notCalled(reindex);
+    });
+
+    it('settles nothing when the message store cannot be read, so the next block settles it', async () => {
+      storedMessage.rejects(new Error('connection timed out'));
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.notCalled(update);
     });
 
     it('leaves a payment fluxd may still mine counted as paid', async () => {

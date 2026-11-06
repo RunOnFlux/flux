@@ -28,6 +28,7 @@ const { BlockCadence } = require('./utils/blockCadence');
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+const appsMessagesCollection = config.database.appsglobal.collections.appsMessages;
 
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
@@ -1056,8 +1057,9 @@ async function markReplacedPayments(database, height, tip) {
 
 /**
  * Past the branch a reorganisation replaced, a replaced payment no block has paid again and
- * fluxd's mempool does not hold will not be mined: it is not on the chain, and the registry is
- * rebuilt without it. The mempool is asked afresh, as a cached answer may name a transaction
+ * fluxd's mempool does not hold will not be mined: it is not on the chain. The registry is
+ * rebuilt without it when this node stores its message; it reads only stored messages. The
+ * mempool is asked afresh, as a cached answer may name a transaction
  * since dropped. An unanswered call is asked again on the next block.
  * @param {object} database The daemon database.
  * @param {number} height The block just processed.
@@ -1073,10 +1075,13 @@ async function settleReplacedPayments(database, height) {
     const pending = new Set(mempool.data);
     const hashes = replaced.filter(({ txid }) => !pending.has(txid)).map(({ hash }) => hash);
     if (!hashes.length) return;
+    const appsDatabase = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+    const stored = await dbHelper.findOneInDatabase(appsDatabase, appsMessagesCollection,
+      { hash: { $in: hashes } }, { projection: { _id: 0, hash: 1 } });
     await dbHelper.updateInDatabase(database, appsHashesCollection, { hash: { $in: hashes } },
       { $set: { notOnChain: true }, $unset: { replaced: '' } });
-    log.warn(`Explorer - ${hashes.length} replaced app payments were not mined again, rebuilding the registry`);
-    await registryManager.reindexGlobalAppsInformation();
+    log.warn(`Explorer - ${hashes.length} replaced app payments were not mined again`);
+    if (stored) await registryManager.reindexGlobalAppsInformation();
     fluxEventBus.publish('explorer:paymentsDropped', { hashes });
   } catch (error) {
     log.error(`Explorer - replaced payments not settled: ${error.message}`);
