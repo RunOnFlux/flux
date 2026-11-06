@@ -3973,6 +3973,13 @@ describe('fluxService tests', () => {
 
     afterEach(() => { sinon.restore(); });
 
+    it('restartFluxOS is refused and runs nothing', async () => {
+      const res = generateResponse();
+      await fluxServiceOnArcane.restartFluxOS({}, res);
+      sinon.assert.notCalled(runCommandStub);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
     ['startDaemon', 'restartDaemon', 'reindexDaemon', 'updateDaemon',
       'startBenchmark', 'restartBenchmark', 'updateBenchmark'].forEach((endpoint) => {
       it(`${endpoint} is refused and runs nothing`, async () => {
