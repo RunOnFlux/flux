@@ -267,7 +267,7 @@ function ensureObject(parameter) {
   } catch (e) {
     param = qs.parse(parameter);
   }
-  if (typeof param !== 'object' || param === null) {
+  if (typeof param !== 'object') {
     return {};
   }
   return param;
