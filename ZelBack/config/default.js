@@ -213,7 +213,7 @@ module.exports = {
     '16dNCFf7nR3nx5iwn2RQMBw6KcJXkE3JC1',
     '15c3aH6y9Koq1Dg1rGXE9Ypn5nL2AbSJCu',
     '1NGqYirE4T9wzd1ZcGrw3HjETiuCkt6Sgy',
-    '13BBPcpHxwCaC61vjQgK6qeDcprFJEGVkP',
+    '13hNSga7fSDRYiJ1GWvssxPfTStbqP5LWF',
   ],
   deterministicNodesStart: 558000,
   fluxapps: {
@@ -457,7 +457,7 @@ module.exports = {
         '16dNCFf7nR3nx5iwn2RQMBw6KcJXkE3JC1',
         '15c3aH6y9Koq1Dg1rGXE9Ypn5nL2AbSJCu',
         '1NGqYirE4T9wzd1ZcGrw3HjETiuCkt6Sgy',
-        '13BBPcpHxwCaC61vjQgK6qeDcprFJEGVkP',
+        '13hNSga7fSDRYiJ1GWvssxPfTStbqP5LWF',
       ],
     }],
     usersToExtend: ['1MCBJn6qsy3YRY2YasdYMYdJcdhy1ev8Rd'], // addresses that can extend applications on behalf of app owners (expire-only updates) addresses cannot be deleted over time, just adding new ones
