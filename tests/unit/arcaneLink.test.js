@@ -298,7 +298,7 @@ describe('arcaneLink tests', () => {
       await handshake(a, b, peers);
       expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
 
-      a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: null } }, peers.aPeer);
+      a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: null, nonce: peers.aPeer.link.localNonce } }, peers.aPeer);
 
       expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(false);
       expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.PEER_GAVE_UP);
@@ -311,7 +311,18 @@ describe('arcaneLink tests', () => {
       const peers = connect(a, b);
       await handshake(a, b, peers);
 
-      a.mod.handleConfirm({ pubKey: 'keyX', data: { type: a.mod.CONFIRM_TYPE, mac: null } }, peers.aPeer);
+      a.mod.handleConfirm({ pubKey: 'keyX', data: { type: a.mod.CONFIRM_TYPE, mac: null, nonce: peers.aPeer.link.localNonce } }, peers.aPeer);
+
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
+    });
+
+    it('should take a give-up only for this link\'s nonce', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
+      const peers = connect(a, b);
+      await handshake(a, b, peers);
+
+      a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: null, nonce: 'ab'.repeat(32) } }, peers.aPeer);
 
       expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
     });
@@ -699,7 +710,7 @@ describe('arcaneLink tests', () => {
       listAt('10.0.0.2', 'keyB');
       const peer = makePeer('10.0.0.2');
       a.peers.set(peer.key, peer);
-      const giveUp = () => a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: null } }, peer);
+      const giveUp = () => a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: null, nonce: peer.link.localNonce } }, peer);
       const { linkHandshakesPerIp } = config.fluxapps;
       a.mod.startLink(peer);
       await a.mod.handleNonce(nonceFrom('keyB'), peer);
