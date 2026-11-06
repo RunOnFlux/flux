@@ -889,6 +889,21 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    // Send each connected node these exact bytes as a text frame.
+    if (req.method === 'POST' && req.url === '/send-frame') {
+      const { frame } = JSON.parse(await readBody(req));
+      let sent = 0;
+      for (const ws of connectedNodes) {
+        if (ws.readyState === 1) {
+          ws.send(frame);
+          sent++;
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', sent }));
+      return;
+    }
+
     // Send each connected node, again and as it was, the last frame this stub
     // sealed to it: a replay on its link.
     if (req.method === 'POST' && req.url === '/replay-last-frame') {

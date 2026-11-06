@@ -147,6 +147,17 @@ export function stubPeerClient(ip) {
 
     // Send each connected node, again and as it was, the last frame this peer
     // sealed to it on their authenticated link. Answers how many it sent.
+    // Send every connected node these exact bytes as a text frame.
+    async sendFrame(frame) {
+      const res = await controlFetch(`${controlUrl}/send-frame`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frame }),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not send a frame: ${res.status} ${await res.text()}`);
+      return (await res.json()).sent;
+    },
+
     async replayLastFrame() {
       const res = await controlFetch(`${controlUrl}/replay-last-frame`, { method: 'POST' });
       if (!res.ok) throw new Error(`stub ${ip} could not replay: ${res.status} ${await res.text()}`);
