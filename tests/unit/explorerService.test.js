@@ -1,6 +1,7 @@
 const sinon = require('sinon');
 const config = require('config');
 const explorerService = require('../../ZelBack/src/services/explorerService');
+const freshExplorerService = require('proxyquire').noPreserveCache()('../../ZelBack/src/services/explorerService', {});
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
@@ -926,6 +927,67 @@ describe('explorerService tests', () => {
 
       sinon.assert.calledOnce(dropped);
       expect(dropped.firstCall.args[0].client).to.equal(dbHelper.maintenanceConnection());
+    });
+  });
+
+  describe('a poll that finds nothing to process', () => {
+    let heard;
+    const hear = (height) => heard.push(height);
+
+    const poll = async (daemon, scanned, synced = true) => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced, height: daemon } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ generalScannedHeight: scanned });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      await explorerService.pollForNewBlocks();
+    };
+
+    beforeEach(() => {
+      sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      explorerService.setBlockProccessingCanContinue(true);
+      heard = [];
+      explorerService.getBlockEmitter().on('explorerAtTip', hear);
+    });
+
+    afterEach(() => {
+      explorerService.setBlockProccessingCanContinue(false);
+      explorerService.getBlockEmitter().off('explorerAtTip', hear);
+      sinon.restore();
+    });
+
+    it('says the scan is at the tip, and answers that it is synced', async () => {
+      await poll(900100, 900100);
+
+      expect(heard).to.deep.equal([900100]);
+    });
+
+    it('answers that it is synced, from a node that has processed no block', async () => {
+      const synced = async () => {
+        const res = { json: sinon.stub() };
+        await freshExplorerService.isExplorerSynced({}, res);
+        return res.json.firstCall.args[0].data;
+      };
+      freshExplorerService.setBlockProccessingCanContinue(true);
+      expect(await synced(), 'a canary: the node starts unsynced').to.equal(false);
+
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 900100 } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ generalScannedHeight: 900100 });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      await freshExplorerService.pollForNewBlocks();
+      freshExplorerService.setBlockProccessingCanContinue(false);
+
+      expect(await synced()).to.equal(true);
+    });
+
+    it('says nothing of a scan ahead of fluxd', async () => {
+      await poll(900099, 900100);
+
+      expect(heard).to.deep.equal([]);
+    });
+
+    it('says nothing while fluxd is not synced', async () => {
+      await poll(900100, 900100, false);
+
+      expect(heard).to.deep.equal([]);
     });
   });
 
