@@ -65,12 +65,33 @@ const APP_STATE_EVENT_TYPES = Object.freeze({
   IPCHANGED: 'ipchanged',
 });
 
+/**
+ * A value a message carries, as an update pipeline takes it.
+ * @param {*} value
+ * @returns {{$literal: *}}
+ */
+function asData(value) {
+  return { $literal: value };
+}
+
+/**
+ * The expression for a field of a row a report writes: the report's value when it
+ * is newer than the row, otherwise the row's, or the report's when the row has none.
+ * @param {object} isNewer Expression: the report is newer than the row.
+ * @param {string} field
+ * @param {*} value The report's value.
+ * @returns {object} Aggregation expression.
+ */
+function newerOrHeld(isNewer, field, value) {
+  return { $cond: [isNewer, asData(value), { $ifNull: [`$${field}`, asData(value)] }] };
+}
+
 function buildConditionalUpsert(broadcastedAt, conditionalFields, options = {}) {
   const alwaysSetFields = options.alwaysSetFields ?? {};
   const incomingDate = new Date(broadcastedAt);
   const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
   const set = Object.fromEntries(
-    Object.entries(conditionalFields).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
+    Object.entries(conditionalFields).map(([k, v]) => [k, newerOrHeld(isNewer, k, v)]),
   );
   Object.assign(set, alwaysSetFields);
   return [{ $set: set }];
@@ -461,7 +482,7 @@ async function storeAppRunningMessage(message) {
       staticIp: message.staticIp,
     };
     const conditionalSet = Object.fromEntries(
-      Object.entries(incoming).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
+      Object.entries(incoming).map(([k, v]) => [k, newerOrHeld(isNewer, k, v)]),
     );
     conditionalSet.runningSince = runningSinceOf(isNewer, runningSince, ip !== message.ip);
 
@@ -910,13 +931,13 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
     for (const app of apps) {
       const setFields = {
-        name: app.name,
-        ip,
-        hash: { $cond: [isNewer, app.hash, { $ifNull: ['$hash', app.hash] }] },
+        name: asData(app.name),
+        ip: asData(ip),
+        hash: newerOrHeld(isNewer, 'hash', app.hash),
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
         expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
-        osUptime: { $cond: [isNewer, data.osUptime, { $ifNull: ['$osUptime', data.osUptime] }] },
-        staticIp: { $cond: [isNewer, data.staticIp ?? null, { $ifNull: ['$staticIp', data.staticIp ?? null] }] },
+        osUptime: newerOrHeld(isNewer, 'osUptime', data.osUptime),
+        staticIp: newerOrHeld(isNewer, 'staticIp', data.staticIp ?? null),
       };
       const runningSince = data.runningSince ? new Date(data.runningSince) : (app.runningSince ? new Date(app.runningSince) : null);
       if (runningSince) {
@@ -1348,8 +1369,8 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
       updateOne: {
         filter: { name: data.name, ip: data.ip },
         update: [{ $set: {
-          name: data.name,
-          ip: data.ip,
+          name: asData(data.name),
+          ip: asData(data.ip),
           broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
           expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
         } }],
@@ -1462,10 +1483,10 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
       updateOne: {
         filter: { name: data.name, hash: data.hash, ip: data.ip },
         update: [{ $set: {
-          name: data.name,
-          hash: data.hash,
-          ip: data.ip,
-          error: { $cond: [isNewer, data.error, { $ifNull: ['$error', data.error] }] },
+          name: asData(data.name),
+          hash: asData(data.hash),
+          ip: asData(data.ip),
+          error: newerOrHeld(isNewer, 'error', data.error),
           broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
           expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
         } }],
