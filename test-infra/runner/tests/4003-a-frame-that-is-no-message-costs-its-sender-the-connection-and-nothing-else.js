@@ -35,8 +35,8 @@ describe('a frame that is no message costs its sender the connection and nothing
     stub = env.stubPeerClients.get(STUB);
     client = env.clients[TARGET];
     target = getSubnetConfig().nodeIp(TARGET + 1);
-    await waitFor(async () => (await stub.getStats()).connectionsOpen >= 1,
-      { timeout: 120000, interval: 1000, label: 'the stub connected' });
+    await waitFor(() => client.getEventBuffer().some((e) => e.event === 'peers:added' && e.data.ip === stub.ip),
+      { timeout: 120000, interval: 1000, label: 'the node holds the stub' });
   });
 
   after(async function () {
@@ -52,14 +52,15 @@ describe('a frame that is no message costs its sender the connection and nothing
 
       expect(await stub.sendFrame(frame), 'the frame reached no node').to.be.at.least(1);
 
-      await client.waitForEvent('peers:removed', (d) => d.ip === stub.ip, 60000, { afterId: mark });
+      const removed = await client.waitForEvent('peers:removed', (d) => d.ip === stub.ip, 60000, { afterId: mark });
       const { closes } = await stub.getStats();
       const codes = closes.filter((c) => c.ip === target && c.at >= sentAt).map((c) => c.code);
       expect(codes, JSON.stringify(closes)).to.have.length(1);
       expect(codes[0], 'closed as an invalid message, inbound or outbound').to.be.oneOf([4016, 4017]);
 
       await waitFor(async () => {
-        if ((await stub.getStats()).connectionsOpen >= 1) return true;
+        const back = client.getEventBuffer().some((e) => e.id > removed.id && e.event === 'peers:added' && e.data.ip === stub.ip);
+        if (back) return true;
         await stub.dialLinks([`${target}:16127`]).catch(() => {});
         return false;
       }, { timeout: 90000, interval: 3000, label: 'the node takes the peer back' });
