@@ -77,7 +77,11 @@ async function fluxUsage(req, res) {
  *
  * @param {object} [options]
  * @param {string} [options.excludeApp] Name of an installed app left out of the totals.
- * @returns {object} Message carrying {appsCpusLocked, appsRamLocked, appsHddLocked, unreadable}.
+ * `componentsLocked` is the number of components counted. Each reserves
+ * `config.fluxapps.defaultSwap` of disk for its swap, which the app swap pool
+ * provisions.
+ *
+ * @returns {object} Message carrying {appsCpusLocked, appsRamLocked, appsHddLocked, componentsLocked, unreadable}.
  *   Rejects with the original error when the installed apps cannot be read: a
  *   node that cannot count what it has committed has no totals to give.
  */
@@ -96,6 +100,7 @@ async function appsResources({ excludeApp } = {}) {
   let appsCpusLocked = 0;
   let appsRamLocked = 0;
   let appsHddLocked = 0;
+  let componentsLocked = 0;
   const tier = await generalService.nodeTier().catch((error) => log.error(error));
   const hddTier = `hdd${tier}`;
   const ramTier = `ram${tier}`;
@@ -116,23 +121,27 @@ async function appsResources({ excludeApp } = {}) {
           appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
         }
         appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
+        componentsLocked += 1;
       });
     } else if (app.tiered && tier) {
       appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
       appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
       appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
       appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
+      componentsLocked += 1;
     } else {
       appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
       appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
       appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
       appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
+      componentsLocked += 1;
     }
   });
   const appsUsage = {
     appsCpusLocked,
     appsRamLocked,
     appsHddLocked,
+    componentsLocked,
     unreadable: unreadable.map((app) => app.name),
   };
   return messageHelper.createDataMessage(appsUsage);

@@ -609,10 +609,12 @@ describe('appUninstaller tests', () => {
     // and unforced paths alike.
     let runtimeStateStub;
     let appSliceStub;
+    let swapPoolStub;
 
     function buildUninstaller(spec, constantOverrides = {}, dbOverrides = {}) {
       runtimeStateStub = { remove: sinon.stub().resolves(), removeControllerState: sinon.stub().resolves() };
       appSliceStub = { release: sinon.stub().resolves() };
+      swapPoolStub = { reconcile: sinon.stub().resolves() };
       // The REAL departing tracker, taken fresh per test rather than
       // reimplemented here: a fake that counts differently from the module
       // would pass this suite over the defect the counting exists to prevent.
@@ -642,6 +644,7 @@ describe('appUninstaller tests', () => {
         },
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './appSwapPoolService': swapPoolStub,
         '../appManagement/appPlacements': appPlacementsStub,
         '../utils/globalState': globalStateStub,
         // runs the step again after a moment until it succeeds, as the real one does after its wait
@@ -760,6 +763,17 @@ describe('appUninstaller tests', () => {
     };
 
     const res = null; // exercised without a response stream
+
+    it('reconciles the swap pool once the app\'s row is deleted', async () => {
+      const deleteRow = sinon.stub().resolves();
+      const uninstaller = buildUninstaller(composedSpec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      sinon.assert.calledOnce(deleteRow);
+      sinon.assert.calledOnce(swapPoolStub.reconcile);
+      sinon.assert.callOrder(deleteRow, swapPoolStub.reconcile);
+    });
 
     describe('a cleanup step that fails after the containers are gone', () => {
       // The app is part removed: it is held as departing - never started, never

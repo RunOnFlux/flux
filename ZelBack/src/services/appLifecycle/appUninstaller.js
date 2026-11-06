@@ -27,6 +27,7 @@ const appPlacements = require('../appManagement/appPlacements');
 const volumeService = require('../utils/volumeService');
 const fluxEventBus = require('../utils/fluxEventBus');
 const appSlice = require('./appSlice');
+const appSwapPoolService = require('./appSwapPoolService');
 const { Privilege, authOf } = require('../utils/privileges');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
@@ -1162,6 +1163,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
       await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_BEFORE_ROW_DELETE, appName);
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      await appSwapPoolService.reconcile();
       // The app's volume is gone, and the record of when this node took it with it.
       // A record left behind is never read, as the app is not installed, and boot
       // removes it, so the removal stands whether this delete succeeds or not.

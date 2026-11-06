@@ -44,6 +44,7 @@ const config = require('config');
 const fluxEventBus = require('../utils/fluxEventBus');
 const volumeService = require('../utils/volumeService');
 const { Privilege, authOf } = require('../utils/privileges');
+const appSwapPoolService = require('./appSwapPoolService');
 
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
@@ -903,6 +904,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // Mount paths must exist before the container is created (Syncthing cleanup can
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
+  // the app's row is written, so the pool covers this component before it can swap
+  await appSwapPoolService.reconcile();
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   // Attach this component to the private network of every app it is linked with
@@ -999,6 +1002,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // Mount paths must exist before the container is created (Syncthing cleanup can
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
+  // the app's row is written, so the pool covers this component before it can swap
+  await appSwapPoolService.reconcile();
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   // Attach this component to the private network of every app it is linked with

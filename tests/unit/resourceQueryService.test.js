@@ -165,6 +165,7 @@ describe('resourceQueryService tests', () => {
       // 30gb across the two components, plus the fixed overhead each one carries
       expect(result.data.appsHddLocked).to.equal(30 + 2 * (config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap));
       expect(result.data.unreadable).to.deep.equal([]);
+      expect(result.data.componentsLocked).to.equal(2);
     });
 
     // The whole point of reporting it: an app that contributes nothing because it
@@ -178,6 +179,7 @@ describe('resourceQueryService tests', () => {
 
       expect(result.data.unreadable).to.deep.equal(['EnterpriseApp']);
       expect(result.data.appsCpusLocked).to.equal(0);
+      expect(result.data.componentsLocked).to.equal(0);
     });
 
     it('does not publish that list to a caller outside the node', async () => {
@@ -246,6 +248,30 @@ describe('resourceQueryService tests', () => {
       expect(response.data.appsCpusLocked).to.equal(3);
       expect(response.data.appsRamLocked).to.equal(6000);
       expect(response.data.appsHddLocked).to.be.greaterThan(75); // Base HDD + filesystem overhead
+    });
+
+    it('counts one component for each version 3 app, tiered or not', async () => {
+      const collection = config.database.appslocal.collections.appsInformation;
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        // Collection doesn't exist
+      }
+      await dbHelper.insertManyToDatabase(database, collection, [
+        {
+          name: 'Plain', version: 3, tiered: false, cpu: 1, ram: 1000, hdd: 10,
+        },
+        {
+          name: 'Tiered', version: 3, tiered: true, cpu: 1, ram: 1000, hdd: 10, cpustratus: 2, ramstratus: 2000, hddstratus: 20,
+        },
+      ]);
+      sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
+
+      const plainOnly = await resourceQueryService.appsResources({ excludeApp: 'Tiered' });
+      const tieredOnly = await resourceQueryService.appsResources({ excludeApp: 'Plain' });
+
+      expect(plainOnly.data.componentsLocked).to.equal(1);
+      expect(tieredOnly.data.componentsLocked).to.equal(1);
     });
 
     // A redeploy checks the new specification against the node without the old
