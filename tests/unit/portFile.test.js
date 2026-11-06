@@ -194,4 +194,27 @@ describe('portFile tests', () => {
       sinon.assert.calledOnce(errorStub);
     });
   });
+
+  describe('behind the front proxy', () => {
+    const socketBefore = process.env.FLUXOS_API_SOCKET;
+
+    beforeEach(() => { process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock'; });
+
+    afterEach(() => {
+      if (socketBefore === undefined) delete process.env.FLUXOS_API_SOCKET;
+      else process.env.FLUXOS_API_SOCKET = socketBefore;
+    });
+
+    it('holds where and leaves whether to systemd', async () => {
+      const dir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'portfile-'));
+      await portFile.writePortFile({
+        apiPort: 16127, apiPortHttps: 16128, uiPort: 16126, confirmedApiPort: 16127,
+      }, { dir });
+      const written = JSON.parse(await fsPromises.readFile(path.join(dir, 'fluxos.json'), 'utf8'));
+      expect(written).to.deep.equal({ apiPort: 16127, apiPortHttps: 16128, confirmedApiPort: 16127 });
+      expect(portFile.removePortFile({ dir })).to.equal(false);
+      await fsPromises.access(path.join(dir, 'fluxos.json'));
+      await fsPromises.rm(dir, { recursive: true });
+    });
+  });
 });
