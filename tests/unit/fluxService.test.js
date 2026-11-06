@@ -3918,13 +3918,12 @@ describe('fluxService tests', () => {
   describe('behind the front proxy', () => {
     const socketBefore = process.env.FLUXOS_API_SOCKET;
     let runCommandStub;
-    let writeFileStub;
 
     beforeEach(() => {
       process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
       sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
-      writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+      fsPromisesStubs.writeFile.resetHistory();
     });
 
     afterEach(() => {
@@ -3952,11 +3951,11 @@ describe('fluxService tests', () => {
     it('reindexDaemon leaves the marker for the unit, then restarts it', async () => {
       const res = generateResponse();
       await fluxService.reindexDaemon({}, res);
-      sinon.assert.calledOnceWithExactly(writeFileStub, '/dat/var/lib/fluxd/.reindex-once', '');
+      sinon.assert.calledOnceWithExactly(fsPromisesStubs.writeFile, '/dat/var/lib/fluxd/.reindex-once', '');
       sinon.assert.calledOnceWithExactly(runCommandStub, 'systemctl', {
         runAsRoot: false, params: ['--no-block', 'restart', 'fluxd.service'],
       });
-      sinon.assert.callOrder(writeFileStub, runCommandStub);
+      sinon.assert.callOrder(fsPromisesStubs.writeFile, runCommandStub);
     });
 
     ['updateDaemon', 'updateBenchmark'].forEach((endpoint) => {

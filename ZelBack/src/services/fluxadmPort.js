@@ -1,6 +1,7 @@
 const config = require('config');
 const fs = require('node:fs');
 
+const { socketPath } = require('./utils/apiSocket');
 const publicPorts = require('./utils/publicPorts');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -61,7 +62,11 @@ function accessConfigured() {
  * @returns {number}
  */
 function currentSshPort() {
-  return sshPortFor(publicPorts.getApiPort());
+  if (socketPath()) return sshPortFor(publicPorts.getApiPort());
+  const { userconfig } = globalThis;
+  const apiPort = userconfig.initial.apiport || config.server.apiport;
+
+  return sshPortFor(apiPort);
 }
 
 /**
