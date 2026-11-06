@@ -107,20 +107,26 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
     await env?.teardown();
   });
 
-  it('r: elects exactly one seed and starts it (no deadlock, no split-brain)', async function () {
+  it('r: elects exactly one seed and starts it, and the holders with nothing join it', async function () {
     this.timeout(150000);
-    // With no source the election must seed someone; a deadlock leaves this at 0 and
-    // times out here.
-    await waitFor(
-      async () => (await countUp(env, holders, rApp)) >= 1,
-      { timeout: 90000, interval: 3000, label: 'at least one holder seeds the cold-start r: app (no deadlock)' },
-    );
-    // settle and confirm EXACTLY one seed - the non-elected holders have an empty
-    // global and no connected source, so they must wait (no second seed, no removal)
-    await new Promise((r) => { setTimeout(r, 12000); });
-    expect(await countUp(env, holders, rApp)).to.equal(1);
-    // the seed is the deterministic tiebreaker winner (lowest IP)
-    expect(await isUp(env.clients[seedIndex], rApp)).to.equal(true);
+    const folder = `flux${rApp}_${rApp}`;
+    const others = holders.filter((i) => i !== seedIndex);
+    const seeded = (i) => env.clients[i].getDecisionCount('syncthing:seedDecision', folder, 'seeded');
+    const joined = (i) => env.clients[i].getDecisionCount('syncthing:emptyClusterJoin', folder, 'holdsNothing');
+
+    // With no source the election must seed someone; a deadlock times out here. Every
+    // copy of an app that wrote nothing runs, so who seeded is read from the decisions.
+    await waitFor(async () => (await seeded(seedIndex)) >= 1, {
+      timeout: 90000, interval: 3000, label: 'the lowest address seeds the cold-start r: app',
+    });
+    await waitFor(async () => (await Promise.all(others.map(joined))).every((count) => count >= 1), {
+      timeout: 90000, interval: 3000, label: 'every other holder joins the seed',
+    });
+    await waitFor(() => isUp(env.clients[seedIndex], rApp), {
+      timeout: 90000, interval: 3000, label: 'the seed runs',
+    });
+    expect(await seeded(seedIndex), 'the seed decided once').to.equal(1);
+    expect(await Promise.all(others.map(seeded)), 'a joining holder recorded a seed').to.deep.equal(others.map(() => 0));
   });
 
   // THE ELECTION'S OTHER QUESTION. The two tests above are a field where nobody holds
