@@ -26,6 +26,7 @@ const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
+const portReconciler = require('../portReconciler');
 const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -125,7 +126,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
+        const portResponse = await portReconciler.want(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
         if (portResponse.mapped) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -145,7 +146,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+      const portResponse = await portReconciler.want(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
       if (portResponse.mapped) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
@@ -232,6 +233,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
   pullConfig.provider = imgVerifier.provider;
 
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_BEFORE_PULL, appName);
   // eslint-disable-next-line no-unused-vars
   await dockerService.pullImage(pullConfig, res);
 
@@ -384,6 +386,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
+    globalState.installingApp = appSpecs.name;
     acquired = true;
     // A test install holds nothing: it writes the app's row like any other install
     // and throws it away, so the announcement must not read that row as a claim.
@@ -582,6 +585,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         }
         log.info(`Database entry validated for ${appSpecifications.name} before Docker container creation`);
       }
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_BEFORE_CONTAINERS, appSpecs.name);
 
       if (specificationsToInstall.version >= 4) { // version is undefined for component
         // eslint-disable-next-line no-restricted-syntax
@@ -856,6 +860,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   // Setup firewall and UPnP ports (fail fast before downloading images)
   await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_AFTER_PORTS, appName);
 
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
@@ -1054,6 +1059,8 @@ async function installAppLocally(req, res) {
       // a half-streamed body.
       const heldBy = globalState.operationHolding();
       if (heldBy) {
+        // published as registerAppLocally publishes its own refusals: busy, ask again
+        fluxEventBus.publish('app:installOutcome', { name: appname, outcome: InstallOutcome.BUSY });
         throw new Error(`Another application is undergoing ${heldBy}. Installation not possible.`);
       }
       const allApps = await availableApps();
@@ -1153,12 +1160,16 @@ async function installAppLocally(req, res) {
  * @param {boolean} skipGeolocation - Whether to skip geolocation checks (useful for testing)
  * @param {boolean} skipStaticIp - Whether to skip static IP checks (useful for testing)
  * @param {boolean} skipHardware - Whether to skip hardware and nodes checks (useful for testing)
+ * @param {object} [options]
+ * @param {string} [options.replacing] - Name of an installed app this one replaces: a redeploy
+ *   checks the new specification against the node without the old one's resources, which its
+ *   database row still holds while its containers are being replaced.
  * @returns {Promise<boolean>} True if requirements are met
  */
-async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStaticIp = false, skipHardware = false) {
+async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStaticIp = false, skipHardware = false, options = {}) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   if (!skipHardware) {
-    await hwRequirements.checkAppHWRequirements(appSpecs);
+    await hwRequirements.checkAppHWRequirements(appSpecs, { replacing: options.replacing });
   }
 
   if (!skipStaticIp) {

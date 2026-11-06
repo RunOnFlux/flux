@@ -1,5 +1,4 @@
 const util = require('util');
-const path = require('path');
 const systemcrontab = require('crontab');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
@@ -10,13 +9,15 @@ const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const log = require('../../lib/log');
 const {
-  localAppsInformation, globalAppsInformation, globalAppsMessages,
+  localAppsInformation, globalAppsInformation, globalAppsMessages, appsFolder,
 } = require('../utils/appConstants');
 const config = require('config');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const upnpService = require('../upnpService');
+const portReconciler = require('../portReconciler');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+const nodeConfirmationService = require('../nodeConfirmationService');
 const { availableApps } = require('../appDatabase/registryManager');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -45,9 +46,6 @@ class AppNotFoundError extends Error {
   }
 }
 
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-const appsFolder = `${appsFolderPath}/`;
 const crontabLoad = util.promisify(systemcrontab.load);
 
 // Fired once per component identifier after a successful local removal, beside
@@ -101,7 +99,9 @@ function finishRemoval(appName, force, announce) {
 
 /**
  * Tells the network this node no longer holds the app (fluxappremoved), and drops it
- * from the running apps cache. For an app whose removal from this node is complete.
+ * from the running apps cache. For an app whose removal from this node is complete or
+ * committed. Sends nothing while peers would not accept this node's messages
+ * (nodeConfirmationService.canSendMessages).
  * @param {string} appName
  * @returns {Promise<void>}
  */
@@ -117,6 +117,12 @@ async function announceRemoval(appName) {
   const ip = await fluxNetworkHelper.getLocalSocketAddress();
   if (!ip) {
     log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
+    return;
+  }
+  // Read as the message would go out: whether this node can be heard changes
+  // while a removal waits its turn.
+  if (!nodeConfirmationService.canSendMessages()) {
+    log.warn(`${appName} removed without announcing it - peers do not accept this node's messages, so they hold its location row until it expires`);
     return;
   }
   const appRemovedMessage = {
@@ -712,14 +718,14 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
+        await portReconciler.release(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
       }
     }
   } else if (appSpecifications.port) {
     // v1 compatibility
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+      await portReconciler.release(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
     }
   }
 
@@ -1031,6 +1037,16 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     appSpecifications = specificationFormatter(appSpecifications);
 
+    // Told before the teardown, which can take as long as deleting the volume: a
+    // holder that counts this copy while it is being deleted could hand its own back
+    // beside it. An announcement that fails leaves the app installed, and one whose
+    // teardown then stops part way is finished in the background (finishRemoval).
+    if (sendMessage) {
+      await announceRemoval(appName);
+      announced = true;
+    }
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_BEFORE_TEARDOWN, appName);
+
     tornDownApp = appName;
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
@@ -1065,11 +1081,6 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       // eslint-disable-next-line no-await-in-loop
       await appsRuntimeState.remove(identifier);
       if (onComponentRemoved) onComponentRemoved(identifier);
-    }
-
-    if (sendMessage) {
-      await announceRemoval(appName);
-      announced = true;
     }
 
     if (!isComponent) {
@@ -1149,6 +1160,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.write(serviceHelper.ensureString(databaseStatus));
         if (res.flush) res.flush();
       }
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_BEFORE_ROW_DELETE, appName);
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
       // The app's volume is gone, and the record of when this node took it with it.
       // A record left behind is never read, as the app is not installed, and boot

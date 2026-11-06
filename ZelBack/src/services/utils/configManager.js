@@ -3,6 +3,47 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { watch } = require('node:fs/promises');
 const hash = require('object-hash');
+const config = require('config');
+
+/**
+ * Whether a node maps its ports through UPnP, from its network settings: an api
+ * port other than the default, or a router address. `upnp` is written by this rule
+ * where userconfig.js does not have it.
+ * @param {{apiport?: number|string, routerIP?: string}} initial
+ * @returns {boolean}
+ */
+function upnpFromNetworkSettings({ apiport, routerIP } = {}) {
+  return Boolean((apiport && Number(apiport) !== config.server.apiport) || routerIP);
+}
+
+/**
+ * One value of userconfig.js as JavaScript source: a string over several lines (a
+ * PGP key) as a template literal, any other string single-quoted.
+ * @param {*} value
+ * @returns {string}
+ */
+function literal(value) {
+  if (typeof value === 'string') {
+    if (value.includes('\n')) return `\`${value.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')}\``;
+    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return String(value);
+  return JSON.stringify(value);
+}
+
+/**
+ * userconfig.js for `initial`, one key per line in the form the file has always
+ * had: tools outside FluxOS read and edit it a line at a time (fluxnode-multitool
+ * finds and deletes the `apiport` line).
+ * @param {object} initial
+ * @returns {string}
+ */
+function renderUserConfig(initial) {
+  const lines = Object.entries(initial)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `    ${key}: ${literal(value)},`);
+  return `module.exports = {\n  initial: {\n${lines.join('\n')}\n  }\n}\n`;
+}
 
 /**
  * ConfigManager - Centralized configuration management with hot reload support
@@ -110,6 +151,19 @@ class ConfigManager extends EventEmitter {
   }
 
   /**
+   * Rewrites userconfig.js with `changes` over its current `initial`: every other
+   * key, FluxOS's or another writer's (flux_configd's `upnp`, `network`), stays as
+   * it is. Then reloads it.
+   * @param {object} changes the keys of `initial` to set
+   * @returns {Promise<void>}
+   */
+  async writeInitial(changes) {
+    const initial = { ...(globalThis.userconfig?.initial ?? {}), ...changes };
+    await fs.promises.writeFile(this.configPath, renderUserConfig(initial));
+    this.reloadConfig();
+  }
+
+  /**
    * Start watching the config file for changes
    * @param {Function} log - Logger function
    * @param {Function} onReload - Optional callback for additional reload logic
@@ -175,3 +229,5 @@ class ConfigManager extends EventEmitter {
 const configManager = new ConfigManager();
 
 module.exports = configManager;
+module.exports.renderUserConfig = renderUserConfig;
+module.exports.upnpFromNetworkSettings = upnpFromNetworkSettings;

@@ -75,15 +75,17 @@ async function fluxUsage(req, res) {
  * of them means this node cannot account for itself. It does not leave the
  * process: the API halves publish the totals alone.
  *
+ * @param {object} [options]
+ * @param {string} [options.excludeApp] Name of an installed app left out of the totals.
  * @returns {object} Message carrying {appsCpusLocked, appsRamLocked, appsHddLocked, unreadable}.
  *   Rejects with the original error when the installed apps cannot be read: a
  *   node that cannot count what it has committed has no totals to give.
  */
-async function appsResources() {
+async function appsResources({ excludeApp } = {}) {
   log.info('Checking appsResources');
   const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appslocal.database);
-  const appsQuery = {};
+  const appsQuery = excludeApp ? { name: { $ne: excludeApp } } : {};
   const appsProjection = { projection: { _id: 0 } };
   const stored = await dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, appsQuery, appsProjection);
 

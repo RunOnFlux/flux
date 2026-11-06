@@ -19,10 +19,19 @@ async function run(container, command, what) {
   return result.stdout;
 }
 
-/** Hold every write the node's docker makes to its data root, until thawDocker. */
+// The volume freezeDocker has docker create, so that docker writes to its data root while
+// it is frozen; removed by the same command once the write goes through.
+const FREEZE_PROBE_VOLUME = 'flux-e2e-freeze-probe';
+
+/**
+ * Hold every write the node's docker makes to its data root, until thawDocker, and have
+ * docker make one: a volume is created and removed in the background, so a docker thread
+ * is held in the kernel whatever else docker is doing at the time.
+ */
 export async function freezeDocker(container) {
   await run(container, `mountpoint -q ${DOCKER_ROOT}`, `${DOCKER_ROOT} is not a mount of its own: boot the node with freezableDockerRoot`);
   await run(container, `fsfreeze -f ${DOCKER_ROOT}`, 'freezeDocker');
+  await run(container, `(docker volume create ${FREEZE_PROBE_VOLUME} && docker volume rm ${FREEZE_PROBE_VOLUME}) >/dev/null 2>&1 </dev/null &`, 'freezeDocker: the write held by the freeze');
 }
 
 /** Let the node's docker write again. A data root that is not frozen is left as it is. */
@@ -137,15 +146,21 @@ async function readThreads(container, comm) {
 /**
  * The threads of `comm` that did not run at all across `overMs`: in D at both
  * readings, with the same switch count. What FluxOS's detector reads as stuck,
- * read independently of it.
- * @returns {Promise<Array<{tid: string, wchan: string}>>}
+ * read independently of it. The array carries `readings`: every thread at both
+ * readings, one line each, for a caller's failure message.
+ * @returns {Promise<Array<{tid: string, wchan: string}> & {readings: string}>}
  */
 export async function stuckThreads(container, comm, { overMs = 3000 } = {}) {
   const first = await readThreads(container, comm);
   await new Promise((resolve) => { setTimeout(resolve, overMs); });
   const second = await readThreads(container, comm);
-  return [...second].filter(([tid, now]) => {
+  const stuck = [...second].filter(([tid, now]) => {
     const before = first.get(tid);
     return before && before.state === 'D' && now.state === 'D' && before.switches === now.switches;
   }).map(([tid, now]) => ({ tid, wchan: now.wchan }));
+  const show = (t) => (t ? `${t.state} ${t.switches} ${t.wchan}` : '-');
+  stuck.readings = [...new Set([...first.keys(), ...second.keys()])]
+    .map((tid) => `${comm} ${tid}: ${show(first.get(tid))} -> ${show(second.get(tid))}`)
+    .join('\n');
+  return stuck;
 }

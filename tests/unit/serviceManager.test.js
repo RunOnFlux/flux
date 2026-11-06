@@ -5,11 +5,18 @@ const sinon = require('sinon');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
-const { prepareDatabaseSchema, dosState } = require('../../ZelBack/src/services/serviceManager');
+const { prepareDatabaseSchema, dosState, startRouterAddressUpkeep } = require('../../ZelBack/src/services/serviceManager');
 const { untilSucceeds } = require('../../ZelBack/src/services/utils/untilSucceeds');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const appTamperingDetectionService = require('../../ZelBack/src/services/appTamperingDetectionService');
+const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
+const explorerService = require('../../ZelBack/src/services/explorerService');
+const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
+const upnpService = require('../../ZelBack/src/services/upnpService');
+const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 
 describe('untilSucceeds', () => {
   afterEach(() => sinon.restore());
@@ -39,6 +46,25 @@ describe('serviceManager prepareDatabaseSchema', () => {
     await expect(prepareDatabaseSchema()).to.be.rejectedWith('connection timed out');
     expect(unset.firstCall.args[0].client, 'the schema runs on the maintenance client').to.equal('maintenance');
   });
+
+  it('writes the UPnP mappings the node recorded before its database was connected, as it prepares the local database', async () => {
+    const collection = {};
+    sinon.stub(dbHelper, 'maintenanceConnection').returns({ db: () => ({ collection: () => collection }) });
+    sinon.stub(dbHelper, 'updateInDatabase').resolves();
+    sinon.stub(dbHelper, 'dropCollection').resolves();
+    sinon.stub(dbHelper, 'ensureIndexes').resolves();
+    sinon.stub(appTamperingDetectionService, 'prepareIncidentRollup').resolves();
+    sinon.stub(appTamperingDetectionService, 'checkNodeReboot').resolves();
+    sinon.stub(appsRuntimeState, 'prepareCollection').resolves();
+    sinon.stub(appPlacements, 'prepareCollection').resolves();
+    const written = sinon.stub(upnpMappingRecord, 'writeWaiting').resolves();
+    // the step after the record's, to end the preparation there
+    sinon.stub(explorerService, 'prepareCollections').rejects(new Error('stop here'));
+
+    await expect(prepareDatabaseSchema()).to.be.rejectedWith('stop here');
+
+    sinon.assert.calledOnce(written);
+  });
 });
 
 describe('serviceManager apps availability DOS state', () => {
@@ -57,5 +83,46 @@ describe('serviceManager apps availability DOS state', () => {
     fluxNetworkHelper.setDosMessage('Flux IP detection failed');
 
     chai.expect(dosState.dosMessage).to.equal('Flux IP detection failed');
+  });
+});
+
+describe('serviceManager router address upkeep', () => {
+  let saved;
+  let clock;
+
+  beforeEach(() => {
+    saved = globalThis.userconfig;
+    globalThis.userconfig = { initial: { ...saved.initial, routerIP: '192.168.1.1' } };
+    clock = sinon.useFakeTimers();
+    sinon.stub(upnpService, 'adjustFirewallForUPNP').resolves();
+    sinon.stub(portManager, 'callOtherNodeToKeepUpnpPortsOpen').resolves();
+  });
+
+  afterEach(() => {
+    clock.restore();
+    sinon.restore();
+    globalThis.userconfig = saved;
+  });
+
+  it('runs nothing on a node that does not map through UPnP, whatever its router address', () => {
+    sinon.stub(upnpService, 'isUPNP').returns(false);
+
+    expect(startRouterAddressUpkeep()).to.equal(false);
+    clock.tick(2 * 60 * 60 * 1000);
+
+    sinon.assert.notCalled(upnpService.adjustFirewallForUPNP);
+    sinon.assert.notCalled(portManager.callOtherNodeToKeepUpnpPortsOpen);
+  });
+
+  it('keeps a UPnP node with a router address open: its firewall rules hourly, peers asked every 8 minutes', () => {
+    sinon.stub(upnpService, 'isUPNP').returns(true);
+
+    expect(startRouterAddressUpkeep()).to.equal(true);
+    clock.tick(60 * 1000);
+    sinon.assert.calledOnce(portManager.callOtherNodeToKeepUpnpPortsOpen);
+    clock.tick(8 * 60 * 1000);
+    sinon.assert.calledTwice(portManager.callOtherNodeToKeepUpnpPortsOpen);
+    clock.tick(60 * 60 * 1000);
+    sinon.assert.calledOnce(upnpService.adjustFirewallForUPNP);
   });
 });

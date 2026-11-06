@@ -17,6 +17,7 @@ const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
+const daemonServiceNetworkRpcs = require('./daemonService/daemonServiceNetworkRpcs');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
@@ -25,6 +26,7 @@ const { RemovalOutcome } = require('./utils/removalOutcome');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
+const configManager = require('./utils/configManager');
 const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
 const ufw = require('./utils/ufw');
 const ufwHelper = require('./utils/ufwHelper');
@@ -101,6 +103,8 @@ const StickyDosOwner = Object.freeze({
   MONGODB_FLOOR: 'mongodbFloor',
   CGROUP_FLOOR: 'cgroupFloor',
   HOST_STALL: 'hostStall',
+  IP_CHANGES: 'ipChanges',
+  UPNP_ROUTER: 'upnpRouter',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -144,8 +148,6 @@ const PlacementHoldOwner = Object.freeze({
 const placementHolds = new Map();
 
 let storedFluxBenchAllowed = null;
-// When this node last changed its IP over the limit (monotonic ms), or null.
-let tooManyIpChangesAt = null;
 let maxNumberOfIpChanges = 0;
 const { lruRateLimit } = require('./utils/rateLimit');
 const { AsyncGate } = require('./utils/asyncGate');
@@ -173,6 +175,10 @@ let lastKnownSocketAddress = null;
 // from lastKnownSocketAddress, and 'known' with it when the node has an address
 // after having none.
 const localSocketAddressEvents = new EventEmitter();
+// Emits 'held', with the IP changes the window holds, when this process finds
+// the node held by the IP change hold: the pass that starts it, or the first
+// after a restart that finds it standing.
+const ipChangeHoldEvents = new EventEmitter();
 // Open while localSocketAddress holds an address.
 const localSocketAddressGate = new AsyncGate();
 
@@ -530,12 +536,37 @@ async function forEachLimited(items, limit, task) {
 }
 
 /**
- * To perform a basic check of current FluxOS version.
+ * What a node finds at an address it is asked about. NOT_LISTED is no finding at
+ * all: the address is not on this node's deterministic list, so it was never
+ * probed - an address change this node has not yet seen confirmed reads so.
+ */
+const FluxAvailability = Object.freeze({
+  AVAILABLE: 'available',
+  UNAVAILABLE: 'unavailable',
+  NOT_LISTED: 'notListed',
+});
+
+/** `/flux/checkfluxavailability`'s answer for an address the asked node does not list. */
+const NOT_LISTED_MESSAGE = 'Asking Flux is not listed';
+
+/**
+ * Whether the answer to `/flux/checkfluxavailability` says the asked node does not
+ * list the address, rather than that it found nothing there.
+ * @param {object} answer The response body.
+ * @returns {boolean}
+ */
+function isNotListedAnswer(answer) {
+  return answer?.status === 'error' && answer?.data?.message === NOT_LISTED_MESSAGE;
+}
+
+/**
+ * Whether a Flux node answers at `ip:port`: listed on the deterministic list, its
+ * API on the minimum FluxOS version, its UI and its syncthing port up.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
- * @returns {Promise<boolean>} False unless FluxOS version meets or exceeds the minimum allowed version.
+ * @returns {Promise<string>} One of FluxAvailability.
  */
-async function isFluxAvailable(ip, port = config.server.apiport) {
+async function fluxAvailability(ip, port = config.server.apiport) {
   const axiosConfig = {
     timeout: 5000,
   };
@@ -551,14 +582,14 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const socketAddress = normalizeSocketAddress(`${ip}:${port}`);
     const isConfirmedNode = await fluxCommunicationUtils.socketAddressInFluxList(socketAddress);
     if (!isConfirmedNode) {
-      return false;
+      return FluxAvailability.NOT_LISTED;
     }
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
-    if (fluxResponse.data.status !== 'success') return false;
+    if (fluxResponse.data.status !== 'success') return FluxAvailability.UNAVAILABLE;
 
     const fluxVersion = fluxResponse.data.data;
     const versionMinOK = serviceHelper.semverAtLeast(fluxVersion, config.minimumFluxOSAllowedVersion);
-    if (!versionMinOK) return false;
+    if (!versionMinOK) return FluxAvailability.UNAVAILABLE;
 
     const homePort = +port - 1;
     // There is a new /health endpoint on the frontend express server. Since we have a catch-all route,
@@ -567,15 +598,25 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const fluxResponseUi = await serviceHelper.axiosGet(`http://${ip}:${homePort}/health`, axiosConfig);
     const { data: UiPayload = '' } = fluxResponseUi;
     const uiAvailable = UiPayload === 'OK' || UiPayload.includes('<title>');
-    if (!uiAvailable) return false;
+    if (!uiAvailable) return FluxAvailability.UNAVAILABLE;
 
     const syncthingPort = +port + 2;
     const portOpen = await isPortOpen(ip, syncthingPort);
-    return portOpen;
+    return portOpen ? FluxAvailability.AVAILABLE : FluxAvailability.UNAVAILABLE;
   } catch (e) {
     log.error(e);
-    return false;
+    return FluxAvailability.UNAVAILABLE;
   }
+}
+
+/**
+ * To perform a basic check of current FluxOS version.
+ * @param {string} ip IP address.
+ * @param {string} port Port. Defaults to config.server.apiport.
+ * @returns {Promise<boolean>} True when a Flux node answers there (fluxAvailability).
+ */
+async function isFluxAvailable(ip, port = config.server.apiport) {
+  return (await fluxAvailability(ip, port)) === FluxAvailability.AVAILABLE;
 }
 
 /**
@@ -594,12 +635,14 @@ async function checkFluxAvailability(req, res) {
     return res.json(errMessage);
   }
 
-  const available = await isFluxAvailable(ip, port);
+  const availability = await fluxAvailability(ip, port);
 
   let message;
 
-  if (available === true) {
+  if (availability === FluxAvailability.AVAILABLE) {
     message = messageHelper.createSuccessMessage('Asking Flux is available');
+  } else if (availability === FluxAvailability.NOT_LISTED) {
+    message = messageHelper.createErrorMessage(NOT_LISTED_MESSAGE);
   } else {
     message = messageHelper.createErrorMessage('Asking Flux is not available');
   }
@@ -1052,6 +1095,24 @@ function offLocalSocketAddressChange(listener) {
 }
 
 /**
+ * @param {function(number): void} listener Called, with the IP changes the
+ *   window holds, each time this process finds the node held by the IP change
+ *   hold. Removing the apps of a held node is the listener's.
+ * @returns {void}
+ */
+function onIpChangeHold(listener) {
+  ipChangeHoldEvents.on('held', listener);
+}
+
+/**
+ * @param {function(number): void} listener
+ * @returns {void}
+ */
+function offIpChangeHold(listener) {
+  ipChangeHoldEvents.off('held', listener);
+}
+
+/**
  * @param {function(string): void} listener Called with the address each time the
  *   node has one after having none.
  * @returns {void}
@@ -1258,17 +1319,93 @@ function isPlacementHeld() {
   return placementHolds.size > 0;
 }
 
+// The last thing said about where the node's address comes from. The source is
+// read on every lookup, every 30 s and more; it is logged only when it changes.
+let publicAddressNote = null;
+
+function notePublicAddress(note) {
+  if (note === publicAddressNote) return;
+  publicAddressNote = note;
+  log.debug(note);
+}
+
 /**
- * Get this node's socket address (ip:port).
+ * Forgets what was last logged about the address source, so the next lookup
+ * logs its own.
+ * @returns {void}
+ */
+function resetPublicAddressNote() {
+  publicAddressNote = null;
+}
+
+/**
+ * The public IPv4 address fluxd has decided this node has: the one its peers
+ * report seeing it at (`decided_address.address` in getnetworkinfo). A port, if
+ * fluxd gives one, is not FluxOS's and is dropped. Logs one line when the answer
+ * changes: fluxd not answering, fluxd with no decided address, a fluxd that does
+ * not decide addresses, an address that is not IPv4, or the address fluxd now
+ * reports.
+ * @returns {Promise<string|null>} The address, or null when fluxd gives none.
+ */
+async function getDecidedAddress() {
+  const response = await daemonServiceNetworkRpcs.getNetworkInfo();
+  if (response?.status !== 'success') {
+    notePublicAddress('Public address: fluxd did not answer getnetworkinfo');
+    return null;
+  }
+  const decided = response.data?.decided_address;
+  if (!decided) {
+    notePublicAddress('Public address: fluxd does not decide addresses');
+    return null;
+  }
+  const reported = decided.address || '';
+  if (!reported) {
+    notePublicAddress('Public address: fluxd has not decided an address yet');
+    return null;
+  }
+  const address = extractIp(reported);
+  if (!net.isIPv4(address || '')) {
+    notePublicAddress(`Public address: fluxd's decided address ${reported} is not an IPv4 address`);
+    return null;
+  }
+  notePublicAddress(`Public address: fluxd now reports ${address}`);
+  return address;
+}
+
+// JSON-RPC "Method not found".
+const RPC_METHOD_NOT_FOUND = -32601;
+
+/**
+ * This node's public IP address: fluxd's decided address, otherwise FluxBench's
+ * public-IP probe. FluxBench 6.5.0 and later have no probe and are packaged only
+ * with a fluxd that decides addresses, so a FluxBench without one means the
+ * address is fluxd's alone to give, and its absence is "not yet".
+ * @returns {Promise<object>} `{status: 'success', data: ip}`; a warning message
+ *   while fluxd has no address and FluxBench has no probe, which is "not yet",
+ *   never a failure; or otherwise FluxBench's own response.
+ */
+async function getPublicIp() {
+  const address = await getDecidedAddress();
+  if (address) return messageHelper.createDataMessage(address);
+  const probed = await benchmarkService.getPublicIp();
+  if (probed?.status === 'error' && probed.data?.code === RPC_METHOD_NOT_FOUND) {
+    return messageHelper.createWarningMessage('fluxd has no address for this node yet');
+  }
+  return probed;
+}
+
+/**
+ * Get this node's socket address (ip:port): fluxd's decided address at FluxOS's
+ * API port when fluxd has one, otherwise the address in FluxBench's benchmarks.
  * @returns {Promise<string|null>} Normalized socket address (always ip:port) or null.
  */
 async function getLocalSocketAddress(options = {}) {
   // A CALLER THAT IS PROBING, NOT IDENTIFYING, ASKS FOR `fresh`. The cache answers
   // "what is this node's address", and for the callers below that is all the
   // question is. It is not all of it for a caller reading the ANSWER'S ABSENCE as a
-  // fact about the benchmark daemon: served from memory, a null that meant "the
-  // daemon did not answer" becomes the last address it ever gave, and the caller
-  // reads a dead daemon as a live one for as long as the window lasts.
+  // fact about the node now: served from memory, a null that meant "no address
+  // right now" (fluxd has decided none and FluxBench's benchmarks carry none)
+  // becomes the last address the node had, for as long as the window lasts.
   const { fresh = false } = options;
 
   // Serve the cached own-IP without a benchmark RPC while it is still fresh. A batch
@@ -1279,6 +1416,11 @@ async function getLocalSocketAddress(options = {}) {
   // DIRECTLY, not through this function, so a <=TTL reflect-lag here after a (rate-limited)
   // IP change is harmless — the next benchmark resolve updates the value and the deadline.
   if (!fresh && localSocketAddress && process.hrtime.bigint() < localSocketAddressFreshUntil) {
+    return localSocketAddress;
+  }
+  const decided = await getDecidedAddress();
+  if (decided) {
+    setLocalSocketAddress(`${decided}:${userconfig.initial.apiport || config.server.apiport}`);
     return localSocketAddress;
   }
   const benchmarkResponse = await benchmarkService.getBenchmarks();
@@ -1825,40 +1967,44 @@ function isCommunicationEstablished(req, res) {
   return res ? res.json(message) : message;
 }
 
-// How far back the limit on IP changes counts, and how many changes it allows
-// in that time.
-const IP_CHANGE_WINDOW_MS = 20 * 60 * 60 * 1000;
+// How far back the limit on IP changes counts, in blocks, and how many changes
+// it allows in that time. Counted in blocks, the window is the chain's: neither
+// a restart nor the node's clock moves it. 2400 blocks is 20 hours of 30 s
+// blocks.
+const IP_CHANGE_WINDOW_BLOCKS = 2400;
 const IP_CHANGES_ALLOWED = 1;
 
+// A chain fact since the PON fork.
+const BLOCK_MS = 30 * 1000;
+
 /**
- * Applies the limit on IP changes to the changes this node made within
- * IP_CHANGE_WINDOW_MS, as its own address record holds them: over it, every
- * installed app is removed and the node is out of service for
- * IP_CHANGES_HOLD_MS.
- * @param {number[]} recentIpChanges When each change was made (ms).
- * @returns {Promise<boolean>} Whether the changes are over the limit.
+ * The chain's height now, from this node's daemon: while the daemon is synced to
+ * the chain's tip, the height it last reported and a block for every BLOCK_MS
+ * since it reported it; 0 - unknown - otherwise. The daemon is still taken as
+ * synced for a while after its last answer, and the chain moves on meanwhile. A
+ * daemon behind the tip, catching up or re-syncing, reports a height below the
+ * heights this node's IP changes were recorded at, and would read every one of
+ * them as recent.
+ * @returns {number}
  */
-async function applyIpChangeLimit(recentIpChanges) {
-  maxNumberOfIpChanges = recentIpChanges.length;
-  if (recentIpChanges.length <= IP_CHANGES_ALLOWED) return false;
-  // eslint-disable-next-line global-require
-  const appQueryService = require('./appQuery/appQueryService');
-  // eslint-disable-next-line global-require
-  const appUninstaller = require('./appLifecycle/appUninstaller');
-  let apps = await appQueryService.installedApps();
-  if (apps.status === 'success' && apps.data.length > 0) {
-    apps = apps.data;
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-      log.warn(`REMOVAL REASON: Too many IP changes - ${app.name} being removed due to ${recentIpChanges.length} IP changes in ${IP_CHANGE_WINDOW_MS}ms (DoS protection)`);
-      // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
-    }
-  }
-  tooManyIpChangesAt = monotonicMs();
-  return true;
+function chainHeight() {
+  const { synced, height } = daemonServiceMiscRpcs.isDaemonSynced().data;
+  if (!synced || !(height > 0)) return 0;
+  const reportedAt = daemonServiceMiscRpcs.getLastSuccessfulRpcCall();
+  if (!reportedAt) return height;
+  return height + Math.max(0, Math.floor((Date.now() - reportedAt) / BLOCK_MS));
+}
+
+/**
+ * The IP changes of `ipChangeHeights` inside the window at `height`, each the
+ * height it was made at. A change recorded as null was made while this node
+ * knew no chain height and is taken as made at `height`.
+ * @param {Array<number|null>} ipChangeHeights
+ * @param {number} height The chain's height.
+ * @returns {number[]}
+ */
+function ipChangesInWindow(ipChangeHeights, height) {
+  return ipChangeHeights.map((at) => at ?? height).filter((at) => height - at < IP_CHANGE_WINDOW_BLOCKS);
 }
 
 function getMaxNumberOfIpChanges() {
@@ -1903,22 +2049,8 @@ async function adjustExternalIp(previous, current, { announceMove = true } = {})
  * @returns {Promise<void>}
  */
 async function writeConfiguredIp(ip) {
-  const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
   log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
-  const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${ip}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-    kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
-    development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-    routerIP: '${userconfig.initial.routerIP || ''}',
-    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-  }
-}`;
-  await fs.writeFile(fluxDirPath, dataToWrite);
+  await configManager.writeInitial({ ipaddress: ip });
 }
 
 /**
@@ -2018,8 +2150,10 @@ function ownAddressCollection() {
  * `socketAddress` is the address it adopted. When a move took it there,
  * `movedFrom` is where it moved from and `movedAt` when (ms), `ipChanged`
  * whether the IP changed or only the port, and `announce` whether the move is
- * told to the network. `recentIpChanges` holds when each IP change of the last
- * IP_CHANGE_WINDOW_MS was made. The rest records which of the move's steps that
+ * told to the network. `ipChangeHeights` holds the block height of each IP
+ * change inside IP_CHANGE_WINDOW_BLOCKS, null for one made before this node knew
+ * a height, and `ipChangeHold` the hold a change over the limit started:
+ * `{ fromHeight }`, null when none stands. The rest records which of the move's steps that
  * cannot be read back from the node itself are done, each by the `movedAt` of
  * the move it was done for: `appsHandledAt`, `announcedAt`, `geolocatedAt`,
  * `confirmationAcceptedAt`, and `settledAt` once the move is wholly in place.
@@ -2072,7 +2206,7 @@ async function writeOwnAddressRecord(socketAddress) {
   noteOwnAddress(socketAddress, null);
   await ownAddressCollection().updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
-    { $set: { socketAddress, movedFrom: null, movedAt: null, recordedAt: new Date() } },
+    { $set: { socketAddress, movedFrom: null, movedAt: null, recordedAt: new Date() }, $unset: { recentIpChanges: '' } },
     { upsert: true },
   );
 }
@@ -2094,8 +2228,12 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
   if (record?.movedFrom && socketAddressesMatch(record.socketAddress, currentSocket)) return;
   const movedAt = Date.now();
   const ipChanged = !ipsMatch(previousSocket, currentSocket);
-  const recentIpChanges = (record?.recentIpChanges ?? []).filter((at) => movedAt - at < IP_CHANGE_WINDOW_MS);
-  if (ipChanged) recentIpChanges.push(movedAt);
+  // A change made while no chain height is known is recorded without one, and
+  // nothing is pruned: the window is judged once the height is known.
+  const height = chainHeight();
+  const recorded = record?.ipChangeHeights ?? [];
+  const ipChangeHeights = height ? ipChangesInWindow(recorded, height) : [...recorded];
+  if (ipChanged) ipChangeHeights.push(height || null);
   noteOwnAddress(currentSocket, previousSocket);
   await ownAddressCollection().updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
@@ -2106,7 +2244,7 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
         movedAt,
         ipChanged,
         announce,
-        recentIpChanges,
+        ipChangeHeights,
         appsHandledAt: null,
         announcedAt: null,
         geolocatedAt: null,
@@ -2114,18 +2252,12 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
         settledAt: null,
         recordedAt: new Date(),
       },
+      // what the record held of IP changes before they were counted in blocks
+      $unset: { recentIpChanges: '' },
     },
     { upsert: true },
   );
-  if (!ipChanged) return;
-  const overLimit = await applyIpChangeLimit(recentIpChanges);
-  const measuredUptime = fluxUptime();
-  if (overLimit && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
-    log.info('IP changes over the limit allowed, one in 20 hours');
-    dosState += 11;
-    setDosMessage(IP_CHANGES_MESSAGE);
-    log.error(dosMessage);
-  }
+  if (ipChanged) await enforceIpChangeHold();
 }
 
 /**
@@ -2297,7 +2429,8 @@ async function peersFindAt(socketAddress) {
       log.info(`${peer} reaches a Flux node at ${socketAddress}`);
       return PeerFinding.REACHED;
     }
-    if (status === 'error') foundNothing += 1;
+    // A peer that does not list the address has not looked there.
+    if (status === 'error' && !isNotListedAnswer(answer.data)) foundNothing += 1;
   }
   if (foundNothing >= PEERS_FINDING_NOTHING) return PeerFinding.NOTHING;
   log.info(`too few peers answered whether a Flux node is at ${socketAddress} to say`);
@@ -2419,9 +2552,6 @@ const IP_DETECTION_FAILED_MESSAGE = 'Flux IP detection failed';
 const IP_CHANGES_MESSAGE = 'IP changes over the limit allowed, one in 20 hours';
 const FLUXBENCH_VERSION_MESSAGE_PREFIX = 'Fluxbench Version Error.';
 const COLLISION_MESSAGE_PREFIXES = ['Flux collision detection.', 'Flux earlier collision detection'];
-// How long a node that changed its IP over the limit stays out of service.
-const IP_CHANGES_HOLD_MS = 20 * 60 * 60 * 1000;
-
 function monotonicMs() {
   return Number(process.hrtime.bigint() / 1000000n);
 }
@@ -2521,18 +2651,143 @@ function onPeerConnected() {
   releaseShortfall();
 }
 
+// The IP change hold this node's own address record holds, `{ fromHeight }`,
+// as last read or written: null when none stands.
+let ipChangeHold = null;
+
+/**
+ * Holds this node out of service, a sticky DOS of its own owner, while its IP
+ * change hold stands: until the chain is IP_CHANGE_WINDOW_BLOCKS past the height
+ * it started at, and while no height is known, or none was when it started.
+ * Releases that owner's DOS otherwise.
+ * @returns {boolean} Whether the node is held.
+ */
+function applyIpChangeHold() {
+  const height = chainHeight();
+  const fromHeight = ipChangeHold?.fromHeight ?? null;
+  if (ipChangeHold && (!height || fromHeight === null || height - fromHeight < IP_CHANGE_WINDOW_BLOCKS)) {
+    setStickyDos(StickyDosOwner.IP_CHANGES, IP_CHANGES_MESSAGE);
+    return true;
+  }
+  clearStickyDos(StickyDosOwner.IP_CHANGES);
+  return false;
+}
+
+/**
+ * One pass of enforceIpChangeHold. At a chain height, it judges the IP changes
+ * the record holds inside the window: over the limit with no hold standing, it
+ * starts one at the height of the newest change; over the limit with one
+ * standing, a change after the hold's start moves the start to it, so a node
+ * that keeps changing stays held. A node this process finds newly held is told
+ * to the onIpChangeHold listeners. Passes run one at a time and a started hold
+ * is in the record before the next pass reads it, so it is told once.
+ * @returns {Promise<boolean>} Whether the node is held.
+ */
+async function enforceIpChangeHoldOnce() {
+  const record = await ownAddressRecord();
+  const height = chainHeight();
+  let hold = record?.ipChangeHold ?? null;
+  if (record && height) {
+    const records = ownAddressCollection();
+    const recorded = record.ipChangeHeights ?? [];
+    const inWindow = ipChangesInWindow(recorded, height);
+    if (recorded.includes(null)) {
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHeights: recorded },
+        { $set: { ipChangeHeights: inWindow } },
+      );
+    }
+    maxNumberOfIpChanges = inWindow.length;
+    if (!hold && inWindow.length > IP_CHANGES_ALLOWED) {
+      hold = { fromHeight: Math.max(...inWindow) };
+      await records.updateOne({ _id: OWN_ADDRESS_RECORD_ID }, { $set: { ipChangeHold: hold } });
+      log.error(IP_CHANGES_MESSAGE);
+    } else if (hold && hold.fromHeight === null) {
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: null } },
+        { $set: { ipChangeHold: { fromHeight: height } } },
+      );
+      hold = { fromHeight: height };
+    } else if (hold && inWindow.length > IP_CHANGES_ALLOWED && Math.max(...inWindow) > hold.fromHeight) {
+      const extended = { fromHeight: Math.max(...inWindow) };
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },
+        { $set: { ipChangeHold: extended } },
+      );
+      hold = extended;
+    } else if (hold && height - hold.fromHeight >= IP_CHANGE_WINDOW_BLOCKS) {
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },
+        { $set: { ipChangeHold: null } },
+      );
+      hold = null;
+    }
+  }
+  const wasHeld = isStickyDosHeldBy(StickyDosOwner.IP_CHANGES);
+  ipChangeHold = hold;
+  const held = applyIpChangeHold();
+  if (held && !wasHeld) ipChangeHoldEvents.emit('held', maxNumberOfIpChanges);
+  return held;
+}
+
+// The pass of enforceIpChangeHold running, and the one asked for while it runs.
+let ipChangeHoldEnforcing = null;
+let ipChangeHoldEnforceNext = null;
+
+/**
+ * Brings the IP change hold to what this node's own address record holds at
+ * the daemon's height, and holds the node by it: the one place the hold this
+ * node acts on is set or ended. The record is kept to that height: a hold, or a
+ * change, recorded before this node knew a height is given the first height it
+ * knows, and a hold the chain has passed is ended.
+ *
+ * One pass runs at a time. A call while one runs is answered by a pass that
+ * starts after it ends, so the record a writer has just written is read by a
+ * pass that began after the write.
+ * @returns {Promise<boolean>} Whether the node is held.
+ */
+function enforceIpChangeHold() {
+  if (!ipChangeHoldEnforcing) {
+    ipChangeHoldEnforcing = enforceIpChangeHoldOnce().finally(() => { ipChangeHoldEnforcing = null; });
+    return ipChangeHoldEnforcing;
+  }
+  if (!ipChangeHoldEnforceNext) {
+    ipChangeHoldEnforceNext = ipChangeHoldEnforcing.catch(() => {}).then(() => {
+      ipChangeHoldEnforceNext = null;
+      return enforceIpChangeHold();
+    });
+  }
+  return ipChangeHoldEnforceNext;
+}
+
+// Stops the IP change hold's watch of the daemon's height, while it watches.
+let stopIpChangeHoldWatch = null;
+
+/**
+ * Enforces the IP change hold this node's own address record holds, now and at
+ * each height the daemon reports from here on. Watches once however often it
+ * is called.
+ * @returns {function(): void} Stops the watch.
+ */
+function startIpChangeHoldWatch() {
+  if (!stopIpChangeHoldWatch) {
+    const enforce = () => enforceIpChangeHold().catch((error) => log.error(`IP change hold - ${error.message}`));
+    stopIpChangeHoldWatch = daemonServiceMiscRpcs.onDaemonHeight(enforce);
+    enforce();
+  }
+  return () => {
+    if (stopIpChangeHoldWatch) stopIpChangeHoldWatch();
+    stopIpChangeHoldWatch = null;
+  };
+}
+
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
  * @returns {Promise<boolean>} Return value is only for testing
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
-  if (tooManyIpChangesAt !== null && monotonicMs() - tooManyIpChangesAt < IP_CHANGES_HOLD_MS) {
-    dosState += 11;
-    setDosMessage(IP_CHANGES_MESSAGE);
-    return false;
-  }
-  releaseDosOwnedBy((message) => message === IP_CHANGES_MESSAGE);
+  if (isStickyDosHeldBy(StickyDosOwner.IP_CHANGES)) return false;
 
   if (localSocketAddress === null) return false;
 
@@ -2580,6 +2835,15 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     },
   );
 
+  // The observer does not list this address yet - typically a move it has not seen
+  // confirmed - so it has not looked: nothing is concluded from it, dosState is
+  // untouched, and the next observer is asked.
+  if (resMyAvailability && isNotListedAnswer(resMyAvailability.data)) {
+    log.info(`checkMyFluxAvailability - ${remoteIp}:${remotePort} does not list ${localSocketAddress} yet; asking another`);
+    if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1);
+    return false;
+  }
+
   // Known limitation, replaced in v9: a failed check retries at once against another
   // random node, up to seven times, and each failure adds 2 to dosState, so one bad
   // moment on the network can put the node in DOS within seconds. The re-check a
@@ -2601,10 +2865,12 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     log.error(`My Flux unavailability detected from: ${remoteIp}:${remotePort}`);
     // Asked Flux cannot reach me lets check if ip changed
     if (retryNumber === 4 || effectiveDosState() > 10) {
-      log.info('Getting publicIp from FluxBench');
-      const benchIpResponse = await benchmarkService.getPublicIp();
-      if (benchIpResponse.status === 'success') {
-        log.info(`FluxBench reported public IP: ${benchIpResponse.data}`);
+      log.info('Getting publicIp from fluxd or FluxBench');
+      const benchIpResponse = await getPublicIp();
+      if (benchIpResponse.status === 'warning') {
+        log.info(`No public IP to compare: ${benchIpResponse.data.message}`);
+      } else if (benchIpResponse.status === 'success') {
+        log.info(`Public IP reported: ${benchIpResponse.data}`);
         const benchMyIp = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
         if (benchMyIp && extractIp(benchMyIp) !== localIp) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
@@ -2615,7 +2881,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           await getLocalSocketAddress({ fresh: true });
           return true;
         } if (benchMyIp && extractIp(benchMyIp) === localIp) {
-          log.info('FluxBench reported the same Ip that was already in use');
+          log.info('Public IP reported is the one already in use');
         } else {
           log.info('FluxBench reported a invalid IP');
           holdAvailabilityDos(BENCH_PUBLIC_IP_MESSAGE, { replace: true });
@@ -2704,6 +2970,14 @@ async function checkDeterministicNodesCollisions() {
         const myCollateral = nodeStatus.data.collateral;
         const myNode = result.find((node) => node.collateral === myCollateral);
         const nodeCollateralDifferentIp = nodeList.find((node) => node.collateral === myCollateral && !socketAddressesMatch(node.ip, localSocketAddr));
+        // A listing elsewhere is judged against this node's address as benchmark
+        // reports it now, not as cached: the list can name a new address of this
+        // node before the cache does. One that has moved on judges nothing here -
+        // the change runs this check again, and the move, from the new address.
+        if (nodeCollateralDifferentIp) {
+          const current = await getLocalSocketAddress({ fresh: true });
+          if (!current || !socketAddressesMatch(current, localSocketAddr)) return;
+        }
         if (result.length > 1) {
           log.warn('Multiple Flux Node instances detected');
           if (myNode) {
@@ -2941,9 +3215,9 @@ async function askForPublicIp() {
 }
 
 async function askOnceForPublicIp() {
-  const benchIpResponse = await benchmarkService.getPublicIp();
+  const benchIpResponse = await getPublicIp();
   if (benchIpResponse?.status === 'success') {
-    log.info(`FluxBench was previously without ip and now reported public IP: ${benchIpResponse.data}`);
+    log.info(`Public IP reported while this node had none: ${benchIpResponse.data}`);
     if (benchIpResponse.data.length > 5) daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
   }
   const address = await getLocalSocketAddress({ fresh: true });
@@ -3038,12 +3312,12 @@ function stopOwnStandingWatch() {
   peerShortfallSeenAt = null;
 }
 
-function setSyncthingListenerKnown(value) {
-  syncthingListenerKnown = value;
+function setIpChangeHold(value) {
+  ipChangeHold = value;
 }
 
-function setDosTooManyIpChanges(value) {
-  tooManyIpChangesAt = value ? monotonicMs() : null;
+function setSyncthingListenerKnown(value) {
+  syncthingListenerKnown = value;
 }
 
 /**
@@ -3758,12 +4032,20 @@ function getNumberOfPeers() {
 
 module.exports = {
   isFluxAvailable,
+  fluxAvailability,
+  FluxAvailability,
+  NOT_LISTED_MESSAGE,
   checkFluxAvailability,
+  getDecidedAddress,
+  getPublicIp,
+  resetPublicAddressNote,
   getLocalSocketAddress,
   getKnownLocalSocketAddress,
   waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
+  onIpChangeHold,
+  offIpChangeHold,
   onLocalSocketAddressKnown,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
@@ -3806,8 +4088,10 @@ module.exports = {
   leaveConfiguredAddress,
   ownAddressRecord,
   startOwnAddressWatch,
+  startIpChangeHoldWatch,
   setSyncthingListenerKnown,
-  setDosTooManyIpChanges,
+  enforceIpChangeHold,
+  setIpChangeHold,
   setOnAddressChanged,
   setOnOwnAddressMoved,
   setInstalledAppsListedAt,

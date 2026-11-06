@@ -51,6 +51,9 @@ const Checkpoint = Object.freeze({
   // checked that no controller opinion was written since it read the verdict.
   // Keyed by the component identifier.
   RECONCILER_BEFORE_START: 'reconciler:beforeStart',
+  // A reconcile pass has stopped a component whose local appdata is to be
+  // cleared and has not yet cleared it. Keyed by the component identifier.
+  RECONCILER_BEFORE_DATA_CLEAR: 'reconciler:beforeDataClear',
   // An election pass is about to decide a g: component it does not skip. Keyed
   // by the component identifier.
   MASTERSLAVE_BEFORE_DECISION: 'masterSlave:beforeDecision',
@@ -59,6 +62,22 @@ const Checkpoint = Object.freeze({
   // A state sync has every answer it needs and the node has not yet become
   // authoritative from them, so it still refuses to answer a peer's sync.
   APPSYNC_BEFORE_AUTHORITATIVE: 'appSync:beforeAuthoritative',
+  // The explorer is about to process a block, and has not fetched it yet.
+  EXPLORER_BEFORE_BLOCK: 'explorer:beforeBlock',
+  // A give-up pass holds the pass lock and has not yet read anything.
+  GIVEUP_BEFORE_PASS: 'giveUp:beforePass',
+  // A give-up pass has decided to hand an app back and has not yet checked the
+  // chain height or started the removal. Keyed by the app name.
+  GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',
+  // A removal is committed, has told the network if it tells it, and has not yet
+  // torn anything down. Keyed by the app name.
+  REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',
+  // An install holds the node and has the app's record, and has not created any
+  // of its containers. Keyed by the app name.
+  INSTALL_BEFORE_CONTAINERS: 'install:beforeContainers',
+  // An install has its app's image verified and has not started pulling it.
+  // Keyed by the app name.
+  INSTALL_BEFORE_PULL: 'install:beforePull',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
@@ -106,6 +125,21 @@ const Checkpoint = Object.freeze({
   // Boot has read the location record of an app it held unconfirmed, and has not
   // yet released the app or acted on the answer. Keyed by app name.
   BOOT_BEFORE_LOCATION_DECISION: 'boot:beforeLocationDecision',
+  // A removal has taken an app's containers and volume down and has not yet
+  // deleted its row. Keyed by app name.
+  REMOVAL_BEFORE_ROW_DELETE: 'removal:beforeRowDelete',
+  // A port refresh has read the installed apps and not yet mapped this app's
+  // ports. Keyed by app name.
+  PORTS_REFRESH_BEFORE_APP: 'portsRefresh:beforeApp',
+  // An availability pass listens on its test port, found nothing of this node's
+  // on it, and has not yet asked the router to map it. Keyed by the port.
+  AVAILABILITY_BEFORE_TEST_MAPPING: 'availability:beforeTestMapping',
+  // A hard install has mapped a component's ports and has not yet pulled its
+  // image or created its container. Keyed by the app's name.
+  INSTALL_AFTER_PORTS: 'install:afterPorts',
+  // Boot has wanted every installed app's ports and has not yet mapped any of
+  // them. Keyed 'boot'.
+  BOOT_AFTER_PORTS_DECLARED: 'boot:afterPortsDeclared',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

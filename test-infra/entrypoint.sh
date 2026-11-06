@@ -36,13 +36,13 @@ if [ -n "$FLUX_E2E_DEFAULT_ROUTE" ]; then
 fi
 
 # App installs mount each app's FLUXFSVOL via `mount -o loop`. Loop devices are a
-# shared host-kernel resource (not namespaced); the kernel default pool (max_loop,
-# typically 8) is small and on-demand creation races under concurrent installs, so a
-# fleet installing at once (e.g. instances == nodeCount) exhausts it and installs
-# fail with "failed to setup loop device". Pre-create a generous pool so each
-# concurrent mount finds a free device. /dev is shared across the privileged nodes,
-# so this is idempotent fleet-wide (existing devices are skipped).
-for i in $(seq 0 63); do
+# shared host-kernel resource (not namespaced): the kernel hands out the lowest free
+# number box-wide, across every fleet running on it, and a node can open only the
+# device files its own /dev holds - the kernel's on-demand creation does not reach
+# it. A number past this pool fails the mount with "failed to setup loop device", so
+# the pool covers every volume the box's concurrent fleets mount at once, with room
+# over: 256. Existing devices are skipped, so this is idempotent.
+for i in $(seq 0 255); do
   [ -e "/dev/loop$i" ] || mknod -m660 "/dev/loop$i" b 7 "$i" 2>/dev/null || true
 done
 
@@ -51,6 +51,12 @@ mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/fluxbenchd \
          /dat/usr/lib/fluxwatchdog \
          /mnt/appdata/flux-apps
+
+# A node whose apps folder is reached through a symlink: FLUX_APPS_FOLDER names
+# the link, and this points it at the real folder.
+if [ -n "$FLUX_E2E_APPS_FOLDER_TARGET" ]; then
+  ln -sfn "$FLUX_E2E_APPS_FOLDER_TARGET" "$FLUX_APPS_FOLDER"
+fi
 
 # Mount a filesystem image through a device-mapper device of its own, so a suite
 # can freeze it (every write held) or suspend the device (every read and write
@@ -270,6 +276,27 @@ fi
 # service as it does on a node.
 rm -f /usr/sbin/policy-rc.d
 
+# A node whose unit passes the node key as a credential, as the node image's unit
+# does: FluxOS takes the key from the credential and reaches fluxd with the cookie
+# and port in fluxd's run files (flux-harness-fluxd.service), never reading
+# flux.conf. FLUX_E2E_NODE_KEY_FROM is the flux.conf fixture the key comes from,
+# FLUX_E2E_FLUXD_LOGIN the cookie, FLUX_E2E_FLUXD_RPCPORT the port fluxd publishes.
+# None of them reaches FluxOS's environment.
+if [ -n "$FLUX_E2E_FLUXD_LOGIN" ]; then
+  mkdir -p /etc/flux-harness/fluxd
+  sed -n 's/^zelnodeprivkey=//p' "$FLUX_E2E_NODE_KEY_FROM" > /etc/flux-harness/node-key
+  chmod 600 /etc/flux-harness/node-key
+  if [ ! -s /etc/flux-harness/node-key ]; then
+    echo "[entrypoint] FATAL: no zelnodeprivkey in $FLUX_E2E_NODE_KEY_FROM" >&2
+    exit 3
+  fi
+  printf '%s' "$FLUX_E2E_FLUXD_LOGIN" > /etc/flux-harness/fluxd/rpc.cookie
+  printf '{"address":"%s","pid":1,"rpcport":%s}\n' "$FLUX_NODE_IP" "$FLUX_E2E_FLUXD_RPCPORT" > /etc/flux-harness/fluxd/fluxd.json
+  mkdir -p /etc/systemd/system/fluxos.service.d
+  printf '[Service]\nLoadCredential=node-key:/etc/flux-harness/node-key\n' > /etc/systemd/system/fluxos.service.d/credential.conf
+  unset FLUX_E2E_FLUXD_LOGIN FLUX_E2E_NODE_KEY_FROM FLUX_E2E_FLUXD_RPCPORT
+fi
+
 # Container env does not cross into systemd services (the manager
 # environment arrives empty), so dump it for the
 # units' EnvironmentFile. node writes C-style-quoted values, which keeps
@@ -321,6 +348,9 @@ fi
 if [ -z "$FLUXOS_PATH" ] && [ "$FLUX_PM2" != "1" ]; then
   mkdir -p /etc/systemd/system/fluxos.service.d
   printf '[Service]\nKillMode=process\n' > /etc/systemd/system/fluxos.service.d/legacy.conf
+fi
+if [ -f /etc/flux-harness/node-key ]; then
+  ln -sf /etc/systemd/system/flux-harness-fluxd.service /etc/systemd/system/multi-user.target.wants/flux-harness-fluxd.service
 fi
 if [ -n "$FLUX_SYNCTHING_HOST" ]; then
   ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service

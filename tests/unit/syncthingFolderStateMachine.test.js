@@ -1602,10 +1602,11 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.restarted).to.not.equal(true);
     });
 
-    it('does not seed when a peer already holds the writable copy', async () => {
-      // Winning is not the same as winning first. The peer decided from a smaller
-      // view of the holder list and promoted; seeding here too would leave two
-      // first copies of the same folder.
+    it('names no seed while a peer already holds the writable copy', async () => {
+      // The peer decided from a smaller view of the holder list and seeded; seeding
+      // here too would leave two first copies of the same folder. With the copy
+      // already held there is nothing left to seed, so this node is not elected, and
+      // announces no intent to seed for its peers to stand aside for.
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
         numberOfExecutions: 1,
@@ -1622,6 +1623,8 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.not.equal(true);
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+      expect(globalStateMock.seedMarks.has('test-app'), 'a seed mark raised beside the writable copy').to.equal(false);
+      expect(result.cache.leaderStreak, 'elected to seed beside the writable copy').to.equal(0);
     });
 
     // Two holders can each be elected to seed - each decides from its own view of
@@ -1842,10 +1845,9 @@ describe('syncthingFolderStateMachine tests', () => {
       });
     });
 
-    // The election goes on naming the lowest address for as long as it wins the
-    // tiebreak, so a node that lost the seed to a peer would otherwise stay
-    // receiveonly for as long as that peer holds the copy - receiving the data and
-    // never eligible to take over.
+    // A node whose peer holds the writable copy is a standby like any other
+    // holder: kept receiveonly for as long as that peer holds the copy, it would
+    // receive the data and never be eligible to take over.
     it('goes on as a standby once a peer holds the writable copy, and turns writable when synced', async () => {
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,

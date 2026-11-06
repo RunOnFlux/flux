@@ -8,7 +8,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
-const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const { compareInstallingClaims, compareInstanceSeniority, describeRanking } = require('../utils/instanceOrdering');
 
@@ -134,6 +134,22 @@ async function spawnLoop() {
  * Try spawning a global application that needs more instances
  * This is the main function that continuously checks for applications that need more instances
  * and attempts to spawn them on this node if it meets the requirements
+ *
+ * An attempt runs its checks in this order, cheapest first, and stops at the first
+ * that refuses. The port test is the dearest - a mapping on the router for each
+ * port, read by a peer - and runs last, after everything that can still stand the
+ * attempt down:
+ *
+ *   1. image blocklist, committed resources, hardware, ports this node's apps hold
+ *   2. instance count, domain share, reachable syncthing peers, static-IP and
+ *      capacity deferrals, architecture, the image in its registry, instance count
+ *   3. a sibling behind this node's address holding a port - a signed request to
+ *      each Flux node that shares this public address
+ *   4. the installing claim, the collision wait and the checks that settle its race
+ *   5. the port test
+ *   6. the install, which keeps the port test's mappings
+ *
+ * A refusal after the claim withdraws it.
  * @returns {Promise<void>}
  */
 async function trySpawningGlobalApplication() {
@@ -156,6 +172,10 @@ async function trySpawningGlobalApplication() {
   }
   let { shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, 0);
   let appHash = null;
+  // The ports this attempt's port test kept mapped for the installation, and
+  // the holder they are kept for: released when the attempt ends, which leaves
+  // whatever the installation has mapped since.
+  let testedPorts = null;
   try {
     const synced = await generalService.checkSynced();
     if (synced !== true) {
@@ -208,12 +228,8 @@ async function trySpawningGlobalApplication() {
       log.info('FluxBench status Error. Global applications will not be installed');
       return installDelay;
     }
-    // get my external IP and check that it is longer than 5 in length.
-    let localSocketAddr = null;
-    if (benchmarkResponse.data.ipaddress) {
-      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
-      localSocketAddr = benchmarkResponse.data.ipaddress.length > 5 ? normalizeSocketAddress(benchmarkResponse.data.ipaddress) : null;
-    }
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (localSocketAddr) log.info(`Gathered IP ${localSocketAddr}`);
     if (localSocketAddr === null) {
       throw new Error('Unable to detect Flux IP address');
     }
@@ -353,9 +369,11 @@ async function trySpawningGlobalApplication() {
     // Set when the app comes back from a domain-share deferral: the better-placed
     // domains have had their turn and did not take it.
     let shareDeferralServed = false;
-    const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater } = globalState;
-    const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
-    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
+    const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater, departingApps } = globalState;
+    // An app this node is removing stays queued until its removal has finished.
+    const isDue = (app) => app.timeToCheck <= Date.now() && !departingApps.has(app.appName);
+    const appIndex = appsToBeCheckedLater.findIndex(isDue);
+    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex(isDue);
     let runningAppList = [];
     let installingAppList = [];
 
@@ -417,6 +435,14 @@ async function trySpawningGlobalApplication() {
       );
       survivors.afterBlocklist = globalAppNamesLocation.length;
       stages.push(['afterBlocklist', nameSet()]);
+
+      // An app this node is removing is not a candidate until the removal has
+      // finished: the installer refuses it until then, and the removal would take
+      // whatever was installed in its place. Dropped before the draw, so the pass
+      // goes to another candidate.
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !departingApps.has(app.name));
+      survivors.afterDeparting = globalAppNamesLocation.length;
+      stages.push(['afterDeparting', nameSet()]);
 
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
@@ -551,6 +577,14 @@ async function trySpawningGlobalApplication() {
       }
     }
 
+    // Kept through a successful install, and a later removal of the app does not
+    // clear it: for the rest of its twelve hours this node does not take the app
+    // again, and other nodes do. That is what paces an app removed for something
+    // the checks below do not repeat - a storage violation, a container that
+    // cannot be recreated, a port its router will not map - which would
+    // otherwise be installed and removed again on every pass. The removal of a
+    // surplus copy below clears it, since the node takes that app again only
+    // once the network is short of it.
     globalState.trySpawningGlobalAppCache.set(appHash, '');
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
@@ -659,60 +693,6 @@ async function trySpawningGlobalApplication() {
     const runningAppsNames = appsRunningAtOurIp.map((app) => app.name);
 
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
-
-    // The check above reads a sibling's ports from the specifications the
-    // network broadcasts, so it sees only what has been reported as RUNNING. A
-    // sibling that has installed an application and not started it, or is still
-    // installing it, appears nowhere in that list and holds the router's forward
-    // regardless. Ask the other Flux nodes at this address directly, here rather
-    // than during the port test, so a refusal costs no firewall rule and no port
-    // mapping to unwind.
-    //
-    // Not because an enterprise application hides its ports. It seals them, and
-    // a node running ArcaneOS opens them - assignedPortsGlobalApps decrypts. On
-    // a node that is not running ArcaneOS it cannot, and there this ask is the
-    // only thing that sees a sealed neighbour's ports at all.
-    //
-    // Answered rather than raised, and handled exactly as an unreachable port is
-    // below: this node cannot host this app, which is an ordinary answer and not
-    // a fault. What separates the two is how it is told, not what it costs the
-    // app: raised, this is an error with a stack trace and no event; answered,
-    // it is one line and a deferral the fleet can observe. The app holds the
-    // entry every selection takes in the spawn cache either way - it was filed
-    // at selection, and the catch below adds nothing for a hash already there -
-    // so this node stops considering it until that expires, which is right,
-    // because nothing changes here until the sibling gives the port up.
-    const sibling = await portManager.siblingHoldingPort(appPorts, localSocketAddr);
-    if (sibling) {
-      log.error(`trySpawningGlobalApplication - ${appSpecifications.name} port ${sibling.port} is held by the Flux node at ${sibling.address}, which shares this public address. Installation aborted.`);
-      // A deferral, published as one: this stands the node down and returns
-      // shortDelayTime exactly as the seven reasons below it do, so it belongs
-      // in that vocabulary rather than in an event of its own.
-      fluxEventBus.publish('spawner:deferred', {
-        appName: appSpecifications.name,
-        reason: 'sibling_holds_port',
-        delayMs: shortDelayTime,
-        port: sibling.port,
-        address: sibling.address,
-      });
-      return shortDelayTime;
-    }
-
-    // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
-    // Check if ports are publicly available - critical for proper Flux network operation
-    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name);
-    if (portVerdict.ok === false) {
-      log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-      // The cause lives in portManager, which says which port and which peers;
-      // this says the spawner deferred, and on which of its verdicts.
-      fluxEventBus.publish('spawner:deferred', {
-        appName: appSpecifications.name,
-        reason: 'ports_not_available',
-        portVerdict: portVerdict.reason,
-        delayMs: shortDelayTime,
-      });
-      return shortDelayTime;
-    }
 
     // double check if app is installed on the number of instances requested
     runningAppList = await registryManager.appLocation(appToRun);
@@ -1006,6 +986,45 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
+    // ensureApplicationPortsNotUsed reads a sibling's ports from the
+    // specifications the network broadcasts, so it sees only what has been
+    // reported as RUNNING. A sibling that has installed an application and not
+    // started it, or is still installing it, appears nowhere in that list and
+    // holds the router's forward regardless. Ask the other Flux nodes at this
+    // address directly: after the local checks, because this is a request to
+    // each of them, and before the claim and the port test, so a refusal leaves
+    // no claim to withdraw, no firewall rule and no port mapping to unwind.
+    //
+    // Not because an enterprise application hides its ports. It seals them, and
+    // a node running ArcaneOS opens them - assignedPortsGlobalApps decrypts. On
+    // a node that is not running ArcaneOS it cannot, and there this ask is the
+    // only thing that sees a sealed neighbour's ports at all.
+    //
+    // Answered rather than raised, and handled exactly as an unreachable port is
+    // below: this node cannot host this app, which is an ordinary answer and not
+    // a fault. What separates the two is how it is told, not what it costs the
+    // app: raised, this is an error with a stack trace and no event; answered,
+    // it is one line and a deferral the fleet can observe. The app holds the
+    // entry every selection takes in the spawn cache either way - it was filed
+    // at selection, and the catch below adds nothing for a hash already there -
+    // so this node stops considering it until that expires, which is right,
+    // because nothing changes here until the sibling gives the port up.
+    const sibling = await portManager.siblingHoldingPort(appPorts, localSocketAddr);
+    if (sibling) {
+      log.error(`trySpawningGlobalApplication - ${appSpecifications.name} port ${sibling.port} is held by the Flux node at ${sibling.address}, which shares this public address. Installation aborted.`);
+      // A deferral, published as one: this stands the node down and returns
+      // shortDelayTime exactly as the deferrals above it do, so it belongs in
+      // that vocabulary rather than in an event of its own.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'sibling_holds_port',
+        delayMs: shortDelayTime,
+        port: sibling.port,
+        address: sibling.address,
+      });
+      return shortDelayTime;
+    }
+
     // Retract this node's installing claim, network-wide. A silent back-out
     // leaves the fluxappinstalling broadcast alive for its full TTL, and that
     // ghost keeps counting against instance totals and domain shares - and can
@@ -1129,6 +1148,24 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
+    // The dearest check, so the last: it maps the app's ports on the router and has
+    // a peer read them, and the install keeps the mappings it makes.
+    testedPorts = { ports: appPorts, appName: appSpecifications.name, holder: {} };
+    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name, { holder: testedPorts.holder });
+    if (portVerdict.ok === false) {
+      log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
+      await withdrawInstallingClaim('ports not available');
+      // The cause lives in portManager, which says which port and which peers;
+      // this says the spawner deferred, and on which of its verdicts.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'ports_not_available',
+        portVerdict: portVerdict.reason,
+        delayMs: shortDelayTime,
+      });
+      return shortDelayTime;
+    }
+
     // install the app
     let registerOk = false;
     // The installer still signals some failures by throwing, and only the reason
@@ -1189,6 +1226,11 @@ async function trySpawningGlobalApplication() {
       globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour * 6 });
     }
     return shortDelayTime || 5 * 60 * 1000;
+  } finally {
+    if (testedPorts) {
+      await portManager.releaseTestedPorts(testedPorts.ports, testedPorts.appName, testedPorts.holder)
+        .catch((error) => log.error(error));
+    }
   }
 }
 

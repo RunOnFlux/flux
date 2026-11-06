@@ -1,9 +1,8 @@
-const config = require('config');
 const log = require('../lib/log');
-const dbHelper = require('./dbHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const networkStateService = require('./networkStateService');
+const fluxnodeAddressRecord = require('./fluxnodeAddressRecord');
 
 /**
  * @typedef {{
@@ -111,7 +110,7 @@ const VerifyResult = Object.freeze({
 
 /**
  * listedSignerVerdict's answer when the list shows a move's signer at its new
- * address only, and lastSignerVerdict decides.
+ * address only, and chainMoveVerdict decides.
  */
 const SIGNER_AT_NEW_ADDRESS_ONLY = 'signerAtNewAddressOnly';
 
@@ -131,37 +130,11 @@ function signerAddresses(payload, target) {
 }
 
 /**
- * The key that signed the location rows standing at `address`: the signer of
- * the newest unexpired apprunning event stored for it, which only the node
- * listed there when it was sent could have signed. Rows stand at an address
- * only when an apprunning came after its eviction and after any move away from
- * it, so the newest apprunning is the one that wrote them.
- * @param {string} address
- * @returns {Promise<string|null>} Null when no rows stand there or no apprunning
- *   is stored for it. Rejects when either cannot be read.
- */
-async function lastSignerAt(address) {
-  const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
-  const row = await database.collection(config.database.appsglobal.collections.appsLocations)
-    .findOne({ ip: address }, { projection: { _id: 0, ip: 1 } });
-  if (!row) return null;
-  const [event] = await database.collection(config.database.appsglobal.collections.appStateEvents)
-    .find(
-      { ip: address, type: 'apprunning', expireAt: { $gt: new Date() } },
-      { projection: { _id: 0, 'envelope.pubKey': 1 } },
-    )
-    .sort({ broadcastedAt: -1 })
-    .limit(1)
-    .toArray();
-  return event?.envelope?.pubKey ?? null;
-}
-
-/**
  * Whether the node `addresses` speaks for holds `pubKey`, by the node list
  * alone. A node listed at the first address is the one it speaks for. While
  * nothing is listed there, a signer listed at another address may speak for it:
  * a move's confirmation is mined before some peers hear the move, and the chain
- * then lists its node at the new address only. lastSignerVerdict decides that
+ * then lists its node at the new address only. chainMoveVerdict decides that
  * case.
  *
  * For a move, `addresses` is [the address it left, the address it holds]:
@@ -194,34 +167,42 @@ async function listedSignerVerdict(addresses, pubKey) {
   return SIGNER_AT_NEW_ADDRESS_ONLY;
 }
 
+// How long a move waits for the explorer to record the block that moved its
+// node. The explorer polls fluxd every explorerPollIntervalMs (5 s), so one block
+// time without that block is an explorer not keeping up.
+const RECORD_WAIT_MS = 30_000;
+
 /**
- * Whether `pubKey` speaks for `address`, which a move left and the list no longer
- * shows, by the key that signed the location rows standing there:
+ * Whether a move from `oldIP` to `newIP`, signed by the key the list shows at
+ * `newIP` only, is the chain's: the chain moved the node listed at `newIP` -
+ * its collateral - from `oldIP` to there (fluxnodeAddressRecord).
  *
- *   rows at the address   signed by       verdict
- *   standing              pubKey          OK
- *   standing              another key     PUBKEY_MISMATCH
- *   none                  -               NODE_NOT_FOUND
- *   unreadable            -               UNREADABLE
- *
- * With no rows at the address a move left, the move has nothing to carry, and
- * the chain already lists its node where it is.
- * @param {string} address The address the move left.
+ *   the record, at the node's last confirmation   verdict
+ *   holds the change                              OK
+ *   does not                                      NODE_NOT_FOUND
+ *   has not reached it, or cannot be read         UNREADABLE
+ * @param {string} oldIP
+ * @param {string} newIP
  * @param {string} pubKey The move's signer.
  * @returns {Promise<{result: string, reason?: string}>}
  */
-async function lastSignerVerdict(address, pubKey) {
-  let lastSigner;
+async function chainMoveVerdict(oldIP, newIP, pubKey) {
+  const node = await networkStateService.getFluxnodeBySocketAddress(newIP);
+  if (!node || node.pubkey !== pubKey) {
+    return { result: VerifyResult.NODE_NOT_FOUND, reason: `No node signed by ${pubKey} is listed at ${newIP}, which a move from ${oldIP} names` };
+  }
+  const collateral = fluxnodeAddressRecord.collateralOf(node.txhash, node.outidx);
+  let moved;
   try {
-    lastSigner = await lastSignerAt(address);
+    if (!await fluxnodeAddressRecord.whenRecorded(Number(node.last_confirmed_height), RECORD_WAIT_MS)) {
+      return { result: VerifyResult.UNREADABLE, reason: `The explorer has not recorded block ${node.last_confirmed_height}, which confirmed the node at ${newIP}` };
+    }
+    moved = await fluxnodeAddressRecord.movedBetween(collateral, oldIP, newIP);
   } catch (error) {
-    return { result: VerifyResult.UNREADABLE, reason: `The location rows at ${address}, which a move signed by ${pubKey} left, cannot be read: ${error.message}` };
+    return { result: VerifyResult.UNREADABLE, reason: `The fluxnode address record cannot be read for the move from ${oldIP} to ${newIP}: ${error.message}` };
   }
-  if (lastSigner === null) {
-    return { result: VerifyResult.NODE_NOT_FOUND, reason: `No location rows stand at ${address}, which a move signed by ${pubKey} left` };
-  }
-  if (lastSigner !== pubKey) {
-    return { result: VerifyResult.PUBKEY_MISMATCH, reason: `Sender pubkey ${pubKey} did not sign the location rows at ${address}` };
+  if (!moved) {
+    return { result: VerifyResult.NODE_NOT_FOUND, reason: `The chain has not moved the node listed at ${newIP} from ${oldIP}` };
   }
   return { result: VerifyResult.OK };
 }
@@ -291,7 +272,7 @@ async function checkBeforeSignature(broadcast, now) {
     if (listed === VerifyResult.PUBKEY_MISMATCH) {
       return { refused: { result: listed, reason: `Sender pubkey ${pubKey} does not match node at ${target}` } };
     }
-    if (listed === SIGNER_AT_NEW_ADDRESS_ONLY) [proveAt] = addresses;
+    if (listed === SIGNER_AT_NEW_ADDRESS_ONLY) proveAt = { oldIP: payload.oldIP, newIP: payload.newIP };
   }
 
   return {
@@ -339,12 +320,12 @@ async function verifyBroadcasts(broadcasts, { verifySignatures = verifySignature
 
   const signed = await verifySignatures(unsigned);
 
-  for (let i = 0; i < unsigned.length; i += 1) {
-    const { index, pubKey, proveAt } = unsigned[i];
+  // The moves are judged together, so their waits for the explorer share one
+  // RECORD_WAIT_MS however many a batch carries.
+  await Promise.all(unsigned.map(async ({ index, pubKey, proveAt }, i) => {
     if (!signed[i]) verdicts[index] = { result: VerifyResult.BAD_SIGNATURE };
-    // eslint-disable-next-line no-await-in-loop
-    else verdicts[index] = proveAt ? await lastSignerVerdict(proveAt, pubKey) : { result: VerifyResult.OK };
-  }
+    else verdicts[index] = proveAt ? await chainMoveVerdict(proveAt.oldIP, proveAt.newIP, pubKey) : { result: VerifyResult.OK };
+  }));
   return verdicts;
 }
 

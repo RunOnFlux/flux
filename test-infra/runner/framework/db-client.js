@@ -52,6 +52,26 @@ export function dbClient(nodeNum) {
       return { total, resolved, missing, notFound };
     },
 
+    // The node's record of the UPnP mappings it asked its router for: one document
+    // per `port/protocol`, written as upnpMappingRecord writes it, the record marked
+    // as covering the router so that the start's cleanup reads it alone.
+    async recordUpnpMappings(records) {
+      const col = (await db('local')).collection('upnpmappings');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const record of records) {
+        const protocol = String(record.protocol || 'TCP').toUpperCase();
+        // eslint-disable-next-line no-await-in-loop
+        await col.updateOne({ _id: `${record.port}/${protocol}` }, { $set: { ...record, protocol } }, { upsert: true });
+      }
+      await col.updateOne({ _id: 'complete' }, { $set: { at: new Date() } }, { upsert: true });
+    },
+
+    // One mapping's record, or null once it has ended.
+    async upnpMappingRecord(port, protocol = 'TCP') {
+      const col = (await db('local')).collection('upnpmappings');
+      return col.findOne({ _id: `${port}/${String(protocol).toUpperCase()}` });
+    },
+
     // The address the node last adopted as its own, and the one it moved from.
     async ownAddressRecord() {
       const localDb = await db('local');
@@ -420,6 +440,27 @@ export function dbClient(nodeNum) {
       return explorerDb.collection('zelappshashes').find(query, { projection: { _id: 0 } }).toArray();
     },
 
+    async insertAppHashRecord(record) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').insertOne(record);
+    },
+
+    async appHashIndexes() {
+      const explorerDb = await db('explorer');
+      return explorerDb.collection('zelappshashes').indexes();
+    },
+
+    async explainAppHashes(query) {
+      const explorerDb = await db('explorer');
+      const { executionStats } = await explorerDb.collection('zelappshashes').find(query).explain('executionStats');
+      return executionStats;
+    },
+
+    async dropAppHashIndex(name) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').dropIndex(name);
+    },
+
     async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {
       const globalDb = await db('appsGlobal');
       const ts = broadcastedAt ?? Date.now();
@@ -449,6 +490,11 @@ export function dbClient(nodeNum) {
      * than a rejected message. Ordered, because a suite that seeds two broadcasts
      * from one node is usually proving which of them wins.
      */
+    async updateAppStateEvents(query, set) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appstateevents').updateMany(query, { $set: set });
+    },
+
     async seedAppStateEvents(events) {
       if (!events.length) return;
       const globalDb = await db('appsGlobal');

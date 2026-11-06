@@ -53,7 +53,7 @@ const appDir = (name) => `/mnt/appdata/flux-apps/flux${name}_${name}`;
 
 // Where a node's syncthing monitor took each device it looked up for `name`,
 // counted per source.
-const DEVICE_SOURCES = ['verified', 'verifiedNoDevice', 'introduced', 'withheld', 'held', 'unsigned', 'configured'];
+const DEVICE_SOURCES = ['verified', 'verifiedNoDevice', 'introduced', 'withheld', 'held', 'unsigned', 'configured', 'malformed'];
 async function deviceSources(client, name) {
   const counts = await Promise.all(DEVICE_SOURCES.map((source) => client.getDecisionCount('syncthing:deviceSource', name, source)));
   return Object.fromEntries(DEVICE_SOURCES.map((source, i) => [source, counts[i]]));

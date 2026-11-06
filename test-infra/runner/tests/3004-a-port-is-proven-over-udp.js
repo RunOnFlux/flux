@@ -307,6 +307,19 @@ describe('a node behind UPnP tests one protocol a pass', function () {
 // when the first peer hears nothing over UDP and the port is retested over UDP.
 describe('a node whose TCP comes back while its UDP is blocked', function () {
   const NODE = 0;
+  // A pass after a passing one comes PASS_MS later, so a TCP block is met within
+  // one. The waits keep production's order: a failure, an error, an app error and
+  // a DOS each retest sooner than a passing pass does.
+  const PASS_MS = 30 * 1000;
+  const PORT_CHECK = {
+    timeoutsMs: {
+      default: PASS_MS, error: 5000, failure: 1000, dos: 15000, appError: 10000,
+    },
+    // failed ports never outnumber the low edge, so a passing pass clears them all
+    thresholds: { dos: 100, portsHighEdge: 2, portsLowEdge: 2 },
+  };
+  // Two passes and the time a pass's peer tests take.
+  const PASSES_MS = 2 * PASS_MS + 60 * 1000;
   let env;
   dumpLogsOnFailure(() => env);
   // Inbound TCP connections to the node, bar its FluxOS ports, dropped on its fleet device.
@@ -323,9 +336,8 @@ describe('a node whose TCP comes back while its UDP is blocked', function () {
       nodes: 4,
       networkShapes: { [NODE]: 'udp-blocked' },
       configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1, ...PORT_TEST } },
-      // failed ports never outnumber the low edge, so a passing pass clears them all
       nodeConfigOverrides: {
-        [NODE]: { fluxapps: { appsPortCheck: { ...APPS_PORT_CHECK, thresholds: { dos: 100, portsHighEdge: 2, portsLowEdge: 2 } } } },
+        [NODE]: { fluxapps: { appsPortCheck: PORT_CHECK } },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
@@ -338,7 +350,7 @@ describe('a node whose TCP comes back while its UDP is blocked', function () {
 
   // Which branch a pass took is a tally on /flux/testcounters, never a stream.
   it('clears its failed ports on the pass whose TCP passes and whose first peer hears nothing over UDP', async function () {
-    this.timeout(600000);
+    this.timeout(2 * PASSES_MS + 60000);
     const client = env.clients[NODE];
     const tally = async (name, ...path) => path.reduce((node, key) => node?.[key], (await client.getTestCounters())[name]) || 0;
 
@@ -346,18 +358,21 @@ describe('a node whose TCP comes back while its UDP is blocked', function () {
     expect(blocked.exitCode, blocked.output).to.equal(0);
     const unreachableBefore = await tally('availability:pass', 'unreachable', 'unknown');
     await waitFor(async () => (await tally('availability:pass', 'unreachable', 'unknown')) > unreachableBefore, {
-      timeout: 300000, interval: 2000, label: 'a pass whose TCP test failed',
+      timeout: PASSES_MS, interval: 2000, label: 'a pass whose TCP test failed',
     });
 
+    // Counted from here: the passes before the block heard nothing over UDP too.
+    const clearedBefore = await tally('availability:firstUdpSilence', 'passed', 'cleared');
+    const notClearedBefore = await tally('availability:firstUdpSilence', 'passed', 'notCleared');
     const unblocked = await execInContainer(client.container, tcpBlock('-D'));
     expect(unblocked.exitCode, unblocked.output).to.equal(0);
-    await waitFor(async () => (await tally('availability:firstUdpSilence', 'passed', 'cleared')) >= 1
-      || (await tally('availability:firstUdpSilence', 'passed', 'notCleared')) >= 1, {
-      timeout: 300000, interval: 2000, label: 'a pass whose TCP passed and whose first peer heard nothing over UDP',
+    await waitFor(async () => (await tally('availability:firstUdpSilence', 'passed', 'cleared')) > clearedBefore
+      || (await tally('availability:firstUdpSilence', 'passed', 'notCleared')) > notClearedBefore, {
+      timeout: PASSES_MS, interval: 2000, label: 'a pass whose TCP passed and whose first peer heard nothing over UDP',
     });
 
-    expect(await tally('availability:firstUdpSilence', 'passed', 'notCleared'), 'failed ports left for the retest to clear').to.equal(0);
-    expect(await tally('availability:firstUdpSilence', 'passed', 'cleared')).to.be.at.least(1);
+    expect(await tally('availability:firstUdpSilence', 'passed', 'notCleared') - notClearedBefore, 'failed ports left for the retest to clear').to.equal(0);
+    expect(await tally('availability:firstUdpSilence', 'passed', 'cleared') - clearedBefore).to.be.at.least(1);
   });
 });
 

@@ -18,8 +18,10 @@ WorkingDirectory=/flux
 # environment arrives empty) — the entrypoint dumps it here before
 # exec'ing systemd.
 EnvironmentFile=/etc/fluxos-harness.env
-# FluxOS boots only once the inner dockerd answers.
-ExecStartPre=/bin/bash -c 'for i in $$(seq 1 30); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; echo "dockerd not ready" >&2; exit 1'
+# FluxOS boots only once the inner dockerd answers its ping, which reads nothing
+# from disk: a suite that freezes docker's data root restarts FluxOS while
+# containerd's metadata, which `docker info` lists images from, can be held.
+ExecStartPre=/bin/bash -c 'for i in $$(seq 1 30); do curl -sf --max-time 2 --unix-socket /var/run/docker.sock http://docker/_ping >/dev/null && exit 0; sleep 1; done; echo "dockerd not ready" >&2; exit 1'
 ExecStart=/usr/bin/node app.js
 Restart=always
 RestartSec=1

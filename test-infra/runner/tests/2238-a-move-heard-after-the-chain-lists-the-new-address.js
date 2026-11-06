@@ -20,11 +20,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // records the move and before it tells anyone, until every other node has read
 // the list that holds it at the new address.
 //
-// A node that ran an app sent apprunning from the address it left, which proves
-// the move is its own: its peers apply the move, with the time it recorded, and
-// hold its app at the new address. A node that ran none has nothing to prove it
-// and no rows for a move to carry: a peer it tells drops the move without
-// counting it against the node that relayed it, and no peer holds it.
+// The chain moved the node from the address it left, which proves the move is
+// its own: its peers apply the move with the time it recorded, whether or not it
+// ran an app there, and a node that ran one has its app held at the new address.
 const WITH_APP = 0;
 const WITHOUT_APP = 1;
 const API_PORT = 16127;
@@ -45,7 +43,7 @@ describe('a move heard after the chain lists the new address', function () {
   const moveHeldBy = async (i, oldSocket, newSocket) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
     .find((event) => event.data?.newIP === newSocket);
 
-  // Moves node `i` with the chain listing it at the new address at once, holds
+  // Moves node `i` with the chain listing it at the new address in the next block, holds
   // it before it tells the move, and lets it go once every other node has read
   // a list from after the change. Returns where it moved, the move it recorded,
   // and the event id each other node had reached before it was let go.
@@ -148,31 +146,18 @@ describe('a move heard after the chain lists the new address', function () {
     }
   });
 
-  it('is dropped, without counting against the node that relayed it, when it ran nothing at the address it left', async function () {
+  it('is applied with the time the node recorded when it ran nothing at the address it left', async function () {
     this.timeout(DETECTION_MS + 600000);
-    const {
-      toIp, oldSocket, newSocket, toldAnchors,
-    } = await moveListedFirst(WITHOUT_APP, 241);
+    const { oldSocket, newSocket, told } = await moveListedFirst(WITHOUT_APP, 241);
 
-    // A node tells its move to the peers it is connected to; which those are is
-    // the peering's choice, so the case waits for one to have dropped it.
-    let dropper = null;
-    await waitFor(async () => {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const j of others(WITHOUT_APP)) {
-        // eslint-disable-next-line no-await-in-loop
-        const dropped = await client(j).waitForEvent('network:originatorNotListed', (d) => d.type === 'fluxipchanged', 1, { afterId: toldAnchors.get(j) })
-          .catch(() => null);
-        if (dropped) { dropper = { j, dropped }; return true; }
-      }
-      return false;
-    }, { timeout: 180000, interval: 3000, label: 'a node that dropped the move' });
-
-    expect(String(dropper.dropped.data.relay).split(':')[0], `node ${dropper.j} dropped the move as the node itself sent it`).to.equal(toIp);
     // eslint-disable-next-line no-restricted-syntax
     for (const j of others(WITHOUT_APP)) {
+      let held;
       // eslint-disable-next-line no-await-in-loop
-      expect(await moveHeldBy(j, oldSocket, newSocket), `node ${j} holds the move`).to.equal(undefined);
+      await waitFor(async () => { held = await moveHeldBy(j, oldSocket, newSocket); return Boolean(held); }, {
+        timeout: 180000, interval: 3000, label: `node ${j} holds the move`,
+      });
+      expect(held.data.broadcastedAt, `the time node ${j} holds for the move`).to.equal(told.data.broadcastedAt);
     }
   });
 });

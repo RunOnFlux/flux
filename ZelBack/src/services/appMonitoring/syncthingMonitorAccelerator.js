@@ -9,7 +9,7 @@
 //     mount); steady-state folders belong to the level pass
 //   - early runs keep a minimum gap from the end of the last completed pass
 // A request landing while a pass is running is remembered and re-armed when
-// the pass ends. If the event stream dies entirely, behavior degrades to the
+// the pass ends; a pass starting while an early run is armed is that run. If the event stream dies entirely, behavior degrades to the
 // interval cadence - latency, never correctness.
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
@@ -56,6 +56,10 @@ function createMonitorAccelerator({
     },
     notePassStarted() {
       passRunning = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
     },
     notePassEnded() {
       passRunning = false;

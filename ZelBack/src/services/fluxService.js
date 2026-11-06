@@ -8,6 +8,7 @@ const config = require('config');
 const configDefault = require('../../config/default');
 
 const log = require('../lib/log');
+const configManager = require('./utils/configManager');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
@@ -29,6 +30,7 @@ const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
 const upnpService = require('./upnpService');
 const uplinkService = require('./uplinkService');
+const kernelService = require('./kernelService');
 const enterpriseConfig = require('./utils/enterpriseConfig');
 const { answerDaemonUnavailable } = require('./utils/routeGuards');
 
@@ -1151,10 +1153,7 @@ async function daemonDebug(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  // check daemon datadir
-  const defaultDir = daemonServiceUtils.getFluxdDir();
-  const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
-  const filepath = `${datadir}/debug.log`;
+  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), 'debug.log');
 
   return res.download(filepath, 'debug.log');
 }
@@ -1197,9 +1196,7 @@ async function tailDaemonDebug(req, res) {
     return;
   }
 
-  const defaultDir = daemonServiceUtils.getFluxdDir();
-  const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
-  const filepath = path.join(datadir, 'debug.log');
+  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), 'debug.log');
 
   const { stdout, error } = await serviceHelper.runCommand('tail', {
     params: ['-n', '100', filepath],
@@ -1564,6 +1561,7 @@ async function getFluxInfo(req, res) {
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
     info.flux.uplink = uplinkService.getUplinkSummary();
+    info.flux.kernel = await kernelService.getTaintSummary();
     // How far this node is through being staged out of service, or null. Read
     // beside `dos` below, which reports the last stage: the three read together
     // as HOLD, then EVACUATE, then EVACUATE with a DOS.
@@ -1729,23 +1727,7 @@ async function adjustKadenaAccount(req, res) {
         throw new Error(`Invalid Chain ID ${chainid} provided.`);
       }
       const kadenaURI = `kadena:${account}?chainid=${chainid}`;
-      const { userconfig } = globalThis;
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      const dataToWrite = `module.exports = {
-  initial: {
-    ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-    kadena: '${kadenaURI}',
-    testnet: ${userconfig.initial.testnet || false},
-    development: ${userconfig.initial.development || false},
-    apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-    routerIP: '${userconfig.initial.routerIP || ''}',
-    pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-    pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-  }
-}`;
-
-      await fs.writeFile(fluxDirPath, dataToWrite);
+      await configManager.writeInitial({ kadena: kadenaURI });
 
       const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
@@ -1772,22 +1754,7 @@ async function adjustRouterIP(req, res) {
       let { routerip } = req.params;
       routerip = routerip || req.query.routerip || '';
 
-      const { userconfig } = globalThis;
-      const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-          kadena: '${userconfig.initial.kadena || ''}',
-          testnet: ${userconfig.initial.testnet || false},
-          development: ${userconfig.initial.development || false},
-          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-          routerIP: '${routerip}',
-          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      await fs.writeFile(fluxDirPath, dataToWrite);
+      await configManager.writeInitial({ routerIP: routerip });
 
       const successMessage = messageHelper.createSuccessMessage('Router IP adjusted');
       res.json(successMessage);
@@ -1821,22 +1788,7 @@ async function adjustAPIPort(req, res) {
         return;
       }
 
-      const { userconfig } = globalThis;
-      const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-          kadena: '${userconfig.initial.kadena || ''}',
-          testnet: ${userconfig.initial.testnet || false},
-          development: ${userconfig.initial.development || false},
-          apiport: ${Number(+apiport)},
-          routerIP: '${userconfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      await fs.writeFile(fluxDirPath, dataToWrite);
+      await configManager.writeInitial({ apiport: Number(+apiport) });
 
       const successMessage = messageHelper.createSuccessMessage('API Port adjusted. A restart of FluxOS is necessary');
       res.json(successMessage);
@@ -2130,8 +2082,7 @@ async function streamChain(req, res) {
 
     log.info(`Stream chain request received from: ${ip}`);
 
-    const homeDir = os.homedir();
-    const base = process.env.FLUXD_PATH || path.join(homeDir, '.flux');
+    const base = daemonServiceUtils.fluxdDataDir();
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
@@ -2175,10 +2126,16 @@ async function streamChain(req, res) {
 
     if (safe) {
       // we have to build the client here so that we can avoid the cache. We should have an option for he
-      // blockChainRpcs thing to skip cache
-      const fluxdClient = await daemonServiceUtils.buildFluxdClient();
-      const blockCountRes = await fluxdClient.run('getBlockCount', { params: [] }).catch((err) => err);
-      fluxdRunning = !(blockCountRes instanceof Error && blockCountRes.code === 'ECONNREFUSED');
+      // blockChainRpcs thing to skip cache. A fluxd that publishes no RPC port is not running.
+      const fluxdClient = await daemonServiceUtils.buildFluxdClient().catch((error) => {
+        if (error.code === daemonServiceUtils.FLUXD_RPC_PORT_UNPUBLISHED) return null;
+        throw error;
+      });
+      const blockCountRes = fluxdClient
+        ? await fluxdClient.run('getBlockCount', { params: [] }).catch((err) => err)
+        : null;
+      fluxdRunning = fluxdClient !== null
+        && !(blockCountRes instanceof Error && blockCountRes.code === 'ECONNREFUSED');
     }
 
     if (safe && fluxdRunning) {

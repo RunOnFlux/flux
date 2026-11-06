@@ -16,8 +16,10 @@ const { MongoNetworkTimeoutError } = require('mongodb');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
-const { UNPOSITIONED } = require('../../ZelBack/src/services/migrations/paymentPositions');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -26,6 +28,10 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('explorerService tests', () => {
+  beforeEach(() => {
+    explorerService.resetBlockCadenceForTests();
+  });
+
   before(requireMongo);
 
   describe('getSenderTransactionFromDaemon tests', () => {
@@ -892,6 +898,78 @@ describe('explorerService tests', () => {
     });
   });
 
+  describe('scheduleUpnpBench tests', () => {
+    const PERIOD = 6480;
+    const DUE = PERIOD * 470;
+    const DUE_TIME = 1793000000;
+    const IP = '203.0.113.7';
+    const ROLL = serviceHelper.randomDelayMs(4 * 3_600_000, { initializer: IP + DUE });
+    const BENCH_AT = DUE_TIME * 1000 + ROLL;
+    let clock;
+    let bench;
+    // The delay the bench was started with, read off its timer rather than by running fake time
+    // forward: the unit suite's mongo client keeps its pool with a 100ms timer, and a fake clock
+    // ticked over hours runs that timer for every 100ms of them.
+    let startIn;
+
+    beforeEach(() => {
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(`${IP}:16137`);
+      startIn = null;
+      bench = sinon.stub(benchmarkService, 'executeUpnpBench');
+      const realSetTimeout = global.setTimeout;
+      sinon.stub(global, 'setTimeout').callsFake((fn, ms, ...args) => {
+        if (fn !== bench) return realSetTimeout(fn, ms, ...args);
+        startIn = ms;
+        return null;
+      });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlock')
+        .withArgs(sinon.match({ params: { hashheight: DUE } }))
+        .resolves({ status: 'success', data: { height: DUE, time: DUE_TIME } });
+    });
+
+    afterEach(() => {
+      clock?.restore();
+      sinon.restore();
+    });
+
+    function at(nowMs) {
+      clock = sinon.useFakeTimers({ now: nowMs, toFake: ['Date'] });
+    }
+
+    it('starts a node that processed the due block and one that caught up past it at the same instant', async () => {
+      // The roll this ip gets is past the late node's catch-up, so both are still waiting for it.
+      expect(ROLL).to.be.above(200000);
+
+      at(DUE_TIME * 1000 + 1400);
+      await explorerService.scheduleUpnpBench({ height: DUE, time: DUE_TIME }, PERIOD);
+      const onTime = Date.now() + startIn;
+      clock.restore();
+
+      at(DUE_TIME * 1000 + 120000);
+      await explorerService.scheduleUpnpBench({ height: DUE + 4, time: DUE_TIME + 118 }, PERIOD);
+
+      expect(onTime).to.equal(BENCH_AT);
+      expect(Date.now() + startIn).to.equal(BENCH_AT);
+    });
+
+    it('skips the bench on a node that caught up after its start had passed', async () => {
+      at(BENCH_AT + 60000);
+      await explorerService.scheduleUpnpBench({ height: DUE + 300, time: DUE_TIME + 9000 }, PERIOD);
+
+      expect(startIn, 'the bench was started').to.equal(null);
+      sinon.assert.notCalled(bench);
+    });
+
+    it('starts the bench at once on a node that processed the due block after its start', async () => {
+      // A roll shorter than the block took to arrive: the node is on the due block, so it is
+      // not running alone, and starts now.
+      at(BENCH_AT + 5000);
+      await explorerService.scheduleUpnpBench({ height: DUE, time: DUE_TIME }, PERIOD);
+
+      expect(startIn).to.equal(0);
+    });
+  });
+
   describe('processBlock tests', () => {
     let dbStubUpdate;
     let dbStubCollectionStats;
@@ -1050,7 +1128,7 @@ describe('explorerService tests', () => {
       });
     });
 
-    it('should update db if all parameters are passed correctly, height == 900009', async () => {
+    it('should update db, and run only the work whose period this block passes, height == 900009', async () => {
       const blockHeight = 900009;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
@@ -1095,13 +1173,16 @@ describe('explorerService tests', () => {
           ],
           height: 900009,
           confirmations: 1,
+          time: 1700000000,
         },
       });
-
       await explorerService.processBlock(blockHeight, isInsightExplorer);
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
-      sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
+      // Every height answers with this block here, so the pass before reads the same time.
+      sinon.assert.calledOnceWithExactly(checkAndRemoveApplicationInstanceStub, {
+        height: blockHeight, period: config.fluxapps.removeFluxAppsPeriod, time: 1700000000, previousTime: 1700000000,
+      });
       sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(
         dbStubUpdate,
@@ -1113,7 +1194,7 @@ describe('explorerService tests', () => {
       );
     });
 
-    it('should update db if all parameters are passed correctly, height == 900025', async () => {
+    it('should update db, and run only the work whose period this block passes, height == 900025', async () => {
       const blockHeight = 900025;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
@@ -1160,7 +1241,6 @@ describe('explorerService tests', () => {
           confirmations: 1,
         },
       });
-
       await explorerService.processBlock(blockHeight, isInsightExplorer);
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
@@ -1173,6 +1253,122 @@ describe('explorerService tests', () => {
         { $set: { generalScannedHeight: 900025 } },
         { upsert: true },
       );
+    });
+    it('runs the work whose period a burst of blocks passed once, on the block that reaches the tip', async () => {
+      const isInsightExplorer = true;
+      dbStubUpdate.returns(true);
+      checkAndRemoveApplicationInstanceStub.returns(true);
+      explorerService.setBlockProccessingCanContinue(false);
+      daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+      async function processAt(height, confirmations) {
+        daemonServiceBlockchainRpcsStub.returns({ status: 'success', data: { tx: [], height, confirmations } });
+        await explorerService.processBlock(height, isInsightExplorer);
+      }
+
+      // A multiple of the give-up pass's period, passed during a burst and landed on by no tip block.
+      const period = config.fluxapps.removeFluxAppsPeriod;
+      const multiple = Math.ceil(900000 / period) * period;
+      await processAt(multiple - 3, 1);
+      checkAndRemoveApplicationInstanceStub.resetHistory();
+      for (let height = multiple - 2; height <= multiple + 2; height += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await processAt(height, 2);
+      }
+      sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
+
+      await processAt(multiple + 3, 1);
+      sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
+      await processAt(multiple + 4, 1);
+      sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
+    });
+
+    it('judges a give-up pass run late at the times of the blocks it and the pass before fell due on', async () => {
+      const isInsightExplorer = true;
+      explorerService.setBlockProccessingCanContinue(false);
+      daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+      const period = config.fluxapps.removeFluxAppsPeriod;
+      const multiple = Math.ceil(900100 / period) * period;
+      const tip = multiple + 3;
+      const timeOf = (height) => 1700000000 + (height * 30);
+      daemonServiceBlockchainRpcsStub.callsFake(async (req) => {
+        const height = Number(req.params.hashheight);
+        return {
+          status: 'success', data: { tx: [], height, confirmations: height === tip ? 1 : 2, time: timeOf(height) },
+        };
+      });
+      await explorerService.processBlock(multiple - 3, isInsightExplorer);
+      checkAndRemoveApplicationInstanceStub.resetHistory();
+
+      await explorerService.processBlock(tip, isInsightExplorer);
+
+      sinon.assert.calledOnceWithExactly(checkAndRemoveApplicationInstanceStub, {
+        height: tip, period, time: timeOf(multiple), previousTime: timeOf(multiple - period),
+      });
+    });
+  });
+
+  describe('the fluxnode address record', () => {
+    beforeEach(async () => {
+      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      await dbHelper.initiateDB();
+      globalState.dbReady = true;
+    });
+
+    afterEach(() => {
+      globalState.dbReady = false;
+      explorerService.setBlockProccessingCanContinue(true);
+      sinon.restore();
+    });
+
+    // The node list refreshes on blocksProcessed, so the list never shows a move
+    // its block has not been recorded for.
+    it('records each block before announcing it processed', async () => {
+      const order = [];
+      const block = {
+        tx: [{ version: 5, txhash: 'ff'.repeat(32), outidx: '0', ip: '203.0.113.1:16127' }],
+        height: 3_000_000,
+        confirmations: 1,
+      };
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').returns({ status: 'success', data: block });
+      sinon.stub(dbHelper, 'updateOneInDatabase').resolves(true);
+      sinon.stub(registryManager, 'expireGlobalApplications').resolves();
+      sinon.stub(advancedWorkflows, 'checkAndRemoveApplicationInstance');
+      const recorded = sinon.stub(fluxnodeAddressRecord, 'recordBlock').callsFake(async () => { order.push('recorded'); });
+      const announced = () => order.push('announced');
+      explorerService.getBlockEmitter().once('blocksProcessed', announced);
+      explorerService.setBlockProccessingCanContinue(false);
+
+      try {
+        await explorerService.processBlock(block.height, true);
+      } finally {
+        explorerService.getBlockEmitter().off('blocksProcessed', announced);
+      }
+
+      sinon.assert.calledOnceWithExactly(recorded, sinon.match({ height: block.height }));
+      expect(order).to.deep.equal(['recorded', 'announced']);
+    });
+
+    it('is returned to the height a reorg restores, on the maintenance client', async () => {
+      sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+      sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      const restored = sinon.stub(fluxnodeAddressRecord, 'restoreToHeight').resolves();
+
+      await explorerService.restoreDatabaseToBlockheightState(100000);
+
+      sinon.assert.calledOnceWithExactly(restored, 100000, sinon.match.object);
+      expect(restored.firstCall.args[1].client).to.equal(dbHelper.maintenanceConnection());
+    });
+
+    it('is dropped for a scan from the start of the chain', async () => {
+      sinon.stub(dbHelper, 'dropCollection').resolves(true);
+      sinon.stub(dbHelper, 'ensureIndexes').resolves();
+      const dropped = sinon.stub(fluxnodeAddressRecord, 'drop').resolves();
+
+      await explorerService.resetExplorerCollections();
+
+      sinon.assert.calledOnce(dropped);
+      expect(dropped.firstCall.args[0].client).to.equal(dbHelper.maintenanceConnection());
     });
   });
 
@@ -1891,14 +2087,26 @@ describe('explorerService tests', () => {
 
   describe('initiateBlockProcessor tests', () => {
     let findInDatabaseStub;
+    let isBuiltStub;
+    let rebuildStub;
     let getBlockCountStub;
     let dropCollectionStub;
     let logErrorSpy;
     let logInfoSpy;
 
+    // The explorer's collections are prepared on the maintenance client, which
+    // initiateDB connects to the real mongo; a test that fakes the database keeps
+    // that work on the fake too.
+    const fakeDatabase = (dbFake) => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      sinon.stub(dbHelper, 'onMaintenanceClient').callsFake((database) => database);
+    };
+
     beforeEach(async () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findOneInDatabase');
       dropCollectionStub = sinon.stub(dbHelper, 'dropCollection');
+      isBuiltStub = sinon.stub(fluxnodeAddressRecord, 'isBuilt').resolves(true);
+      rebuildStub = sinon.stub(fluxnodeAddressRecord, 'rebuild').resolves();
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
       getBlockCountStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount');
       sinon.stub(daemonServiceUtils, 'getConfigValue').returns('5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ'); // Valid WIF private key
@@ -1985,12 +2193,15 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
-        data: 200000,
+        data: 2000000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
@@ -2004,6 +2215,140 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap complete');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
+      sinon.assert.called(createIndexFake);
+      sinon.assert.calledWithMatch(dbHelper.updateOneInDatabase, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 2000000 - fluxnodeAddressRecord.RECORD_BLOCKS } });
+      sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: 2000000 - fluxnodeAddressRecord.RECORD_BLOCKS + 1 } });
+      sinon.assert.notCalled(rebuildStub);
+    });
+
+    it('scans from epochstart a chain too short to bootstrap below the record\'s blocks', async () => {
+      findInDatabaseStub.returns({ generalScannedHeight: 0 });
+      dropCollectionStub.resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+      const collectionFake = sinon.fake.returns({
+        createIndex: sinon.fake.resolves(true), updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+      });
+      fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
+      getBlockCountStub.returns({ status: 'success', data: config.fluxapps.epochstart + fluxnodeAddressRecord.RECORD_BLOCKS - 1 });
+      sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      const executeCallStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
+      explorerService.setBlockProccessingCanContinue(false);
+
+      await explorerService.initiateBlockProcessor(false, false, false);
+      await serviceHelper.delay(200);
+
+      sinon.assert.notCalled(executeCallStub);
+      sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: config.fluxapps.epochstart } });
+    });
+
+    describe('the fluxnode address record', () => {
+      const atHeight = (scanned) => {
+        findInDatabaseStub.returns({ generalScannedHeight: scanned });
+        sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+        sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+        const collectionFake = sinon.fake.returns({
+          createIndex: sinon.fake.resolves(true), updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+          find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+        });
+        fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
+        getBlockCountStub.returns({ status: 'success', data: 200000 });
+        sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+        explorerService.setBlockProccessingCanContinue(false);
+      };
+
+      it('is built from the blocks up to the scanned height when it holds nothing and the explorer is near the tip', async () => {
+        atHeight(199500);
+        isBuiltStub.resolves(false);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.calledOnceWithMatch(rebuildStub, 199500, sinon.match.func);
+      });
+
+      it('is left to the catch-up when the explorer is further behind than the blocks it holds', async () => {
+        atHeight(199000);
+        isBuiltStub.resolves(false);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.notCalled(rebuildStub);
+      });
+
+      it('is not built again once it holds the blocks', async () => {
+        atHeight(199500);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.notCalled(rebuildStub);
+      });
+
+      it('is read as holding every block up to the scanned height once it holds the blocks', async () => {
+        const resumeAtStub = sinon.stub(fluxnodeAddressRecord, 'resumeAt');
+        atHeight(199500);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.calledOnceWithExactly(resumeAtStub, 199500);
+      });
+
+      it('is left to the blocks the explorer processes when it cannot be built, and the explorer carries on from the scanned height', async () => {
+        atHeight(1999500);
+        getBlockCountStub.returns({ status: 'success', data: 2000000 });
+        isBuiltStub.resolves(false);
+        rebuildStub.rejects(new Error('daemon gone'));
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.calledWithMatch(logErrorSpy, 'The fluxnode address record was not built: daemon gone');
+        sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: 1999501 } });
+        sinon.assert.neverCalledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: config.fluxapps.epochstart } });
+      });
+
+      it('is built from blocks asked for again while fluxd refuses them, up to five times', async () => {
+        atHeight(199500);
+        isBuiltStub.resolves(false);
+        const delayStub = sinon.stub(serviceHelper, 'delay').resolves();
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        const fetchBlock = rebuildStub.firstCall.args[1];
+        const getBlockStub = daemonServiceBlockchainRpcs.getBlock;
+        const asked = () => getBlockStub.getCalls().filter((call) => call.args[0].params.hashheight === 199000).length;
+        let refusals = 2;
+        getBlockStub.callsFake((req) => {
+          if (req.params.hashheight !== 199000) return { status: 'success', data: { height: req.params.hashheight, confirmations: 1, tx: [] } };
+          if (refusals > 0) {
+            refusals -= 1;
+            return { status: 'error', data: { message: 'Work queue depth exceeded' } };
+          }
+          return { status: 'success', data: { height: 199000, confirmations: 501, tx: [] } };
+        });
+
+        expect((await fetchBlock(199000)).height).to.equal(199000);
+        expect(asked()).to.equal(3);
+        sinon.assert.calledWith(delayStub, 2000);
+
+        refusals = Infinity;
+        await expect(fetchBlock(199000)).to.be.rejected;
+        expect(asked()).to.equal(3 + 5);
+      });
+
+      it('is not read as holding any block while it holds nothing', async () => {
+        const resumeAtStub = sinon.stub(fluxnodeAddressRecord, 'resumeAt');
+        atHeight(199000);
+        isBuiltStub.resolves(false);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.notCalled(resumeAtStub);
+      });
     });
 
     it('should fall back to block-by-block scan when bootstrap fails', async () => {
@@ -2012,10 +2357,13 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
-      getBlockCountStub.returns({ status: 'success', data: 200000 });
+      fakeDatabase(dbFake);
+      getBlockCountStub.returns({ status: 'success', data: 2000000 });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'error', data: { message: 'RPC unavailable' } });
       explorerService.setBlockProccessingCanContinue(false);
@@ -2035,9 +2383,12 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
         data: 200000,
@@ -2064,9 +2415,12 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
         data: 200000,
@@ -2093,12 +2447,15 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
-        data: 200000,
+        data: 2000000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
@@ -2163,28 +2520,42 @@ describe('explorerService tests', () => {
       expect(await hashes.countDocuments({ hash: 'paid' })).to.equal(2);
     });
 
-    it('moves the stored message of a hash it kept the earliest payment of onto that payment', async () => {
-      const messages = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(config.database.appsglobal.collections.appsMessages);
-      await messages.deleteMany({ hash: { $in: ['paid', 'single'] } });
-      await hashes.insertMany([
-        { hash: 'paid', txid: 'first', height: 300, value: 5 },
-        { hash: 'paid', txid: 'later', height: 400, value: 7 },
-        { hash: 'single', txid: 'only', height: 500, value: 9 },
-      ]);
-      await messages.insertMany([
-        { hash: 'paid', txid: 'later', height: 400, valueSat: 7, appSpecifications: { name: 'PaidTwice' } },
-        { hash: 'single', txid: 'only', height: 500, valueSat: 9, appSpecifications: { name: 'PaidOnce' } },
-      ]);
-      try {
-        await explorerService.keepEarliestPayment(hashes);
+    it('moves the stored message of each hash it kept the earliest payment of onto that payment, then removes the rest', async () => {
+      // The grouping and its order are the aggregate's; what is done with the groups is this.
+      const collection = {
+        aggregate: sinon.stub().returns({
+          toArray: sinon.stub().resolves([{
+            _id: 'paid',
+            rows: [
+              { id: 'id-first', txid: 'first', height: 300, value: 5 },
+              { id: 'id-later', txid: 'later', height: 400, value: 7 },
+            ],
+          }]),
+        }),
+        deleteMany: sinon.stub().resolves({ deletedCount: 1 }),
+      };
+      const move = sinon.stub(messageVerifier, 'moveStoredMessagesToPayments').resolves();
 
-        const paid = await messages.findOne({ hash: 'paid' }, { projection: { _id: 0, txid: 1, height: 1, valueSat: 1 } });
-        expect(paid).to.deep.equal({ txid: 'first', height: 300, valueSat: 5 });
-        const single = await messages.findOne({ hash: 'single' }, { projection: { _id: 0, txid: 1, height: 1 } });
-        expect(single, 'a hash with one payment is left as it is').to.deep.equal({ txid: 'only', height: 500 });
-      } finally {
-        await messages.deleteMany({ hash: { $in: ['paid', 'single'] } });
-      }
+      const removed = await explorerService.keepEarliestPayment(collection);
+
+      expect(removed).to.equal(1);
+      sinon.assert.calledOnceWithExactly(move, [{
+        hash: 'paid', txid: 'first', height: 300, value: 5,
+      }]);
+      sinon.assert.calledOnceWithExactly(collection.deleteMany, { _id: { $in: ['id-later'] } });
+      sinon.assert.callOrder(move, collection.deleteMany);
+    });
+
+    it('moves and removes nothing when no hash has more than one payment record', async () => {
+      const collection = {
+        aggregate: sinon.stub().returns({ toArray: sinon.stub().resolves([]) }),
+        deleteMany: sinon.stub().resolves({ deletedCount: 0 }),
+      };
+      const move = sinon.stub(messageVerifier, 'moveStoredMessagesToPayments').resolves();
+
+      expect(await explorerService.keepEarliestPayment(collection)).to.equal(0);
+      sinon.assert.notCalled(move);
+      sinon.assert.notCalled(collection.deleteMany);
     });
 
     it('asserts every index on the maintenance client', async () => {
@@ -2193,35 +2564,28 @@ describe('explorerService tests', () => {
       await explorerService.prepareCollections();
 
       expect(dbHelper.maintenanceConnection(), 'no maintenance client, so this proves nothing').to.not.equal(null);
-      expect(ensureIndexes.callCount).to.equal(5);
+      expect(ensureIndexes.callCount).to.equal(6);
       ensureIndexes.getCalls().forEach((call) => expect(call.args[0].client).to.equal(dbHelper.maintenanceConnection()));
     });
 
-    it('builds the unique hash index over records that hold duplicates, keeping the earliest payment', async () => {
-      // inserted earliest first, so the newest row is the later payment
-      await hashes.insertMany([
-        { hash: 'paid', txid: 'first', height: 300 },
-        { hash: 'paid', txid: 'later', height: 400 },
-      ]);
+    it('builds the unique hash index on the payment records, recovering duplicates by keeping the earliest payment', async () => {
+      const ensureIndexes = sinon.stub(dbHelper, 'ensureIndexes').resolves();
 
       await explorerService.prepareCollections();
 
-      const unique = (await hashes.indexes()).find((index) => index.name === 'query for getting app hash');
-      expect(unique?.unique, 'the unique hash index').to.equal(true);
-      expect((await hashes.find({ hash: 'paid' }).toArray()).map((r) => r.txid)).to.deep.equal(['first']);
+      const call = ensureIndexes.getCalls().find((c) => c.args[0].collectionName === appsHashes);
+      const unique = call.args[1].find((spec) => spec.name === 'query for getting app hash');
+      expect(unique).to.include({ unique: true, recover: explorerService.keepEarliestPayment });
+      expect(unique.key).to.deep.equal({ hash: 1 });
     });
 
-    it('lets the boot backfill read only the payment records without a position', async () => {
-      await hashes.insertMany([
-        ...Array.from({ length: 50 }, (_, i) => ({ hash: `placed${i}`, txid: `placed${i}`, height: i, txIndex: 0 })),
-        { hash: 'unplaced', txid: 'unplaced', height: 60 },
-      ]);
+    it('indexes the payment records by position, which the boot backfill reads the ones without through', async () => {
+      const ensureIndexes = sinon.stub(dbHelper, 'ensureIndexes').resolves();
 
       await explorerService.prepareCollections();
 
-      const { executionStats } = await hashes.find(UNPOSITIONED).explain('executionStats');
-      expect(executionStats.nReturned).to.equal(1);
-      expect(executionStats.totalDocsExamined, 'the backfill read records that have a position').to.equal(1);
+      const call = ensureIndexes.getCalls().find((c) => c.args[0].collectionName === appsHashes);
+      expect(call.args[1].map((spec) => spec.key)).to.deep.include({ txIndex: 1 });
     });
 
     it('starts no scan from zero until its collections hold their indexes', async () => {

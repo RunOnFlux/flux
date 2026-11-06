@@ -1,4 +1,5 @@
-// base-image: FLUX_E2E_BASE_TAG
+// upgrades-from: v8.21.1
+import { fileURLToPath } from 'node:url';
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -12,6 +13,7 @@ import {
 } from '../framework/host-stall.js';
 import { failCommands } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { upgradeBase } from '../framework/upgrade-base.js';
 
 // A node upgraded from a release that gave app containers no slice of their own:
 // the app's container, made by the release, lives in its runtime's scope under
@@ -21,10 +23,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // the node finds no app by name. It goes out of service for the stall, and kills
 // every container outside the slices all the same: the app's container among them,
 // and nothing of those containers is reported as able to run.
-//
-// Without FLUX_E2E_BASE_TAG the suite fails before booting, naming the build it needs.
 
-const BASE_TAG = process.env.FLUX_E2E_BASE_TAG;
+const { tag: BASE_TAG } = upgradeBase(fileURLToPath(import.meta.url));
 const READ_INTERVAL_MS = 5 * 1000;
 const STUCK_INTERVALS = 6;
 const STOP_WINDOW_MS = 10 * 1000;
@@ -59,9 +59,6 @@ describe('a stalled host kills a container made before the app slices', function
 
   before(async function () {
     this.timeout(900000);
-    if (!BASE_TAG) {
-      throw new Error('FLUX_E2E_BASE_TAG names the node image of the released FluxOS the node upgrades from: build it with FLUX_E2E_TAG=<base-tag> ./test-infra/build-release-image.sh <release ref>');
-    }
     env = await createTestEnv({
       hookCtx: this,
       nodes: 3,
@@ -73,7 +70,6 @@ describe('a stalled host kills a container made before the app slices', function
         fluxapps: { appRemovalDeadlineMs: REMOVAL_DEADLINE_MS },
       },
     });
-    if (BASE_TAG === env.nodeImageTag(1)) throw new Error('FLUX_E2E_BASE_TAG must name another build than FLUX_E2E_TAG: the suite upgrades from the one to the other');
     await bootAndPeer(env);
     client = env.clients[UPGRADED];
     ({ container } = client);

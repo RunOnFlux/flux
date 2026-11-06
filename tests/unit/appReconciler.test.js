@@ -695,6 +695,60 @@ describe('appReconciler tests', () => {
       sinon.assert.callOrder(stubs.volumeService.ensureAppVolumeMounted, stubs.volumeService.clearAppVolumeData);
     });
 
+    // Nothing may arrive in a component's folder while its local appdata is still
+    // to be cleared, so whether one is still owed is asked, and its end announced.
+    it('says a data clear is owed from the request until the clear is done, whichever name it is asked by', async () => {
+      appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
+
+      expect(appReconciler.dataClearPending('www_App')).to.equal(true);
+      expect(appReconciler.dataClearPending('fluxwww_App'), 'the folder\'s name').to.equal(true);
+      // requestStopAndClearData enqueues its own reconcile; wait for it to land
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
+      expect(appReconciler.dataClearPending('www_App')).to.equal(false);
+    });
+
+    it('announces a clear once the data is cleared, and not before', async () => {
+      const cleared = sinon.spy();
+      appReconciler.dataEvents.on('cleared', cleared);
+      let clearedWhenWiped = null;
+      stubs.volumeService.clearAppVolumeData.callsFake(async () => { clearedWhenWiped = cleared.called; });
+      try {
+        appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+        expect(clearedWhenWiped, 'announced before the wipe').to.equal(false);
+        sinon.assert.calledOnceWithExactly(cleared, 'www_App');
+      } finally {
+        appReconciler.dataEvents.off('cleared', cleared);
+      }
+    });
+
+    it('keeps a clear owed, and announces nothing, when the clear fails', async () => {
+      const cleared = sinon.spy();
+      appReconciler.dataEvents.on('cleared', cleared);
+      stubs.volumeService.clearAppVolumeData.rejects(new Error('device busy'));
+      try {
+        appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+        expect(stubs.volumeService.clearAppVolumeData.called, 'canary: the clear was tried').to.be.true;
+        expect(appReconciler.dataClearPending('www_App')).to.equal(true);
+        sinon.assert.notCalled(cleared);
+      } finally {
+        appReconciler.dataEvents.off('cleared', cleared);
+        appReconciler.forgetDesiredState('www_App');
+      }
+    });
+
+    it('owes no clear for a component that is removed', () => {
+      appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
+      appReconciler.forgetDesiredState('www_App');
+
+      expect(appReconciler.dataClearPending('www_App')).to.equal(false);
+    });
+
     // An operator stopping an app says nothing about whether its local data can
     // be trusted. Dropping the pending clear here loses it for good: the sync
     // layer marks a component processed BEFORE it asks, so it never asks again,

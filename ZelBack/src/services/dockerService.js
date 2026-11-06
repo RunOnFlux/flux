@@ -12,6 +12,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
 const { isFluxStorageUrl, storageLinkOf } = require('./utils/fluxStorage');
 const log = require('../lib/log');
+const fluxEventBus = require('./utils/fluxEventBus');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 const LogFrameDecoder = require('./utils/logFrameDecoder');
 const appSlice = require('./appLifecycle/appSlice');
@@ -19,12 +20,6 @@ const appSlice = require('./appLifecycle/appSlice');
 const globalState = require('./utils/globalState');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
-
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
-// ToDo: Fix all the string concatenation in this file and use path.join()
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-// eslint-disable-next-line no-unused-vars
-const appsFolder = `${appsFolderPath}/`;
 
 const docker = new Docker();
 
@@ -292,17 +287,47 @@ async function dockerContainerChanges(idOrName) {
  * @param {function} callback Callback.
  */
 function dockerPullStream(pullConfig, res, callback) {
-  const { repoTag, provider, authToken } = pullConfig;
-  let pullOptions;
+  const { repoTag, provider, authToken, stallMs } = pullConfig;
+  const pullOptions = {};
+
+  // A pull that stops moving is a dead transfer (a registry that accepts and never
+  // answers): the pull fails and the transfer is aborted. Moving is a layer's
+  // status or byte count changing - docker's containerd image store re-reads
+  // every download's offset every 100 ms and reports it whether or not it moved,
+  // so a report that repeats the last one for its layer is not progress. Total
+  // pull time is not bounded: a large image that keeps moving is work, and docker
+  // resumes completed layers but not a partial one, so a wall clock could fail a
+  // large layer every time.
+  const stallWindowMs = stallMs ?? config.fluxapps.pullStallMs;
+  const stallController = new AbortController();
+  let stallTimer = null;
+  let settled = false;
+  let downloading = false;
+  // What each layer last reported, by its id.
+  const lastReported = new Map();
+  const done = (error, data) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(stallTimer);
+    callback(error, data);
+  };
+  const armStallTimer = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      // Reported first: an error the abort surfaces afterwards lands on a settled callback.
+      done(new Error(`Pull of ${repoTag} stalled: no progress for ${Math.round(stallWindowMs / 1000)}s`));
+      stallController.abort();
+      fluxEventBus.publish('image:pullStalled', { repoTag });
+    }, stallWindowMs);
+    if (stallTimer.unref) stallTimer.unref();
+  };
 
   // fix this auth token stuff upstream
   if (authToken) {
     if (authToken.includes(':')) { // specified by username:token
-      pullOptions = {
-        authconfig: {
-          username: authToken.split(':')[0],
-          password: authToken.split(':')[1],
-        },
+      pullOptions.authconfig = {
+        username: authToken.split(':')[0],
+        password: authToken.split(':')[1],
       };
       if (provider) {
         pullOptions.authconfig.serveraddress = provider;
@@ -311,15 +336,33 @@ function dockerPullStream(pullConfig, res, callback) {
       throw new Error('Invalid login credentials for docker provided');
     }
   }
+  // docker-modem sets the signal on the request, so aborting it ends the transfer.
+  pullOptions.abortSignal = stallController.signal;
+
+  armStallTimer();
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
       if (error) {
-        callback(err);
-      } else {
-        callback(null, output);
+        done(error);
+        return;
       }
+      // docker reports a registry or blob failure as an {error} event in the
+      // stream and then ends it cleanly; followProgress fails only on the socket.
+      const errorEvent = Array.isArray(output) ? output.find((e) => e && e.error) : null;
+      if (errorEvent) done(new Error(errorEvent.errorDetail?.message || errorEvent.error));
+      else done(null, output);
     }
     function onProgress(event) {
+      const layer = event?.id ?? '';
+      const reported = `${event?.status}:${event?.progressDetail?.current ?? ''}`;
+      if (lastReported.get(layer) !== reported) {
+        lastReported.set(layer, reported);
+        armStallTimer();
+      }
+      if (!downloading && event?.status === 'Downloading') {
+        downloading = true;
+        fluxEventBus.publish('image:pullDownloading', { repoTag });
+      }
       if (res) {
         res.write(serviceHelper.ensureString(event));
         if (res.flush) res.flush();
@@ -327,7 +370,7 @@ function dockerPullStream(pullConfig, res, callback) {
       log.info(event);
     }
     if (err) {
-      callback(err);
+      done(err);
     } else {
       docker.modem.followProgress(mystream, onFinished, onProgress);
     }
@@ -955,6 +998,23 @@ function componentIdentityLabels(appName, componentName, owner) {
 }
 
 /**
+ * A container's CPU limit as docker's NanoCpus.
+ *
+ * Docker reads a NanoCpus of 0 as no limit, which gives the container every
+ * core on the node, so a limit that is not a positive whole number of nanoCPUs
+ * is refused rather than passed on.
+ * @param {number} nanoCpus
+ * @returns {number} nanoCpus
+ * @throws {Error} If nanoCpus is not a positive integer.
+ */
+function cpuLimit(nanoCpus) {
+  if (!Number.isSafeInteger(nanoCpus) || nanoCpus <= 0) {
+    throw new Error(`A CPU limit of ${nanoCpus} nanoCPUs is not a limit`);
+  }
+  return nanoCpus;
+}
+
+/**
  * Creates an app container.
  *
  * @param {object} appSpecifications
@@ -964,6 +1024,7 @@ function componentIdentityLabels(appName, componentName, owner) {
  */
 async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  const nanoCpus = cpuLimit(Math.round(appSpecifications.cpu * 1e9));
   let exposedPorts = {};
   let portBindings = {};
   if (appSpecifications.version === 1) {
@@ -1202,7 +1263,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     ExposedPorts: exposedPorts,
     Labels: containerLabels,
     HostConfig: {
-      NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
+      NanoCPUs: nanoCpus,
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
@@ -1337,12 +1398,13 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
  */
 async function appDockerUpdateCpu(idOrName, nanoCpus) {
   try {
+    const limit = cpuLimit(nanoCpus);
     // Get the Docker container by ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
     // Update the container's CPU resources
     await dockerContainer.update({
-      NanoCpus: nanoCpus,
+      NanoCpus: limit,
     });
 
     return `Flux App ${idOrName} successfully updated with ${nanoCpus / 1e9} CPUs.`;

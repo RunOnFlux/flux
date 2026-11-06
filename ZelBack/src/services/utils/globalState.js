@@ -6,6 +6,10 @@ const { AsyncLock } = require('./asyncLock');
 
 let removalInProgress = false;
 let installationInProgress = false;
+// The app the install holding installationInProgress is for, when its holder names one.
+let installingApp = null;
+// Resolved once installationInProgress is released, for every caller waiting on it.
+let installationReleased = null;
 let softRedeployInProgress = false;
 let hardRedeployInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
@@ -195,6 +199,21 @@ const seedMarks = new Map();
 let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
 
+/**
+ * Every write of installationInProgress comes through here, so a release is seen
+ * by whoever waits on it.
+ * @param {boolean} value
+ */
+function setInstallationInProgress(value) {
+  installationInProgress = value;
+  if (value) return;
+  installingApp = null;
+  if (installationReleased) {
+    installationReleased.resolve();
+    installationReleased = null;
+  }
+}
+
 // Initialize cache references - this must be called after cacheManager is ready
 function initializeCaches(cacheManager) {
   if (cacheManager && cacheManager.appSpawnErrorCache && cacheManager.appSpawnCache) {
@@ -210,7 +229,25 @@ module.exports = {
   set removalInProgress(value) { removalInProgress = value; },
 
   get installationInProgress() { return installationInProgress; },
-  set installationInProgress(value) { installationInProgress = value; },
+  set installationInProgress(value) { setInstallationInProgress(value); },
+
+  get installingApp() { return installingApp; },
+  set installingApp(value) { installingApp = value; },
+
+  /**
+   * Resolves once no install holds the node: at once when none does, otherwise
+   * when the holder releases installationInProgress, however long it runs.
+   * @returns {Promise<void>}
+   */
+  whenInstallationReleased() {
+    if (!installationInProgress) return Promise.resolve();
+    if (!installationReleased) {
+      let resolve;
+      const promise = new Promise((done) => { resolve = done; });
+      installationReleased = { promise, resolve };
+    }
+    return installationReleased.promise;
+  },
 
   get softRedeployInProgress() { return softRedeployInProgress; },
   set softRedeployInProgress(value) { softRedeployInProgress = value; },
@@ -387,8 +424,8 @@ module.exports = {
   // Helper functions to match original API
   removalInProgressReset() { removalInProgress = false; },
   setRemovalInProgressToTrue() { removalInProgress = true; },
-  installationInProgressReset() { installationInProgress = false; },
-  setInstallationInProgressTrue() { installationInProgress = true; },
+  installationInProgressReset() { setInstallationInProgress(false); },
+  setInstallationInProgressTrue() { setInstallationInProgress(true); },
   softRedeployInProgressReset() { softRedeployInProgress = false; },
   setSoftRedeployInProgressTrue() { softRedeployInProgress = true; },
   hardRedeployInProgressReset() { hardRedeployInProgress = false; },

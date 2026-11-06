@@ -300,12 +300,20 @@ export async function restartFluxos(container, { apiPort = 16127, readyTimeoutMs
   throw new Error(`restartFluxos: FluxOS did not cycle down and back up within ${readyTimeoutMs}ms`);
 }
 
-// Set the api port a node's FluxOS takes at its next start, as an operator
-// changing it does. The port is read once, when FluxOS starts: restartFluxos with
-// the same apiPort brings it up there.
-export async function setNodeApiPort(container, apiPort) {
-  const r = await execInContainer(container, `sed -i -E 's/^( *apiport:).*,$/\\1 ${Number(apiPort)},/' /flux/config/userconfig.js && grep -q 'apiport: ${Number(apiPort)},' /flux/config/userconfig.js`);
-  if (r.exitCode !== 0) throw new Error(`setNodeApiPort: could not set apiport ${apiPort}: ${r.output}`);
+// The node's api port in its userconfig.js, and whether it maps its ports through UPnP
+// (`upnp`, which FluxOS reads as declared): a suite that gives a node an api port puts it
+// behind a router, so a UPnP node unless it says otherwise. FluxOS takes them at its next
+// start: restartFluxos with the same apiPort brings it up there. The forward that stands in
+// for the node's syncthing on apiport+2 moves now.
+export async function setNodeApiPort(container, apiPort, { upnp = true } = {}) {
+  const file = '/flux/config/userconfig.js';
+  const env = '/etc/fluxos-harness.env';
+  const port = Number(apiPort);
+  const r = await execInContainer(container, `sed -i -E 's/^( *apiport:).*,$/\\1 ${port},/' ${file} && grep -q 'apiport: ${port},' ${file}`
+    + ` && sed -i -E '/^ *upnp:/d' ${file} && sed -i -E 's/^( *)(apiport:.*,)$/\\1\\2\\n\\1upnp: ${upnp},/' ${file} && grep -q 'upnp: ${upnp},' ${file}`
+    + ` && sed -i -E 's/^FLUX_API_PORT=.*$/FLUX_API_PORT="${port}"/' ${env} && grep -q '^FLUX_API_PORT="${port}"$' ${env}`
+    + ' && { ! systemctl is-active -q syncthing-forward || systemctl restart syncthing-forward; }');
+  if (r.exitCode !== 0) throw new Error(`setNodeApiPort: could not set apiport ${apiPort} and upnp ${upnp}: ${r.output}`);
 }
 
 export async function getContainerImageDigest(container, appName, componentName) {
@@ -408,6 +416,22 @@ function trafficRules(peerIp, port) {
   ]);
 }
 
+// Slows the traffic a node receives from an address to `rateKbit`: packets
+// over the rate are dropped on arrival, and TCP backs off to it. For a transfer
+// that must still be running when a suite acts on it. One shaping per node;
+// clearTrafficShaping undoes it.
+export async function shapeTraffic(container, { from, rateKbit, iface = 'eth0' }) {
+  const r = await execInContainer(container, `tc qdisc add dev ${iface} handle ffff: ingress && `
+    + `tc filter add dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${from}/32 `
+    + `police rate ${rateKbit}kbit burst 32k drop flowid :1`);
+  if (r.exitCode !== 0) throw new Error(`shapeTraffic: could not shape ${from} on ${iface}: ${r.output}`);
+}
+
+// Undo shapeTraffic. Tolerates a node with nothing shaped.
+export async function clearTrafficShaping(container, { iface = 'eth0' } = {}) {
+  await execInContainer(container, `tc qdisc del dev ${iface} ingress 2>/dev/null; true`);
+}
+
 export async function blockTraffic(container, peerIps, port) {
   for (const peerIp of peerIps) {
     for (const rule of trafficRules(peerIp, port)) {
@@ -436,14 +460,15 @@ export async function configuredIpOf(container) {
   return r.stdout.trim();
 }
 
-// A crash of one node's FluxOS: the process is killed outright, with no
-// shutdown handling at all. `hold` keeps the node down afterwards, as a machine
-// that lost power stays down; releaseFluxos brings it back.
-export async function crashFluxos(container, { hold = false, exitTimeoutMs = 30000, interval = 250 } = {}) {
+// Signals one node's FluxOS and returns once the process has exited. `hold`
+// keeps the node down afterwards, as a machine stays down until its next boot;
+// releaseFluxos brings it back.
+export async function signalFluxos(container, signal, { hold = false, exitTimeoutMs = 30000, interval = 250 } = {}) {
   const pid = await fluxosPid(container);
-  if (!pid) throw new Error('crashFluxos: FluxOS is not running');
+  if (!pid) throw new Error(`signalFluxos: FluxOS is not running to receive SIG${signal}`);
   if (hold) await holdFluxos(container);
-  await execInContainer(container, `kill -9 ${pid}`);
+  const signalled = await execInContainer(container, `kill -${signal} ${pid}`);
+  if (signalled.exitCode !== 0) throw new Error(`signalFluxos: could not send SIG${signal} to ${pid}: ${signalled.output}`);
   const start = Date.now();
   while (Date.now() - start < exitTimeoutMs) {
     throwIfInfraDead();
@@ -452,7 +477,14 @@ export async function crashFluxos(container, { hold = false, exitTimeoutMs = 300
     // eslint-disable-next-line no-await-in-loop
     await sleepUnlessInfraDead(interval);
   }
-  throw new Error(`crashFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGKILL`);
+  throw new Error(`signalFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIG${signal}`);
+}
+
+// A crash of one node's FluxOS: the process is killed outright, with no
+// shutdown handling at all. `hold` keeps the node down afterwards, as a machine
+// that lost power stays down; releaseFluxos brings it back.
+export async function crashFluxos(container, options = {}) {
+  return signalFluxos(container, 'KILL', options);
 }
 
 // A command as a legacy node's operator runs pm2: as their account, against their pm2

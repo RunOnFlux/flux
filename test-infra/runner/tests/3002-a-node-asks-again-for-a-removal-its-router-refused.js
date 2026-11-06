@@ -4,7 +4,7 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { restartFluxos, setNodeApiPort } from '../framework/container.js';
+import { giveNodeApiPort } from '../framework/node-address.js';
 import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
@@ -34,9 +34,7 @@ describe('a node asks again for a removal its router refused', function () {
     // the first boot writes userconfig.js (its identity) and would put back the old port
     await waitForBootSettled(env.clients[0]);
     await enableUpnpGateway(nodeIp, { refuseDeletes: REFUSED });
-    await setNodeApiPort(env.clients[0].container, API_PORT);
-    await restartFluxos(env.clients[0].container, { apiPort: API_PORT });
-    await env.clients[0].followTo(nodeIp, API_PORT);
+    await giveNodeApiPort(env, 0, API_PORT);
   });
 
   after(async function () {

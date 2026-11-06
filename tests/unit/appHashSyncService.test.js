@@ -864,6 +864,26 @@ describe('appHashSyncService tests', () => {
       assertExpiryBehavior();
     });
 
+    it('counts the year of looking from the first look, not from an old payment', async () => {
+      const unlooked = {
+        hash: 'ancient_unlooked', txid: 'tx3', height: 500000, value: 10, message: false, syncAttempts: 0,
+      };
+      dbHelperStub.findInDatabase.resolves([unlooked]);
+      dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
+
+      advanceDateOnDelay();
+      try {
+        await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
+      } finally {
+        Date.now.restore();
+      }
+
+      expect(messageVerifierStub.appHashHasMessageNotFound.called, 'given up on at its first look').to.be.false;
+      const backoff = collectionStub.bulkWrite.args.flatMap(([ops]) => ops)
+        .find((op) => op.updateOne?.filter?.hash === 'ancient_unlooked');
+      expect(backoff.updateOne.update.$set.retryFromHeight).to.equal(2555000);
+    });
+
     it('should use retryFromHeight for expiry via bulk fetch path', async () => {
       const { recentRetry, oldRetry } = makeExpiryTestHashes();
       const padding = Array(500).fill(null).map((_, i) => ({

@@ -28,9 +28,8 @@ const benchmarkService = require('./benchmarkService');
 const { CLASSIFICATION } = require('./utils/networkClassifier');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const globalState = require('./utils/globalState');
-const { compareInstanceSeniority } = require('./utils/instanceOrdering');
-const { socketAddressesMatch } = require('./utils/socketAddressUtils');
 const fluxEventBus = require('./utils/fluxEventBus');
+const handbackTurns = require('./utils/handbackTurns');
 
 const DOS_MESSAGE_PREFIX = 'Residential node not running ArcaneOS';
 const HOLD_REASON = 'residential node not running ArcaneOS';
@@ -55,50 +54,23 @@ const SETTLE_MS = config.fluxapps.residentialSettleMs;
 // as its own number, so it holds the same proportion at any scale the harness
 // compresses that cadence to.
 const MAX_CONFIRMATION_GAP_MS = CHECK_INTERVAL_MS * 2;
-// A node may act on an app only once it has seen that app at full strength for
-// base + position * step. Position in the shared instance order is a DELAY,
-// never a veto: a rule of "only the most junior may leave" deadlocks, because
-// the replacement is itself the most junior and does not want to leave.
-const QUEUE_BASE_MS = config.fluxapps.residentialQueueBaseMs;
-const QUEUE_STEP_MS = config.fluxapps.residentialQueueStepMs;
-// The ticket is served against an UNINTERRUPTED observation - the wait means
-// nothing if it can be accumulated across periods this node was not watching -
-// and this is what counts as the interruption. A gap longer than one queue step
-// means at least one whole give-up pass went by without this node evaluating
-// the app, so the observation starts again rather than carrying over.
+// A node may hand an app back only in a turn it owns. Turns are cut from block
+// time, TURN_MS each, and a turn belongs to whichever holder of the app has the
+// lowest hash of the turn number and its signing key. Block time and keys are
+// the same on every node and no holder can move either, so two holders that
+// count each other compute the same owner, whenever each started looking and
+// whatever either announces.
 //
-// It is what stops the departure interval leaking into the queue. A node inside
-// its interval returns ABOVE the accounting below, so it records nothing for
-// the whole block; the first pass after the block clears sees one six-hour gap
-// and every ticket starts again. Without that, position separates the FIRST
-// departure and nothing after it: every ticket matures untouched during the
-// block, and the node is instantly ready for all of them the moment it clears.
-// Two nodes whose blocks expire in the same pass then hand back the same app
-// together, which is the defect the step was widened to 40 minutes to close -
-// reached by the other door.
+// The holders are the ones the app's own signed announcements name - see
+// messageStore.signedHoldersOf - never the location table, which unsigned
+// evictions can trim differently on different nodes.
 //
-// Derived from the step rather than written as its own number, because the step
-// is ALREADY required to outlast the pass: that inequality is asserted against
-// production's config in the unit tests and re-derived per fleet by
-// test-infra's coupled knobs. A literal here would be a third place that has to
-// be kept in step with the block time, and the last hand-written number in this
-// neighbourhood inverted the property it was meant to enforce.
-//
-// TWICE the step, not once. A gap has to mean "a pass did not happen", and one
-// step is 1.82 passes - so a single pass running late trips it. Production
-// hardly notices that (40 minutes of lateness on a 22-minute pass is an
-// incident in itself), but the harness compresses the same ratio to about 30
-// seconds, where six fleets booting at once make a late pass ordinary. The
-// ticket then restarts every few passes and never matures at all: on chud it
-// counted 2m, 1m, 0m, and jumped back to 2m, three times over, and the suite
-// waiting on it timed out.
-//
-// The ABSOLUTE jitter does not compress with the clocks, which is why a ratio
-// that is comfortable at production scale is not comfortable at harness scale.
-// Two steps is ~3.6 passes: a pass has to be missed outright, not merely be
-// slow. The departure interval is what must still exceed it - see the coupled
-// knob that enforces exactly that.
-const MAX_TICKET_GAP_MS = QUEUE_STEP_MS * 2;
+// A node acts only on the SECOND pass of a turn it owns: one whose previous
+// pass also fell in that turn. A late pass is judged at its due block's time
+// and still decides before the next pass block exists, so a whole pass always
+// separates two holders acting, and a departure has that pass to reach every
+// other holder before the next owner reads the count.
+const TURN_MS = config.fluxapps.residentialTurnMs;
 // Minimum gap between this node's departures. The give-up-an-app pass runs every
 // 11 blocks (~22 min), which unpaced would empty the busiest node in the fleet in
 // about four hours; there is no deadline here and slower is strictly safer.
@@ -111,16 +83,6 @@ let timerHandle = null;
 let started = false;
 let stopping = false;
 let inconclusiveStreak = 0;
-// appName -> { since, lastSeenAt } on the MONOTONIC clock, for an app this node
-// has seen at full strength on every pass since `since`. Process lifetime only:
-// losing it costs a queue wait, never a premature removal.
-//
-// Two fields rather than one, because the ticket is an uninterrupted observation
-// and not an elapsed time. `since` is what the wait is measured from;
-// `lastSeenAt` is the only way an interruption can be detected at all - without
-// it a node that stopped looking, or one that was not allowed to act, goes on
-// accruing credit for time it never spent watching.
-const wholeObservation = new Map();
 // Whether the settling window has elapsed and departures may begin.
 const OWNER = fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS;
 
@@ -178,12 +140,12 @@ appSyncEvents.on(SYNC_EVENTS.SPAWNER_READY, () => { nodeReady = true; });
 appSyncEvents.on(SYNC_EVENTS.READINESS_LOST, () => { nodeReady = false; });
 
 /**
- * Milliseconds on the monotonic clock. Every elapsed-time decision the queue
- * ticket makes reads this rather than the wall clock, so an NTP step cannot
- * mature a ticket against time this node never spent watching. The backward
- * step matters too, and more here than in most places: this runs on a box its
- * own operator administers, and the operator has an incentive to stall the
- * drain.
+ * Milliseconds on the monotonic clock. The departure interval reads this
+ * rather than the wall clock, so an NTP step cannot serve it against time that
+ * did not pass. The backward step matters too, and more here than in most
+ * places: this runs on a box its own operator administers, and the operator has
+ * an incentive to stall the drain. The queue turns read neither clock: they are
+ * judged at block time, which the operator cannot move.
  *
  * Only values that must survive a restart stay on the wall clock, because a
  * monotonic reading means nothing to the next process.
@@ -428,28 +390,28 @@ async function listInstalledApps(installedAppsFn) {
 }
 
 /**
- * How long this node must have seen an app whole before it may act on it.
- * @param {object[]} locations Instance locations, any order.
- * @param {string} localSocketAddr This node's socket address.
- * @returns {number} Milliseconds.
+ * The turn a block time falls in.
+ * @param {number} timeMs Block time, epoch ms.
+ * @returns {number}
  */
-function queueDelayMs(locations, localSocketAddr) {
-  // Junior end first - the same order reasonToGiveUpApp ranks SURPLUS by, and
-  // for the same reason: the newest copy stands aside and the senior one goes
-  // on holding the data. Ranking the senior end first also put the ONE case
-  // that cannot simply leave at the front of the queue, because the elected
-  // primary is the senior instance: the node needing a stand-down was asked to
-  // go before any of the nodes that could just go, and every node behind it
-  // waited out its step while it negotiated. Senior last is both orders
-  // agreeing and the cheap departures happening first.
-  const ordered = [...locations].sort((a, b) => compareInstanceSeniority(b, a));
-  const index = ordered.findIndex((entry) => socketAddressesMatch(entry.ip, localSocketAddr));
-  // An instance this node cannot find in the list waits longest. For an EMPTY
-  // list `ordered.length` is 0, which is the front of the queue - the shortest
-  // wait of all, inverting the rule. An empty list is the ordinary result of
-  // expired location records, so it is not an exotic input.
-  const position = index < 0 ? Math.max(ordered.length, 1) : index;
-  return QUEUE_BASE_MS + (position * QUEUE_STEP_MS);
+function turnOf(timeMs) {
+  return handbackTurns.turnOf(timeMs, TURN_MS);
+}
+
+/**
+ * Whether this node has owned a whole turn strictly between two turns: a node
+ * that stood down in `sinceTurn` and has since had a turn of its own to leave in.
+ * @param {string[]} holderKeys Signing keys of the app's holders.
+ * @param {string} ownKey This node's signing key.
+ * @param {number} sinceTurn
+ * @param {number} atTurn
+ * @returns {boolean}
+ */
+function ownedTurnSince(holderKeys, ownKey, sinceTurn, atTurn) {
+  for (let turn = sinceTurn + 1; turn < atTurn; turn += 1) {
+    if (handbackTurns.turnOwner(holderKeys, turn) === ownKey) return true;
+  }
+  return false;
 }
 
 /**
@@ -492,17 +454,17 @@ function isEvacuating() {
  *
  * This is the pacing half of the decision and says nothing about safety; the
  * give-up-an-app pass asks appEvacuationSafety separately, and both must agree.
- * @param {string} appName Global app name.
- * @param {object[]} locations Instance locations for the app.
- * @param {string} localSocketAddr This node's socket address.
+ * @param {Array<{key: string, expireAt: Date}>} holders The app's holders by
+ *   their signed announcements (registryManager.signedHoldersOf).
+ * @param {string} ownKey This node's signing key.
  * @param {number} minInstances How many instances this app is meant to have.
  *   Passed in rather than derived here, so the pacing half of the decision and
  *   the SURPLUS half are ranked by one number instead of two. It is the LOCAL
  *   record's count; appEvacuationSafety re-derives from the global spec, which
- *   is the authority at the moment of removal. They can differ while an owner's
- *   instance-count change propagates, and either way round is safe: too low
- *   here lets a ticket run that the safety gate then refuses as short, which
- *   restarts the observation, and too high only makes the turn wait longer.
+ *   is the authority at the moment of removal.
+ * @param {{timeMs: number, previousTimeMs: number}} pass The give-up pass
+ *   asking: its due block's time, and the time of the due block of the pass
+ *   before it.
  * @param {number} [now] Monotonic ms, injectable for tests.
  * @returns {{ok: boolean, code: string, reason: string}} `code` is the
  *   machine-readable half. A caller that has to tell "waiting its turn" from
@@ -512,37 +474,51 @@ function isEvacuating() {
  *   is deliberately the name appEvacuationSafety already uses for the same
  *   fact, because it IS the same fact asked one layer earlier.
  */
-function mayEvacuateApp(appName, locations, localSocketAddr, minInstances, now = monotonicMs()) {
+function mayEvacuateApp(holders, ownKey, minInstances, pass, now = monotonicMs()) {
   if (!evacuating) return { ok: false, code: 'NOT_EVACUATING', reason: 'node is not evacuating' };
   if (lastEvacuationAt !== null && now - lastEvacuationAt < EVACUATION_INTERVAL_MS) {
     const wait = Math.round((EVACUATION_INTERVAL_MS - (now - lastEvacuationAt)) / 60000);
     return { ok: false, code: 'DEPARTURE_INTERVAL', reason: `next departure in ${wait}m` };
   }
-
-  // Everything below is the ticket, and it sits BELOW the interval gate on
-  // purpose: a blocked node records nothing, so its own block reads as one long
-  // gap and the ticket starts again. See MAX_TICKET_GAP_MS.
-  const previous = wholeObservation.get(appName);
-  const gap = previous ? now - previous.lastSeenAt : Infinity;
-  // Strength is tested HERE, where the clock is stamped, rather than left to
-  // the safety gate. The wait is "seen at full strength for base + position x
-  // step"; a clock that starts on the first ASK measures something else, and an
-  // app short of its count is one the spawner is part way through replacing.
-  // Time spent watching that is not time spent watching it whole.
-  const whole = locations.length >= minInstances;
-  const since = (!whole || gap > MAX_TICKET_GAP_MS) ? now : previous.since;
-  wholeObservation.set(appName, { since, lastSeenAt: now });
-  if (!whole) {
+  const holderKeys = holders.map((holder) => holder.key);
+  // An app short of its count is one the spawner is part way through
+  // replacing.
+  if (holderKeys.length < minInstances) {
     return {
       ok: false,
       code: 'BELOW_INSTANCE_COUNT',
-      reason: `app is below its instance count (${locations.length}/${minInstances}); its turn starts again`,
+      reason: `app is below its instance count (${holderKeys.length}/${minInstances})`,
     };
   }
-  const wait = queueDelayMs(locations, localSocketAddr);
-  const observed = now - since;
-  if (observed < wait) {
-    return { ok: false, code: 'AWAITING_TURN', reason: `its turn is in ${Math.round((wait - observed) / 60000)}m` };
+  // Exactly the count, never above it. Two holders that each fail to count the
+  // other compare different sets and can both own a turn; above the count, one
+  // missing holder still leaves each at strength, and both would leave. At the
+  // count, a holder missing from either view leaves that view short. A spare
+  // copy is the surplus trim's to remove.
+  if (holderKeys.length > minInstances) {
+    return {
+      ok: false,
+      code: 'ABOVE_INSTANCE_COUNT',
+      reason: `app is above its instance count (${holderKeys.length}/${minInstances}); the surplus trim takes the spare copy first`,
+    };
+  }
+  const own = holders.find((holder) => holder.key === ownKey);
+  if (!own) {
+    return { ok: false, code: 'NOT_LISTED', reason: 'no signed announcement of this node holding the app is standing, so it has no turn' };
+  }
+  // Another holder judging this turn late reads the records standing when it
+  // reads them. One that lapses inside the turn can be gone from that holder's
+  // count while this node still counts itself, and the two would compare
+  // different sets.
+  if (new Date(own.expireAt).getTime() <= pass.timeMs + TURN_MS) {
+    return { ok: false, code: 'ANNOUNCEMENT_LAPSING', reason: 'this node\'s own announcement of the app lapses within a turn' };
+  }
+  const turn = turnOf(pass.timeMs);
+  if (handbackTurns.turnOwner(holderKeys, turn) !== ownKey) {
+    return { ok: false, code: 'AWAITING_TURN', reason: 'another holder owns this turn' };
+  }
+  if (turnOf(pass.previousTimeMs) !== turn) {
+    return { ok: false, code: 'AWAITING_TURN', reason: 'first pass of its turn; it acts on the next' };
   }
   return { ok: true, code: 'READY', reason: 'ready' };
 }
@@ -554,7 +530,6 @@ function mayEvacuateApp(appName, locations, localSocketAddr, minInstances, now =
  */
 function noteEvacuated(appName, now = monotonicMs()) {
   lastEvacuationAt = now;
-  wholeObservation.delete(appName);
   // Written through to the marker, so a restart does not re-open the gate. Best
   // effort: the in-memory value already paces this process, and the persisted
   // one only has to survive into the next.
@@ -589,16 +564,6 @@ async function persistLastEvacuationAt(now) {
     unpersistedEvacuationAt = Math.max(unpersistedEvacuationAt ?? 0, now);
     log.warn(`residentialNodeDos - could not record the departure time, written again on the next tick: ${error.message}`);
   }
-}
-
-/**
- * Forget an app's queue observation. Called when it stops being safe to give up,
- * so the wait is served against an uninterrupted observation rather than
- * accumulated across a gap.
- * @param {string} appName Global app name.
- */
-function forgetAppObservation(appName) {
-  wholeObservation.delete(appName);
 }
 
 /**
@@ -698,7 +663,6 @@ async function runResidentialPolicy(deps) {
     evacuating = false;
     enforcing = false;
     observedWindowMs = 0;
-    wholeObservation.clear();
     return true;
   }
 
@@ -854,7 +818,6 @@ function stop() {
   evacuating = false;
   enforcing = false;
   observedWindowMs = 0;
-  wholeObservation.clear();
   if (timerHandle) {
     clearTimeout(timerHandle);
     timerHandle = null;
@@ -872,13 +835,14 @@ module.exports = {
   isArcaneOs,
   isResidential,
   isDosActive,
-  queueDelayMs,
+  turnOf,
+  turnOwner: handbackTurns.turnOwner,
+  ownedTurnSince,
   listInstalledApps,
   isEvacuating,
   getDosStaging,
   mayEvacuateApp,
   noteEvacuated,
-  forgetAppObservation,
   // Test seam for the readiness gate, which is otherwise only moved by events.
   setNodeReadyForTests: (value) => { nodeReady = value; },
   DOS_MESSAGE_PREFIX,
@@ -886,8 +850,6 @@ module.exports = {
   CHECK_INTERVAL_MS,
   RETRY_INTERVAL_MS,
   SETTLE_MS,
-  QUEUE_BASE_MS,
-  QUEUE_STEP_MS,
-  MAX_TICKET_GAP_MS,
+  TURN_MS,
   EVACUATION_INTERVAL_MS,
 };

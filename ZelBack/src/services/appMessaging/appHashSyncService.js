@@ -809,7 +809,11 @@ async function syncMissingHashes(options = {}) {
     const backoffOps = [];
     for (const hashDoc of finalMissing) {
       if (stored.has(hashDoc.hash)) continue;
-      if (currentHeight - hashDoc.retryFromHeight > HASH_EXPIRY_BLOCKS) {
+      // A hash is looked for for HASH_EXPIRY_BLOCKS from this node's first look,
+      // not from its payment: a node that records an old payment has not been
+      // looking for it since.
+      const retryFromHeight = hashDoc.retryFromHeight ?? currentHeight;
+      if (currentHeight - retryFromHeight > HASH_EXPIRY_BLOCKS) {
         // eslint-disable-next-line no-await-in-loop
         await messageVerifier.appHashHasMessageNotFound(hashDoc.hash);
         unreachable += 1;
@@ -823,7 +827,7 @@ async function syncMissingHashes(options = {}) {
         backoffOps.push({
           updateOne: {
             filter: { hash: hashDoc.hash },
-            update: { $set: { syncAttempts: attempts, nextRetryHeight: nextRetry } },
+            update: { $set: { syncAttempts: attempts, nextRetryHeight: nextRetry, retryFromHeight } },
           },
         });
       }

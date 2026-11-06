@@ -6,8 +6,13 @@ import { execInContainer, crashFluxos, releaseFluxos } from '../framework/contai
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes, electionOrder } from '../framework/reconciler-suite.js';
-import { waitFor, waitHolding, waitForGiveUpConsidered } from '../framework/wait.js';
-import { advanceBlock, driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
+import {
+  waitFor, waitHolding, waitForGiveUpConsidered, waitForStartedGiveUpPasses,
+} from '../framework/wait.js';
+import {
+  advanceBlock, driveUntil, getState, startTicker, stopTicker,
+} from '../framework/daemon-control.js';
+import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, stopDaemon, startDaemon,
 } from '../framework/syncthing-real.js';
@@ -137,7 +142,8 @@ describe('a surplus trim keeps the copy running any g: component', function () {
 
     // The surplus has to survive until the test drives the trim pass, which runs
     // on block heights: every node is brought level with a frozen tip first, so
-    // none processes its way onto one while the fixture is assembling.
+    // none processes its way onto one while the fixture is assembling, and a pass
+    // a holder started on its way up has decided before the stub joins.
     await stopTicker();
     const real = [OLDER, NEWEST, RING];
     const seen = real.map((i) => client(i).getLastEventId());
@@ -145,6 +151,7 @@ describe('a surplus trim keeps the copy running any g: component', function () {
     await Promise.all(real.map((i, k) => client(i).waitForEvent(
       'block:processed', (d) => d.height >= currentHeight, 120000, { afterId: seen[k] },
     )));
+    await waitForStartedGiveUpPasses(HOLDERS.map(client));
 
     const stub = env.stubPeerClients.get(STUB_INDEX);
     await waitFor(async () => (await stub.connectedNodes()) > 0, {
@@ -166,26 +173,40 @@ describe('a surplus trim keeps the copy running any g: component', function () {
 
   it('keeps the newest copy, which runs the second g: component with the first stopped, and trims the next copy instead', async function () {
     this.timeout(900000);
-    let kept = null;
-    const keeping = waitForGiveUpConsidered(
-      client(NEWEST), appName,
-      (d) => d.giveUp === false && d.reason === 'SURPLUS',
-      600000,
-      { afterId: client(NEWEST).getLastEventId() },
-    ).then((entry) => { kept = entry.data; return entry; });
-    keeping.catch(() => {});
+    // Each holder judges the pass's block on its own, and the next copy's trim
+    // reaches the newest as soon as it is made. The newest therefore decides
+    // first, with all three copies there: the next copy's explorer is held before
+    // the pass's block until the newest copy has declined to stand aside.
+    // The stub's tip: the drive has both holders process each block it mines.
+    const { fluxapps } = loadSharedConfig();
+    const tip = async () => (await getState()).currentHeight;
+    const startedAt = await tip();
+    const period = fluxapps.removeFluxAppsPeriod * (startedAt >= fluxapps.daemonPONFork ? 4 : 1);
+    const passHeight = (Math.floor(startedAt / period) + 1) * period;
+    await driveUntil(HOLDERS.map(client), async () => (await tip()) === passHeight - 1, {
+      blocks: period, label: 'both holders are a block below the trim pass',
+    });
 
-    // The pass runs every removeFluxAppsPeriod * speedMultiplier blocks and this
-    // drive spends about one period, so there is one attempt: a block is driven
-    // only while the newest copy is answering what the next copy will ask it.
-    await driveUntil(client(OLDER), async () => {
-      if (!await installedOn(NEWEST)) return true;
-      if (!await installedOn(OLDER)) return kept !== null;
-      await waitFor(newestAnswersHeld, {
-        timeout: 120000, interval: 3000, label: 'the newest copy still answers heldcomponents before another block is driven',
-      });
-      return false;
-    }, { timeoutMs: 600000, label: 'a copy is trimmed and the newest has declined to stand aside' });
+    const seenOlder = client(OLDER).getLastEventId();
+    const seenNewest = client(NEWEST).getLastEventId();
+    await client(OLDER).holdCheckpoint('explorer:beforeBlock');
+    await waitFor(newestAnswersHeld, {
+      timeout: 120000, interval: 3000, label: 'the newest copy answers heldcomponents before the pass\'s block',
+    });
+    await advanceBlock();
+    await client(OLDER).waitForEvent('checkpoint:held', (d) => d.name === 'explorer:beforeBlock', 60000, { afterId: seenOlder });
+    const kept = (await waitForGiveUpConsidered(
+      client(NEWEST), appName, (d) => d.giveUp === false && d.reason === 'SURPLUS', 120000, { afterId: seenNewest },
+    )).data;
+    expect(await installedOn(OLDER), 'the next copy had not trimmed when the newest decided').to.equal(true);
+
+    await client(OLDER).releaseCheckpoint('explorer:beforeBlock');
+    await waitForGiveUpConsidered(
+      client(OLDER), appName, (d) => d.giveUp === true && d.reason === 'SURPLUS', 120000, { afterId: seenOlder },
+    );
+    await waitFor(async () => !await installedOn(OLDER), {
+      timeout: 180000, interval: 3000, label: 'the next copy has removed itself',
+    });
     await startTicker();
 
     expect(await installedOn(NEWEST), 'the newest copy, which runs web, is still installed').to.equal(true);

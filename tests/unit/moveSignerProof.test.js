@@ -6,6 +6,7 @@ const networkStateService = require('../../ZelBack/src/services/networkStateServ
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
+const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
@@ -17,8 +18,8 @@ const { requireMongo } = require('./dbTestHelper');
 const { VerifyResult } = fluxCommunicationUtils;
 
 // A move heard after its confirmation was mined finds its node listed at the
-// new address only. It is accepted when the key listed there is the one that
-// last sent apprunning from the address it left.
+// new address only. It is accepted when the chain moved that node - its
+// collateral - from the address the move left to the one it names.
 describe('the proof a move\'s signer spoke for the address it left', () => {
   before(requireMongo);
 
@@ -26,13 +27,16 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
   const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
   const OLD = '203.0.113.170:16127';
   const NEW = '203.0.113.171:16127';
-  // where the address's previous holder moved to
   const ELSEWHERE = '203.0.113.180:16127';
+  const COLLATERAL = { txhash: 'aa'.repeat(32), outidx: '0' };
+  const OTHER_COLLATERAL = { txhash: 'bb'.repeat(32), outidx: '1' };
   const MINUTE = 60 * 1000;
-  const HOUR = 60 * MINUTE;
+  let records;
   let events;
   let locations;
   let listedAt;
+  // each test's blocks sit above every block recorded before it
+  let height = 6_000_000;
 
   const signed = async (data) => {
     const timestamp = Date.now();
@@ -41,145 +45,177 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
       version: 1, pubKey, timestamp, data, signature,
     };
   };
-  const move = (oldIP = OLD, newIP = NEW) => signed({
-    type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt: Date.now(),
+  const move = (oldIP = OLD, newIP = NEW, { broadcastedAt = Date.now() } = {}) => signed({
+    type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt,
   });
-  // apprunning stored for `ip`, signed by `key`, sent `ago` ms before now, with
-  // the location row it wrote for each of its apps
-  const ranAt = async (ip, key, { ago = 10 * MINUTE, apps = [{ name: 'proofapp' }], dedupKey = 'v2' } = {}) => {
-    const broadcastedAt = new Date(Date.now() - ago);
-    const expireAt = new Date(broadcastedAt.getTime() + HOUR);
-    if (apps.length) {
-      await locations.insertMany(apps.map(({ name }) => ({
-        name, hash: 'proofhash', ip, broadcastedAt, expireAt, runningSince: broadcastedAt,
-      })));
-    }
-    await events.insertOne({
-      ip,
-      type: 'apprunning',
-      dedupKey,
-      broadcastedAt,
-      expireAt,
-      data: {
-        type: 'fluxapprunning', version: 2, ip, apps, broadcastedAt: broadcastedAt.getTime(),
-      },
-      envelope: {
-        version: 1, timestamp: broadcastedAt.getTime(), pubKey: key, signature: 'SIG',
-      },
+  // a block confirming the node with `collateral` at `ip`, recorded as the explorer does
+  const confirmed = async (ip, collateral = COLLATERAL) => {
+    height += 5;
+    await fluxnodeAddressRecord.recordBlock({
+      height,
+      confirmations: 1,
+      tx: [{
+        version: 5, type: 'Confirming a fluxnode', txhash: collateral.txhash, outidx: collateral.outidx, ip,
+      }],
     });
+    return height;
   };
+  // the node list showing the signer's node at `ip`, last confirmed at `at`
+  const listed = (ip, at, collateral = COLLATERAL) => listedAt.withArgs(ip).resolves({
+    ip, pubkey: pubKey, txhash: collateral.txhash, outidx: collateral.outidx, last_confirmed_height: at,
+  });
 
   beforeEach(async () => {
     await dbHelper.initiateDB();
-    const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
-    events = database.collection(config.database.appsglobal.collections.appStateEvents);
-    locations = database.collection(config.database.appsglobal.collections.appsLocations);
+    const database = dbHelper.databaseConnection().db(config.database.daemon.database);
+    records = database.collection(config.database.daemon.collections.fluxnodeAddresses);
+    const appsGlobal = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+    events = appsGlobal.collection(config.database.appsglobal.collections.appStateEvents);
+    locations = appsGlobal.collection(config.database.appsglobal.collections.appsLocations);
+    // dropped, so the heights it has recorded go with it
+    await fluxnodeAddressRecord.drop(database);
     await events.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
     await locations.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
+    height += 1000;
     listedAt = sinon.stub(networkStateService, 'getFluxnodeBySocketAddress').resolves(null);
   });
 
   afterEach(async () => {
     sinon.restore();
+    await records.deleteMany({});
     await events.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
     await locations.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
   });
 
   describe('a move arriving by gossip, with its node listed at the new address only', () => {
-    beforeEach(() => {
-      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
-    });
-
-    it('is accepted when its signer last sent apprunning from the address it left', async () => {
-      await ranAt(OLD, pubKey);
+    it('is accepted when the chain moved its node from the address it left', async () => {
+      await confirmed(OLD);
+      listed(NEW, await confirmed(NEW));
 
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
     });
 
-    it('is refused when another node last sent apprunning from the address it left', async () => {
-      await ranAt(OLD, 'theothernodeskey');
-
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.PUBKEY_MISMATCH);
-    });
-
-    it('is dropped, as nothing shows who left, when no apprunning is stored for the address it left', async () => {
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
-    });
-
-    it('is unreadable, not dropped, when the rows at the address it left cannot be read', async () => {
-      await ranAt(OLD, pubKey);
-      sinon.stub(dbHelper, 'databaseConnection').returns({
-        db: () => ({ collection: () => ({ findOne: sinon.stub().rejects(new MongoNetworkTimeoutError('timed out')) }) }),
-      });
-
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.UNREADABLE);
-    });
-
-    it('is dropped when the only apprunning stored for the address it left has expired', async () => {
-      await ranAt(OLD, pubKey, { ago: 2 * HOUR });
+    it('is dropped when the chain has its node at the new address and never at the one it left', async () => {
+      listed(NEW, await confirmed(NEW));
 
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
     });
 
-    it('is dropped from a node that stopped all its apps there, as no rows stand there to carry', async () => {
-      await ranAt(OLD, pubKey, { apps: [] });
+    it('is dropped when the chain moved its node from another address', async () => {
+      await confirmed(ELSEWHERE);
+      listed(NEW, await confirmed(NEW));
 
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
     });
 
-    // The previous holder's apprunning outlives its rows: it is still stored, and
-    // unexpired, once the rows have gone.
-    it('is dropped, not refused, from an address whose previous holder was evicted from it', async () => {
-      await ranAt(OLD, 'theformerholderskey');
+    // One key serves an owner's whole fleet: the move speaks for the node listed
+    // at the new address, and only that node's own change proves it.
+    it('is dropped when the chain moved another node of the same key from the address it left', async () => {
+      await confirmed(OLD, OTHER_COLLATERAL);
+      await confirmed(NEW, OTHER_COLLATERAL);
+      listed(NEW, await confirmed(NEW));
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+    });
+
+    it('is accepted when the address it left was evicted before the move arrived', async () => {
+      await confirmed(OLD);
+      listed(NEW, await confirmed(NEW));
       await messageStore.applyEviction(OLD, Date.now());
 
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move(OLD, NEW, { broadcastedAt: Date.now() - MINUTE }))).to.equal(VerifyResult.OK);
     });
 
-    it('is dropped, not refused, from an address whose previous holder moved away from it', async () => {
-      await ranAt(OLD, 'theformerholderskey');
-      await messageStore.storeIPChangedMessage({
-        type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: ELSEWHERE, broadcastedAt: Date.now() - MINUTE,
-      });
+    it('is accepted for each move of a node that left an address, came back and left again', async () => {
+      const AWAY = '203.0.113.170:16137';
+      const LAST = '203.0.113.170:16147';
+      await confirmed(OLD);
+      await confirmed(AWAY);
+      await confirmed(OLD);
+      listed(LAST, await confirmed(LAST));
 
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
-    });
-
-    it('is judged by the newest apprunning from an address another node held before', async () => {
-      await ranAt(OLD, 'theformerholderskey', { ago: 40 * MINUTE, dedupKey: 'v1:proofapp' });
-      await ranAt(OLD, pubKey, { ago: 5 * MINUTE });
-
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
-    });
-
-    it('is refused from a node that held the address before another sent apprunning from it', async () => {
-      await ranAt(OLD, pubKey, { ago: 40 * MINUTE, dedupKey: 'v1:proofapp' });
-      await ranAt(OLD, 'thelaterholderskey', { ago: 5 * MINUTE });
-
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.PUBKEY_MISMATCH);
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move(OLD, LAST))).to.equal(VerifyResult.OK);
     });
 
     it('is accepted for a move of the port alone', async () => {
       const portMoved = '203.0.113.170:16157';
-      listedAt.withArgs(portMoved).resolves({ ip: portMoved, pubkey: pubKey });
-      await ranAt(OLD, pubKey);
+      await confirmed(OLD);
+      listed(portMoved, await confirmed(portMoved));
 
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move(OLD, portMoved))).to.equal(VerifyResult.OK);
     });
 
-    // A forged signature is refused before the proof reads the database, so it
+    it('reads a node confirmed at the default port by its bare ip', async () => {
+      await confirmed('203.0.113.170');
+      listed(NEW, await confirmed('203.0.113.171'));
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
+    });
+
+    // The node list is fluxd's current one and can hold a block the explorer has
+    // not processed yet.
+    it('waits for the explorer to record the block that confirmed its node at the new address', async () => {
+      await confirmed(OLD);
+      const movedIn = height + 5;
+      listed(NEW, movedIn);
+
+      const verdict = fluxCommunicationUtils.verifyFluxBroadcast(await move());
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(await confirmed(NEW), 'fixture: the block the list holds').to.equal(movedIn);
+
+      expect(await verdict).to.equal(VerifyResult.OK);
+    });
+
+    it('is unreadable, not dropped, while the explorer has not recorded the block that confirmed its node there', async () => {
+      await confirmed(OLD);
+      listed(NEW, height + 5);
+      sinon.stub(fluxnodeAddressRecord, 'whenRecorded').resolves(false);
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.UNREADABLE);
+    });
+
+    it('waits for the explorer once for a batch of moves, not once for each', async () => {
+      await confirmed(OLD);
+      listed(NEW, height + 5);
+      let waiting = 0;
+      let mostWaiting = 0;
+      sinon.stub(fluxnodeAddressRecord, 'whenRecorded').callsFake(async () => {
+        waiting += 1;
+        mostWaiting = Math.max(mostWaiting, waiting);
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        waiting -= 1;
+        return false;
+      });
+
+      const verdicts = await fluxCommunicationUtils.verifyBroadcasts([await move(), await move(), await move()]);
+
+      expect(verdicts.map((verdict) => verdict.result)).to.deep.equal([VerifyResult.UNREADABLE, VerifyResult.UNREADABLE, VerifyResult.UNREADABLE]);
+      expect(mostWaiting, 'the moves waited one after another').to.equal(3);
+    });
+
+    it('is unreadable, not dropped, when the record cannot be read', async () => {
+      await confirmed(OLD);
+      listed(NEW, await confirmed(NEW));
+      sinon.stub(fluxnodeAddressRecord, 'movedBetween').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.UNREADABLE);
+    });
+
+    // A forged signature is refused before the proof reads the record, so it
     // counts against the peer that sent it rather than being dropped as unproven.
-    it('is refused as a bad signature, without reading the database, when its signature is forged', async () => {
+    it('is refused as a bad signature, without reading the record, when its signature is forged', async () => {
+      listed(NEW, await confirmed(NEW));
       const forged = { ...(await move()), signature: (await move(OLD, '203.0.113.172:16127')).signature };
-      const reads = sinon.spy(dbHelper, 'databaseConnection');
+      const reads = sinon.spy(fluxnodeAddressRecord, 'movedBetween');
 
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(forged)).to.equal(VerifyResult.BAD_SIGNATURE);
       sinon.assert.notCalled(reads);
     });
 
-    it('is refused as a bad signature, without reading the database, when the signature checker given rejects it', async () => {
-      await ranAt(OLD, pubKey);
-      const reads = sinon.spy(dbHelper, 'databaseConnection');
+    it('is refused as a bad signature, without reading the record, when the signature checker given rejects it', async () => {
+      await confirmed(OLD);
+      listed(NEW, await confirmed(NEW));
+      const reads = sinon.spy(fluxnodeAddressRecord, 'movedBetween');
 
       const [verdict] = await fluxCommunicationUtils.verifyBroadcasts([await move()], { verifySignatures: (items) => items.map(() => false) });
 
@@ -188,7 +224,8 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
     });
 
     it('is proved once the signature checker given accepts it', async () => {
-      await ranAt(OLD, pubKey);
+      await confirmed(OLD);
+      listed(NEW, await confirmed(NEW));
 
       const [verdict] = await fluxCommunicationUtils.verifyBroadcasts([await move()], { verifySignatures: (items) => items.map(() => true) });
 
@@ -198,8 +235,10 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
 
   it('needs no proof for a move whose node is still listed at the address it left', async () => {
     listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: pubKey });
+    const reads = sinon.spy(fluxnodeAddressRecord, 'movedBetween');
 
     expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
+    sinon.assert.notCalled(reads);
   });
 
   describe('a move arriving by app state sync, with its node listed at the new address only', () => {
@@ -207,7 +246,6 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
     const appName = 'proofsyncapp';
 
     beforeEach(() => {
-      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
       sinon.stub(peerManager, 'isSyncResponseWanted').returns(true);
       sinon.stub(verifyPool, 'verify').callsFake(async (items) => items.map(() => true));
     });
@@ -247,16 +285,17 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
     }, PEER_SOCKET);
     const rowsAt = async () => (await registryManager.appLocation(appName)).map((row) => row.ip);
 
-    // heard by gossip while the address it left was listed: the rows and the
-    // apprunning event that proves who sent them
-    const heardWhileListed = async (key) => {
-      listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: key });
-      await sync([apprunningAt(OLD, key, Date.now() - 10 * MINUTE)]);
+    // heard by gossip while the address it left was listed
+    const heardWhileListed = async () => {
+      listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: pubKey });
+      await sync([apprunningAt(OLD, pubKey, Date.now() - 10 * MINUTE)]);
       listedAt.withArgs(OLD).resolves(null);
     };
 
-    it('carries the rows of a node whose apprunning from the address it left was signed by the move\'s signer', async () => {
-      await heardWhileListed(pubKey);
+    it('carries the rows of a node the chain moved from the address it left', async () => {
+      await heardWhileListed();
+      await confirmed(OLD);
+      listed(NEW, await confirmed(NEW));
       expect(await rowsAt(), 'rows before the move').to.deep.equal([OLD]);
 
       await sync([movedAt(Date.now() - 2 * MINUTE)]);
@@ -265,8 +304,21 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
       expect(await events.countDocuments({ ip: OLD, type: 'ipchanged' })).to.equal(1);
     });
 
-    it('drops the move, leaving the rows, when another node signed the apprunning from the address it left', async () => {
-      await heardWhileListed('theothernodeskey');
+    it('holds the move of a node whose address it left was evicted before the move arrived', async () => {
+      await heardWhileListed();
+      await confirmed(OLD);
+      listed(NEW, await confirmed(NEW));
+      await messageStore.applyEviction(OLD, Date.now());
+      expect(await rowsAt(), 'fixture: the eviction took the rows').to.deep.equal([]);
+
+      await sync([movedAt(Date.now() - 2 * MINUTE)]);
+
+      expect(await events.countDocuments({ ip: OLD, type: 'ipchanged' })).to.equal(1);
+    });
+
+    it('drops the move, leaving the rows, when the chain did not move the node from the address it left', async () => {
+      await heardWhileListed();
+      listed(NEW, await confirmed(NEW));
 
       await sync([movedAt(Date.now() - 2 * MINUTE)]);
 
@@ -275,15 +327,15 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
     });
 
     it('does not credit a response carrying a move whose proof cannot be read', async () => {
+      await confirmed(OLD);
+      listed(NEW, await confirmed(NEW));
       const completed = sinon.spy();
       appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, completed);
       try {
         await sync([]);
         sinon.assert.calledOnce(completed);
 
-        sinon.stub(dbHelper, 'databaseConnection').returns({
-          db: () => ({ collection: () => ({ findOne: sinon.stub().rejects(new MongoNetworkTimeoutError('timed out')) }) }),
-        });
+        sinon.stub(fluxnodeAddressRecord, 'movedBetween').rejects(new MongoNetworkTimeoutError('timed out'));
         await sync([movedAt(Date.now() - 2 * MINUTE)]);
 
         sinon.assert.calledOnce(completed);

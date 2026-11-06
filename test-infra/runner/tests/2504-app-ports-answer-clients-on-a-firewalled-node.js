@@ -27,6 +27,7 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 const NODE = 0;
 const OUTSIDE = 1;
@@ -73,8 +74,9 @@ describe('2504 app ports answer every client on a firewalled node', function sui
   ].join(' && ');
 
   before(async function hook() {
+    // The node's app must survive its restart, which the harness does not compress.
     env = await createTestEnv({
-      hookCtx: this, nodes: 3, firewall: [NODE], tickerAutostart: false,
+      hookCtx: this, nodes: 3, firewall: [NODE], tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
     });
     node = env.clients[NODE];
     outside = env.clients[OUTSIDE];

@@ -570,6 +570,40 @@ describe('hwRequirements tests', () => {
       }
     });
 
+    // The app a redeploy replaces still has its row installed, and its
+    // resources are not the new specification's to compete with.
+    it('counts installed apps without the one it is replacing', async () => {
+      const appsResources = sinon.stub().resolves({
+        status: 'success',
+        data: { appsCpusLocked: 0, appsRamLocked: 0, appsHddLocked: 0 },
+      });
+      const hwRequirementsReplacing = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+        '../serviceHelper': serviceHelperStub,
+        '../benchmarkService': {
+          getBenchmarks: sinon.stub().resolves({ status: 'success', data: { cpucores: 8, ram: 16000, ssd: 880 } }),
+        },
+        '../generalService': { nodeTier: sinon.stub().resolves('stratus') },
+        '../appQuery/resourceQueryService': { appsResources },
+        '../../lib/log': logStub,
+        config: {
+          fluxSpecifics: {
+            cpu: { cumulus: 2, nimbus: 4, stratus: 8 },
+            ram: { cumulus: 4000, nimbus: 8000, stratus: 16000 },
+            hdd: { cumulus: 220, nimbus: 440, stratus: 880 },
+          },
+          lockedSystemResources: {
+            cpu: 0, ram: 0, hdd: 0, extrahdd: 0,
+          },
+        },
+      });
+
+      await hwRequirementsReplacing.checkAppHWRequirements({
+        cpu: 1, hdd: 10, ram: 1000, version: 3,
+      }, { replacing: 'explorer' });
+
+      sinon.assert.calledOnceWithExactly(appsResources, { excludeApp: 'explorer' });
+    });
+
     it('should throw error if there would be insufficient space on node for the app', async () => {
       const hwRequirementsWithLimitedSpace = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
         '../serviceHelper': serviceHelperStub,

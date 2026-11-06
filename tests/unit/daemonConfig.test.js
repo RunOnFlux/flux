@@ -23,15 +23,12 @@ describe('daemonConfig tests', () => {
 
   afterEach(() => {
     setPlatform(hostPlatform);
-    process.env.APPDATA = undefined;
     sinon.restore();
   });
 
   it('should instantiate and set correct basedir for each supported platform', () => {
-    process.env.APPDATA = 'C:\testappdata';
-
-    const platforms = ['linux', 'darwin', 'win32'];
-    const basedirs = ['/home/testuser', '/home/testuser/Library/Application Support', 'C:\testappdata'];
+    const platforms = ['linux', 'darwin'];
+    const basedirs = ['/home/testuser', '/home/testuser/Library/Application Support'];
 
     platforms.forEach((platform, index) => {
       setPlatform(platform);
@@ -39,6 +36,11 @@ describe('daemonConfig tests', () => {
       expect(dc.resolveAttempted).to.equal(false);
       expect(dc.baseDir).to.equal(basedirs[index]);
     });
+  });
+
+  it('refuses any other platform', () => {
+    setPlatform('win32');
+    expect(() => new DaemonConfig()).to.throw('Unsupported platform');
   });
 
   it('should instantiate and return null for config params', () => {
@@ -93,6 +95,43 @@ describe('daemonConfig tests', () => {
     expect(dc.unresolvable).to.equal(true);
     expect(dc.configPath).to.equal(null);
     expect(dc.configDir).to.equal(null);
+  });
+
+  describe('fluxd\'s data directory', () => {
+    it('is fluxd\'s default directory when there is no flux.conf', async () => {
+      setPlatform('linux');
+      sinon.stub(fs, 'stat').rejects(new Error('Not found'));
+
+      const dc = new DaemonConfig();
+      await dc.parseConfig();
+
+      expect(dc.dataDir).to.equal('/home/testuser/.flux');
+    });
+
+    it('is the directory flux.conf is in', async () => {
+      setPlatform('linux');
+      sinon.stub(fs, 'stat').callsFake(async (file) => {
+        if (file === '/home/testuser/.zelcash/zelcash.conf') return { found: true };
+        throw new Error('Not found');
+      });
+      sinon.stub(fs, 'readFile').resolves(fluxdConfigs.standard);
+
+      const dc = new DaemonConfig();
+      await dc.parseConfig();
+
+      expect(dc.dataDir).to.equal('/home/testuser/.zelcash');
+    });
+
+    it('is flux.conf\'s datadir when it sets one', async () => {
+      setPlatform('linux');
+      sinon.stub(fs, 'stat').resolves({ found: true });
+      sinon.stub(fs, 'readFile').resolves(`${fluxdConfigs.standard}\ndatadir=/dat/fluxd\n`);
+
+      const dc = new DaemonConfig();
+      await dc.parseConfig();
+
+      expect(dc.dataDir).to.equal('/dat/fluxd');
+    });
   });
 
   it('should parse a standard fluxd config file correctly', async () => {

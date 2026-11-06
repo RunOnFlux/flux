@@ -25,15 +25,31 @@ function clientIp(req) {
 // like "self" and folder peer-device lists come out empty).
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
-// Deterministic, syncthing-shaped device ID derived from the node IP: 8 groups
-// of 7 base32 chars (matches FluxOS's id charset). Stable across requests.
+// The Luhn mod 32 check character syncthing appends to each 13-character group
+// of a device ID.
+function checkCharacter(group) {
+  let factor = 1;
+  let sum = 0;
+  for (const character of group) {
+    const addend = factor * B32.indexOf(character);
+    factor = factor === 2 ? 1 : 2;
+    sum += Math.floor(addend / 32) + (addend % 32);
+  }
+  return B32[(32 - (sum % 32)) % 32];
+}
+
+// A device ID derived from the node IP and stable across requests, made as
+// syncthing makes one: 52 base32 characters, each group of 13 followed by its
+// check character, shown as 8 groups of 7. Syncthing refuses a configuration
+// naming any other, and so does FluxOS.
 function deviceIdForIp(ip) {
   const a = crypto.createHash('sha256').update(`fluxstub|${ip}`).digest();
   const b = crypto.createHash('sha256').update(a).digest();
   const buf = Buffer.concat([a, b]);
-  let out = '';
-  for (let i = 0; i < 56; i += 1) out += B32[buf[i] & 31];
-  return out.match(/.{1,7}/g).join('-');
+  let data = '';
+  for (let i = 0; i < 52; i += 1) data += B32[buf[i] & 31];
+  const id = data.match(/.{13}/g).map((group) => group + checkCharacter(group)).join('');
+  return id.match(/.{7}/g).join('-');
 }
 
 // ip -> { deviceID, folders: Map, devices: Map, restartRequired, folderWrites: [] }

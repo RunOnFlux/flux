@@ -6,6 +6,9 @@
  * only that minimum: every node records the payment and stores the message, and refuses the app
  * as underpaid - so a record of the second payment would have refused the first app too.
  *
+ * A node that boots on payment records holding both payments - its unique index lost and the
+ * second payment written beside the first - rebuilds the index and keeps the first payment.
+ *
  * The chain moves only when this suite mines a block: the ticker is stopped after boot.
  */
 import { describe, it, before, after } from 'mocha';
@@ -14,7 +17,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerApp } from '../framework/app-helper.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
-import { waitFor } from '../framework/wait.js';
+import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { getState, mineBlock, stopTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -128,5 +131,29 @@ describe('a message paid twice in one block keeps its first payment, on every no
       async () => (await onEveryNode((db) => db.globalAppSpec(paidSpec.name))).every((spec) => spec?.hash === paidHash),
       { timeout: 60000, interval: 2000, label: `${paidSpec.name} registered on every node` },
     );
+  });
+
+  it('keeps the first payment when it boots on records that hold both', async function () {
+    this.timeout(300000);
+    const node = liveIndices[0];
+    const db = dbClient(node + 1);
+    const [first] = await db.appHashRecords({ hash: paidHash });
+    await db.dropAppHashIndex('query for getting app hash');
+    await db.insertAppHashRecord({
+      ...first, txid: txids.minimum, value: MIN_PRICE_SAT, txIndex: (first.txIndex ?? 0) + 1,
+    });
+    expect((await db.appHashRecords({ hash: paidHash })).length, 'the second payment was not written').to.equal(2);
+
+    await env.restartNode(node);
+    await waitForDaemonReady(env.clients[node]);
+    await waitFor(
+      async () => (await db.appHashIndexes()).some((index) => index.name === 'query for getting app hash' && index.unique),
+      { timeout: 180000, interval: 2000, label: 'the node rebuilds the unique hash index' },
+    );
+
+    const records = await db.appHashRecords({ hash: paidHash });
+    expect(records.map((r) => [r.txid, r.value])).to.deep.equal([[txids.price, PRICE_SAT]]);
+    const [message] = await db.permanentMessages({ hash: paidHash });
+    expect(message.txid, 'the stored message is not on the first payment').to.equal(txids.price);
   });
 });

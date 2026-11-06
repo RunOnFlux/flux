@@ -75,9 +75,10 @@ describe('registry and location reads wait for their store after a restart', fun
   });
 
   // Both routes are sampled together from the moment the node is back, so each
-  // one's window is observed rather than assumed. No app runs in this fleet, so
-  // an empty location list is a correct answer: for locations the contract is
-  // the status, and for the registry it is the status and the whole list.
+  // one's window is observed rather than assumed. The fleet's spawners may still
+  // be placing the apps, so a location list of any length is a correct answer:
+  // for locations the contract is the status, and for the registry it is the
+  // status and the whole list.
   it('answers 503 until each store stands, then the whole of it, and never a short list', async function () {
     this.timeout(420000);
     await restartFluxos(env.clients[RESTARTED].container);
@@ -150,6 +151,12 @@ describe('registry and location reads wait for their store after a restart', fun
 
     before(async function () {
       this.timeout(900000);
+      // The spawners place the registered apps, one install at a time on each node,
+      // and a node installing one refuses an install by hand. Every node lists each
+      // at its full count before anything is installed here.
+      const INSTANCES = buildAppSpec({ name: appNames[0] }).instances;
+      await waitFor(async () => (await Promise.all(env.clients.flatMap((c, i) => appNames.map(async (n) => (await dbClient(i + 1).getAppLocations(n)).length >= INSTANCES))))
+        .every(Boolean), { timeout: 300000, interval: 3000, label: 'every node lists each registered app at its full count' });
       await stopTicker();
       const hashes = [];
       for (const name of endedNames) {

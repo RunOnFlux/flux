@@ -182,14 +182,16 @@ describe('route wiring', () => {
   });
 
   describe('endpoints that take no query parameters', () => {
-    // Unauthenticated, read by peers mid-election, and each one either does
-    // backend work per request or sits beside one that does.
+    // Every route registered with rejectQueryParameters: none reads a query
+    // string, and a cached one would otherwise store an answer per spelling.
     const guarded = [
       '/apps/heldcomponents',
       '/apps/promotedfolders',
       '/apps/placementlocations',
       '/flux/outboundpath',
       '/apps/registrystatus',
+      '/flux/uplink',
+      '/flux/kernel',
     ];
 
     guarded.forEach((path) => {

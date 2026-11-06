@@ -61,6 +61,7 @@ module.exports = {
         benchmark: 'benchmark',
         nodeStartupTracker: 'nodestartuptracker',
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
+        upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
       },
     },
     daemon: {
@@ -70,7 +71,7 @@ module.exports = {
         scannedHeight: 'scannedheight',
         utxoIndex: 'utxoindex',
         addressTransactionIndex: 'addresstransactionindex',
-        fluxTransactions: 'zelnodetransactions',
+        fluxnodeAddresses: 'fluxnodeaddresses',
         appsHashes: 'zelappshashes',
         coinbaseFusionIndex: 'coinbasefusionindex',
       },
@@ -109,8 +110,16 @@ module.exports = {
   upnp: {
     gatewayUrl: '',
     nodeIp: '',
+    cleanupCycleMs: 10 * 60 * 1000,
     removalRetryFirstMs: 30 * 1000,
     removalRetryMaxMs: 60 * 1000,
+    verifyRetryFirstMs: 10 * 1000,
+    verifyRetryMaxMs: 120 * 1000,
+    testMappingLeaseS: 3 * 60,
+    longLivedLeaseS: 35 * 60,
+    renewalTestLeaseS: 60,
+    turnLimitMs: 60 * 1000,
+    recordWriteLimitMs: 500,
   },
   benchmark: {
     host: '127.0.0.1',
@@ -305,7 +314,6 @@ module.exports = {
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
-    reconstructAppMessagesHashPeriod: 3600, // every 5 days we ask for old messages
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
@@ -392,14 +400,14 @@ module.exports = {
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,
-    nodeMonitorRemovalDelayMs: 60000,
+    nodeMonitorRemovalDelayMs: 5000,
+    pullStallMs: 90000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
     residentialCheckIntervalMs: 21600000,
     residentialSettleMs: 86400000,
     residentialEvacuationIntervalMs: 21600000,
-    residentialQueueBaseMs: 1800000,
-    residentialQueueStepMs: 2400000, // 40m - must exceed the 22m give-up pass, see ZelBack/config/default.js
+    residentialTurnMs: 3600000, // 60m - must hold two 22m give-up passes, see ZelBack/config/default.js
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,

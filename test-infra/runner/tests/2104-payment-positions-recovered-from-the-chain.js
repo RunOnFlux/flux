@@ -8,6 +8,9 @@ import { queueAppTx } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { confirmTwoUpdatesInOneBlock } from '../framework/same-block-updates.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { createRequire } from 'node:module';
+
+const { UNPOSITIONED } = createRequire(import.meta.url)('../../../ZelBack/src/services/utils/unpositionedPayments.js');
 
 // A node's payment records carry each transaction's position in its block, as
 // the explorer meets them. A node whose records carry none - records made
@@ -15,7 +18,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // index when FluxOS starts, and holds the same spec as before. A record at a
 // height its transaction is not at takes the chain's, and its stored message
 // and the registry follow. A record the chain does not hold is no payment, and a
-// block paying its hash records the payment in its place.
+// block paying its hash records the payment in its place. The backfill reads
+// only the records without a position, through the index the node builds.
 
 const NODES = 4;
 const NODE = 0;
@@ -114,5 +118,28 @@ describe('payment positions a node never recorded are recovered from the chain a
       const rows = await db.appSpecRows(name);
       return rows.length === 1 && rows[0].hash === hash && rows[0].height === record.height;
     }, { timeout: 120000, interval: 2000, label: 'the registry at the new payment\'s height' });
+  });
+
+  it('reads only the payment records without a position when it looks for ones to backfill', async () => {
+    const stamp = Date.now();
+    const placed = Array.from({ length: 50 }, (_, i) => `e2eplaced${stamp}${i}`);
+    const unplaced = `e2eunplaced${stamp}`;
+    try {
+      for (const hash of placed) {
+        // eslint-disable-next-line no-await-in-loop
+        await db.insertAppHashRecord({ hash, txid: hash, height: 1, txIndex: 0 });
+      }
+      await db.insertAppHashRecord({ hash: unplaced, txid: unplaced, height: 1 });
+
+      const stats = await db.explainAppHashes(UNPOSITIONED);
+
+      expect(stats.nReturned).to.be.at.least(1);
+      expect(stats.totalDocsExamined, 'the backfill read records that have a position').to.equal(stats.nReturned);
+    } finally {
+      for (const hash of [...placed, unplaced]) {
+        // eslint-disable-next-line no-await-in-loop
+        await db.deleteAppHash(hash);
+      }
+    }
   });
 });

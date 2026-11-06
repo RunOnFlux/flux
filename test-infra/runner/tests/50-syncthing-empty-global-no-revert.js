@@ -10,6 +10,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // MUST-PASS data-safety gate (B1). The promotion FSM's isSynced is percentage-
 // based, so an EMPTY global index (globalBytes 0) reads as a vacuous 100% even
@@ -33,9 +34,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //    WHAT THIS LEG CANNOT ASSERT, AND WHY. seedSyncthingApp({ forceNonLeader: true })
 //    installs the app on a peer FIRST and lets it seed, so for the whole of this leg
 //    that peer is up, running, and holding the folder sendreceive. The node under test
-//    therefore wins the election every cycle and is refused by findPeerBlockingPromotion
-//    on the last check before promoting - `already holds the writable copy` - which is
-//    correct and is what decides this leg. It is NOT the empty-global gate: at the merge
+//    is therefore never elected: a peer that already holds the writable copy leaves
+//    nothing to seed - which is correct and is what decides this leg. It is NOT the empty-global gate: at the merge
 //    base the promote guard is `!folderIsEmpty && !(syncStatus && syncStatus.isSynced)`,
 //    and an empty global reads as a vacuous 100%, so that guard lets this node through
 //    too. The `must not promote` half has always been answered by the peer check.
@@ -69,7 +69,10 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
 
   before(async function () {
     this.timeout(420000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     await resetSyncState();
 

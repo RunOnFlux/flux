@@ -14,6 +14,7 @@ import {
 } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // One app whose volume can never be mounted must not stop the rest of the node
 // working. The syncthing monitor's first-run mount-safety pass sets
@@ -57,7 +58,10 @@ describe('one unmountable app does not block g: election node-wide', function ()
 
   before(async function () {
     this.timeout(480000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     await resetFdm();
     await resetSyncState();

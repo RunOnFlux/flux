@@ -15,6 +15,7 @@ import {
 } from '../framework/wait.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -76,7 +77,10 @@ describe('reconcileAppsOnBoot restarts containers after simulated reboot', funct
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The app must survive its node's restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });

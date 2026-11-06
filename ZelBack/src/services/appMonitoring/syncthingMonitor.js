@@ -1,5 +1,4 @@
 // Syncthing Monitor - Manages syncthing configuration for apps
-const path = require('node:path');
 const config = require('config');
 const dbHelper = require('../dbHelper');
 // eslint-disable-next-line no-unused-vars
@@ -24,6 +23,7 @@ const { createMonitorAccelerator } = require('./syncthingMonitorAccelerator');
 const { createPeerFolderLiveness } = require('./peerFolderLiveness');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const mountParser = require('../utils/mountParser');
+const { appsFolder } = require('../utils/appConstants');
 const {
   sortAndFilterLocations,
   buildDeviceConfiguration,
@@ -59,10 +59,6 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 // that primary gone before it starts the app; with the entry deleted it never can.
 const UNUSED_DEVICE_KEEP_MS = 24 * 60 * 60 * 1000;
 
-// Path constants
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-const appsFolder = `${appsFolderPath}/`;
 
 /**
  * Verify one app folder's mount safety, repairing an unmounted volume on the
@@ -425,6 +421,11 @@ async function processContainerData(params) {
     // An s: folder sends from every holder.
     syncthingFolder.type = 'sendreceive';
   }
+
+  // Nothing arrives in a folder whose local appdata is still to be cleared: what
+  // arrived before the clear would be cleared with it, and syncthing would hold
+  // an index of files the disk no longer has. The pass after the clear resumes it.
+  if (appReconciler.dataClearPending(appId)) syncthingFolder.paused = true;
 
   // Add to tracking arrays
   folderIds.push(id);
@@ -1197,6 +1198,10 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
     onResync: () => accelerator.onResync(),
   });
 
+  // A folder held paused for a clear is resumed by the pass after it.
+  const onDataCleared = () => accelerator.onResync();
+  appReconciler.dataEvents.on('cleared', onDataCleared);
+
   // Return control object for graceful shutdown
   return {
     stop: () => {
@@ -1204,6 +1209,7 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
         clearInterval(intervalId);
         intervalId = null;
         accelerator.stop();
+        appReconciler.dataEvents.off('cleared', onDataCleared);
         syncthingEventsConsumer.stop();
         log.info('syncthingApps - Monitoring service stopped');
       }

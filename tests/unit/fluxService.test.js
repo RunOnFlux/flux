@@ -17,6 +17,7 @@ const { expect } = chai;
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
+const configManager = require('../../ZelBack/src/services/utils/configManager');
 
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
@@ -37,6 +38,7 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const kernelService = require('../../ZelBack/src/services/kernelService');
 const packageJson = require('../../package.json');
 const log = require('../../ZelBack/src/lib/log');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -1391,13 +1393,14 @@ describe('fluxService tests', () => {
 
     it('should return debug log file if the user is an admin', async () => {
       verifyPrivilegeStub.returns(true);
+      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/dat/var/lib/fluxd');
       const res = generateResponse();
       const expectedResponse = 'File downloaded';
 
       const result = await fluxService.daemonDebug(undefined, res);
 
       expect(result).to.eql(expectedResponse);
-      sinon.assert.calledWithMatch(res.download, 'debug.log');
+      sinon.assert.calledOnceWithExactly(res.download, '/dat/var/lib/fluxd/debug.log', 'debug.log');
     });
   });
 
@@ -1449,9 +1452,7 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-      // Mock daemon service utils to return valid paths
-      sinon.stub(daemonServiceUtils, 'getConfigValue').returns(path.join(os.homedir(), '.flux'));
-      sinon.stub(daemonServiceUtils, 'getFluxdDir').returns(path.join(os.homedir(), '.flux'));
+      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/dat/var/lib/fluxd');
     });
 
     afterEach(() => {
@@ -1498,7 +1499,7 @@ describe('fluxService tests', () => {
           name: 'testing error',
         },
       });
-      const nodedpath = path.join(os.homedir(), '.flux', 'debug.log');
+      const nodedpath = '/dat/var/lib/fluxd/debug.log';
       const expectedResponse = {
         data: {
           code: 403,
@@ -2099,6 +2100,7 @@ describe('fluxService tests', () => {
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
       syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+      sinon.stub(kernelService, 'getTaintSummary').resolves({ tainted: 4736, flags: ['D', 'W', 'O'] });
 
       const result = await fluxService.getFluxInfo();
 
@@ -2112,6 +2114,7 @@ describe('fluxService tests', () => {
       // reason it is here.
       expect(result.data.flux.dosStaging).to.equal(null);
       expect(result.data.flux.uplink).to.eql({ tunnel: 'unknown', mtu: null, rttMs: null });
+      expect(result.data.flux.kernel).to.eql({ tainted: 4736, flags: ['D', 'W', 'O'] });
       expect(result.data.apps).to.be.an('object');
       expect(result.data.benchmark).to.eql({
         info: 'info2 data',
@@ -2524,6 +2527,7 @@ describe('fluxService tests', () => {
     let originalUserConfig;
 
     beforeEach(() => {
+      sinon.stub(configManager, 'writeInitial').resolves();
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
@@ -2570,26 +2574,11 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
-      // eslint-disable-next-line no-unused-vars
-      const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(adminConfig.initial.apiport)},
-          routerIP: '192.168.1.50',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustRouterIP(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { routerIP: '192.168.1.50' });
     });
   });
 
@@ -2598,6 +2587,7 @@ describe('fluxService tests', () => {
     let originalUserConfig;
 
     beforeEach(() => {
+      sinon.stub(configManager, 'writeInitial').resolves();
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
@@ -2665,26 +2655,11 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
-      // eslint-disable-next-line no-unused-vars
-      const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(16147)},
-          routerIP: '${adminConfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustAPIPort(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { apiport: 16147 });
     });
   });
 
@@ -2693,6 +2668,7 @@ describe('fluxService tests', () => {
     let originalUserConfig;
 
     beforeEach(() => {
+      sinon.stub(configManager, 'writeInitial').resolves();
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
@@ -2740,26 +2716,11 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
-      // eslint-disable-next-line no-unused-vars
-      const expectedData = `module.exports = {
-  initial: {
-    ipaddress: '${adminConfig.initial.ipaddress}',
-    zelid: '${adminConfig.initial.zelid}',
-    kadena: 'kadena:testing?chainid=5',
-    testnet: ${adminConfig.initial.testnet},
-    development: ${adminConfig.initial.development},
-    apiport: ${Number(adminConfig.initial.apiport)},
-    routerIP: '${adminConfig.initial.routerIP}',
-    pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-    pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-  }
-}`;
-      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustKadenaAccount(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
+      sinon.assert.calledOnceWithExactly(configManager.writeInitial, { kadena: 'kadena:testing?chainid=5' });
     });
 
     it('should return error if chain id > 20', async () => {
@@ -3113,6 +3074,26 @@ describe('fluxService tests', () => {
       expect(res.statusMessage).to.equal('Flux daemon still running, unable to clone blockchain.');
       sinon.assert.calledWithExactly(res.status, 503);
       sinon.assert.calledOnce(res.end);
+    });
+
+    it('takes a fluxd that publishes no RPC port for one that is not running', async () => {
+      const res = generateResponse();
+      res.setHeader = sinon.stub();
+      const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+      osStub.returns('/home/testuser');
+      fsPromisesStubs.stat.resolves({ isDirectory: () => true });
+      const dirInfoStub = sinon.stub(serviceHelper, 'dirInfo').resolves({ count: 0, size: 0 });
+      daemonServiceUtilsStub.rejects(Object.assign(new Error('unpublished'), { code: daemonServiceUtils.FLUXD_RPC_PORT_UNPUBLISHED }));
+
+      await fluxService.streamChain(req, res).catch(() => {});
+
+      sinon.assert.calledOnce(daemonServiceUtilsStub);
+      expect(res.statusMessage).to.not.equal('Flux daemon still running, unable to clone blockchain.');
+      sinon.assert.neverCalledWith(res.status, 503);
+      // Past the check: it went on to size the chain folders and announce the size.
+      sinon.assert.called(dirInfoStub);
+      sinon.assert.calledWith(res.setHeader, 'Approx-Content-Length');
     });
 
     it('should set Approx-Content-Length response header with expected value', async () => {

@@ -201,6 +201,7 @@ export function nodeClient(nodeNum) {
         'boot:appConfirmed',
         'confirmation:changed',
         'daemon:polled',
+        'daemon:rpcAvailable',
         'daemon:recovered',
         'daemon:unreachable',
         'dos:changed',
@@ -220,6 +221,8 @@ export function nodeClient(nodeNum) {
         // of the outcomes it was. Without it a waiter can only time out, or read the
         // wording of the response stream.
         'app:installOutcome',
+        'image:pullStalled',
+        'image:pullDownloading',
         'app:removed',
         'app:rebuilt',
         'app:softRedeployed',
@@ -291,6 +294,13 @@ export function nodeClient(nodeNum) {
         'syncthing:ownersByNumber',
         'syncthing:listenerKnown',
         'availability:checked',
+        // what an availability pass's test mapping came to: { port, mapped, reason }
+        'availability:testMapping',
+        // Whether startup verified UPnP on the node's router, and whether that router
+        // restarts a lease when a mapping is added again: what the node's own mappings
+        // are made with follows from the two.
+        'upnp:verified',
+        'upnp:leaseRenewal',
         'collision:judged',
         'network:originatorNotListed',
         'syncthing:namesVisible',
@@ -304,6 +314,7 @@ export function nodeClient(nodeNum) {
         'pm2:killTimeoutRaiseFailedLate',
         'pm2:registrationUnread',
         'checkpoint:held',
+        'blockWork:ran',
         'syncthing:folderWritable',
         'syncthing:folderReady',
         'primaryRole:changed',
@@ -357,6 +368,12 @@ export function nodeClient(nodeNum) {
         'giveUp:considered',
         'giveUp:safety',
         'giveUp:standDown',
+        'giveUp:passSkipped',
+        'giveUp:passStarted',
+        'giveUp:passEnded',
+        'giveUp:turn',
+        'giveUp:decisionStale',
+        'giveUp:standDownReleased',
         'residential:decided',
         // spawner:noCandidates USED to be published here and was not subscribed:
         // it fires on every pass of a fleet whose apps are all at their instance

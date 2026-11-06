@@ -48,15 +48,27 @@ const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
 // How much of SHUTDOWN_EXIT_MS pausing the folders may take.
 const SHUTDOWN_PAUSE_MS = 3000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
+const portFile = require('./ZelBack/src/services/utils/portFile');
+const fluxdCredentials = require('./ZelBack/src/services/daemonService/fluxdCredentials');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
 
 let requestHistory = null;
 let axiosDefaultsSet = false;
+let listeningPorts = { apiPort: null, apiPortHttps: null };
 
 function getrequestHistory() {
   return requestHistory;
+}
+
+/**
+ * The ports the API's HTTP and HTTPS servers are listening on, as their sockets
+ * report them; null for a server not yet listening.
+ * @returns {{apiPort: number|null, apiPortHttps: number|null}}
+ */
+function getListeningPorts() {
+  return { ...listeningPorts };
 }
 
 function setAxiosDefaults(socketIoServers) {
@@ -138,28 +150,12 @@ async function logErrorAndExit(msg, options = {}) {
 
 async function loadUpnpIfRequired() {
   try {
-    let verifyUpnp = false;
-    let setupUpnp = false;
-    if (globalThis.userconfig.initial.apiport) {
-      verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-      if (verifyUpnp) {
-        setupUpnp = await upnpService.setupUPNP(apiPort);
-      }
-    }
-    if ((globalThis.userconfig.initial.apiport && globalThis.userconfig.initial.apiport !== config.server.apiport) || globalThis.userconfig.initial.routerIP) {
-      if (verifyUpnp !== true) {
-        await logErrorAndExit(
-          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`,
-          { exitCode: 1, delay: 120_000 },
-        );
-      }
-      if (setupUpnp !== true) {
-        await logErrorAndExit(
-          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`,
-          { exitCode: 1, delay: 120_000 },
-        );
-      }
-    }
+    await upnpService.declareUpnpIfUnset();
+    if (!upnpService.isUPNP()) return;
+    // The first attempt is awaited, so a router that answers has the node's own
+    // ports mapped before it listens; one that does not is asked again until it
+    // does, and the node waits for that at boot (appStartupManager).
+    await upnpService.startMapping(apiPort);
   } catch (error) {
     log.error(error);
   }
@@ -167,10 +163,8 @@ async function loadUpnpIfRequired() {
 
 async function configReload() {
   // Config watching is now handled by configManager
-  await configManager.startWatching(log, async (newConfig) => {
-    if (newConfig?.initial?.apiport) {
-      await loadUpnpIfRequired();
-    }
+  await configManager.startWatching(log, async () => {
+    await loadUpnpIfRequired();
   });
 }
 
@@ -182,6 +176,13 @@ async function configReload() {
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
     await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`, { exitCode: systemdNotify.EXIT_CONFIG });
+  }
+  // The node key credential decides how FluxOS reaches fluxd; one that exists but
+  // cannot be used stops FluxOS before it serves anything.
+  try {
+    await fluxdCredentials.loadNodeKey();
+  } catch (error) {
+    await logErrorAndExit(`${error.message}. Shutting down.`, { exitCode: systemdNotify.EXIT_CONFIG });
   }
 
   process.on('uncaughtException', (err) => {
@@ -234,6 +235,7 @@ async function initiate() {
     return '';
   }
 
+  listeningPorts = { apiPort: httpServer.port, apiPortHttps: httpsServer.port };
   log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
   // Ready means the API answers. Mongo, Docker and fluxd come up behind this,
@@ -398,6 +400,8 @@ async function pauseFoldersForShutdown() {
 async function shutDown() {
   const deadline = performance.now() + SHUTDOWN_BUDGET_MS;
   log.info('SIGTERM received, checking if system is shutting down...');
+  // First, so that every way out of this stop has removed it.
+  portFile.removePortFile();
 
   // Small delay to allow systemd to update its state before we check
   await serviceHelper.delay(100);
@@ -515,6 +519,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  getListeningPorts,
   getrequestHistory,
   handleSigterm,
   initiate,

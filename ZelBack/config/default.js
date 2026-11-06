@@ -83,6 +83,7 @@ module.exports = {
         ipRanges: 'ipranges', // the IP location baseline, one document per allocated range, rebuilt and swapped in whole
         nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
+        upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
       },
     },
     daemon: {
@@ -92,7 +93,7 @@ module.exports = {
         scannedHeight: 'scannedheight',
         utxoIndex: 'utxoindex',
         addressTransactionIndex: 'addresstransactionindex',
-        fluxTransactions: 'zelnodetransactions',
+        fluxnodeAddresses: 'fluxnodeaddresses',
         appsHashes: 'zelappshashes',
         coinbaseFusionIndex: 'coinbasefusionindex',
       },
@@ -131,10 +132,45 @@ module.exports = {
   upnp: {
     gatewayUrl: '',
     nodeIp: '',
+    // The stale-mapping cleanup's wall-clock cycle, eight slots long: a node runs
+    // its cleanup once per start, in the slot its api port's tens digit names, and
+    // the slot is the pass's whole budget (upnpService.removeStaleMappings).
+    cleanupCycleMs: 10 * 60 * 1000,
     // a removal of this node's own mapping the router refuses is asked again
     // after this long, the wait doubling up to removalRetryMaxMs
     removalRetryFirstMs: 30 * 1000,
     removalRetryMaxMs: 60 * 1000,
+    // A UPnP node whose router does not answer its verification, or does not take
+    // its own ports, asks again after this long, the wait doubling up to
+    // verifyRetryMaxMs, until the router does (upnpService.startMapping).
+    verifyRetryFirstMs: 10 * 1000,
+    verifyRetryMaxMs: 120 * 1000,
+    // The lease a test mapping is made with on a router that keeps one, so a
+    // mapping the router took after this node stopped waiting for its answer
+    // goes when the lease ends. Longer than a test holds its mapping: two
+    // protocols, each up to three router requests of the client's 10 s
+    // (upnpRouter.mapProtocol), then the port test's 10 s question to a peer
+    // (availabilityChecker.checkMyAppsAvailability) - under 100 s.
+    testMappingLeaseS: 3 * 60,
+    // The lease long-lived mappings (the node's own ports, each app's) are made
+    // with on a router that renews a lease when the mapping is added again
+    // (upnpService.learnLeaseRenewal), so the mappings of a node that stops go
+    // when it last refreshed them plus this. A refresh
+    // (fluxapps.portRestoreIntervalMs) leaves a mapping made since the last one
+    // (portReconciler.wantedMaps), so a renewed mapping has three refreshes
+    // inside its lease and a new one two.
+    longLivedLeaseS: 35 * 60,
+    // The lease learnLeaseRenewal tests with: renewed halfway through, looked up
+    // 10 s after it would have ended - before the renewed lease ends only while
+    // half of this is longer than those 10 s.
+    renewalTestLeaseS: 60,
+    // How long one turn on the router may run (portReconciler.onRouter): a turn
+    // is a few requests, each answered in milliseconds by nearly every router.
+    turnLimitMs: 60 * 1000,
+    // How long a write of a mapping's record may take (upnpMappingRecord): a turn
+    // waits on it, and a turn cut off at turnLimitMs still finishes it before
+    // the next turn starts. A local write takes milliseconds.
+    recordWriteLimitMs: 5 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',
@@ -153,7 +189,7 @@ module.exports = {
     zmqport: 16123,
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
-  minimumFluxOSAllowedVersion: '8.18.0',
+  minimumFluxOSAllowedVersion: '8.22.0',
   // The NodeJS this process runs on. Below the floor a node fails whichever
   // paths need what the runtime lacks, one at a time and silently, instead of
   // reporting itself unfit. Unset allows: the check runs bare in
@@ -177,7 +213,7 @@ module.exports = {
     '16dNCFf7nR3nx5iwn2RQMBw6KcJXkE3JC1',
     '15c3aH6y9Koq1Dg1rGXE9Ypn5nL2AbSJCu',
     '1NGqYirE4T9wzd1ZcGrw3HjETiuCkt6Sgy',
-    '13BBPcpHxwCaC61vjQgK6qeDcprFJEGVkP',
+    '13hNSga7fSDRYiJ1GWvssxPfTStbqP5LWF',
   ],
   deterministicNodesStart: 558000,
   fluxapps: {
@@ -421,7 +457,7 @@ module.exports = {
         '16dNCFf7nR3nx5iwn2RQMBw6KcJXkE3JC1',
         '15c3aH6y9Koq1Dg1rGXE9Ypn5nL2AbSJCu',
         '1NGqYirE4T9wzd1ZcGrw3HjETiuCkt6Sgy',
-        '13BBPcpHxwCaC61vjQgK6qeDcprFJEGVkP',
+        '13hNSga7fSDRYiJ1GWvssxPfTStbqP5LWF',
       ],
     }],
     usersToExtend: ['1MCBJn6qsy3YRY2YasdYMYdJcdhy1ev8Rd'], // addresses that can extend applications on behalf of app owners (expire-only updates) addresses cannot be deleted over time, just adding new ones
@@ -599,7 +635,6 @@ module.exports = {
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
-    reconstructAppMessagesHashPeriod: 3600, // every 5 days we ask for old messages
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
@@ -679,7 +714,10 @@ module.exports = {
     discoveryConnectionDelayMs: 500,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
-    nodeMonitorRemovalDelayMs: 60000,
+    // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted
+    pullStallMs: 90000,
+    // between a node's removals of its own apps when it goes out of service (nodeStatusMonitor)
+    nodeMonitorRemovalDelayMs: 5000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
     // Residential-node staging. The placement hold is immediate and is not
@@ -687,20 +725,16 @@ module.exports = {
     residentialCheckIntervalMs: 6 * 60 * 60 * 1000, // re-evaluate the verdict
     residentialSettleMs: 24 * 60 * 60 * 1000, // verdict must hold before any app moves
     residentialEvacuationIntervalMs: 6 * 60 * 60 * 1000, // minimum gap between departures
-    residentialQueueBaseMs: 30 * 60 * 1000, // every node waits at least this
-    // Per position in the instance order, and it MUST stay longer than the pass
-    // that reads it. mayEvacuateApp is reached only from the give-up pass at
-    // explorerService.js:651, which runs every removeFluxAppsPeriod (11) x
-    // speedMultiplier (4 post-PON) = 44 blocks = 22 minutes at 30s blocks, and
-    // wholeSince is stamped inside that pass - so maturity is quantised to a
-    // 22-minute grid and a shorter step cannot separate two points on it.
-    // Adjacent positions would mature on the same pass, and the pass is keyed on
-    // block height so every node evaluates in the same instant. Both holders
-    // then read the app at full strength, because fluxappremoved is broadcast
-    // after the volume is already deleted. 40 minutes is 1.8x the pass, so the
-    // chain would have to slow to ~55s blocks before adjacent positions could
-    // meet. Asserted against production's own config in the unit tests.
-    residentialQueueStepMs: 40 * 60 * 1000,
+    // One turn to hand an app back. It MUST hold two give-up passes, because a
+    // holder acts only on the second pass of a turn it owns: the pass runs every
+    // removeFluxAppsPeriod (11) x speedMultiplier (4 post-PON) = 44 blocks = 22
+    // minutes at 30s blocks, and 60 minutes holds two of them until blocks slow
+    // to ~41s. A turn holding one is lost to its owner, who acts in a later one.
+    // It must also stay shorter than the time a holder's announcement still has
+    // to run when it is renewed (locationTtlS less the announce interval, 65
+    // minutes), or no holder's announcement outlasts the turn it would act in.
+    // Asserted against production's own config in the unit tests.
+    residentialTurnMs: 60 * 60 * 1000,
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,

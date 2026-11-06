@@ -87,10 +87,13 @@ export async function advanceBlocks(count) {
  * two unrelated suites ran 3-4x slower in the same gate and hit that wall
  * themselves.
  *
- * @param {object} node The node client to pace against - the one whose
- *   `block:processed` decides when the next block may be sent. A CLIENT, not an
- *   index: the two suites that grew this independently disagreed about whether
- *   the index was 0- or 1-based, which is not a mistake worth leaving available.
+ * @param {object|object[]} node The node client to pace against - the one whose
+ *   `block:processed` decides when the next block may be sent - or several, when
+ *   the condition reads a pass on more than one node: the next block is sent once
+ *   every one has processed the last, so each meets every block as its tip. A
+ *   CLIENT, not an index: the two suites that grew this independently disagreed
+ *   about whether the index was 0- or 1-based, which is not a mistake worth
+ *   leaving available.
  * BUDGETED IN THE UNIT THE CONDITION IS COUNTED IN. A pass that fires on
  * `blockHeight % N === 0` is waiting for BLOCKS, and a wall-clock budget buys a
  * number of them that depends on how busy the box is: 420s buys about 504
@@ -126,6 +129,7 @@ export async function driveUntil(node, condition, {
     // expires first rather than by the one the caller reasoned about.
     throw new Error('driveUntil: exactly one of `blocks` or `timeoutMs` is required');
   }
+  const nodes = Array.isArray(node) ? node : [node];
   const interval = blockIntervalMs ?? loadSharedConfig().fluxapps.explorerPollIntervalMs;
   const deadline = budgetedInBlocks ? Infinity : Date.now() + timeoutMs;
   let blocks = 0;
@@ -133,11 +137,11 @@ export async function driveUntil(node, condition, {
     // eslint-disable-next-line no-await-in-loop
     if (await condition()) return blocks;
     const startedAt = Date.now();
-    const afterId = node.getLastEventId();
+    const afterIds = nodes.map((n) => n.getLastEventId());
     // eslint-disable-next-line no-await-in-loop
     await advanceBlock();
     // eslint-disable-next-line no-await-in-loop
-    await node.waitForEvent('block:processed', () => true, 60000, { afterId });
+    await Promise.all(nodes.map((n, i) => n.waitForEvent('block:processed', () => true, 60000, { afterId: afterIds[i] })));
     blocks += 1;
     const spent = Date.now() - startedAt;
     // eslint-disable-next-line no-await-in-loop
@@ -158,6 +162,27 @@ export async function queueAppTx(appHash) {
   return post('/queue-app-tx', { appHash });
 }
 
+// -- A node's daemon behind the chain's tip --
+
+/**
+ * Have a node's daemon be behind the chain's tip, as one catching up or
+ * re-syncing is: its block count and its blockchain info's blocks are `height`,
+ * while its headers stay at the chain's tip, so FluxOS reads it as not synced.
+ * Every other node's daemon follows the tip as before. The chain moves on with
+ * the ticker or setHeight; `height` stays where it was put.
+ *
+ * @param {string} node Where the node really is.
+ * @param {number} height The height its daemon holds.
+ */
+export async function setDaemonBehind(node, height) {
+  return post(`/daemon-behind/${String(node).split(':')[0]}`, { height });
+}
+
+/** Have a node's daemon follow the chain's tip again. */
+export async function clearDaemonBehind(node) {
+  return post(`/daemon-behind/${String(node).split(':')[0]}`, {});
+}
+
 // -- Where the network believes a node is --
 
 /**
@@ -171,8 +196,10 @@ export async function queueAppTx(appHash) {
  *
  * A bare address keeps the node's own api port.
  *
- * `scope: 'all'` (default) moves every answer at once - an address change already
- * settled. `scope: 'benchmark'` also moves what benchmark tells the node about itself,
+ * `scope: 'all'` (default) is an address change the chain makes: benchmark moves at
+ * once, and the node's status and list entry move with the next block, which
+ * carries the node's confirmation at the new address, as fluxd's does.
+ * `scope: 'benchmark'` also moves what benchmark tells the node about itself,
  * leaving its status and list entry: the node has noticed, the chain has not.
  * `scope: 'publicip'` moves only benchmark's public-IP probe, leaving the
  * node listed and reporting itself where it was: the state a node is in the moment
@@ -215,7 +242,27 @@ export async function setBenchmarkUnresolved(node, unresolved = true) {
   return post(`/benchmark-unresolved/${String(node).split(':')[0]}`, { unresolved });
 }
 
-/** Put a node's address back to where it really is. */
+/**
+ * Give one node its own confirmation schedule: it confirms every
+ * `intervalBlocks` after its last confirmation, the next one due at
+ * `nextHeight` (default: one interval after its last). A confirmation it sends
+ * - an address change - is still mined in the next block.
+ * @param {string} node Where the node really is.
+ * @param {{intervalBlocks: number, nextHeight?: number}} schedule
+ */
+export async function setConfirmationSchedule(node, schedule) {
+  return post(`/confirmation-schedule/${String(node).split(':')[0]}`, schedule);
+}
+
+/** Return a node to the fleet's confirmation interval. */
+export async function clearConfirmationSchedule(node) {
+  return post(`/confirmation-schedule/${String(node).split(':')[0]}`, {});
+}
+
+/**
+ * Put a node's address back to where it really is. A list entry the chain moved
+ * moves back with the next block.
+ */
 export async function clearNodeAddress(node) {
   return post(`/node-address/${String(node).split(':')[0]}`, {});
 }

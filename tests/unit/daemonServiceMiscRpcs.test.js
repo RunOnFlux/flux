@@ -12,75 +12,29 @@ const generateResponse = () => {
 };
 
 describe('daemonServiceMiscRpcs tests', () => {
-  describe('isAddressIndex', () => {
-    let getConfigValue;
+  describe('isInsightExplorer tests', () => {
+    let insightIndexes;
 
     beforeEach(() => {
-      getConfigValue = sinon.stub(daemonServiceUtils, 'getConfigValue');
+      insightIndexes = sinon.stub(daemonServiceUtils, 'insightIndexes');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    [[1, true], ['1', true], ['0', false], [undefined, false]].forEach(([value, expected]) => {
-      it(`answers ${expected} for addressindex=${value}`, () => {
-        getConfigValue.returns(value);
-        expect(daemonServiceMiscRpcs.isAddressIndex()).to.equal(expected);
-        sinon.assert.calledOnceWithExactly(getConfigValue, 'addressindex');
+    [[true, true], [false, false], [null, false]].forEach(([known, expected]) => {
+      it(`answers ${expected} when fluxd's insight indexes are ${known}`, () => {
+        insightIndexes.returns(known);
+        expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(expected);
       });
     });
-  });
 
-  describe('isInsightExplorer tests', () => {
-    let serviceUtilsStub;
-
-    beforeEach(() => {
-      daemonServiceMiscRpcs.setIsDaemonInsightExplorer(null);
-      serviceUtilsStub = sinon.stub(daemonServiceUtils, 'getConfigValue');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return the isDaemonInsightExplorer value if it is already set', () => {
-      daemonServiceMiscRpcs.setIsDaemonInsightExplorer(1);
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(1);
-      sinon.assert.notCalled(serviceUtilsStub);
-    });
-
-    it('should return config value and set isDaemonInsightExplorer to true if getConfigValue returns 1', () => {
-      serviceUtilsStub.returns(1);
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(true);
-      expect(daemonServiceMiscRpcs.getIsDaemonInsightExplorer()).to.eql(true);
-      sinon.assert.calledOnceWithExactly(serviceUtilsStub, 'insightexplorer');
-    });
-
-    it('should return config value and set isDaemonInsightExplorer to true if getConfigValue returns \'1\'', () => {
-      serviceUtilsStub.returns('1');
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(true);
-      expect(daemonServiceMiscRpcs.getIsDaemonInsightExplorer()).to.eql(true);
-      sinon.assert.calledOnceWithExactly(serviceUtilsStub, 'insightexplorer');
-    });
-
-    it('should return config value and set isDaemonInsightExplorer to false if getConfigValue returns anything but 1', () => {
-      serviceUtilsStub.returns(2);
-
-      const result = daemonServiceMiscRpcs.isInsightExplorer();
-
-      expect(result).to.eql(false);
-      expect(daemonServiceMiscRpcs.getIsDaemonInsightExplorer()).to.eql(false);
-      sinon.assert.calledOnceWithExactly(serviceUtilsStub, 'insightexplorer');
+    it('answers fluxd\'s latest report, so a fluxd restart reaches it', () => {
+      insightIndexes.returns(true);
+      expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(true);
+      insightIndexes.returns(false);
+      expect(daemonServiceMiscRpcs.isInsightExplorer()).to.equal(false);
     });
   });
 
@@ -269,6 +223,47 @@ describe('daemonServiceMiscRpcs tests', () => {
 
       // Verify lastSuccessfulRpcCall was NOT updated
       expect(daemonServiceMiscRpcs.getLastSuccessfulRpcCall()).to.eql(initialTimestamp);
+    });
+
+    it('calls each height listener with the height a poll reads, and none for a poll that fails', async () => {
+      const listener = sinon.stub();
+      const stop = daemonServiceMiscRpcs.onDaemonHeight(listener);
+      try {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: { blocks: 123456, headers: 123456 } });
+        await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.calledOnceWithExactly(listener, 123456);
+
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'error', data: { message: 'Connection failed' } });
+        await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.calledOnce(listener);
+
+        stop();
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: { blocks: 123457, headers: 123457 } });
+        await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.calledOnce(listener);
+      } finally {
+        stop();
+        daemonServiceMiscRpcs.setCurrentDaemonHeight(0);
+      }
+    });
+
+    it('logs a height listener that fails and keeps polling', async () => {
+      const logError = sinon.stub(log, 'error');
+      const stop = daemonServiceMiscRpcs.onDaemonHeight(() => Promise.reject(new Error('listener failed')));
+      try {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: { blocks: 123456, headers: 123456 } });
+
+        expect(await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo()).to.equal(true);
+        await new Promise((resolve) => { setImmediate(resolve); });
+
+        sinon.assert.calledWithMatch(logError, sinon.match({ message: 'listener failed' }));
+      } finally {
+        stop();
+        daemonServiceMiscRpcs.setCurrentDaemonHeight(0);
+      }
     });
   });
 });

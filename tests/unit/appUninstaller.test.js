@@ -18,17 +18,20 @@ describe('appUninstaller tests', () => {
     let appUninstallerPorts;
     let firewallStub;
     let upnpStub;
+    let reconcilerStub;
 
     beforeEach(() => {
       firewallStub = {
         isFirewallActive: sinon.stub().resolves(true),
         deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
       };
-      upnpStub = { isUPNP: sinon.stub().returns(true), removeMapUpnpPort: sinon.stub().resolves(true) };
+      upnpStub = { isUPNP: sinon.stub().returns(true) };
+      reconcilerStub = { release: sinon.stub().resolves(true) };
       appUninstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
         '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
+        '../portReconciler': reconcilerStub,
         '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       });
     });
@@ -41,15 +44,15 @@ describe('appUninstaller tests', () => {
       await appUninstallerPorts.cleanupPorts({ ports: [31000, 31001] }, 'myapp', null, 'myapp');
 
       expect(firewallStub.deleteAppPortRules.args).to.deep.equal([[[31000, 31001]]]);
-      expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
-      expect(upnpStub.removeMapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.release.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.release.calledWith(31001, 'Flux_App_myapp')).to.be.true;
     });
 
     it('removes a v1 app port mapping and the port\'s rules', async () => {
       await appUninstallerPorts.cleanupPorts({ port: 31000 }, 'myapp', null, 'myapp');
 
       expect(firewallStub.deleteAppPortRules.args).to.deep.equal([[[31000]]]);
-      expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(reconcilerStub.release.calledWith(31000, 'Flux_App_myapp')).to.be.true;
     });
   });
 
@@ -63,6 +66,7 @@ describe('appUninstaller tests', () => {
   let announceCycle;
   let getLocalSocketAddressStub;
   let broadcastStub;
+  let canSendMessagesStub;
   let runCommandStub;
 
   beforeEach(() => {
@@ -154,7 +158,6 @@ describe('appUninstaller tests', () => {
         checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
       },
       '../upnpService': {
-        removeMapUpnpPort: sinon.stub().resolves(),
         isUPNP: sinon.stub().returns(false),
       },
       '../fluxNetworkHelper': {
@@ -472,7 +475,6 @@ describe('appUninstaller tests', () => {
           checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
@@ -557,7 +559,6 @@ describe('appUninstaller tests', () => {
           checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
@@ -623,6 +624,7 @@ describe('appUninstaller tests', () => {
       announceCycle = realAnnounceCycle;
       getLocalSocketAddressStub = sinon.stub().resolves(null);
       broadcastStub = sinon.stub().resolves();
+      canSendMessagesStub = sinon.stub().returns(true);
       globalStateStub = {
         departingApps,
         unconfirmedApps,
@@ -699,7 +701,6 @@ describe('appUninstaller tests', () => {
           stopSyncthingApp: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
           isUPNP: sinon.stub().returns(false),
         },
         '../fluxNetworkHelper': {
@@ -714,6 +715,7 @@ describe('appUninstaller tests', () => {
           broadcastMessageToIncoming: sinon.stub().resolves(),
           broadcastMessageToAll: broadcastStub,
         },
+        '../nodeConfirmationService': { canSendMessages: canSendMessagesStub },
         '../appDatabase/registryManager': {
           availableApps: sinon.stub().resolves([]),
         },
@@ -1145,6 +1147,22 @@ describe('appUninstaller tests', () => {
         expect(globalStateStub.departingApps.has('testapp'), 'left the mark behind, silencing the app for good').to.be.false;
       });
 
+      // A holder that counts this copy while its volume is being deleted could hand
+      // its own back beside it.
+      it('tells the network before it tears the app down', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+        let toldBeforeGone = null;
+        uninstaller.setOnComponentRemoved(() => {
+          toldBeforeGone = broadcastStub.called;
+        });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+        expect(toldBeforeGone, 'told the network only once the app was gone').to.be.true;
+        sinon.assert.calledOnce(broadcastStub);
+      });
+
       it('does not mark a removal the network is never told about', async () => {
         const uninstaller = buildUninstaller(v2Spec);
         let markedDuring = null;
@@ -1267,6 +1285,34 @@ describe('appUninstaller tests', () => {
         expect(getLocalSocketAddressStub.called, 'the removal never reached its broadcast').to.be.true;
       });
 
+      it('tells the network nothing while peers would not accept this node\'s messages', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+        canSendMessagesStub.returns(false);
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+        sinon.assert.called(canSendMessagesStub);
+        sinon.assert.notCalled(broadcastStub);
+      });
+
+      // Whether the node can be heard is read as the message goes out, not when
+      // the removal starts: a removal can wait for a cycle, and the answer changes.
+      it('tells the network once this node can be heard by the time the message goes out', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+        canSendMessagesStub.returns(false);
+        await announceCycle.enable();
+
+        const removal = uninstaller.removeAppLocally('testapp', res, true, true, true);
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        canSendMessagesStub.returns(true);
+        announceCycle.disable();
+        await removal;
+
+        sinon.assert.calledOnceWithMatch(broadcastStub, { type: 'fluxappremoved', appName: 'testapp' });
+      });
+
       // A redeploy tells the network nothing, so it contradicts no announcement and
       // must not queue behind one - every spec change on the node would pay for it.
       it('does not wait for a cycle when the removal says nothing to the network', async () => {
@@ -1360,7 +1406,6 @@ describe('appUninstaller tests', () => {
           checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
           isUPNP: sinon.stub().returns(false),
         },
         '../fluxNetworkHelper': {
@@ -1461,7 +1506,6 @@ describe('appUninstaller tests', () => {
           checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
         },
         '../upnpService': {
-          removeMapUpnpPort: sinon.stub().resolves(),
           isUPNP: sinon.stub().returns(false),
         },
         '../fluxNetworkHelper': {

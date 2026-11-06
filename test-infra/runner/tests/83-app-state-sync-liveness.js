@@ -417,8 +417,8 @@ describe('a state sync at the production requirement completes on three distinct
 // left and a count on the receiver says unambiguously that the sync carried it.
 //
 // Sized from what it needs, not copied: dialers = 6 - 1 deferred = 5, so the
-// derived arc is 2 and the receiver draws two peers on each side against an
-// appSyncPeerThreshold of 2. See fluxModels/reference/E2E_FLEET_SIZING.md.
+// derived arc is 2 and the receiver draws two peers on each side, above the
+// fleet's derived appSyncPeerThreshold.
 const CARRIER_NODES = 5;
 const REGISTRAR = 2; // mid-ring, so both of its arcs land on real nodes
 const CARRIERS = Array.from({ length: CARRIER_NODES }, (_unused, i) => i);

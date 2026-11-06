@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "8.22.0",
+  "version": "8.23.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -45,6 +45,9 @@
     }
   ],
   "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=20.8.0"
+  },
   "bugs": {
     "url": "https://github.com/runonflux/flux/issues"
   },
@@ -54,14 +57,8 @@
     "lint:fix": "eslint --ext .js ./ --fix",
     "test:zelback": "mocha tests/ZelBack",
     "test:zelback:unit": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig nyc --reporter=lcov mocha \"tests/unit/**/*.test.js\" --exit",
-    "test:zelback:unit:compose": "npm run test:container:prune && docker compose -f tests/images/compose.yaml --profile auto run --build tester; docker compose --profile auto -f tests/images/compose.yaml down",
-    "test:zelback:unit:oneoff": "npm run test:container:build && npm run test:container:background && npm run test:container:run --",
+    "test:zelback:unit:compose": "bash tests/images/run-unit.sh",
     "test:ethereumHelper": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig mocha tests/unit/ethereumHelper.test.js --exit",
-    "test:container:prune": "docker container prune --filter 'label=com.runonflux.container_type=fluxos_test' -f",
-    "test:container:build": "docker build -f tests/images/dockerfile -t runonflux/testerimage:latest tests/images",
-    "test:container:run": "docker run --rm -it --net fluxos_test -e DOCKER_HOST=socat:2375 -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd):/home/fluxtesting/flux runonflux/testerimage:latest",
-    "test:container:background": "npm run test:container:prune && docker compose -f tests/images/compose.yaml up -d",
-    "test:container:down": "docker compose --profile auto -f tests/images/compose.yaml down",
     "prebuild": "bash checkNodeV.sh",
     "fluxdev": "nodemon app.js --dev",
     "flux": "node app.js",
@@ -79,11 +76,10 @@
     "@aws-sdk/client-ecr": "^3.922.0",
     "@azure/identity": "^4.13.0",
     "@isaacs/ttlcache": "~1.4.1",
-    "@runonflux/nat-upnp": "~2.0.5",
+    "@runonflux/nat-upnp": "~2.2.0",
     "apicache": "~1.6.3",
     "archiver": "~7.0.1",
     "axios": "~1.13.6",
-    "bitcoinjs-message": "~2.2.0",
     "bs58check": "~3.0.1",
     "compression": "~1.8.1",
     "config": "~3.3.12",

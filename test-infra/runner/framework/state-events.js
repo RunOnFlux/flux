@@ -25,10 +25,11 @@ async function envelopeFor(nodeNum, data, broadcastedAt, signedBy) {
 // A v2 apprunning broadcast: the node runs `apps`, as of broadcastedAt. An app
 // named by a string gets a hash and a runningSince; one given as an object is
 // sent as it is, so an entry a node refuses can be built.
+// `ip` is where it announced from, its own address unless given; `expireAt`
+// is set only when given, as a node's store sets it.
 export async function apprunningEvent({
-  nodeNum, apps, broadcastedAt, dedupKey = 'v2', signedBy = nodeNum,
+  nodeNum, apps, broadcastedAt, dedupKey = 'v2', signedBy = nodeNum, ip = socketAddr(nodeNum), expireAt,
 }) {
-  const ip = socketAddr(nodeNum);
   const data = {
     type: 'fluxapprunning',
     version: 2,
@@ -47,6 +48,7 @@ export async function apprunningEvent({
     dedupKey,
     ip,
     broadcastedAt: new Date(broadcastedAt),
+    ...(expireAt === undefined ? {} : { expireAt: new Date(expireAt) }),
     envelope: await envelopeFor(nodeNum, data, broadcastedAt, signedBy),
     data,
   };

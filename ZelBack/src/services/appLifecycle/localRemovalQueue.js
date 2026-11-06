@@ -1,9 +1,9 @@
-// Removes the installed apps the registry no longer lists, one at a time.
+// Removes installed apps this node is to give up, one at a time: those the registry no longer
+// lists, and those whose ports the router has refused for long enough (portManager).
 //
-// The registry is current once a rebuild or the expiry pass has written it. Removing what this node
-// still runs follows from that write and is not part of it, so neither waits for the removals. They
-// run in the order queued, REMOVAL_SPACING_MS apart, as each one broadcasts its removal to peers.
-// A name already queued, or being removed, is not queued again.
+// Removing an app follows from what its caller found and is not part of it, so no caller waits
+// for the removals. They run in the order queued, REMOVAL_SPACING_MS apart, as each one
+// broadcasts its removal to peers. A name already queued, or being removed, is not queued again.
 
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');

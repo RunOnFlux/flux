@@ -248,6 +248,34 @@ describe('resourceQueryService tests', () => {
       expect(response.data.appsHddLocked).to.be.greaterThan(75); // Base HDD + filesystem overhead
     });
 
+    // A redeploy checks the new specification against the node without the old
+    // one, whose row is still installed while its containers are replaced.
+    it('leaves out the app it is asked to', async () => {
+      const collection = config.database.appslocal.collections.appsInformation;
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        // Collection doesn't exist
+      }
+      await dbHelper.insertManyToDatabase(database, collection, [
+        {
+          name: 'App1', version: 3, tiered: false, cpu: 2, ram: 4000, hdd: 50,
+        },
+        {
+          name: 'App2', version: 3, tiered: false, cpu: 1, ram: 2000, hdd: 25,
+        },
+      ]);
+      sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
+
+      const all = await resourceQueryService.appsResources();
+      const withoutApp1 = await resourceQueryService.appsResources({ excludeApp: 'App1' });
+
+      expect(all.data.appsCpusLocked).to.equal(3);
+      expect(withoutApp1.data.appsCpusLocked).to.equal(1);
+      expect(withoutApp1.data.appsRamLocked).to.equal(2000);
+      expect(withoutApp1.data.appsHddLocked).to.be.lessThan(all.data.appsHddLocked - 49);
+    });
+
     it('should calculate resources for version 3 tiered apps', async () => {
       const req = {};
       const res = {

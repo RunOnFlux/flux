@@ -3,11 +3,9 @@
 USER=fluxtesting
 HASH_LOCATION=tests/images/.package_hash
 
-sudo chown $USER:$USER /var/run/docker.sock
-
-if ! docker ps 2>&1 >/dev/null; then
-  echo "Docker not available... exiting"
-  exit
+if ! docker ps >/dev/null 2>&1; then
+  echo "Docker not available at ${DOCKER_HOST:-/var/run/docker.sock}... exiting"
+  exit 1
 fi
 
 npm config set update-notifier false
@@ -29,8 +27,10 @@ CURRENT_HASH=($(sha256sum package.json))
 
 if [[ $EXISTING_HASH != $CURRENT_HASH ]]; then
   # only echo hash on success
-  npm install --omit-dev && echo "$CURRENT_HASH" > $HASH_LOCATION
+  npm install && echo "$CURRENT_HASH" > $HASH_LOCATION
 fi
+
+npm run prebuild || exit 1
 
 # create directories etc
 sudo syncthing --home=/home/$USER/.config/syncthing 2>&1 > /dev/null &
@@ -55,4 +55,7 @@ if [[ -n $MANUAL_TEST ]]; then
   exit
 fi
 
-npx mocha "$@" --exit; rm -f {debug,info,warn,error}.log
+npx mocha "$@" --exit
+status=$?
+rm -f {debug,info,warn,error}.log
+exit $status
