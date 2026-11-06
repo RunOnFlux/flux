@@ -11,6 +11,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
 const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
+const publicPorts = require('../../ZelBack/src/services/utils/publicPorts');
 const { upnp: { testMappingLeaseS: TEST_LEASE_S, verifyRetryFirstMs: RETRY_FIRST_MS } } = require('config');
 const configManager = require('../../ZelBack/src/services/utils/configManager');
 const upnpRouter = require('../../ZelBack/src/services/upnpRouter');
@@ -130,6 +131,31 @@ describe('upnpService tests', () => {
         globalThis.userconfig = { initial: { apiport: 16127, routerIP: '192.168.1.1', upnp } };
 
         expect(upnpService.isUPNP()).to.equal(answer);
+      });
+    });
+
+    describe('behind the front proxy, whose port userconfig.js does not follow', () => {
+      const socketBefore = process.env.FLUXOS_API_SOCKET;
+
+      beforeEach(() => { process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock'; });
+
+      afterEach(() => {
+        if (socketBefore === undefined) delete process.env.FLUXOS_API_SOCKET;
+        else process.env.FLUXOS_API_SOCKET = socketBefore;
+      });
+
+      it('should take a node the proxy has moved off the default port as mapping through UPnP', () => {
+        globalThis.userconfig = { initial: { apiport: 16127, routerIP: '', upnp: false } };
+        sinon.stub(publicPorts, 'getApiPort').returns(16137);
+
+        expect(upnpService.isUPNP()).to.equal(true);
+      });
+
+      it('should take a node the proxy has moved onto the default port by its upnp setting', () => {
+        globalThis.userconfig = { initial: { apiport: 16137, routerIP: '', upnp: false } };
+        sinon.stub(publicPorts, 'getApiPort').returns(16127);
+
+        expect(upnpService.isUPNP()).to.equal(false);
       });
     });
 

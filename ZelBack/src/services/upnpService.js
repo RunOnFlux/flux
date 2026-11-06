@@ -1,5 +1,6 @@
 const config = require('config');
 const { socketPath } = require('./utils/apiSocket');
+const publicPorts = require('./utils/publicPorts');
 const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -86,12 +87,14 @@ let mapping = null;
  * config.server.apiport it always does: only a UPnP node can take one. On that
  * port, as the operator's `upnp` in userconfig.js says (declareUpnpIfUnset writes
  * it where it is missing). A router that does not answer leaves a UPnP node a UPnP
- * node, out of service until it does.
+ * node, out of service until it does. Behind the front proxy the port is the one it
+ * serves, since userconfig.js is not rewritten for a live move.
  * @returns {boolean}
  */
 function isUPNP() {
   const { apiport, upnp } = globalThis.userconfig?.initial ?? {};
-  return upnp === true || Boolean(apiport && Number(apiport) !== config.server.apiport);
+  const port = socketPath() ? publicPorts.getApiPort() : apiport;
+  return upnp === true || Boolean(port && Number(port) !== config.server.apiport);
 }
 
 /**
