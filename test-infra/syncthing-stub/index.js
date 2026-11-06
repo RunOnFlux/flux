@@ -787,15 +787,23 @@ app.get('/rest/db/status', (req, res) => {
   const folderId = req.query.folder;
   const ov = lookupSync(clientIp(req), folderId || '');
   if (ov?.statusUnreadable) return res.status(500).json({ error: 'simulated unreadable folder status' });
-  const globalBytes = ov?.globalBytes ?? 0;
+  // A sending folder publishes what it held: the entries leave the local-change list
+  // and join the index, so a seed's data is in its global figures.
+  const declared = Array.isArray(ov?.localChanged) ? ov.localChanged : [];
+  const sending = reqState(req).folders.get(folderId || '')?.type === 'sendreceive';
+  const published = sending
+    ? declared.filter((entry) => entry.type === 'FILE_INFO_TYPE_FILE' && !entry.deleted)
+    : [];
+  const publishedBytes = published.reduce((total, entry) => total + (Number(entry.size) || 0), 0);
+  const globalBytes = (ov?.globalBytes ?? 0) + publishedBytes;
   // How many of the indexed entries are FILES. This stub reports no directories,
   // so bytes it reports are bytes in files, and at least one file carries them -
   // see /sync-state.
-  const globalFiles = ov?.globalFiles ?? 0;
-  const inSyncBytes = ov?.inSyncBytes ?? 0;
+  const globalFiles = (ov?.globalFiles ?? 0) + published.length;
+  const inSyncBytes = (ov?.inSyncBytes ?? 0) + publishedBytes;
   const state = ov?.state ?? 'idle';
   // Derived, never declared separately - see the /sync-state comment.
-  const localChanged = Array.isArray(ov?.localChanged) ? ov.localChanged : [];
+  const localChanged = sending ? [] : declared;
   const changedFiles = localChanged.filter((entry) => entry.type === 'FILE_INFO_TYPE_FILE' && !entry.deleted);
   const receiveOnlyChangedFiles = changedFiles.length;
   const receiveOnlyChangedDirectories = localChanged.filter((entry) => entry.type === 'FILE_INFO_TYPE_DIRECTORY').length;
