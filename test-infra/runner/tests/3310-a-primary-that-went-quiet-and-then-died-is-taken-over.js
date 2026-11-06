@@ -178,9 +178,11 @@ describe('a primary that went quiet and then died is taken over', function () {
     expect(await readPath(client(A), `${root}/${SAVE}`), 'the primary\'s file is gone from the standby').to.equal(SAVE_CONTENT);
     expect(await readPath(client(A), `${root}/${FENCED}`), 'the dead primary\'s write from after its location expired reached the standby').to.equal(null);
     expect((await readPath(client(A), `${root}/appdata/seed-data`))?.trim(), 'the primary\'s data is gone from the standby').to.equal('seeded');
-    const kept = client(A).getEventBuffer().some((e) => e.id > afterDeath && e.event === 'syncthing:localChangesKept'
-      && e.data?.folder === folder);
-    expect(kept, 'the standby did not keep the change no other device holds').to.equal(true);
+    const afterDeathEvents = client(A).getEventBuffer().filter((e) => e.id > afterDeath && e.data?.folder === folder);
+    expect(afterDeathEvents.some((e) => e.event === 'syncthing:localChangesChecked' && e.data.onlyCopy === true),
+      'the standby did not find the change to be the only copy').to.equal(true);
+    expect(afterDeathEvents.filter((e) => e.event === 'syncthing:localChangesReverted'),
+      'the standby reverted the change no other device holds').to.deep.equal([]);
     expect(fleet.twoRan, 'two nodes ran the app at once').to.deep.equal([]);
   });
 
