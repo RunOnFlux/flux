@@ -3,19 +3,14 @@ let userconfig = require('../../config/userconfig');
 const volumeToolsImage = require('./volumeToolsImage.json');
 const networks = require('./networks');
 
-const isDevelopment = userconfig.initial.development || false;
-
 // The Flux network this node runs on. Every network-dependent value below comes
 // from its profile; a network with no usable profile stops FluxOS here, at load.
 const network = userconfig.initial.network ?? 'mainnet';
 const net = networks.profileFor(network);
-// The profile values a development node reads, where the network honours it.
-const variant = net.developmentApplies && isDevelopment ? net.development : net;
 
 const dbPrefix = '';
 
 module.exports = {
-  development: isDevelopment,
   network,
   loglevel: 'debug', // severity ordering specified by RFC5424
   testEventStream: false,
@@ -248,11 +243,7 @@ module.exports = {
       //
       // In their own file because the harness reads them too, and reads them
       // from here rather than repeating them: a rebuilt image must not leave
-      // the harness testing something the fleet does not run. It cannot
-      // `require` this config to get at them - line 2 pulls in userconfig.js,
-      // which is gitignored and absent from a fresh checkout - so it used to
-      // match them out of this source with a regular expression, and changing
-      // the shape of a pin broke the runner rather than the thing under test.
+      // the harness testing something the fleet does not run.
       //
       // A tag alone decides nothing: it is mutable at the registry, and one
       // inside an image a peer hands over is whatever that peer wrote in it. So
@@ -373,19 +364,18 @@ module.exports = {
     teamSupportAddress: net.fluxapps.teamSupportAddress,
     usersToExtend: net.fluxapps.usersToExtend,
     // restartAlwaysOwners removed — all containers use restart policy 'no', FluxOS manages startup
-    appSpecsEnforcementHeights: variant.fluxapps.appSpecsEnforcementHeights,
+    appSpecsEnforcementHeights: net.fluxapps.appSpecsEnforcementHeights,
     storageHost: net.fluxapps.storageHost,
     address: net.fluxapps.address,
     addressMultisig: net.fluxapps.addressMultisig,
     addressMultisigB: net.fluxapps.addressMultisigB,
-    addressDevelopment: net.fluxapps.addressDevelopment,
     multisigAddressChange: net.fluxapps.multisigAddressChange,
     epochstart: net.fluxapps.epochstart,
     publicepochstart: net.fluxapps.publicepochstart,
     explorerInsightSkipRanges: net.fluxapps.explorerInsightSkipRanges,
     portMinLegacy: 31000, // ports 30000 - 30999 are reserved for local applications
     portMaxLegacy: 39999,
-    portBlockheightChange: variant.fluxapps.portBlockheightChange,
+    portBlockheightChange: net.fluxapps.portBlockheightChange,
     portMin: 1,
     portMax: 65535,
     bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444, 123, 53],

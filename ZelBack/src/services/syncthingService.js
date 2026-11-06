@@ -660,14 +660,6 @@ async function getConfigOptions() {
 }
 
 /**
- * The syncthing GUI's own configuration.
- * @returns {Promise<object>} The gui configuration.
- */
-async function getConfigGui() {
-  return request('get', '/rest/config/gui');
-}
-
-/**
  * To modify options object, PUT replaces the entire object and PATCH replaces only the given child objects.
  * @param {string} method Request.
  * @param {object} newConfig Response.
@@ -1411,20 +1403,6 @@ async function adjustSyncthing() {
     const allFolders = await getConfigFolders().catch(() => []);
     if (allFolders.find((syncthingFolder) => syncthingFolder.id === 'default')) {
       await adjustConfigFolders('delete', undefined, 'default');
-    }
-    // enable gui debugging for development nodes only
-    if (config.development) {
-      const currentGUIOptions = await getConfigGui();
-      if (currentGUIOptions.status === 'success') {
-        const newGUIOptions = currentGUIOptions.data;
-        if (newGUIOptions.debugging !== true) {
-          log.info('Applying SyncthingGUI debuggin options...');
-          newGUIOptions.debugging = true;
-          await performRequest('patch', '/rest/config/gui', newGUIOptions);
-        } else {
-          log.info('Syncthing GUI in debugging options.');
-        }
-      }
     }
   } catch (error) {
     log.error(error);

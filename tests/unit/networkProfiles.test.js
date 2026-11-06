@@ -23,7 +23,6 @@ function resolveFor(initial) {
       ipaddress: '127.0.0.1',
       zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
       kadena: '',
-      development: false,
       apiport: 16127,
       routerIP: '',
       pgpPrivateKey: '',
@@ -80,17 +79,10 @@ describe('network profiles', () => {
       expect(keyPaths(labnet)).to.eql(keyPaths(mainnet));
     });
 
-    it('a development block carries the same key paths as the values it stands in for', () => {
-      [mainnet, labnet].forEach((profile) => {
-        const standIns = keyPaths(profile.development);
-        standIns.forEach((key) => expect(key.split('.').reduce((acc, part) => acc[part], profile), key).to.not.equal(undefined));
-      });
-    });
-
     it('is frozen all the way down', () => {
       expect(Object.isFrozen(networks)).to.equal(true);
       expect(Object.isFrozen(mainnet.fluxapps.price[0])).to.equal(true);
-      expect(Object.isFrozen(mainnet.development.fluxapps.appSpecsEnforcementHeights)).to.equal(true);
+      expect(Object.isFrozen(mainnet.fluxapps.appSpecsEnforcementHeights)).to.equal(true);
     });
   });
 
@@ -208,38 +200,6 @@ describe('network profiles', () => {
     it('refuses to load for a network it does not know', () => {
       expect(() => resolveFor({ network: 'testnet' })).to.throw(/network 'testnet' has no profile/);
       expect(() => resolveFor({ network: 'constructor' })).to.throw(/network 'constructor' has no profile/);
-    });
-
-    it('applies development on mainnet', () => {
-      const resolved = resolveFor({ network: 'mainnet', development: true });
-      expect(resolved.fluxapps.appSpecsEnforcementHeights).to.eql(mainnet.development.fluxapps.appSpecsEnforcementHeights);
-      expect(resolved.fluxapps.portBlockheightChange).to.equal(1390000);
-    });
-
-    it('ignores development on labnet', () => {
-      const resolved = resolveFor({ network: 'labnet', development: true });
-      expect(Object.values(resolved.fluxapps.appSpecsEnforcementHeights)).to.eql([0, 0, 0, 0, 0, 0, 0, 0]);
-      expect(resolved.fluxapps.portBlockheightChange).to.equal(0);
-      // The development receiver is the lab's one receiver, so development adds none.
-      expect(resolved.fluxapps.addressDevelopment).to.equal(resolved.fluxapps.address);
-    });
-
-    it('reads a profile\'s development block only where the profile says development applies', () => {
-      const devBlock = {
-        fluxapps: {
-          appSpecsEnforcementHeights: {
-            1: 7, 2: 7, 3: 7, 4: 7, 5: 7, 6: 7, 7: 7, 8: 7,
-          },
-          portBlockheightChange: 7,
-        },
-      };
-      const ignored = resolveWithProfile('labnet', { ...labnet, development: devBlock }, { network: 'labnet', development: true });
-      expect(ignored.fluxapps.appSpecsEnforcementHeights).to.eql(labnet.fluxapps.appSpecsEnforcementHeights);
-      expect(ignored.fluxapps.portBlockheightChange).to.equal(labnet.fluxapps.portBlockheightChange);
-
-      const honoured = resolveWithProfile('labnet', { ...labnet, developmentApplies: true, development: devBlock }, { network: 'labnet', development: true });
-      expect(honoured.fluxapps.appSpecsEnforcementHeights).to.eql(devBlock.fluxapps.appSpecsEnforcementHeights);
-      expect(honoured.fluxapps.portBlockheightChange).to.equal(7);
     });
 
     it('scans from a height the explorer cursor can hold on every network', () => {

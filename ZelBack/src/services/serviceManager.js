@@ -85,7 +85,6 @@ const { version: fluxVersion } = require('../../../package.json');
 globalState.initializeCaches(cacheManager);
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
-const development = userconfig.initial.development || false;
 
 const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
@@ -825,16 +824,6 @@ async function startFluxFunctions() {
     setInterval(() => {
       backupRestoreService.cleanLocalBackup();
     }, bootDelay(25 * 60 * 1000));
-    if (development) { // just on development branch
-      setInterval(async () => {
-        await fluxService.enterDevelopment().catch((error) => log.error(error));
-        if (development === true || development === 'true' || development === 1 || development === '1') { // in other cases pause git pull
-          setTimeout(async () => {
-            await fluxService.softUpdateFlux().catch((error) => log.error(error));
-          }, 15 * 1000);
-        }
-      }, 20 * 60 * 1000); // every 20 minutes
-    }
   } catch (e) {
     log.error(e);
     setTimeout(() => {
