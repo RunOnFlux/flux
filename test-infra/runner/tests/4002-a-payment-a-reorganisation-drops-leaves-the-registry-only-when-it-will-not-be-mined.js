@@ -164,6 +164,7 @@ describe('a payment a reorganisation drops leaves the registry only when it will
     const paidAt = await paidBehindTheTip(hash);
     const paid = await db.appHashRecord(hash);
     expect(paid?.height, 'the payment was not written by the block that found it').to.equal(paidAt);
+    expect(paid.message, 'its block was processed at the tip').to.equal(false);
 
     const mark = client.getLastEventId();
     await setMempool([]);
@@ -186,6 +187,7 @@ describe('a payment a reorganisation drops leaves the registry only when it will
     const mined = await db.appHashRecord(hash);
     expect(mined.height, 'the new payment did not overwrite the replaced record').to.equal(minedAt);
     expect(mined.replaced).to.equal(undefined);
+    expect(mined.message, 'its block was processed at the tip').to.equal(false);
 
     const mark = client.getLastEventId();
     await forkChain(minedAt);

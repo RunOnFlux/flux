@@ -381,8 +381,13 @@ const rpcHandlers = {
 
     const pending = pendingBlocks.find((b) => b.height === asNum || b.height === hashOrHeight || b.hash === hashOrHeight);
     if (pending) {
-      const confirmations = verbosity === 2 ? fluxnodeTxsAt(pending.height) : [];
-      return confirmations.length ? { ...pending, tx: [...(pending.tx || []), ...confirmations] } : pending;
+      const fluxnodeTxs = verbosity === 2 ? fluxnodeTxsAt(pending.height) : [];
+      return {
+        ...pending,
+        // Read live: the chain moves on after a block is pushed.
+        confirmations: currentHeight - pending.height + 1,
+        ...(fluxnodeTxs.length ? { tx: [...(pending.tx || []), ...fluxnodeTxs] } : {}),
+      };
     }
 
     const height = !Number.isNaN(asNum) ? asNum : currentHeight;
@@ -866,7 +871,6 @@ function tickBlock() {
   if (txs.length > 0) {
     pendingBlocks.push({
       hash: hashAt(currentHeight),
-      confirmations: 1,
       size: 1000,
       height: currentHeight,
       version: 4,
@@ -972,18 +976,11 @@ control.post('/advance-block', (req, res) => {
     block.hash = block.hash || hashAt(currentHeight);
     block.previousblockhash = block.previousblockhash || hashAt(block.height - 1);
     block.time = block.time ?? blockTimeOf(block.height);
-    // Computed live, the way a synthesized block computes it at the top of this
-    // file. Stamping 1 at push time made a block carrying transactions read as
-    // the chain tip no matter how far behind the node was, while an empty block
-    // did not - so the one class of block whose isSynced skip matters most, an
-    // app registration, was the one class the stub had made unskippable.
-    block.confirmations = currentHeight - block.height + 1;
     block.tx = [...(block.tx || []), ...txs];
     pendingBlocks.push(block);
   } else if (txs.length > 0) {
     pendingBlocks.push({
       hash: hashAt(currentHeight),
-      confirmations: 1,
       size: 1000,
       height: currentHeight,
       version: 4,
