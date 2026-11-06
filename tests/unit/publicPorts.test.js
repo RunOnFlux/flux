@@ -10,8 +10,17 @@ const publicPorts = require('../../ZelBack/src/services/utils/publicPorts');
 
 const settle = () => new Promise((resolve) => { setTimeout(resolve, 100); });
 
+async function until(condition) {
+  const deadline = Date.now() + 5000;
+  while (!condition() && Date.now() < deadline) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => { setTimeout(resolve, 10); });
+  }
+}
+
 describe('publicPorts tests', () => {
   const before = process.env.FLUXOS_API_SOCKET;
+  const userconfigBefore = globalThis.userconfig;
   let dir;
   let file;
   let written;
@@ -32,6 +41,7 @@ describe('publicPorts tests', () => {
   afterEach(() => {
     publicPorts.stop();
     sinon.restore();
+    globalThis.userconfig = userconfigBefore;
     fs.rmSync(dir, { recursive: true, force: true });
     if (before === undefined) delete process.env.FLUXOS_API_SOCKET;
     else process.env.FLUXOS_API_SOCKET = before;
@@ -80,7 +90,7 @@ describe('publicPorts tests', () => {
     publish({
       uiPort: 16146, apiPort: 16147, apiPortHttps: 16148, alsoServing: [],
     });
-    await settle();
+    await until(() => moved.calledTwice);
     sinon.assert.calledTwice(moved);
     expect(publicPorts.getAlsoServing()).to.deep.equal([]);
     publicPorts.offChange(moved);
