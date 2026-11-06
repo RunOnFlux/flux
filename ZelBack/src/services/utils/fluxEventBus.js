@@ -62,7 +62,8 @@ const Checkpoint = Object.freeze({
   // A state sync has every answer it needs and the node has not yet become
   // authoritative from them, so it still refuses to answer a peer's sync.
   APPSYNC_BEFORE_AUTHORITATIVE: 'appSync:beforeAuthoritative',
-  // The explorer is about to process a block, and has not fetched it yet.
+  // The explorer is about to process a block, and has not fetched it yet. Keyed
+  // by the block's height.
   EXPLORER_BEFORE_BLOCK: 'explorer:beforeBlock',
   // A give-up pass holds the pass lock and has not yet read anything.
   GIVEUP_BEFORE_PASS: 'giveUp:beforePass',

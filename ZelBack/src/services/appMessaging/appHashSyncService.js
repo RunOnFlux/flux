@@ -60,8 +60,9 @@ async function getMissingHashes(options = {}) {
   const { force = false, currentHeight = 0 } = options;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
-  // A payment whose transaction is not on the chain (notOnChain) has no message to fetch.
-  const query = { message: false, notOnChain: { $ne: true } };
+  // A payment whose transaction is not on the chain (notOnChain) has no message to fetch, and one
+  // whose block a reorganisation replaced has none until a block pays it again.
+  const query = { message: false, notOnChain: { $ne: true }, replaced: { $exists: false } };
   if (!force) {
     query.messageNotFound = { $ne: true };
     query.$or = [

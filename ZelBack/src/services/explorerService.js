@@ -39,7 +39,9 @@ let nextStep = null;
 let zelAppSpecsMigrationDone = false;
 let explorerReadyEmitted = false;
 let operationBlocked = false;
-let appsTransactions = [];
+// Payments whose messages are requested at the next block at the tip. They are only a prompt:
+// hash sync finds every payment without a message.
+let paymentsToRequest = [];
 let isSynced = false;
 // The last block the explorer processed: the explorer's records hold the chain up
 // to it, so the next block must name its hash as parent. Null when no block has
@@ -233,23 +235,25 @@ async function processSoftFork(txid, height, message) {
 }
 
 /**
- * The payment record this node holds for an app message hash, or null. A record whose transaction
- * the chain does not hold (notOnChain), or whose block a reorganisation replaced (replaced), is
- * removed, so the block paying that hash records the payment in its place.
+ * Records a block's payment of an app message hash, unless a payment this node holds stands. A
+ * record whose transaction the chain does not hold (notOnChain), or whose block a reorganisation
+ * replaced (replaced), does not stand; one write overwrites it, so a later reorganisation finds
+ * one record or the other.
  * @param {object} database the daemon database
- * @param {string} hash
- * @returns {Promise<object|null>}
+ * @param {object} payment the record to write
+ * @returns {Promise<boolean>} whether the payment was recorded
  */
-async function standingAppPayment(database, hash) {
-  const record = await dbHelper.findOneInDatabase(database, appsHashesCollection, { hash }, {
+async function recordAppPayment(database, payment) {
+  const { hash, height } = payment;
+  const held = await dbHelper.findOneInDatabase(database, appsHashesCollection, { hash }, {
     projection: {
-      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, notOnChain: 1, replaced: 1,
+      _id: 0, txid: 1, height: 1, notOnChain: 1, replaced: 1,
     },
   });
-  if (!record?.notOnChain && record?.replaced === undefined) return record;
-  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, { hash });
-  log.info(`Explorer - payment of ${hash} recorded at txid ${record.txid} height ${record.height} is not on the chain; recording the one this block holds`);
-  return null;
+  if (held && !held.notOnChain && held.replaced === undefined) return false;
+  await dbHelper.replaceOneInDatabase(database, appsHashesCollection, { hash }, payment, { upsert: true });
+  if (held) log.info(`Explorer - payment of ${hash} at height ${height} takes the place of the record at txid ${held.txid} height ${held.height}`);
+  return true;
 }
 
 /**
@@ -306,11 +310,10 @@ async function processInsight(blockDataVerbose, database) {
           };
           // A hash is paid once: a payment this node already holds stands.
           // eslint-disable-next-line no-await-in-loop
-          const standing = await standingAppPayment(database, message);
-          if (standing) {
-            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+          if (await recordAppPayment(database, appTxRecord)) {
+            paymentsToRequest.push(appTxRecord);
           } else {
-            appsTransactions.push(appTxRecord);
+            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
           }
         }
       }
@@ -367,8 +370,6 @@ async function insertTransactions(transactions, database) {
         }
       }
     }
-    // Reprocessing the block collects its payments again.
-    appsTransactions = [];
     if (unrecorded) throw unrecorded;
   }
 }
@@ -413,13 +414,6 @@ async function requestAppHashes(apps) {
     }
   } catch (error) {
     log.error(`Explorer - requestAppHashes - ${apps.length} app payments: ${error.message}`);
-  }
-}
-
-async function insertAndRequestAppHashes(apps, database) {
-  if (apps.length > 0) {
-    await insertTransactions(apps, database);
-    setTimeout(requestAppHashes, 1, apps);
   }
 }
 
@@ -501,7 +495,7 @@ async function processBlock(blockHeight) {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) return after(Step.block(blockHeight), BLOCK_SYNC_RETRY_MS);
-    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.EXPLORER_BEFORE_BLOCK);
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.EXPLORER_BEFORE_BLOCK, blockHeight);
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     // get Block information
@@ -574,14 +568,16 @@ async function processBlock(blockHeight) {
       if (blockWorkDue('benchUpnp', blockDataVerbose.height, benchPeriod)) {
         await scheduleUpnpBench(blockDataVerbose, benchPeriod);
       }
-      await insertAndRequestAppHashes(appsTransactions, database, true);
+      if (paymentsToRequest.length) {
+        setTimeout(requestAppHashes, 1, paymentsToRequest);
+        paymentsToRequest = [];
+      }
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
       await settleReplacedPayments(database, scannedHeight);
       fluxEventBus.publish('block:processed', { height: scannedHeight });
     } else if (blockDataVerbose.height % 500 === 0) {
-      log.info(`Processing Explorer Number of Transactions: ${appsTransactions.length}.`);
       await registryManager.expireGlobalApplications(); // in case node was shutdown for a while and it is started
-      await insertTransactions(appsTransactions, database);
+      paymentsToRequest = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
       fluxEventBus.publish('block:processed', { height: scannedHeight });
       blockEmitter.emit('syncProgress', scannedHeight);
@@ -605,7 +601,7 @@ async function processBlock(blockHeight) {
 /**
  * Removes every payment record but the one a scan keeps for each app message
  * hash, and answers how many it removed: a payment this node already holds
- * stands (standingAppPayment), so a scan keeps the earliest, and a record
+ * stands (recordAppPayment), so a scan keeps the earliest, and a record
  * whose transaction the chain does not hold is no payment and gives way to one
  * that is. The stored message of each such hash moves to the record kept before
  * the others are removed, and the registry rebuild at boot writes its app's row
@@ -705,6 +701,7 @@ async function restoreDatabaseToBlockheightState(height) {
   if (!Number.isInteger(height) || height < 0) {
     throw new Error('No valid blockheight for restoring provided');
   }
+  paymentsToRequest = paymentsToRequest.filter((payment) => payment.height <= height);
   // Whole-collection deletes and updates: they run on the maintenance client.
   const dbopen = dbHelper.databaseConnection();
   const database = dbHelper.onMaintenanceClient(dbopen.db(config.database.daemon.database));
@@ -1047,7 +1044,7 @@ async function forkPoint(block) {
 }
 
 /**
- * Keeps the records of paid messages above `height` as replaced: a reorganisation returns
+ * Keeps the payment records above `height` as replaced: a reorganisation returns
  * their transactions to fluxd's mempool, so each still counts as paid until it is mined
  * again, or leaves the mempool (settleReplacedPayments).
  * @param {object} database The daemon database.
@@ -1057,7 +1054,7 @@ async function forkPoint(block) {
  */
 async function markReplacedPayments(database, height, tip) {
   await dbHelper.updateInDatabase(database, appsHashesCollection,
-    { height: { $gt: height }, message: true, notOnChain: { $ne: true }, replaced: { $exists: false } },
+    { height: { $gt: height }, notOnChain: { $ne: true }, replaced: { $exists: false } },
     { $set: { replaced: tip } });
 }
 
