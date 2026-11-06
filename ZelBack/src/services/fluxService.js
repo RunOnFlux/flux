@@ -62,28 +62,12 @@ function selfUpdateRefusal(arcane) {
 }
 
 /**
- * Starts or restarts a unit behind the front proxy, so the binary it names is the one that runs.
- * --no-block: a job on a Type=notify unit ends at READY=1, minutes after fluxd starts.
- * @param {string} verb - start or restart
- * @param {string} unit
- * @param {string} done - the message on success
- * @param {object} [res] Response.
- * @returns {Promise<object>} Message.
- */
-async function controlUnit(verb, unit, done, res) {
-  const { error } = await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['--no-block', verb, unit] });
-  const message = error
-    ? messageHelper.createErrorMessage(`Error on ${verb} of ${unit}: ${error.message}`, error.name, error.code)
-    : messageHelper.createSuccessMessage(done);
-  return res ? res.json(message) : message;
-}
-
-/**
- * The refusal of an apt update behind the front proxy, where the component channel updates both.
+ * The refusal of a daemon or benchmark control on ArcaneOS, where each runs under its own unit and
+ * the endpoints' scripts and apt updates are a legacy node's.
  * @returns {object} Message.
  */
-function channelUpdateRefusal() {
-  return messageHelper.createErrorMessage('The daemon and the benchmark are updated by the component channel');
+function daemonControlRefusal() {
+  return messageHelper.createErrorMessage('The daemon and the benchmark are managed by the system on ArcaneOS');
 }
 
 // Where this node's checkout is, named once. Every command below that reads or
@@ -91,8 +75,6 @@ function channelUpdateRefusal() {
 // the process happens to be running in: `git checkout` and `git fetch` write,
 // and a write is not something to leave to the launcher's habits.
 const REPO_ROOT = path.join(__dirname, '../../../');
-// The unit's start removes it and adds -reindex to that one start.
-const REINDEX_MARKER = '/dat/var/lib/fluxd/.reindex-once';
 
 // Cache for OS distribution information
 let cachedOSDistInfo = null;
@@ -812,7 +794,7 @@ async function updateDaemon(req, res) {
     return res.json(errMessage);
   }
 
-  if (socketPath()) return res.json(channelUpdateRefusal());
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'updateDaemon.sh');
@@ -842,7 +824,7 @@ async function updateBenchmark(req, res) {
     return res.json(errMessage);
   }
 
-  if (socketPath()) return res.json(channelUpdateRefusal());
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'updateBenchmark.sh');
@@ -872,7 +854,7 @@ async function startBenchmark(req, res) {
     return res.json(errMessage);
   }
 
-  if (socketPath()) return controlUnit('start', 'fluxbenchd.service', 'Benchmark successfully started', res);
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const bin = await fs
     .access('/usr/local/bin/fluxbenchd', fs.constants.F_OK)
@@ -904,7 +886,7 @@ async function restartBenchmark(req, res) {
     return res.json(errMessage);
   }
 
-  if (socketPath()) return controlUnit('restart', 'fluxbenchd.service', 'Benchmark successfully restarted', res);
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'restartBenchmark.sh');
@@ -934,7 +916,7 @@ async function startDaemon(req, res) {
     return res.json(errMessage);
   }
 
-  if (socketPath()) return controlUnit('start', 'fluxd.service', 'Daemon successfully started', res);
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const bin = await fs
     .access('/usr/local/bin/fluxd', fs.constants.F_OK)
@@ -966,7 +948,7 @@ async function restartDaemon(req, res) {
     return res.json(errMessage);
   }
 
-  if (socketPath()) return controlUnit('restart', 'fluxd.service', 'Daemon successfully restarted', res);
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'restartDaemon.sh');
@@ -996,10 +978,7 @@ async function reindexDaemon(req, res) {
     return res.json(errMessage);
   }
 
-  if (socketPath()) {
-    await fs.writeFile(REINDEX_MARKER, '');
-    return controlUnit('restart', 'fluxd.service', 'Daemon successfully reindexing', res);
-  }
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'reindexDaemon.sh');
@@ -1795,7 +1774,7 @@ async function adjustRouterIP(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
-      if (socketPath()) {
+      if (isArcane) {
         res.json(messageHelper.createErrorMessage('The router address is set in the node\'s configuration'));
         return;
       }
@@ -1826,7 +1805,7 @@ async function adjustAPIPort(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
-      if (socketPath()) {
+      if (isArcane) {
         res.json(messageHelper.createErrorMessage('The API port is set in the node\'s configuration'));
         return;
       }
