@@ -3970,4 +3970,58 @@ describe('fluxService tests', () => {
       expect(pm2Restarts()).to.have.length(1);
     });
   });
+
+  describe('behind the front proxy', () => {
+    const socketBefore = process.env.FLUXOS_API_SOCKET;
+    let runCommandStub;
+    let writeFileStub;
+
+    beforeEach(() => {
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      if (socketBefore === undefined) delete process.env.FLUXOS_API_SOCKET;
+      else process.env.FLUXOS_API_SOCKET = socketBefore;
+    });
+
+    [
+      ['startDaemon', 'start', 'fluxd.service'],
+      ['restartDaemon', 'restart', 'fluxd.service'],
+      ['startBenchmark', 'start', 'fluxbenchd.service'],
+      ['restartBenchmark', 'restart', 'fluxbenchd.service'],
+    ].forEach(([endpoint, verb, unit]) => {
+      it(`${endpoint} goes through ${unit}, never blocking on it`, async () => {
+        const res = generateResponse();
+        await fluxService[endpoint]({}, res);
+        sinon.assert.calledOnceWithExactly(runCommandStub, 'systemctl', {
+          runAsRoot: false, params: ['--no-block', verb, unit],
+        });
+        expect(res.json.firstCall.args[0].status).to.equal('success');
+      });
+    });
+
+    it('reindexDaemon leaves the marker for the unit, then restarts it', async () => {
+      const res = generateResponse();
+      await fluxService.reindexDaemon({}, res);
+      sinon.assert.calledOnceWithExactly(writeFileStub, '/dat/var/lib/fluxd/.reindex-once', '');
+      sinon.assert.calledOnceWithExactly(runCommandStub, 'systemctl', {
+        runAsRoot: false, params: ['--no-block', 'restart', 'fluxd.service'],
+      });
+      sinon.assert.callOrder(writeFileStub, runCommandStub);
+    });
+
+    ['updateDaemon', 'updateBenchmark'].forEach((endpoint) => {
+      it(`${endpoint} is refused`, async () => {
+        const res = generateResponse();
+        await fluxService[endpoint]({}, res);
+        sinon.assert.notCalled(runCommandStub);
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+      });
+    });
+  });
 });

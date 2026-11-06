@@ -64,6 +64,7 @@ const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
+const fluxosTrial = require('../utils/fluxosTrial');
 const folderStates = require('../appMonitoring/folderStates');
 const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
@@ -1044,6 +1045,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
+  await fluxosTrial.settled();
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -1421,6 +1423,7 @@ async function cleanupAppDatabase(appsDatabase, appName, res) {
  * @param {object} res Response.
  */
 async function softRemoveAppLocally(app, res) {
+  await fluxosTrial.settled();
   // Validate state
   if (globalState.removalInProgress) {
     throw new Error('Another application is undergoing removal');
