@@ -447,6 +447,18 @@ describe('admissionQuorum tests', () => {
     const propose = (mod, peer) => mod.openProposal(HASH, peer);
     const commit = (mod, peer) => mod.onCommit(peer, { type: 'appcommit', hash: HASH });
 
+    it('should answer a proposer once however often it proposes', () => {
+      const { mod } = load();
+      const entry = makePeer('10.0.0.1');
+      propose(mod, entry);
+      propose(mod, entry);
+      propose(mod, entry);
+
+      mod.hold(HASH);
+
+      expect(receiptsTo(entry)).to.eql([{ type: 'appreceipt', hash: HASH, state: 'held' }]);
+    });
+
     it('should answer held once its checks pass, and write only on a commit from the node that proposed it', async () => {
       const { mod } = load();
       const entry = makePeer('10.0.0.1');

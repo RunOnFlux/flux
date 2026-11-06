@@ -266,7 +266,8 @@ function encodeRequestAppInstallingErrors(sinceTimestamp, requestTimestamp, pubk
 
 // --- Link handshake ---
 // Signed format: [type:1][timestamp:8][value:32][keyLen:1][key:var][sigLen:1][signature:var]
-// The value is a nonce or a confirm's MAC; linkNoConfirm has none. The frame decodes to the
+// The value is a nonce, a confirm's MAC, or for linkNoConfirm the nonce of the handshake it
+// gives up, so it speaks for that link alone. The frame decodes to the
 // Flux broadcast that was signed, so it is verified as one.
 
 const LINK_VALUE_BYTES = 32;
@@ -287,17 +288,17 @@ function isLinkFrame(buf) {
 function encodeLinkFrame({
   timestamp, pubKey, signature, data,
 }) {
-  const value = data.type === NONCE_TYPE ? data.nonce : data.mac;
-  const noValue = data.type === CONFIRM_TYPE && value === null;
-  if (!noValue && !isHex32(value)) throw new Error('peerCodec - a link frame carries 32 bytes of hex');
-  const type = data.type === NONCE_TYPE ? MSG_TYPE.LINK_NONCE : MSG_TYPE.LINK_CONFIRM;
+  const gaveUp = data.type === CONFIRM_TYPE && data.mac === null;
+  const value = data.type === NONCE_TYPE || gaveUp ? data.nonce : data.mac;
+  if (!isHex32(value)) throw new Error('peerCodec - a link frame carries 32 bytes of hex');
+  const confirm = gaveUp ? MSG_TYPE.LINK_NO_CONFIRM : MSG_TYPE.LINK_CONFIRM;
   const key = Buffer.from(pubKey, 'hex');
   const sig = Buffer.from(signature, 'base64');
   const header = Buffer.allocUnsafe(LINK_HEADER_BYTES);
-  header[0] = noValue ? MSG_TYPE.LINK_NO_CONFIRM : type;
+  header[0] = data.type === NONCE_TYPE ? MSG_TYPE.LINK_NONCE : confirm;
   header.writeBigUInt64BE(BigInt(timestamp), 1);
   return Buffer.concat([
-    header, noValue ? Buffer.alloc(0) : Buffer.from(value, 'hex'),
+    header, Buffer.from(value, 'hex'),
     Buffer.from([key.length]), key, Buffer.from([sig.length]), sig,
   ]);
 }
@@ -308,23 +309,25 @@ function encodeLinkFrame({
  *   The broadcast that was signed, or null when the frame is not one.
  */
 function decodeLinkFrame(buf) {
-  const noValue = buf[0] === MSG_TYPE.LINK_NO_CONFIRM;
-  const valueBytes = noValue ? 0 : LINK_VALUE_BYTES;
-  if (buf.length > LINK_FRAME_MAX_BYTES || buf.length < LINK_HEADER_BYTES + valueBytes + 2) return null;
+  if (buf.length > LINK_FRAME_MAX_BYTES || buf.length < LINK_HEADER_BYTES + LINK_VALUE_BYTES + 2) return null;
   let offset = 1;
   const timestamp = Number(buf.readBigUInt64BE(offset)); offset += 8;
-  const value = buf.subarray(offset, offset + valueBytes).toString('hex'); offset += valueBytes;
+  const value = buf.subarray(offset, offset + LINK_VALUE_BYTES).toString('hex'); offset += LINK_VALUE_BYTES;
   const keyLen = buf[offset]; offset += 1;
   if (!keyLen || keyLen > LINK_KEY_MAX_BYTES || buf.length < offset + keyLen + 1) return null;
   const pubKey = buf.subarray(offset, offset + keyLen).toString('hex'); offset += keyLen;
   const sigLen = buf[offset]; offset += 1;
   if (!sigLen || sigLen > LINK_SIGNATURE_MAX_BYTES || buf.length !== offset + sigLen) return null;
   const signature = buf.subarray(offset).toString('base64');
-  const data = buf[0] === MSG_TYPE.LINK_NONCE
-    ? { type: NONCE_TYPE, version: 1, nonce: value }
-    : { type: CONFIRM_TYPE, version: 1, mac: noValue ? null : value };
+  const dataOf = {
+    [MSG_TYPE.LINK_NONCE]: { type: NONCE_TYPE, version: 1, nonce: value },
+    [MSG_TYPE.LINK_CONFIRM]: { type: CONFIRM_TYPE, version: 1, mac: value },
+    [MSG_TYPE.LINK_NO_CONFIRM]: {
+      type: CONFIRM_TYPE, version: 1, mac: null, nonce: value,
+    },
+  };
   return {
-    version: 1, timestamp, pubKey, signature, data,
+    version: 1, timestamp, pubKey, signature, data: dataOf[buf[0]],
   };
 }
 
