@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const config = require('config');
 const sinon = require('sinon');
 const { EventEmitter } = require('events');
 const proxyquire = require('proxyquire').noCallThru();
@@ -14,6 +15,11 @@ describe('FluxSocketServer tests', () => {
 
   afterEach(() => {
     sinon.restore();
+  });
+
+  it('takes no websocket message larger than wsMaxPayloadBytes', () => {
+    const server = new socketServer.FluxWebsocketServer({ routes });
+    expect(server.wsServer.options.maxPayload).to.equal(config.fluxapps.wsMaxPayloadBytes);
   });
 
   it('should build route matchers from route parameters', () => {

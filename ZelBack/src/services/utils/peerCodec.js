@@ -1,5 +1,5 @@
 /**
- * Binary codec for unsigned peer-level messages.
+ * Binary codec for peer-level messages.
  *
  * All frames start with a 1-byte type tag. WebSocket binary frames (Buffer)
  * are distinguished from text frames (string) natively by the WS protocol.
@@ -13,7 +13,12 @@
  * Type 0x21 — requestAppRunning   [type:1][sinceTs:8]          = 9 bytes
  * Type 0x22 — requestAppInstalling [type:1][sinceTs:8]         = 9 bytes
  * Type 0x23 — requestAppInstallingErrors [type:1][sinceTs:8]  = 9 bytes
+ * Type 0x30 — linkNonce           signed, see Link handshake below
+ * Type 0x31 — linkConfirm         signed, see Link handshake below
+ * Type 0x32 — linkNoConfirm       signed, see Link handshake below
  */
+
+const { NONCE_TYPE, CONFIRM_TYPE, isHex32 } = require('./linkCrypto');
 
 const MSG_TYPE = Object.freeze({
   HASH_PRESENT: 0x01,
@@ -25,6 +30,9 @@ const MSG_TYPE = Object.freeze({
   REQUEST_APP_RUNNING: 0x21,
   REQUEST_APP_INSTALLING: 0x22,
   REQUEST_APP_INSTALLING_ERRORS: 0x23,
+  LINK_NONCE: 0x30,
+  LINK_CONFIRM: 0x31,
+  LINK_NO_CONFIRM: 0x32,
 });
 
 const NAK_REASON = Object.freeze({
@@ -256,6 +264,70 @@ function encodeRequestAppInstallingErrors(sinceTimestamp, requestTimestamp, pubk
   return encodeSignedSyncRequest(MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS, sinceTimestamp, requestTimestamp, pubkey, signature);
 }
 
+// --- Link handshake ---
+// Signed format: [type:1][timestamp:8][value:32][keyLen:1][key:var][sigLen:1][signature:var]
+// The value is a nonce or a confirm's MAC; linkNoConfirm has none. The frame decodes to the
+// Flux broadcast that was signed, so it is verified as one.
+
+const LINK_VALUE_BYTES = 32;
+const LINK_HEADER_BYTES = 1 + 8;
+const LINK_KEY_MAX_BYTES = 65;
+const LINK_SIGNATURE_MAX_BYTES = 65;
+const LINK_FRAME_MAX_BYTES = LINK_HEADER_BYTES + LINK_VALUE_BYTES + 1 + LINK_KEY_MAX_BYTES + 1 + LINK_SIGNATURE_MAX_BYTES;
+
+function isLinkFrame(buf) {
+  return buf[0] === MSG_TYPE.LINK_NONCE || buf[0] === MSG_TYPE.LINK_CONFIRM || buf[0] === MSG_TYPE.LINK_NO_CONFIRM;
+}
+
+/**
+ * @param {{timestamp: number, pubKey: string, signature: string, data: object}} broadcast
+ *   A signed link nonce or confirm.
+ * @returns {Buffer}
+ */
+function encodeLinkFrame({
+  timestamp, pubKey, signature, data,
+}) {
+  const value = data.type === NONCE_TYPE ? data.nonce : data.mac;
+  const noValue = data.type === CONFIRM_TYPE && value === null;
+  if (!noValue && !isHex32(value)) throw new Error('peerCodec - a link frame carries 32 bytes of hex');
+  const type = data.type === NONCE_TYPE ? MSG_TYPE.LINK_NONCE : MSG_TYPE.LINK_CONFIRM;
+  const key = Buffer.from(pubKey, 'hex');
+  const sig = Buffer.from(signature, 'base64');
+  const header = Buffer.allocUnsafe(LINK_HEADER_BYTES);
+  header[0] = noValue ? MSG_TYPE.LINK_NO_CONFIRM : type;
+  header.writeBigUInt64BE(BigInt(timestamp), 1);
+  return Buffer.concat([
+    header, noValue ? Buffer.alloc(0) : Buffer.from(value, 'hex'),
+    Buffer.from([key.length]), key, Buffer.from([sig.length]), sig,
+  ]);
+}
+
+/**
+ * @param {Buffer} buf
+ * @returns {{version: number, timestamp: number, pubKey: string, signature: string, data: object}|null}
+ *   The broadcast that was signed, or null when the frame is not one.
+ */
+function decodeLinkFrame(buf) {
+  const noValue = buf[0] === MSG_TYPE.LINK_NO_CONFIRM;
+  const valueBytes = noValue ? 0 : LINK_VALUE_BYTES;
+  if (buf.length > LINK_FRAME_MAX_BYTES || buf.length < LINK_HEADER_BYTES + valueBytes + 2) return null;
+  let offset = 1;
+  const timestamp = Number(buf.readBigUInt64BE(offset)); offset += 8;
+  const value = buf.subarray(offset, offset + valueBytes).toString('hex'); offset += valueBytes;
+  const keyLen = buf[offset]; offset += 1;
+  if (!keyLen || keyLen > LINK_KEY_MAX_BYTES || buf.length < offset + keyLen + 1) return null;
+  const pubKey = buf.subarray(offset, offset + keyLen).toString('hex'); offset += keyLen;
+  const sigLen = buf[offset]; offset += 1;
+  if (!sigLen || sigLen > LINK_SIGNATURE_MAX_BYTES || buf.length !== offset + sigLen) return null;
+  const signature = buf.subarray(offset).toString('base64');
+  const data = buf[0] === MSG_TYPE.LINK_NONCE
+    ? { type: NONCE_TYPE, version: 1, nonce: value }
+    : { type: CONFIRM_TYPE, version: 1, mac: noValue ? null : value };
+  return {
+    version: 1, timestamp, pubKey, signature, data,
+  };
+}
+
 function decodeSyncTimestamp(buf) {
   if (buf.length < 9) return 0;
   return Number(buf.readBigUInt64BE(1));
@@ -283,5 +355,9 @@ module.exports = {
   encodeRequestAppRunning,
   encodeRequestAppInstalling,
   encodeRequestAppInstallingErrors,
+  LINK_FRAME_MAX_BYTES,
+  isLinkFrame,
+  encodeLinkFrame,
+  decodeLinkFrame,
   decodeSyncTimestamp,
 };

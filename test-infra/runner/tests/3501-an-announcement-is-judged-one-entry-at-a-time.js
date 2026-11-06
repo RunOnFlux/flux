@@ -10,7 +10,6 @@ import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.
 import { assertNoEvent } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
-import { execInContainer } from '../framework/container.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -90,11 +89,7 @@ describe('an announcement is judged one entry at a time', function () {
     stub = env.stubPeerClients.get(STUB_INDEX);
     // Nodes 1 and 2 cannot reach the stub, cut off before the fleet peers so
     // neither ever holds a connection to it.
-    await Promise.all(BEHIND_RELAY.map(async (i) => {
-      const cut = await execInContainer(env.clients[i].container,
-        `iptables -I INPUT -s ${stubIp()} -j DROP && iptables -I OUTPUT -d ${stubIp()} -j DROP`);
-      if (cut.exitCode !== 0) throw new Error(`fixture: node ${i} could not cut the stub off (exit ${cut.exitCode}): ${cut.output}`);
-    }));
+    await env.cutOff(BEHIND_RELAY, STUB_INDEX);
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     const peeredWithStub = await Promise.all(BEHIND_RELAY.map(async (i) => {
       const [outgoing, incoming] = await Promise.all([env.clients[i].getPeers(), env.clients[i].getIncomingPeers()]);

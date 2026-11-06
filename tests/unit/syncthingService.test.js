@@ -22,6 +22,14 @@ const sinon = require('sinon');
 const config = require('config');
 const syncthingFixtures = require('./data/syncthingFixtures');
 
+// The script syncthing's namespace runs before syncthing (syncthingService NUMERIC_ID_SYNCTHING).
+const LAUNCH_SCRIPT = 'mount --rbind /etc "$3"'
+  + ' && mount -t tmpfs -o size=1m,mode=0755 syncthing-etc /etc'
+  + ' && for e in "$3"/* "$3"/.[!.]*; do n="${e##*/}"; case "$n" in passwd|group|"*"|".[!.]*") continue;; esac;'
+  + ' if [ -L "$e" ]; then ln -s "$(readlink "$e")" "/etc/$n"; else ln -s "$e" "/etc/$n"; fi || exit 1; done'
+  + ' && : > /etc/passwd && : > /etc/group'
+  + ' && mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 3 && exec syncthing "$@"';
+
 // Fakes
 const runExecStub = sinon.stub();
 const utilFake = { promisify: () => runExecStub };
@@ -1470,8 +1478,9 @@ describe('syncthingService tests', () => {
       const clock = sinon.useFakeTimers();
 
       const expected = 'sudo nohup unshare --mount --propagation slave '
-        + "sh -c 'mount --bind \"$1\" /etc/passwd && mount --bind \"$2\" /etc/group && shift 2 && exec syncthing \"$@\"' "
+        + `sh -c '${LAUNCH_SCRIPT}' `
         + "syncthing '/home/testuser/.config/syncthing/numeric-ids/passwd' '/home/testuser/.config/syncthing/numeric-ids/group' "
+        + "'/home/testuser/.config/syncthing/numeric-ids/host-etc' "
         + "--logfile '/home/testuser/.config/syncthing/syncthing.log' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 "
         + "--allow-newer-config --no-browser --paused --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
       // const expectedParams = [
@@ -1705,7 +1714,7 @@ describe('syncthingService tests', () => {
 
         sinon.assert.calledWith(publishStub, 'syncthing:namesVisible');
         sinon.assert.calledOnce(spawnStub);
-        sinon.assert.calledWithMatch(spawnStub, `sudo nohup unshare --mount --propagation slave sh -c 'mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 2 && exec syncthing "$@"' syncthing '${TABLES}/passwd' '${TABLES}/group' --logfile `);
+        sinon.assert.calledWithMatch(spawnStub, `sudo nohup unshare --mount --propagation slave sh -c '${LAUNCH_SCRIPT}' syncthing '${TABLES}/passwd' '${TABLES}/group' '${TABLES}/host-etc' --logfile `);
         sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
         expect(publishStub.firstCall.args[0], 'the old one is reported before the replacement is announced').to.equal('syncthing:namesVisible');
       });
@@ -1781,9 +1790,9 @@ describe('syncthingService tests', () => {
         await promise;
 
         sinon.assert.calledOnce(spawnStub);
-        expect(unshareOptions, 'the reason is asked by trying the first bind alone').to.deep.equal({
+        expect(unshareOptions, 'the reason is asked by trying the first mount alone').to.deep.equal({
           runAsRoot: true,
-          params: ['--mount', '--propagation', 'slave', 'mount', '--bind', `${TABLES}/passwd`, '/etc/passwd'],
+          params: ['--mount', '--propagation', 'slave', 'mount', '--rbind', '/etc', `${TABLES}/host-etc`],
           logError: false,
         });
         sinon.assert.calledWithExactly(countStub, 'syncthing:launchFailed');

@@ -15,8 +15,7 @@ const {
   MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_APP_COMPONENTS,
 } = require('../utils/appConstants');
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { checkAndDecryptAppSpecs, verifyEncryptedSpec } = require('../utils/enterpriseHelper');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 const enterpriseConfig = require('../utils/enterpriseConfig');
 const portManager = require('../appNetwork/portManager');
@@ -1544,7 +1543,7 @@ async function verifyAppRegistrationParameters(req, res) {
       );
 
       if (isEnterprise) {
-        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+        verifyEncryptedSpec(appSpecification);
       }
 
       // Decrypt enterprise specifications if needed
@@ -1624,7 +1623,7 @@ async function validateAppUpdate(appSpecification) {
   );
 
   if (isEnterprise) {
-    verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+    verifyEncryptedSpec(appSpecification);
   }
 
   const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });

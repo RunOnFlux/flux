@@ -235,6 +235,42 @@ async function pubkeyInNetworkState(pubkey) {
  * @param {string} socketAddress
  * @returns {Promise<string | null>}
  */
+/**
+ * Mark a listed node as Arcane, as reported by a peer or by this node.
+ * @param {string} socketAddress
+ * @param {string} reporter
+ * @returns {boolean} Whether the node is listed.
+ */
+function markArcane(socketAddress, reporter) {
+  return stateManager ? stateManager.markArcane(socketAddress, reporter) : false;
+}
+
+/**
+ * @param {string} socketAddress
+ */
+function unmarkArcane(socketAddress) {
+  if (stateManager) stateManager.unmarkArcane(socketAddress);
+}
+
+/**
+ * @param {string} reporter
+ * @param {string[]} socketAddresses
+ * @returns {number}
+ */
+function replaceArcaneReport(reporter, socketAddresses) {
+  return stateManager ? stateManager.replaceArcaneReport(reporter, socketAddresses) : 0;
+}
+
+/**
+ * @param {string} socketAddress This node's own.
+ * @param {(socketAddress: string, reporter: string) => boolean} [avoid]
+ * @returns {Promise<{socketAddress: string, reporter: string}|null>}
+ */
+async function getRandomArcaneSocketAddress(socketAddress, avoid) {
+  if (!stateManager) return null;
+  return stateManager.getRandomArcaneSocketAddress(socketAddress, avoid);
+}
+
 async function getRandomSocketAddress(socketAddress) {
   if (!stateManager) return null;
 
@@ -289,6 +325,10 @@ module.exports = {
   getFluxnodeBySocketAddress,
   getFluxnodesByPubkey,
   getRandomSocketAddress,
+  markArcane,
+  unmarkArcane,
+  replaceArcaneReport,
+  getRandomArcaneSocketAddress,
   getRandomExternalObserver,
   isReady,
   networkState,

@@ -886,4 +886,24 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'startzelnode', ['set1', false, 'alias1']);
     });
   });
+  describe('createConfirmationTransaction tests', () => {
+    afterEach(() => {
+      daemonServiceUtils.setFluxdClient(null);
+      sinon.restore();
+    });
+
+    it('sends every confirmation to the daemon, however soon after the last', async () => {
+      const run = sinon.stub();
+      run.onFirstCall().resolves({ hex: 'first' });
+      run.onSecondCall().resolves({ hex: 'second' });
+      daemonServiceUtils.setFluxdClient({ run });
+
+      const first = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
+      const second = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
+
+      sinon.assert.calledTwice(run);
+      expect(first.data).to.eql({ hex: 'first' });
+      expect(second.data).to.eql({ hex: 'second' });
+    });
+  });
 });

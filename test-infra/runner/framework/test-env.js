@@ -19,7 +19,9 @@ import { thawEveryNode } from './host-stall.js';
 import { waitFor } from './wait.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
-import { getSubnetConfig, REGISTRY_ALIAS, STORAGE_HOST } from './subnet-config.js';
+import {
+  getSubnetConfig, setIpGroups, SLOT_WIDTH, REGISTRY_ALIAS, STORAGE_HOST,
+} from './subnet-config.js';
 import { closeDb } from './db-client.js';
 import { FLUXD_PUBLISHED_PORT, newFluxdLogin, setFluxdLogin } from './fluxd-control.js';
 import {
@@ -28,7 +30,7 @@ import {
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import {
-  derivePeerThresholds, deriveReadinessThresholds, carriedPeers, ringArc, dialerCount,
+  derivePeerThresholds, deriveReadinessThresholds, deriveAdmissionQuorum, carriedPeers, ringArc, dialerCount,
 } from './peer-topology.js';
 import { pushImage, mirrorExecutorImage, executorImageReference } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
@@ -186,7 +188,7 @@ const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json')
 const deterministicList = JSON.parse(readFileSync(join(fixturesDir, 'deterministic-list.json'), 'utf-8'));
 
 // All infra/node addresses derive from the per-run subnet base (TEST_SUBNET_BASE,
-// default '31.200.0'); see subnet-config.js. The named constants below are kept so
+// default '25.192.0'); see subnet-config.js. The named constants below are kept so
 // downstream references are unchanged — only the base varies per run.
 const subnet = getSubnetConfig();
 const SUBNET = subnet.subnet;
@@ -623,6 +625,14 @@ function makeEnvShell(networkName) {
   let infraLogSnapshot = null; // infra logs captured at teardown when the run is void
   let tornDown = false;
 
+  // The containers whose output the failure dump keeps: the infra, and every stub
+  // peer, whose log records each link handshake and what it sealed.
+  const diagnosedContainers = () => [
+    ...infraContainers,
+    // eslint-disable-next-line no-use-before-define
+    ...[...env.stubContainers].map(([index, container]) => ({ name: `stubPeer-${index}`, container })),
+  ];
+
   const env = {
     networkName,
     containers: {},
@@ -633,6 +643,8 @@ function makeEnvShell(networkName) {
     infraContainers,
     stubPeerClients: new Map(),
     stubContainers: new Map(),
+    // Node index -> the listed indices cutOff has cut it off from.
+    peerCuts: new Map(),
     // The death watch (armed by createTestEnv) reads both: `stopping` tells it
     // the exits from here on are ours, `infraWatch` is its docker event stream.
     stopping: false,
@@ -683,13 +695,15 @@ function makeEnvShell(networkName) {
     // the caller is already reporting a failure and must not lose it to this.
     async infraDiagnostics() {
       if (infraLogSnapshot) return infraLogSnapshot;
-      return readInfraLogs(infraContainers)
+      return readInfraLogs(diagnosedContainers())
         .catch((err) => [{ name: 'infra', text: '', error: err.message }]);
     },
 
     async teardown() {
       if (tornDown) return;
       tornDown = true;
+      // the next fleet in this process places its own nodes
+      setIpGroups({});
       const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
       // Every step below is a docker round trip with no timeout of its own, and until
       // now they printed only on THROW - and being slow is not throwing. The `after`
@@ -721,7 +735,7 @@ function makeEnvShell(networkName) {
       // removes it, taking its logs with it. Snapshot them first - exactly why
       // the SSE buffers are snapshotted below.
       if (infraDeathError()) {
-        infraLogSnapshot = await readInfraLogs(infraContainers).catch(() => null);
+        infraLogSnapshot = await readInfraLogs(diagnosedContainers()).catch(() => null);
       }
       step('infra-snapshot');
       // disconnectEventStream wipes the client's event buffer — snapshot first so
@@ -997,7 +1011,8 @@ export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STAR
 // nothing else should.
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], unprivilegedNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
-  unverifiableSyncPeers = [], policyUnawarePeers = [], stubPeeredWith = null,
+  unverifiableSyncPeers = [], answeringSyncPeers = [], policyUnawarePeers = [], arcaneStubPeers = [], stubPeeredWith = null,
+  attestedLegacyNodes = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   // How many blocks after its last confirmation each node confirms again: 1, or
@@ -1016,7 +1031,21 @@ export async function createTestEnv({
   // adds its own on top. true for every node, or a list of node indices. Off
   // unless E2E_FIREWALL=1 turns it on for the whole run.
   firewall = process.env.E2E_FIREWALL === '1',
+  // Nodes placed in another /16 of the run's slot, by node index: { index: group },
+  // group 1..SLOT_WIDTH-1. A node not named sits in the slot's first /16 with the
+  // infra. FluxOS never dials a peer in its own /16 or a second in one it already
+  // has a peer in, so this is how a fleet holds peers a node may dial at will.
+  ipGroups = {},
 } = {}) {
+  for (const [index, group] of Object.entries(ipGroups)) {
+    if (!Number.isInteger(Number(index)) || Number(index) < 0 || Number(index) >= nodes) {
+      throw new Error(`createTestEnv: ipGroups names node ${index}, outside a fleet of ${nodes}`);
+    }
+    if (!Number.isInteger(group) || group < 1 || group >= SLOT_WIDTH) {
+      throw new Error(`createTestEnv: ipGroups places node ${index} in group ${group}; a slot has groups 1..${SLOT_WIDTH - 1} besides the first`);
+    }
+  }
+  setIpGroups(Object.fromEntries(Object.entries(ipGroups).map(([index, group]) => [Number(index) + 1, group])));
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
   }
@@ -1193,12 +1222,38 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: stub ${index} cannot be both silent and unverifiable`);
     }
   }
+  // A legacy node's benchmark reports it not attested, as a legacy node's
+  // fluxbench does. One named here boots attested, for a suite that marks it
+  // legacy itself (daemon-control.setSystemSecure) once its fixture is in place.
+  for (const index of attestedLegacyNodes) {
+    if (!legacyNodes.includes(index)) {
+      throw new Error(`createTestEnv: attestedLegacyNodes index ${index} is not one of legacyNodes [${legacyNodes.join(', ')}]`);
+    }
+  }
+  // A stub that answers a state sync with the events a suite gives it
+  // (stubPeerClient.answerSyncWith), signed as a real responder signs.
+  for (const index of answeringSyncPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: answeringSyncPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+    if (silentSyncPeers.includes(index) || unverifiableSyncPeers.includes(index)) {
+      throw new Error(`createTestEnv: stub ${index} cannot both answer and be silent or unverifiable`);
+    }
+  }
   // A stub from before the policy protocol: it advertises no policyBundle capability, so a
   // node neither asks it for policy nor announces an adoption to it. Only a stub can be one -
   // the fleet runs a single image, so every real node advertises what that image speaks.
   for (const index of policyUnawarePeers) {
     if (!stubPeers.includes(index)) {
       throw new Error(`createTestEnv: policyUnawarePeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+  }
+  // A stub that speaks as an Arcane node: it advertises arcaneLink, authenticates
+  // its links and MACs what it sends, so what it relays is taken as from any
+  // Arcane peer. Every other stub stays unauthenticated, as a legacy node is.
+  for (const index of arcaneStubPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: arcaneStubPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
     }
   }
   const syncedOverrides = {};
@@ -1317,6 +1372,13 @@ export async function createTestEnv({
   const networkName = await createNetwork();
   const env = makeEnvShell(networkName);
   env.rejoinOnRestart = rejoinOnRestart;
+  env.arcaneStubPeers = arcaneStubPeers;
+  // Indices of the nodes and stubs on another's collateral: not listed at their
+  // own address, so no link of theirs authenticates.
+  env.unlistedNodes = Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1);
+  env.releaseImageNodes = releaseImageNodes(nodeImageTags);
+  env.answeringSyncPeers = answeringSyncPeers;
+  env.attestedLegacyNodes = attestedLegacyNodes;
   activeEnvs.add(env);
   // A previous env's death must not fail this one's waits.
   clearInfraDeath();
@@ -1326,7 +1388,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, confirmationIntervalBlocks, credentialNodes);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, arcaneStubPeers, confirmationIntervalBlocks, credentialNodes);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1355,7 +1417,23 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], confirmationIntervalBlocks = 1, credentialNodes = []) {
+/**
+ * @param {Object<string, string>} nodeImageTags Image tag by node index.
+ * @returns {number[]} The indices of the nodes on another image than this build's.
+ */
+function releaseImageNodes(nodeImageTags) {
+  return Object.entries(nodeImageTags).filter(([, tag]) => tag !== IMAGE_TAG).map(([index]) => Number(index));
+}
+
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = []) {
+  // The dialing nodes no link authenticates with: legacy nodes, nodes not listed
+  // at their own address because they run on another's collateral, and nodes on
+  // a release that has no links.
+  const unlinkableNodeCount = new Set([
+    ...legacyNodes,
+    ...Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1).filter((i) => !stubPeers.includes(i)),
+    ...releaseImageNodes(nodeImageTags),
+  ]).size;
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1413,6 +1491,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       NODE_COUNT: String(nodes),
       INITIAL_HEIGHT: String(initialHeight),
       CONFIRMATION_INTERVAL_BLOCKS: String(confirmationIntervalBlocks),
+      LEGACY_NODE_IPS: legacyNodes.filter((i) => !env.attestedLegacyNodes.includes(i)).map((i) => subnet.nodeIp(i + 1)).join(','),
     })
     .withBindMounts([{
       source: fixturesDir,
@@ -1428,7 +1507,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // Render the deterministic node list for this run: identity from the committed
   // fixture, addresses from subnet-config (the single source of truth for node IPs).
   // POST before any node boots; /set-node-list also resets the stub's restore/reset
-  // baseline. A no-op-equivalent when base === '31.200.0'.
+  // baseline.
   const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({
     ...n, ip: subnet.nodeIp(idx + 1), pubkey: nodeKey(keyNumber(sharedKeys, idx + 1)).pubkey,
   })).filter((n, idx) => collateralOf[idx + 1] === undefined);
@@ -1766,10 +1845,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (aptBadSource && isLegacy) nodeEnv.FLUX_APT_BAD_SOURCE = 'true';
     if (firewall === true || (Array.isArray(firewall) && firewall.includes(i))) nodeEnv.FLUX_FIREWALL = 'true';
     // Point the node's config at the base-derived infra IPs. The mounted config
-    // files carry the default 31.200.0 addresses; this is written into the node's
-    // config directory as local.js, which node-config loads after them, so under a
-    // non-default base these overrides take effect (and are a no-op when
-    // base === '31.200.0'). Explicit test overrides still win (merged on top of this).
+    // files carry the default slot's addresses; this is written into the node's
+    // config directory as local.js, which node-config loads after them, so under
+    // another slot these overrides take effect. Explicit test overrides still win
+    // (merged on top of this).
     const infraOverride = {
       database: { url: MONGO_IP },
       daemon: { host: DAEMON_IP },
@@ -1838,6 +1917,8 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // The readiness thresholds keep production's share of the peers a node
         // carries, for the same reason - see peer-topology.js.
         ...deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps),
+        // And the admission quorum, for the same reason - see peer-topology.js.
+        admissionQuorum: deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, unlinkableNodeCount),
         // Travels as configuration, like every other override. It used to be an
         // env var the entrypoint sed into shared.js - but the merged config is
         // written by REQUIRING the per-node file, which spreads shared.js at
@@ -1892,7 +1973,19 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (nodeAppArmor()) builder.withAppArmorProfile(nodeAppArmor());
 
     nodeConfigs.push({
-      index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir, journalDir, imageTag,
+      index: i,
+      builder,
+      ip: nodeIp,
+      num: i + 1,
+      logCollector,
+      bootIdDir,
+      journalDir,
+      imageTag,
+      // Only an Arcane node authenticates links, and admits once it holds this many.
+      arcane: !isLegacy,
+      admissionQuorum: nodeConfig.fluxapps.admissionQuorum,
+      minOutgoing: nodeConfig.fluxapps.minOutgoing,
+      minIncoming: nodeConfig.fluxapps.minIncoming,
     });
   }
 
@@ -1922,7 +2015,11 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         NODE_IP: nodeIp,
         SILENT_APP_STATE_SYNC: String(silentSyncPeers.includes(stubIdx)),
         UNVERIFIABLE_APP_STATE_SYNC: String(unverifiableSyncPeers.includes(stubIdx)),
+        ANSWERING_APP_STATE_SYNC: String(env.answeringSyncPeers.includes(stubIdx)),
         POLICY_UNAWARE: String(policyUnawarePeers.includes(stubIdx)),
+        ARCANE_LINK: String(arcaneStubPeers.includes(stubIdx)),
+        // Where the stub asks for the node-auth encryption, as FluxOS asks.
+        BENCH_URL: `http://${DAEMON_IP}:16224/`,
         // Every stub asks, for the nodes it is declared a peer of. It repeats
         // on an interval, so a node held back at boot is asked once it starts.
         DIAL_TARGETS: (stubPeerings.get(stubIdx) ?? [])
@@ -2293,6 +2390,21 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       await Promise.all(runningIndices.map((node) => fluxNodes[node].container.exec(
         ['sh', '-c', `iptables -D INPUT -s ${pendingIp} -j DROP || true`],
       )));
+    },
+
+    // Cuts `nodes` off from the listed peer at index `peer`, both ways, and records
+    // it in peerCuts: bootAndPeer counts no such slot in a node's peer floors. Any
+    // cut made before the fleet peers goes through here.
+    async cutOff(nodes, peer) {
+      const peerIp = getSubnetConfig().nodeIp(peer + 1);
+      await Promise.all(nodes.map(async (node) => {
+        const res = await fluxNodes[node].container.exec(['sh', '-c',
+          `iptables -I INPUT -s ${peerIp} -j DROP && iptables -I OUTPUT -d ${peerIp} -j DROP`]);
+        if (res.exitCode !== 0) {
+          throw new Error(`cutOff: node ${node} from ${peerIp} failed (exit ${res.exitCode}): ${res.output}`);
+        }
+        env.peerCuts.set(node, [...(env.peerCuts.get(node) ?? []), peer]);
+      }));
     },
 
     async partitionGroups(groupA, groupB, { awaitSever = true, severTimeoutMs = 60000 } = {}) {

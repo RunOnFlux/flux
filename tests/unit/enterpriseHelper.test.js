@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { MAX_ENTERPRISE_LENGTH } = require('../../ZelBack/src/services/utils/appConstants');
 
 const MODULE_PATH = '../../ZelBack/src/services/utils/enterpriseHelper';
 
@@ -25,6 +26,39 @@ function load() {
 
 describe('enterpriseHelper', () => {
   afterEach(() => sinon.restore());
+
+  describe('verifyEncryptedSpec', () => {
+    const encrypted = (change) => ({
+      version: 8, name: 'entapp', owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', compose: [], contacts: [], enterprise: 'blob', ...change,
+    });
+
+    [
+      ['empty compose and contacts', {}],
+      ['no compose or contacts', { compose: undefined, contacts: undefined }],
+      ['an enterprise string of exactly the limit', { enterprise: 'A'.repeat(MAX_ENTERPRISE_LENGTH) }],
+      ['a spec that is not encrypted, with compose and contacts', { enterprise: '', compose: [{ name: 'web' }], contacts: ['a@b.c'] }],
+      ['a v7 spec', { version: 7, enterprise: undefined, compose: [{ name: 'web' }] }],
+    ].forEach(([description, change]) => {
+      it(`takes ${description}`, () => {
+        const { module: m } = load();
+        expect(() => m.verifyEncryptedSpec(encrypted(change))).to.not.throw();
+      });
+    });
+
+    [
+      ['a plain compose', { compose: [{ name: 'web' }] }, 'only inside enterprise'],
+      ['plain contacts', { contacts: ['a@b.c'] }, 'only inside enterprise'],
+      ['a compose that is not a list', { compose: {} }, 'only inside enterprise'],
+      ['an enterprise string one over the limit', { enterprise: 'A'.repeat(MAX_ENTERPRISE_LENGTH + 1) }, 'too long'],
+      ['an invalid owner', { owner: 'my-owner' }, 'Invalid app name or owner'],
+      ['an invalid name', { name: 'ent_app' }, 'Invalid app name or owner'],
+    ].forEach(([description, change, refusal]) => {
+      it(`refuses ${description}`, () => {
+        const { module: m } = load();
+        expect(() => m.verifyEncryptedSpec(encrypted(change))).to.throw(refusal);
+      });
+    });
+  });
 
   describe('checkAndDecryptAppSpecs', () => {
     // A spec is enterprise exactly when version >= 8 and it carries an enterprise blob; the

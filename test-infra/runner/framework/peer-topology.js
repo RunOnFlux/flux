@@ -51,8 +51,8 @@ export async function askToBeDialed(asker, dialer, port = 16127) {
 }
 
 // A stub holds an index in the sorted node list, so the ring routes through it,
-// but it never dials and never answers addoutgoingpeer - it cannot supply a
-// connection in either direction.
+// but it never dials and never answers addoutgoingpeer. A node's own dial reaches
+// it; nothing else connects them.
 export function dialerCount(nodeCount, stubCount = 0) {
   return Math.max(nodeCount - stubCount, 1);
 }
@@ -154,6 +154,86 @@ export function deriveReadinessThresholds(nodeCount, stubCount, shared) {
   };
 }
 
+// Production's admissionQuorum and admissionLinkTarget (ZelBack/config/default.js);
+// tests/unit/peerTopology.test.js holds them together.
+export const PRODUCTION_ADMISSION_QUORUM = 3;
+export const PRODUCTION_ADMISSION_LINK_TARGET = 5;
+
+/**
+ * The admission quorum a fleet of this shape can meet. A node admits an unpaid
+ * app message only while it holds admissionQuorum authenticated links on distinct
+ * IPs, and only an Arcane node listed at its own address authenticates, so the
+ * quorum is what the node that fares worst can count: reachablePeers, less every
+ * node no link authenticates with, since one may sit in any arc, less the margin production keeps above its quorum
+ * (admissionLinkTarget - admissionQuorum), so a peer or two can be away and a
+ * registration still goes through. A fleet that carries production's links keeps
+ * production's quorum; a smaller one gets what it carries past the margin, and a
+ * node with nothing past it admits on its own. Injected as the fleet's config like
+ * the thresholds above; a suite TESTING the quorum sets its own and that wins.
+ * @param {number} nodeCount
+ * @param {number} absentCount Stubs and deferred nodes.
+ * @param {number} unlinkableCount Dialing nodes no link authenticates with:
+ *   legacy nodes, and nodes not listed at their own address.
+ * @returns {number}
+ */
+export function deriveAdmissionQuorum(nodeCount, absentCount, unlinkableCount) {
+  const reachable = reachablePeers(dialerCount(nodeCount, absentCount), absentCount);
+  const margin = PRODUCTION_ADMISSION_LINK_TARGET - PRODUCTION_ADMISSION_QUORUM;
+  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - unlinkableCount - margin));
+}
+
+/**
+ * The peers the worst-placed node of a ring can hold once it has closed: its two
+ * arcs, less any slot in one that nothing answers on. A stub or a deferred node
+ * answers neither a dial nor an addoutgoingpeer request, so the nodes whose arcs
+ * reach it are short by one and no waiting changes that. It is the nodes at the
+ * START of the list that pay, because index 0's backward arc is the one that
+ * wraps onto the absent end of the ring.
+ *
+ * Conservative on both counts: ringArc is the disjoint arc, so a suite that
+ * overrode minOutgoing higher only ever holds MORE than this, and the
+ * subtraction assumes every absent slot lands inside the arc.
+ * @param {number} dialers
+ * @param {number} absentCount Stubs and deferred nodes.
+ * @returns {number}
+ */
+export function reachablePeers(dialers, absentCount = 0) {
+  return Math.max(0, Math.min(dialers - 1, (2 * ringArc(dialers)) - absentCount));
+}
+
+/**
+ * What a node holds in each direction once the ring has closed, against the door's
+ * floors. It dials the slots ahead of it and is dialled from the slots behind it.
+ * A slot nothing answers on supplies neither, a stub only takes a dial, and a peer
+ * in both arcs ends up in whichever direction connects first, so it counts in
+ * neither.
+ *
+ * @param {number} index The node.
+ * @param {number[]} ring Every listed index, in list order.
+ * @param {object} shape
+ * @param {number} shape.minOutgoing
+ * @param {number} shape.minIncoming
+ * @param {number[]} [shape.absent] Listed indices nothing answers on.
+ * @param {number[]} [shape.stubs] Listed indices that take a dial and never make one.
+ * @returns {{outbound: number, inbound: number}}
+ */
+export function ringPeerFloors(index, ring, {
+  minOutgoing, minIncoming, absent = [], stubs = [],
+}) {
+  const size = ring.length;
+  const position = ring.indexOf(index);
+  const arc = (step) => Array.from(
+    { length: Math.min(size, minOutgoing) },
+    (_unused, i) => ring[(((position + (step * (i + 1))) % size) + size) % size],
+  ).filter((peer) => peer !== index && !absent.includes(peer));
+  const ahead = arc(1);
+  const behind = arc(-1);
+  return {
+    outbound: Math.min(minOutgoing, ahead.filter((peer) => !behind.includes(peer)).length),
+    inbound: Math.min(minIncoming, behind.filter((peer) => !ahead.includes(peer) && !stubs.includes(peer)).length),
+  };
+}
+
 /**
  * The peer total each node reaches once the ring has closed. Used for the boot
  * wait: it is the same demand expressed as a sum, which is robust even if a
@@ -164,17 +244,7 @@ export function deriveReadinessThresholds(nodeCount, stubCount, shared) {
  * @param {number} dialers
  */
 export function expectedPeerTotal(outboundTarget, inboundTarget, dialers, stubCount = 0) {
-  const arc = ringArc(dialers);
-  // What a node can actually hold: its two arcs, less any stub that falls inside
-  // one. A stub answers neither a dial nor an addoutgoingpeer request, so the
-  // nodes whose arcs reach it are short by one and no waiting changes that. It
-  // is the nodes at the START of the list that pay, because index 0's backward
-  // arc is the one that wraps onto the stub's end of the ring.
-  //
-  // Conservative on both counts: ringArc is the disjoint arc, so a suite that
-  // overrode minOutgoing higher only ever holds MORE than this expects, and the
-  // stub subtraction assumes every stub lands inside the arc.
-  const reachable = Math.max(1, Math.min(dialers - 1, (2 * arc) - stubCount));
+  const reachable = Math.max(1, reachablePeers(dialers, stubCount));
   // The suite's own ask is the target when the fleet can carry it. When it
   // cannot, the fleet's shape is the binding constraint and no request changes
   // it - so take what is reachable rather than waiting out the budget proving

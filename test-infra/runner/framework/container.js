@@ -1,4 +1,5 @@
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
+import { getSubnetConfig } from './subnet-config.js';
 
 export async function execInContainer(container, command) {
   const args = Array.isArray(command) ? command : ['sh', '-c', command];
@@ -25,9 +26,10 @@ export async function execInContainer(container, command) {
 // that never consults benchmark.
 //
 // @param {object} container The node's container.
-// @param {string} to Bare address to move to, inside the fleet's own /24.
+// @param {string} to Bare address to move to, inside the run's slot.
 // @param {string} from Bare address to give up.
-export async function moveNodeAddress(container, to, from, { prefix = 24, iface = 'eth0' } = {}) {
+// Both carry the slot's prefix, which is the one the node's address has.
+export async function moveNodeAddress(container, to, from, { prefix = Number(getSubnetConfig().subnet.split('/')[1]), iface = 'eth0' } = {}) {
   const add = await execInContainer(container, `ip addr add ${to}/${prefix} dev ${iface}`);
   if (add.exitCode !== 0 && !/File exists/i.test(add.output || '')) {
     throw new Error(`moveNodeAddress: could not add ${to}/${prefix} to ${iface}: ${add.output}`);

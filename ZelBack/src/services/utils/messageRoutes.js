@@ -19,6 +19,9 @@ const ROUTE = Object.freeze({
   // Straight to the per-peer queue: position carries meaning, so nothing that can
   // reorder may sit in front of it.
   ORDERED: 'ordered',
+  // A link handshake's own frames: never relayed, verified as they arrive, and
+  // handled in arrival order on their connection (FluxPeerSocket).
+  HANDSHAKE: 'handshake',
 });
 
 const routes = new Map();
@@ -31,7 +34,7 @@ const routes = new Map();
  * @param {string} intent One of INTENT, including VARIES for a type sent both ways.
  */
 function register(types, handler, route, intent) {
-  if (route !== ROUTE.GOSSIP && route !== ROUTE.ORDERED) {
+  if (!Object.values(ROUTE).includes(route)) {
     throw new Error(`messageRoutes: ${types} declares no route`);
   }
   if (intent !== INTENT.VARIES && !CLAIMABLE.has(intent)) {
@@ -73,6 +76,15 @@ function isOrdered(type) {
   return Boolean(entry) && entry.route === ROUTE.ORDERED;
 }
 
+/**
+ * Whether a type is a link handshake's own frame.
+ * @param {string} type
+ * @returns {boolean}
+ */
+function isHandshake(type) {
+  return routes.get(type)?.route === ROUTE.HANDSHAKE;
+}
+
 /** Every declared type, for the guards that assert the table is populated. */
 function registeredTypes() {
   return [...routes.keys()];
@@ -84,5 +96,6 @@ module.exports = {
   declaredIntent,
   handlerFor,
   isOrdered,
+  isHandshake,
   registeredTypes,
 };

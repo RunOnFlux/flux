@@ -9,14 +9,15 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
-const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession, verifyEncryptedSpec } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 const { withRegistryWrite } = require('./registryWriteLock');
 const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
 const signatureVerifier = require('../signatureVerifier');
+const unpaidAdmission = require('../appMessaging/unpaidAdmission');
+const admissionQuorum = require('../appMessaging/admissionQuorum');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -2140,8 +2141,6 @@ async function registerAppGlobalyApi(req, res) {
   // eslint-disable-next-line global-require
   const messageVerifier = require('../appMessaging/messageVerifier');
   // eslint-disable-next-line global-require
-  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-  // eslint-disable-next-line global-require
   const { peerManager } = require('../utils/peerState');
 
   const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -2165,6 +2164,7 @@ async function registerAppGlobalyApi(req, res) {
       if (peerManager.inboundCount < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
       }
+      admissionQuorum.requireQuorum();
       const processedBody = serviceHelper.ensureObject(body);
       // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
       // name and port HAVE to be unique for application. Check if they don't exist in global database
@@ -2200,9 +2200,7 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      if (appSpecification.version >= 8 && appSpecification.enterprise) {
-        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
-      }
+      verifyEncryptedSpec(appSpecification);
 
       const appSpecDecrypted = await checkAndDecryptAppSpecs(
         appSpecification,
@@ -2258,8 +2256,20 @@ async function registerAppGlobalyApi(req, res) {
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
 
-      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-      const temporaryAppMessage = { // specification of temp message
+      // A message the network already holds is answered with its hash, before
+      // the allowance counts it a second time.
+      if (await admissionQuorum.alreadyAdmitted(messageHASH)) {
+        res.json(messageHelper.createDataMessage(messageHASH));
+        return;
+      }
+
+      const tag = await unpaidAdmission.tagSubmission(
+        { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
+        daemonHeight,
+      );
+
+      // As every node rebuilds it to check this node's signature on it.
+      const temporaryAppMessage = unpaidAdmission.admittedMessage({
         type: messageType,
         version: typeVersion,
         appSpecifications: appSpecFormatted,
@@ -2267,30 +2277,10 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
         arcaneSender: isArcane,
-      };
-      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-      // above takes 2-3 seconds
-      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
-      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
-      await messageVerifier.requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
-      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
-      // check temporary message storage
-      let tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
-      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
-        if (!tempMessage) {
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
-          // eslint-disable-next-line no-await-in-loop
-          tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(messageHASH);
-        }
-      }
-      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
-        res.json(responseHash); // all ok
-        return;
-      }
-      throw new Error('Unable to register application on the network. Try again later.');
+        ...tag,
+      });
+      await admissionQuorum.admit(temporaryAppMessage, { daemonHeight });
+      res.json(messageHelper.createDataMessage(messageHASH));
     } catch (error) {
       log.warn(error);
       const errorResponse = messageHelper.createErrorMessage(
@@ -2298,6 +2288,10 @@ async function registerAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
+      // Another node may admit it: the status lets a client or balancer move on.
+      if (error instanceof admissionQuorum.AdmissionUnavailableError) res.status(503);
+      // No node of this kind ever admits it.
+      if (error instanceof admissionQuorum.AdmissionNotSupportedError) res.status(501);
       res.json(errorResponse);
     }
   });

@@ -4,6 +4,7 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const appValidatorService = require('../../ZelBack/src/services/appRequirements/appValidator');
+const { verifyEncryptedSpec } = require('../../ZelBack/src/services/utils/enterpriseHelper');
 
 describe('appValidator tests', () => {
   let appValidator;
@@ -136,6 +137,7 @@ describe('appValidator tests', () => {
         },
       },
       '../utils/enterpriseHelper': {
+        verifyEncryptedSpec,
         checkAndDecryptAppSpecs: sinon.stub().returnsArg(0),
       },
       '../appNetwork/portManager': {

@@ -37,8 +37,7 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { compareInstanceSeniority } = require('../utils/instanceOrdering');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { checkAndDecryptAppSpecs, verifyEncryptedSpec } = require('../utils/enterpriseHelper');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
@@ -61,6 +60,8 @@ const folderStates = require('../appMonitoring/folderStates');
 const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
 const { AsyncLock } = require('../utils/asyncLock');
+const unpaidAdmission = require('../appMessaging/unpaidAdmission');
+const admissionQuorum = require('../appMessaging/admissionQuorum');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -3534,11 +3535,12 @@ function installationInProgressReset() {
  * @param {string} params.signature - Message signature
  * @param {string} params.type - Message type (fluxappupdate/zelappupdate)
  * @param {number} params.version - Message version
+ * @param {{remoteAddress?: string, headers?: object}} params.client - The request's socket peer and headers
  * @returns {Promise<string>} The message hash
  */
 async function updateAppGlobaly(params) {
   const {
-    appSpecification, timestamp, signature, type: messageType, version: typeVersion,
+    appSpecification, timestamp, signature, type: messageType, version: typeVersion, client,
   } = params;
 
   if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
@@ -3570,9 +3572,7 @@ async function updateAppGlobaly(params) {
   const daemonHeight = syncStatus.data.height;
 
   const appSpecObj = serviceHelper.ensureObject(appSpecification);
-  if (appSpecObj.version >= 8 && appSpecObj.enterprise) {
-    verifyAppNameAndOwner(appSpecObj.name, appSpecObj.owner);
-  }
+  verifyEncryptedSpec(appSpecObj);
   const appSpecDecrypted = await checkAndDecryptAppSpecs(appSpecObj, { daemonHeight });
   const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
@@ -3662,7 +3662,14 @@ async function updateAppGlobaly(params) {
   const message = cleanMessageType + cleanTypeVersion + JSON.stringify(appSpecFormatted) + cleanTimestamp + cleanSignature;
   const messageHASH = await generalService.messageHash(message);
 
-  const temporaryAppMessage = {
+  // A message the network already holds is answered with its hash, before the
+  // allowance counts it a second time.
+  if (await admissionQuorum.alreadyAdmitted(messageHASH)) return messageHASH;
+
+  const tag = await unpaidAdmission.tagSubmission(client, daemonHeight);
+
+  // As every node rebuilds it to check this node's signature on it.
+  const temporaryAppMessage = unpaidAdmission.admittedMessage({
     type: cleanMessageType,
     version: cleanTypeVersion,
     appSpecifications: appSpecFormatted,
@@ -3670,28 +3677,10 @@ async function updateAppGlobaly(params) {
     timestamp: cleanTimestamp,
     signature: cleanSignature,
     arcaneSender: isArcane,
-  };
-
-  // eslint-disable-next-line global-require
-  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-  await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-  await serviceHelper.delay(1200);
-  await appMessaging.requestAppMessage(messageHASH);
-  await serviceHelper.delay(1200);
-
-  let tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
-  for (let i = 0; i < 20; i += 1) {
-    if (!tempMessage) {
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
-      // eslint-disable-next-line no-await-in-loop
-      tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
-    }
-  }
-  if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-    return tempMessage.hash;
-  }
-  throw new Error('Unable to update application on the network. Try again later.');
+    ...tag,
+  });
+  await admissionQuorum.admit(temporaryAppMessage, { daemonHeight });
+  return messageHASH;
 }
 
 /**
@@ -3721,6 +3710,7 @@ async function updateAppGlobalyApi(req, res) {
       if (peerManager.inboundCount < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
       }
+      admissionQuorum.requireQuorum();
 
       const processedBody = serviceHelper.ensureObject(body);
       const hash = await updateAppGlobaly({
@@ -3729,6 +3719,7 @@ async function updateAppGlobalyApi(req, res) {
         signature: processedBody.signature,
         type: processedBody.type,
         version: processedBody.version,
+        client: { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
       });
 
       const responseHash = messageHelper.createDataMessage(hash);
@@ -3740,6 +3731,10 @@ async function updateAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
+      // Another node may admit it: the status lets a client or balancer move on.
+      if (error instanceof admissionQuorum.AdmissionUnavailableError) res.status(503);
+      // No node of this kind ever admits it.
+      if (error instanceof admissionQuorum.AdmissionNotSupportedError) res.status(501);
       res.json(errorResponse);
     }
   });

@@ -35,7 +35,7 @@ const mountParser = require('../utils/mountParser');
 const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
-const { localAppsInformation } = require('../utils/appConstants');
+const { localAppsInformation, INSTALL_ERROR_MAX_LENGTH } = require('../utils/appConstants');
 const appPlacements = require('../appManagement/appPlacements');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
@@ -617,7 +617,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
           version: 1,
           name: appSpecifications.name,
           hash: appSpecifications.hash, // hash of application specifics that are running
-          error: serviceHelper.ensureString(errorResponse),
+          error: serviceHelper.ensureString(errorResponse).slice(0, INSTALL_ERROR_MAX_LENGTH),
           ip: localSocketAddr,
           broadcastedAt,
         };

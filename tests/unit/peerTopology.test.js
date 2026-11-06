@@ -23,16 +23,71 @@ describe('harness peer topology', () => {
 
     expect(topology.PRODUCTION_READINESS.peerThreshold).to.equal(fluxapps.appSyncPeerThreshold);
     expect(topology.PRODUCTION_READINESS.degradedThreshold).to.equal(fluxapps.appSyncDegradedThreshold);
+    expect(topology.PRODUCTION_ADMISSION_QUORUM).to.equal(fluxapps.admissionQuorum);
+    expect(topology.PRODUCTION_ADMISSION_LINK_TARGET).to.equal(fluxapps.admissionLinkTarget);
   });
 
-  it('counts the peers a node carries once its ring has closed', () => {
-    expect(topology.carriedPeers(1)).to.equal(0);
-    expect(topology.carriedPeers(2)).to.equal(1);
-    expect(topology.carriedPeers(3)).to.equal(2);
-    expect(topology.carriedPeers(5)).to.equal(4);
-    expect(topology.carriedPeers(9)).to.equal(8);
-    // a stub dials nothing, so it narrows the arc the dialers form
-    expect(topology.carriedPeers(5, 2)).to.equal(2);
+  describe('ringPeerFloors', () => {
+    const ring = Array.from({ length: 14 }, (_unused, i) => i);
+    const floors = { minOutgoing: 4, minIncoming: 2 };
+
+    it('counts a stub ahead of a node, which takes its dial', () => {
+      expect(topology.ringPeerFloors(9, ring, { ...floors, stubs: [12, 13] })).to.deep.equal({ outbound: 4, inbound: 2 });
+    });
+
+    it('counts no stub behind a node, which never dials it', () => {
+      expect(topology.ringPeerFloors(1, ring, { ...floors, minIncoming: 4, stubs: [12, 13] })).to.deep.equal({ outbound: 4, inbound: 2 });
+    });
+
+    it('counts no slot nothing answers on, in either direction', () => {
+      expect(topology.ringPeerFloors(9, ring, { ...floors, minIncoming: 4, absent: [11, 7] })).to.deep.equal({ outbound: 3, inbound: 3 });
+    });
+
+    it('never asks for more than the floor', () => {
+      expect(topology.ringPeerFloors(5, ring, { minOutgoing: 2, minIncoming: 1 })).to.deep.equal({ outbound: 2, inbound: 1 });
+    });
+
+    it('counts a peer in both arcs in neither direction', () => {
+      expect(topology.ringPeerFloors(0, [0, 1, 2], { minOutgoing: 2, minIncoming: 2 })).to.deep.equal({ outbound: 0, inbound: 0 });
+    });
+
+    it('wraps around the end of the ring', () => {
+      expect(topology.ringPeerFloors(13, ring, { ...floors, minIncoming: 4, absent: [0] })).to.deep.equal({ outbound: 3, inbound: 4 });
+    });
+
+    it('takes the ring it is given when an index is not on the list', () => {
+      expect(topology.ringPeerFloors(4, [0, 1, 2, 4, 6, 7, 8], { minOutgoing: 2, minIncoming: 2 })).to.deep.equal({ outbound: 2, inbound: 2 });
+    });
+  });
+
+  it('counts the peers the worst-placed node of a ring can hold', () => {
+    expect(topology.reachablePeers(1)).to.equal(0);
+    expect(topology.reachablePeers(3)).to.equal(2);
+    expect(topology.reachablePeers(9)).to.equal(8);
+    // a stub or a deferred node is a slot in an arc that nothing answers on
+    expect(topology.reachablePeers(3, 1)).to.equal(1);
+    expect(topology.reachablePeers(9, 2)).to.equal(6);
+    expect(topology.reachablePeers(3, 3)).to.equal(0);
+  });
+
+  it('waits on the same count the admission quorum is drawn from', () => {
+    // 4 nodes, 1 deferred: 3 dialers, the worst-placed node holds 1
+    expect(topology.expectedPeerTotal(4, 2, 3, 1)).to.equal(topology.reachablePeers(3, 1));
+    expect(topology.deriveAdmissionQuorum(9, 0, 0)).to.equal(Math.min(3, topology.reachablePeers(9) - 2));
+  });
+
+  it('asks a fleet for the admission quorum its Arcane peers meet with production\'s margin to spare', () => {
+    // reachable peers, less legacy nodes, less the margin of 2, capped at 3
+    expect(topology.deriveAdmissionQuorum(1, 0, 0)).to.equal(0);
+    expect(topology.deriveAdmissionQuorum(3, 0, 0)).to.equal(0);
+    expect(topology.deriveAdmissionQuorum(4, 0, 0)).to.equal(0);
+    expect(topology.deriveAdmissionQuorum(5, 0, 0)).to.equal(2);
+    expect(topology.deriveAdmissionQuorum(9, 0, 0)).to.equal(3);
+    expect(topology.deriveAdmissionQuorum(9, 0, 4)).to.equal(2);
+    // a deferred node or a stub holds a ring slot nothing answers on
+    expect(topology.deriveAdmissionQuorum(10, 1, 0)).to.equal(3);
+    expect(topology.deriveAdmissionQuorum(11, 2, 0)).to.equal(3);
+    expect(topology.deriveAdmissionQuorum(6, 1, 0)).to.equal(1);
   });
 
   describe('readiness thresholds', () => {

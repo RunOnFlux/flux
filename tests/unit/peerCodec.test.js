@@ -1,6 +1,10 @@
 const { expect } = require('chai');
 
 const {
+  LINK_FRAME_MAX_BYTES,
+  isLinkFrame,
+  encodeLinkFrame,
+  decodeLinkFrame,
   MSG_TYPE,
   NAK_REASON,
   writePeer,
@@ -313,6 +317,65 @@ describe('peerCodec', () => {
     it('should build signature message consistently', () => {
       const msg = buildSyncSignatureMessage(0x21, 1000, 2000);
       expect(msg).to.equal('3310002000');
+    });
+  });
+
+  describe('link frames', () => {
+    const signed = (data, keyBytes = 33) => ({
+      version: 1,
+      timestamp: 1793820000000,
+      pubKey: '02'.repeat(keyBytes),
+      signature: Buffer.alloc(65, 7).toString('base64'),
+      data,
+    });
+    const nonce = { type: 'fluxlinknonce', version: 1, nonce: 'ab'.repeat(32) };
+    const confirm = { type: 'fluxlinkconfirm', version: 1, mac: 'cd'.repeat(32) };
+    const noConfirm = { type: 'fluxlinkconfirm', version: 1, mac: null };
+
+    [['a nonce', nonce], ['a confirm', confirm], ['a confirm with no MAC', noConfirm]].forEach(([name, data]) => {
+      it(`decodes ${name} to the broadcast that was signed, key order included`, () => {
+        const decoded = decodeLinkFrame(encodeLinkFrame(signed(data)));
+
+        expect(decoded).to.deep.equal(signed(data));
+        expect(JSON.stringify(decoded.data)).to.equal(JSON.stringify(data));
+      });
+    });
+
+    it('fits the longest key and signature in the size it allows', () => {
+      const buf = encodeLinkFrame(signed(nonce, 65));
+
+      expect(buf.length).to.equal(LINK_FRAME_MAX_BYTES);
+      expect(decodeLinkFrame(buf)).to.not.equal(null);
+    });
+
+    it('marks each form as a link frame, and no other message', () => {
+      [nonce, confirm, noConfirm].forEach((data) => expect(isLinkFrame(encodeLinkFrame(signed(data)))).to.equal(true));
+      expect(isLinkFrame(encodeHashPresent('ab'.repeat(20)))).to.equal(false);
+    });
+
+    it('decodes nothing over the size it allows', () => {
+      expect(decodeLinkFrame(Buffer.concat([encodeLinkFrame(signed(nonce, 65)), Buffer.alloc(1)]))).to.equal(null);
+    });
+
+    it('decodes nothing with bytes left over or missing', () => {
+      const buf = encodeLinkFrame(signed(nonce));
+
+      expect(decodeLinkFrame(Buffer.concat([buf, Buffer.alloc(1)]))).to.equal(null);
+      expect(decodeLinkFrame(buf.subarray(0, buf.length - 1))).to.equal(null);
+      expect(decodeLinkFrame(buf.subarray(0, 10))).to.equal(null);
+    });
+
+    it('decodes nothing with an empty key or signature', () => {
+      const noKey = Buffer.concat([encodeLinkFrame(signed(nonce)).subarray(0, 41), Buffer.from([0, 1, 7])]);
+      const noSig = Buffer.concat([encodeLinkFrame(signed(nonce)).subarray(0, 41), Buffer.from([1, 2, 0])]);
+
+      expect(decodeLinkFrame(noKey)).to.equal(null);
+      expect(decodeLinkFrame(noSig)).to.equal(null);
+    });
+
+    it('refuses to encode a value that is not 32 bytes of hex', () => {
+      expect(() => encodeLinkFrame(signed({ type: 'fluxlinknonce', version: 1, nonce: 'ab' }))).to.throw();
+      expect(() => encodeLinkFrame(signed({ type: 'fluxlinknonce', version: 1, nonce: null }))).to.throw();
     });
   });
 });

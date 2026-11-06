@@ -6,6 +6,8 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageStore = require('./appMessaging/messageStore');
+const messageVerifier = require('./appMessaging/messageVerifier');
+const admissionQuorum = require('./appMessaging/admissionQuorum');
 const { appRunningEntries } = require('./utils/appRunningEntries');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -13,9 +15,10 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const policyStore = require('./policyStore');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const arcaneLink = require('./arcaneLink');
 const messageHelper = require('./messageHelper');
 const { peerManager, PEER_SOURCE, CLOSE_CODES } = require('./utils/peerState');
-const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
+const { RUNNING_EXPIRY_MS, isArcane } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
@@ -30,7 +33,12 @@ const {
   ROUTE, register, declaredIntent, handlerFor, isOrdered,
 } = require('./utils/messageRoutes');
 
-const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
+const {
+  announcementSeen, announcementStore, announcementPeers, wsPeerCache,
+} = cacheManager;
+// The hashes of app messages being handled from copies that cannot settle them (see
+// dispatchFluxMessage), each only while its copy is handled.
+const unsettledInHand = new Set();
 
 /* const LRUTest = {
   max: 25000000, // 25M
@@ -40,18 +48,25 @@ const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
 
 const testListCache = new LRUCache(LRUTest); */
 
-const { FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./utils/FluxPeerManager');
+const {
+  FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES, isValidPeerKey,
+} = require('./utils/FluxPeerManager');
+const { NetworkStateManager } = require('./utils/networkStateManager');
+const { arrivedAuthenticated } = require('./utils/FluxPeerSocket');
 const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
+const announcementFetch = require('./utils/announcementFetch');
+const networkPath = require('./utils/networkPath');
 const verifyPool = require('./utils/verifyPool');
 const { Privilege, authOf } = require('./utils/privileges');
 
+// The random peers discovery keeps beyond the deterministic ring (fluxapps).
 const DISCOVERY = {
-  maxOutbound: 14,
-  minUniqueOutboundIps: 9,
-  maxInbound: 12,
-  minUniqueInboundIps: 5,
-  maxIterations: 100,
+  maxOutbound: config.fluxapps.discoveryMaxOutbound ?? 14,
+  minUniqueOutboundIps: config.fluxapps.discoveryMinUniqueOutboundIps ?? 9,
+  maxInbound: config.fluxapps.discoveryMaxInbound ?? 12,
+  minUniqueInboundIps: config.fluxapps.discoveryMinUniqueInboundIps ?? 5,
+  maxIterations: config.fluxapps.discoveryMaxIterations ?? 100,
   connectionDelayMs: config.fluxapps.discoveryConnectionDelayMs ?? 500,
 };
 
@@ -69,16 +84,101 @@ const SYNC_EVENTS_PER_SLICE = 250;
  */
 async function handleAppMessages(message, fromIP, port) {
   try {
+    if (admissionQuorum.takeRelay(message.data?.hash, arrivedAuthenticated(message))) return;
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data);
+    const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data, {
+      frame: message, authenticated: arrivedAuthenticated(message),
+    });
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
       announceToPeers(message, `${fromIP}:${port}`);
+    } else if (rebroadcastToPeers instanceof Error) {
+      fluxEventBus.publish('appmessage:refused', { hash: message.data?.hash ?? null, reason: rebroadcastToPeers.message });
     }
   } catch (error) {
     log.error(error);
+    fluxEventBus.publish('appmessage:refused', { hash: message.data?.hash ?? null, reason: error.message });
+  }
+}
+
+const APP_MESSAGE_TYPES = new Set(['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate']);
+
+/**
+ * An unpaid app message an authenticated peer proposes (admissionQuorum): check
+ * it as any network message is checked, hold it pending, and write and relay it
+ * only on that peer's commit.
+ * @param {object} msg The proposal: {type, envelope}.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ */
+async function handleAppProposal(msg, peer) {
+  const { envelope } = msg;
+  const appHash = envelope?.data?.hash;
+  if (!admissionQuorum.isMessageHash(appHash) || !APP_MESSAGE_TYPES.has(envelope.data.type)) return;
+  const { RECEIPT_STATE } = admissionQuorum;
+  admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.RECEIVED);
+  // Only the first proposal of a message runs its checks; every proposer is
+  // answered from them.
+  if (!admissionQuorum.openProposal(appHash, peer)) return;
+  const refuse = (reason) => admissionQuorum.answerProposal(appHash, RECEIPT_STATE.REFUSED, reason);
+
+  const verdict = await fluxCommunicationUtils.verifyFluxBroadcast(envelope);
+  if (verdict !== fluxCommunicationUtils.VerifyResult.OK) {
+    refuse(`its envelope does not verify: ${verdict}`);
+    return;
+  }
+  if (!fluxCommunicationUtils.verifyTimestampInFluxBroadcast(envelope, Date.now())) {
+    refuse('its envelope is outside the broadcast window');
+    return;
+  }
+  if (await messageVerifier.checkAppMessageExistence(appHash) || await messageVerifier.checkAppTemporaryMessageExistence(appHash)) {
+    admissionQuorum.answerProposal(appHash, RECEIPT_STATE.HELD);
+    return;
+  }
+
+  let refusal = null;
+  let held = false;
+  try {
+    const stored = await messageStore.storeAppTemporaryMessage(envelope.data, {
+      frame: envelope,
+      authenticated: true,
+      beforeWrite: async () => {
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.ADMISSION_BEFORE_HELD, appHash);
+        held = true;
+        return admissionQuorum.hold(appHash);
+      },
+      onRefusal: (reason) => { refusal = reason; },
+    });
+    if (stored === true) {
+      fluxEventBus.publish('network:appmessage', { hash: appHash, type: envelope.data.type, name: envelope.data.appSpecifications?.name });
+      announcementSeen.set(hash(envelope.data), true);
+      announceToPeers(envelope, peer.key);
+    } else if (!held) {
+      refuse(refusal ?? (stored instanceof Error ? stored.message : 'not taken'));
+    }
+  } catch (error) {
+    if (held) log.error(error);
+    else refuse(error.message);
+  }
+}
+
+/**
+ * The admission protocol's messages, which arrive only in frames carrying a
+ * valid link MAC.
+ * @param {object} msg
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ */
+function dispatchLinkMessage(msg, peer) {
+  if (msg.type === ARCANE_PEERS_TYPE) {
+    // eslint-disable-next-line no-use-before-define
+    takeArcanePeers(msg, peer);
+  } else if (msg.type === admissionQuorum.PROPOSAL) {
+    handleAppProposal(msg, peer).catch((error) => log.error(error));
+  } else if (msg.type === admissionQuorum.RECEIPT) {
+    admissionQuorum.onReceipt(peer, msg);
+  } else if (msg.type === admissionQuorum.COMMIT) {
+    admissionQuorum.onCommit(peer, msg);
   }
 }
 
@@ -133,7 +233,9 @@ async function handleTempSyncResponse(message, peerSocket) {
     let writeFailed = false;
     for (const msg of messages) {
       try {
-        const result = await messageStore.storeAppTemporaryMessage(msg, { furtherVerification: true });
+        const result = await messageStore.storeAppTemporaryMessage(msg, {
+          furtherVerification: true, authenticated: arrivedAuthenticated(message),
+        });
         if (result === true || result === false) stored += 1;
       } catch (err) {
         log.error(`Temp sync message failed: ${err.message}`);
@@ -305,7 +407,9 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         await messageStore.applyEviction(event.ip, Date.parse(event.createdAt));
       } else if (event.type === 'ipchanged') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        await messageStore.storeIPChangedMessage(event.data);
+        if (await messageStore.storeIPChangedMessage(event.data) === true) {
+          await arcaneLink.noteMoveTaken(event.data.newIP, event.envelope.pubKey, event.data.broadcastedAt + messageStore.IP_CHANGED_VALIDITY_MS);
+        }
       }
     }
 
@@ -404,15 +508,15 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
  *
  * The store is written here rather than at dispatch because this is where a message
  * becomes something a peer can ask for: a request follows an announcement, and only a
- * verified message reaches a handler. Nothing this node never announced is ever asked
- * of it, so nothing else needs keeping.
+ * verified message reaches a handler. The sender keeps what this node creates, the one
+ * other thing a peer asks of it.
  * @param {object} message The verified signed envelope, as it will be handed over.
  * @param {string} excludeKey The peer it came from, which has it already.
  */
 function announceToPeers(message, excludeKey) {
   const messageHash = hash(message.data);
   announcementStore.set(messageHash, message);
-  peerManager.broadcastHash(messageHash, excludeKey);
+  peerManager.broadcastHash(messageHash, excludeKey, announcementPeers.get(messageHash));
 }
 
 async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
@@ -421,9 +525,11 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
     // The filter, not the store: the question is whether this node already has the
     // message, and it has plenty it never announced - anything the database already
     // held when it arrived. Asking the store would re-request those.
-    if (!announcementSeen.has(messageHash)) {
-      peerManager.sendHashRequest(`${fromIP}:${port}`, messageHash);
-    }
+    const peerKey = `${fromIP}:${port}`;
+    const announcers = announcementPeers.get(messageHash) ?? new Set();
+    announcers.add(peerKey);
+    announcementPeers.set(messageHash, announcers);
+    announcementFetch.announced(messageHash, peerKey);
   } catch (error) {
     log.error(error);
   }
@@ -439,15 +545,15 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
 async function handleRequestMessageHash(messageHash, fromIP, port) {
   try {
     // The store, not the filter: this hands the message over, so it needs the message.
-    // A request follows an announcement, so what a peer can ask for is what this node
-    // announced, which is exactly what the store holds.
+    // What a peer can ask for is what this node announced or created, which is exactly
+    // what the store holds.
     if (announcementStore.has(messageHash)) {
       const message = announcementStore.get(messageHash);
       if (message) {
-        const messageString = serviceHelper.ensureString(message);
         const peer = peerManager.get(`${fromIP}:${port}`);
         if (peer) {
-          peer.send(messageString);
+          const privateKey = await fluxNetworkHelper.getFluxNodePrivateKey();
+          peer.send(networkPath.framed(message, (text) => verificationHelper.signMessage(text, privateKey), `${fromIP}:${port}`));
         }
       }
     }
@@ -536,6 +642,8 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     const rebroadcastToPeers = await messageStore.storeAppInstallingErrorMessage(message.data);
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appinstallingerror', { ip: message.data.ip, name: message.data.name });
+    } else if (rebroadcastToPeers instanceof Error) {
+      fluxEventBus.publish('network:appinstallingerrorRefused', { ip: message.data?.ip, name: message.data?.name, reason: rebroadcastToPeers.message });
     }
     await messageStore.storeSignedAppInstallingErrorBroadcast(message);
     const currentTimeStamp = Date.now();
@@ -774,6 +882,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
     const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:ipchanged', { oldIP: message.data.oldIP, newIP: message.data.newIP });
+      await arcaneLink.noteMoveTaken(message.data.newIP, message.pubKey, message.data.broadcastedAt + messageStore.IP_CHANGED_VALIDITY_MS);
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -882,6 +991,132 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 // not answer, waits before it is dispatched again.
 const BROADCAST_VERIFY_RETRY_MS = 30 * 1000;
 
+const RECENT_NETWORK_PATHS = 256;
+const recentNetworkPaths = [];
+
+/**
+ * A corrupted or forged message from a peer, tracked against it with a rolling
+ * window: 5 in 10 minutes disconnect it.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
+ * @param {string} verifyResult
+ */
+function noteBadMessage(peerSocket, verifyResult) {
+  const BAD_MSG_WINDOW = 10 * 60 * 1000;
+  const BAD_MSG_THRESHOLD = 5;
+  const now = Date.now();
+  const cutoff = now - BAD_MSG_WINDOW;
+  peerSocket.badMessageTimestamps.push(now);
+  while (peerSocket.badMessageTimestamps.length > 0 && peerSocket.badMessageTimestamps[0] < cutoff) {
+    peerSocket.badMessageTimestamps.shift();
+  }
+  // Safety cap — prevent unbounded growth from adversarial peers
+  if (peerSocket.badMessageTimestamps.length > 20) {
+    peerSocket.badMessageTimestamps = peerSocket.badMessageTimestamps.slice(-10);
+  }
+  const count = peerSocket.badMessageTimestamps.length;
+  log.warn(`Bad message (${verifyResult}) from ${peerSocket.direction} peer ${peerSocket.key}, count: ${count}/10min`);
+  if (count >= BAD_MSG_THRESHOLD) {
+    log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key} after ${count} bad messages in 10 minutes`);
+    peerSocket.close(peerSocket.closeCodes.badOrigin, 'too many bad messages');
+  }
+}
+
+/**
+ * What a peer has been asked for in the current hashFetchMissWindowMs.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
+ * @returns {{startedAt: number, misses: number, served: number, reported: boolean}}
+ */
+function fetchRecordOf(peerSocket) {
+  const now = Date.now();
+  const { fetchRecord } = peerSocket;
+  if (now - fetchRecord.startedAt < config.fluxapps.hashFetchMissWindowMs) return fetchRecord;
+  Object.assign(fetchRecord, {
+    startedAt: now, misses: 0, served: 0, reported: false,
+  });
+  return fetchRecord;
+}
+
+/**
+ * A peer announced a message, did not deliver it when asked, and another peer
+ * did. A peer that delivers at all keeps its connection through a burst that
+ * outruns it: one that announces and never delivers misses nearly everything.
+ * Below hashFetchDisconnectFrom the connection stays, and the peer is logged once
+ * in a window, as many times as it would have been disconnected.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
+ */
+function noteFetchMiss(peerSocket) {
+  const record = fetchRecordOf(peerSocket);
+  record.misses += 1;
+  const { hashFetchMissesToDisconnect, hashFetchMissesPerServed, hashFetchDisconnectFrom } = config.fluxapps;
+  if (record.misses < hashFetchMissesToDisconnect || record.misses <= hashFetchMissesPerServed * record.served) return;
+  const outcome = `${peerSocket.direction} peer ${peerSocket.key}: ${record.misses} announced messages not delivered, ${record.served} delivered`;
+  if (serviceHelper.semverAtLeast(config.minimumFluxOSAllowedVersion, hashFetchDisconnectFrom)) {
+    log.warn(`Disconnecting ${outcome}`);
+    peerSocket.close(peerSocket.closeCodes.badOrigin, 'announced messages it did not deliver');
+  } else if (!record.reported) {
+    record.reported = true;
+    log.warn(`Keeping ${outcome}`);
+  }
+}
+
+/**
+ * Whether a link handshake frame may be handled: its peer is not blocked, it is
+ * signed by a listed node, and it is inside the broadcast window.
+ * @param {object} msgObj
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket
+ * @returns {Promise<boolean>}
+ */
+async function verifyHandshakeFrame(msgObj, peerSocket) {
+  if (wsPeerCache.has(msgObj.pubKey)) {
+    log.info(`Closing ${peerSocket.direction} connection, peer is on blockedList`);
+    peerSocket.close(peerSocket.closeCodes.blocked, 'blocked list');
+    return false;
+  }
+  const now = Date.now();
+  const { VerifyResult } = fluxCommunicationUtils;
+  const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
+  if (verifyResult === VerifyResult.OK) return fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, now) === true;
+  if (verifyResult !== VerifyResult.UNREADABLE && verifyResult !== VerifyResult.NODE_NOT_FOUND) noteBadMessage(peerSocket, verifyResult);
+  return false;
+}
+
+/**
+ * Keeps the path of a message that arrived with one.
+ * @param {string} messageHash
+ * @param {object} msgObj
+ */
+function noteNetworkPath(messageHash, msgObj) {
+  const path = networkPath.validPath(msgObj.networkPath);
+  if (!path.length) return;
+  recentNetworkPaths.push({
+    hash: messageHash, type: msgObj.data.type, timestamp: msgObj.timestamp, receivedAt: Date.now(), networkPath: path,
+  });
+  if (recentNetworkPaths.length > RECENT_NETWORK_PATHS) recentNetworkPaths.shift();
+}
+
+/**
+ * The paths of the messages this node received most recently, each read back
+ * from this node and verified.
+ * GET /flux/networkpaths
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} The response.
+ */
+async function getNetworkPaths(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  if (!authorized) return res.json(messageHelper.errUnauthorizedMessage());
+  const ownAddress = peerManager.getOwnSocketAddress();
+  const addressesOf = async (pubKey) => [...((await networkStateService.getFluxnodesByPubkey(pubKey))?.keys() ?? [])];
+  const paths = await Promise.all(recentNetworkPaths.map(async (received) => ({
+    hash: received.hash,
+    type: received.type,
+    timestamp: received.timestamp,
+    receivedAt: received.receivedAt,
+    ...await networkPath.readPath(received, ownAddress, addressesOf),
+  })));
+  return res.json(messageHelper.createDataMessage(paths));
+}
+
 async function dispatchFluxMessage(msgObj, peerSocket) {
   const codes = peerSocket.closeCodes;
   const {
@@ -929,7 +1164,6 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     return;
   }
 
-  await serviceHelper.delay(Math.floor(Math.random() * 75 + 1));
   // Also what a NAK names further down, so it is computed for every message.
   const messageHash = hash(msgObj.data);
   // THE FILTER IS FOR MESSAGES THAT REACH THIS NODE BY MORE THAN ONE ROUTE, WHICH IS WHAT
@@ -948,12 +1182,33 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   // suppresses the genuine message that hashes the same. So the slot is released on every
   // path that does not reach a handler, and what remains is the window of one signature check
   // rather than the cache's whole ttl.
+  //
+  // A COPY THAT CANNOT SETTLE THE MESSAGE LEAVES NO MARK. An Arcane node takes an unpaid app
+  // message only over an authenticated link (messageStore), so an app message from any other
+  // link may be refused for its route alone, which says nothing of the message. Such a copy
+  // is still dropped when the message is already marked, and copies like it are handled one
+  // at a time, but it never marks the message, so the authenticated copy after it is handled.
   const claimedSlot = declaredIntent(msgObj.data.type) === INTENT.ANNOUNCE;
+  const settles = !(isArcane && APP_MESSAGE_TYPES.has(msgObj.data.type) && !arrivedAuthenticated(msgObj));
   if (claimedSlot) {
-    if (announcementSeen.has(messageHash)) return;
-    announcementSeen.set(messageHash, true);
+    if (announcementSeen.has(messageHash)) {
+      if (announcementFetch.copyWhileVerifying(messageHash, peerSocket.key)) {
+        fluxEventBus.count('gossip:copyWhileVerifying', messageHash, peerSocket.ip);
+      }
+      return;
+    }
+    if (settles) {
+      announcementSeen.set(messageHash, true);
+    } else {
+      if (unsettledInHand.has(messageHash)) return;
+      unsettledInHand.add(messageHash);
+    }
   }
-  const releaseSlot = () => { if (claimedSlot) announcementSeen.delete(messageHash); };
+  const releaseSlot = () => {
+    if (!claimedSlot) return;
+    if (settles) announcementSeen.delete(messageHash);
+    else unsettledInHand.delete(messageHash);
+  };
 
   // check blocked list
   if (wsPeerCache.has(pubKey)) {
@@ -965,10 +1220,13 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     }
     // Nothing here judged the message; the peer is what was refused.
     releaseSlot();
+    if (claimedSlot) announcementFetch.rejected(messageHash);
     return;
   }
   const currentTimeStamp = Date.now();
   const { VerifyResult } = fluxCommunicationUtils;
+  if (claimedSlot) announcementFetch.verifyingCopy(messageHash);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GOSSIP_BEFORE_VERIFY, messageHash);
   const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
 
   if (verifyResult === VerifyResult.UNREADABLE) {
@@ -982,11 +1240,18 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
       }, BROADCAST_VERIFY_RETRY_MS);
     } else {
       releaseSlot();
+      if (claimedSlot) announcementFetch.rejected(messageHash);
       log.warn(`Dropping a ${msgObj.data?.type} from ${peerSocket.direction} peer ${peerSocket.key}: the database did not answer within its window`);
     }
   } else if (verifyResult === VerifyResult.OK) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
     if (timestampOK === true) {
+      // A copy that cannot settle the message leaves the node still wanting it.
+      if (claimedSlot) {
+        if (settles) announcementFetch.delivered(messageHash, peerSocket.key);
+        else announcementFetch.rejected(messageHash);
+        noteNetworkPath(messageHash, msgObj);
+      }
       const handler = handlerFor(msgObj.data.type);
       if (!handler) {
         log.warn(`Unrecognised message type of ${msgObj.data.type}`);
@@ -996,47 +1261,30 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         log.warn(`Unsolicited ${msgObj.data.type} from ${peerSocket.direction} peer ${peerSocket.key}`);
       } else {
         setImmediate(() => {
-          try {
-            handler(msgObj, peerSocket);
-          } catch (e) {
-            log.error(e);
-          }
+          // A copy that cannot settle the message lets the next one in once it is handled.
+          Promise.resolve()
+            .then(() => handler(msgObj, peerSocket))
+            .catch((e) => log.error(e))
+            .finally(() => { if (claimedSlot && !settles) unsettledInHand.delete(messageHash); });
         });
       }
     } else {
       // Signed by a real node and outside the window, which is what a replay looks like.
       releaseSlot();
+      if (claimedSlot) announcementFetch.rejected(messageHash);
       peerSocket.sendNak(messageHash, NAK_REASON.STALE);
     }
   } else if (verifyResult === VerifyResult.NODE_NOT_FOUND) {
     releaseSlot();
+    if (claimedSlot) announcementFetch.rejected(messageHash);
     // Originator's node is not in the deterministic list — stale list or node went offline.
     // The relay peer is not at fault. Drop the message, don't punish the relay.
     log.warn(`Dropping message from ${peerSocket.direction} peer ${peerSocket.key}: originator pubkey ${pubKey} not found in node list`);
     fluxEventBus.publish('network:originatorNotListed', { type: msgObj.data?.type, pubKey, relay: peerSocket.key });
   } else {
     releaseSlot();
-    // BAD_SIGNATURE or MALFORMED — the message is corrupted or forged.
-    // Track against this relay peer with a rolling window.
-    // If they send 5+ bad messages in 10 minutes, disconnect.
-    const BAD_MSG_WINDOW = 10 * 60 * 1000;
-    const BAD_MSG_THRESHOLD = 5;
-    const now = Date.now();
-    const cutoff = now - BAD_MSG_WINDOW;
-    peerSocket.badMessageTimestamps.push(now);
-    while (peerSocket.badMessageTimestamps.length > 0 && peerSocket.badMessageTimestamps[0] < cutoff) {
-      peerSocket.badMessageTimestamps.shift();
-    }
-    // Safety cap — prevent unbounded growth from adversarial peers
-    if (peerSocket.badMessageTimestamps.length > 20) {
-      peerSocket.badMessageTimestamps = peerSocket.badMessageTimestamps.slice(-10);
-    }
-    const count = peerSocket.badMessageTimestamps.length;
-    log.warn(`Bad message (${verifyResult}) from ${peerSocket.direction} peer ${peerSocket.key}, count: ${count}/10min`);
-    if (count >= BAD_MSG_THRESHOLD) {
-      log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key} after ${count} bad messages in 10 minutes`);
-      peerSocket.close(codes.badOrigin, 'too many bad messages');
-    }
+    if (claimedSlot) announcementFetch.rejected(messageHash);
+    noteBadMessage(peerSocket, verifyResult);
   }
 }
 
@@ -1050,6 +1298,18 @@ async function processSyncChunk(msgObj, peerSocket) {
   if (!handler) {
     log.warn(`Unknown sync response type: ${msgObj.data.type}`);
     return;
+  }
+  // Each event in an answer is held to the limit a broadcast is held to. The
+  // answer is filtered in place: it is the object its link marked authenticated.
+  const { messages } = msgObj.data;
+  if (Array.isArray(messages)) {
+    const limit = config.fluxapps.gossipMessageMaxBytes;
+    const within = messages.filter((m) => Buffer.byteLength(JSON.stringify(m) ?? '') <= limit);
+    if (within.length !== messages.length) {
+      log.warn(`Dropping ${messages.length - within.length} events over ${limit} bytes from a ${msgObj.data.type} from ${peerSocket.key}`);
+      fluxEventBus.publish('sync:eventsDropped', { syncType: msgObj.data.type, peer: peerSocket.key, dropped: messages.length - within.length });
+      msgObj.data.messages = within;
+    }
   }
   await handler(msgObj, peerSocket);
 }
@@ -1188,6 +1448,14 @@ register('fluxpolicy', (msg, peer) => policyStore.offerBundle(
   msg.data.bundle, peer.key, msg.data.correlationId,
 ), ROUTE.GOSSIP, INTENT.ANSWER);
 
+// The Arcane link handshake: point to point, both directions, never relayed.
+register(arcaneLink.NONCE_TYPE, (msg, peer) => arcaneLink.handleNonce(msg, peer).catch((error) => log.error(error)), ROUTE.HANDSHAKE, INTENT.VARIES);
+register(arcaneLink.CONFIRM_TYPE, (msg, peer) => arcaneLink.handleConfirm(msg, peer), ROUTE.HANDSHAKE, INTENT.VARIES);
+peerManager.handshakeFrameVerifier = verifyHandshakeFrame;
+peerManager.handshakeFrameDispatcher = (msg, peer) => handlerFor(msg.data.type)(msg, peer);
+// A connection between two Arcane nodes joins the peer set once this settles.
+peerManager.linkHandshake = (peer) => arcaneLink.startLink(peer);
+
 // Answers to a sync this node asked for, which is why they are ordered.
 register('fluxapptempsync', handleTempSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
 register('fluxapprunningsync', handleAppRunningSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
@@ -1195,6 +1463,41 @@ register('fluxappinstallingsync', handleAppInstallingSyncResponse, ROUTE.ORDERED
 register('fluxappinstallingerrorssync', handleAppInstallingErrorsSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
 
 peerManager.messageDispatcher = dispatchFluxMessage;
+// A link that joins authenticated is marked and told this node's authenticated
+// links; a change to them is reported to every authenticated peer, and a lost one
+// brings the next discovery pass forward while this node is short of the target.
+function onAuthenticatedPeer(key) {
+  const peer = peerManager.get(key);
+  if (!peer?.link?.authenticated) return;
+  networkStateService.markArcane(key, NetworkStateManager.SELF_REPORTED);
+  // eslint-disable-next-line no-use-before-define
+  reportArcanePeersTo(peer);
+  // eslint-disable-next-line no-use-before-define
+  scheduleArcaneReport();
+}
+peerManager.on('peerConnected', onAuthenticatedPeer);
+peerManager.on('authenticatedLinkGained', onAuthenticatedPeer);
+peerManager.on('authenticatedLinkLost', () => {
+  // eslint-disable-next-line no-use-before-define
+  scheduleArcaneReport();
+  // eslint-disable-next-line no-use-before-define
+  if (peerManager.acceptingConnections && linksShort()) scheduleDiscovery(linkRecoveryDelay());
+});
+peerManager.linkMessageDispatcher = dispatchLinkMessage;
+announcementFetch.wire({
+  request: (peerKey, messageHash) => peerManager.sendHashRequest(peerKey, messageHash),
+  latencyOf: (peerKey) => peerManager.get(peerKey)?.latency ?? null,
+  seen: (messageHash) => announcementSeen.has(messageHash),
+  onMiss: (peerKey) => {
+    const peer = peerManager.get(peerKey);
+    if (peer) noteFetchMiss(peer);
+  },
+  onServed: (peerKey) => {
+    const peer = peerManager.get(peerKey);
+    if (peer) fetchRecordOf(peer).served += 1;
+  },
+});
+peerManager.on('peerDisconnected', (key) => announcementFetch.peerGone(key));
 peerManager.syncResponseDispatcher = dispatchSyncResponse;
 async function verifySyncRequest(peer, decoded) {
   const { requestTimestamp, pubkey, signature, sinceTimestamp } = decoded;
@@ -1445,7 +1748,7 @@ function onOutboundOpen() {
   const meta = wsMetadata.get(this);
   if (!meta) return;
   const key = `${meta.ip}:${meta.port}`;
-  const existing = peerManager.get(key);
+  const existing = peerManager.connectionTo(key);
   // A connection to this peer is already held: a live one in the same
   // direction stays, and when both ends dialed at once the pair keeps the
   // connection dialed by the lower address (peerManager.resolveCrossing), the
@@ -1535,6 +1838,7 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
     }
     const options = {
       handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,
+      maxPayload: config.fluxapps.wsMaxPayloadBytes,
       perMessageDeflate: {
         zlibDeflateOptions: {
         // See zlib defaults.
@@ -1613,6 +1917,7 @@ function openEphemeralConnection(connection) {
       }
       const options = {
         handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,
+        maxPayload: config.fluxapps.wsMaxPayloadBytes,
         headers: {
           'X-Flux-Capabilities': FLUX_CAPABILITIES.join(','),
           'X-Flux-Version': FLUX_VERSION,
@@ -1788,6 +2093,204 @@ async function addOutgoingPeer(req, res) {
   }
 }
 
+// --- Holding authenticated links ---
+//
+// An Arcane node admits an unpaid app message only while it holds admissionQuorum
+// authenticated links on distinct IPs, and takes one only over such a link, so it
+// keeps admissionLinkTarget of them. Arcane nodes tell each other, over their
+// authenticated links, which of their peers they have authenticated; each node
+// marks those listed nodes as Arcane (networkStateManager). Short of the target,
+// discovery dials marked nodes drawn at random from the whole node list, so the
+// links stay as mixed as the rest of the peer set, and at most one per pass from
+// any one reporter, so no peer decides where a node's links go. A dialled node
+// whose link does not authenticate loses its mark and is closed.
+
+const ARCANE_PEERS_TYPE = 'arcanepeers';
+// The most addresses one report carries, and so the most nodes one peer marks.
+const ARCANE_PEERS_MAX = 32;
+// Changes to the authenticated links are reported together, at most this often.
+const ARCANE_REPORT_DEBOUNCE_MS = 2000;
+// The first wait before a pass a lost link or new marks bring forward; it doubles
+// while passes end short of the target, up to discoveryRetryMs.
+const LINK_RECOVERY_BASE_MS = 5000;
+// Spread over this, so nodes that lose links together do not dial together.
+const LINK_RECOVERY_JITTER_MS = 2000;
+
+let arcaneReportTimer = null;
+let linkShortfalls = 0;
+
+function discoveryRetryMs() {
+  linkShortfalls = 0;
+  return config.fluxapps.discoveryRetryMs ?? 60000;
+}
+
+function linksShort() {
+  return isArcane && peerManager.authenticatedIpCount() < config.fluxapps.admissionLinkTarget;
+}
+
+/**
+ * How long until a pass that should hold more authenticated links.
+ * @param {boolean} [afterShortPass] A pass just ended short of the target.
+ * @returns {number}
+ */
+function linkRecoveryDelay(afterShortPass = false) {
+  if (afterShortPass) linkShortfalls += 1;
+  const retryMs = config.fluxapps.discoveryRetryMs ?? 60000;
+  const wait = Math.min(retryMs, LINK_RECOVERY_BASE_MS * 2 ** linkShortfalls);
+  return wait + Math.floor(Math.random() * LINK_RECOVERY_JITTER_MS);
+}
+
+/**
+ * Tell an authenticated peer which other peers this node has authenticated.
+ * @param {object} peer
+ */
+function reportArcanePeersTo(peer) {
+  if (!peer?.link?.authenticated) return;
+  const peers = peerManager.getAuthenticatedPeers()
+    .filter((other) => other.key !== peer.key)
+    .slice(0, ARCANE_PEERS_MAX)
+    .map((other) => other.key);
+  peer.send(JSON.stringify({ type: ARCANE_PEERS_TYPE, version: 1, peers }));
+}
+
+function scheduleArcaneReport() {
+  if (arcaneReportTimer) return;
+  arcaneReportTimer = setTimeout(() => {
+    arcaneReportTimer = null;
+    peerManager.getAuthenticatedPeers().forEach(reportArcanePeersTo);
+  }, ARCANE_REPORT_DEBOUNCE_MS);
+}
+
+/**
+ * An authenticated peer's report of its authenticated links: it replaces that
+ * peer's earlier marks.
+ * @param {object} msg
+ * @param {object} peer
+ */
+function takeArcanePeers(msg, peer) {
+  if (!isArcane || !Array.isArray(msg.peers)) return;
+  const own = peerManager.getOwnSocketAddress();
+  const reported = msg.peers.slice(0, ARCANE_PEERS_MAX)
+    .filter((key) => isValidPeerKey(key) && key !== own);
+  const marked = networkStateService.replaceArcaneReport(peer.key, reported);
+  // eslint-disable-next-line no-use-before-define
+  if (marked > 0 && linksShort()) scheduleDiscovery(linkRecoveryDelay());
+}
+
+/**
+ * Dial a marked node for an authenticated link.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>} Whether the link authenticated.
+ */
+function dialForLink(socketAddress) {
+  const key = `${extractIp(socketAddress)}:${extractPort(socketAddress)}`;
+  const timeoutMs = (config.fluxapps.wsHandshakeTimeoutMs ?? 10000) + config.fluxapps.linkHandshakeDeadlineMs + 5000;
+  return new Promise((resolve) => {
+    let timer = null;
+    let joined = null;
+    let left = null;
+    const done = (authenticated) => {
+      clearTimeout(timer);
+      peerManager.off('peerConnected', joined);
+      peerManager.off('peerDisconnected', left);
+      resolve(authenticated);
+    };
+    joined = (joinedKey) => {
+      if (joinedKey !== key) return;
+      const peer = peerManager.get(key);
+      if (peer?.link?.authenticated) {
+        done(true);
+        return;
+      }
+      if (peer?.source === PEER_SOURCE.ARCANE) peer.close(CLOSE_CODES.NOT_ARCANE_LINK, 'not an Arcane link');
+      done(false);
+    };
+    left = (leftKey) => { if (leftKey === key) done(false); };
+    peerManager.on('peerConnected', joined);
+    peerManager.on('peerDisconnected', left);
+    timer = setTimeout(() => done(false), timeoutMs);
+    // eslint-disable-next-line no-use-before-define
+    initiateAndHandleConnection(socketAddress, PEER_SOURCE.ARCANE).catch(() => done(false));
+  });
+}
+
+/**
+ * Dial marked nodes until this node holds admissionLinkTarget authenticated
+ * links on distinct IPs, or a pass has made its attempts.
+ * @param {string} localSocketAddr
+ * @param {string} myIpGroup
+ * @param {function(string): Promise<boolean>} [dial] Dials a node for a link.
+ * @returns {Promise<boolean>} Whether the target is held.
+ */
+async function holdAuthenticatedLinks(localSocketAddr, myIpGroup, dial = dialForLink) {
+  const attempts = config.fluxapps.admissionLinkTarget * 2;
+  const reporters = new Set();
+  const ipGroups = new Set();
+  for (let attempt = 0; attempt < attempts && linksShort(); attempt += 1) {
+    const linkedIps = new Set(peerManager.getAuthenticatedPeers().map((peer) => peer.ip));
+    // eslint-disable-next-line no-await-in-loop
+    const candidate = await networkStateService.getRandomArcaneSocketAddress(localSocketAddr, (socketAddress, reporter) => {
+      const ip = extractIp(socketAddress);
+      const port = extractPort(socketAddress);
+      return linkedIps.has(ip)
+        || ipGroups.has(FluxPeerManager.getIpGroup(ip))
+        || (reporter !== NetworkStateManager.SELF_REPORTED && reporters.has(reporter))
+        || peerManager.isPending(`${ip}:${port}`)
+        || !peerManager.canAcceptPeer(ip, port, DIRECTION.OUTBOUND, myIpGroup);
+    });
+    if (!candidate) break;
+    reporters.add(candidate.reporter);
+    ipGroups.add(FluxPeerManager.getIpGroup(extractIp(candidate.socketAddress)));
+    log.info(`Dialling ${candidate.socketAddress} for an authenticated link`);
+    // eslint-disable-next-line no-await-in-loop
+    if (!await dial(candidate.socketAddress)) networkStateService.unmarkArcane(candidate.socketAddress);
+  }
+  return !linksShort();
+}
+
+// --- The discovery schedule ---
+//
+// One pass at a time and one timer: an earlier request replaces a later one, and
+// a request made during a pass runs once the pass ends.
+
+let discoveryTimer = null;
+let discoveryDueAt = Infinity;
+let discoveryInPass = false;
+let discoveryRequestedMs = null;
+
+/**
+ * Run a discovery pass in `ms`, unless one is already due sooner.
+ * @param {number} ms
+ */
+function scheduleDiscovery(ms) {
+  if (discoveryInPass) {
+    discoveryRequestedMs = discoveryRequestedMs === null ? ms : Math.min(discoveryRequestedMs, ms);
+    return;
+  }
+  const dueAt = Date.now() + ms;
+  if (discoveryTimer && discoveryDueAt <= dueAt) return;
+  clearTimeout(discoveryTimer);
+  discoveryDueAt = dueAt;
+  // eslint-disable-next-line no-use-before-define
+  discoveryTimer = setTimeout(runDiscoveryPass, ms);
+}
+
+async function runDiscoveryPass() {
+  fluxEventBus.count('discovery:pass');
+  discoveryTimer = null;
+  discoveryDueAt = Infinity;
+  discoveryInPass = true;
+  let nextMs = config.fluxapps.discoveryFailRetryMs ?? 120000;
+  try {
+    nextMs = await fluxDiscovery();
+  } finally {
+    discoveryInPass = false;
+    const requested = discoveryRequestedMs;
+    discoveryRequestedMs = null;
+    scheduleDiscovery(requested === null ? nextMs : Math.min(nextMs, requested));
+  }
+}
+
 function startDiscovery() {
   if (discoveryRunning) return;
   discoveryRunning = true;
@@ -1796,7 +2299,8 @@ function startDiscovery() {
   // land after it. A peer holds one socket in either direction, so peers that
   // dial us while we are waiting take the very sockets we would have dialled
   // them on, and a late first pass then has nothing left to connect to.
-  networkStateService.onReady(fluxDiscovery);
+  // eslint-disable-next-line no-use-before-define
+  networkStateService.onReady(() => scheduleDiscovery(0));
 }
 
 async function startDiscoveryApi(req, res) {
@@ -1815,6 +2319,7 @@ async function startDiscoveryApi(req, res) {
 
 /**
  * To discover and connect to other randomly selected FluxNodes. Maintains connections with 1-2% of nodes on the Flux network. Ensures that FluxNode connections are not duplicated.
+ * @returns {Promise<number>} How long to wait before the next pass.
  */
 async function fluxDiscovery() {
   try {
@@ -1980,14 +2485,14 @@ async function fluxDiscovery() {
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(DISCOVERY.connectionDelayMs);
     }
-    setTimeout(() => {
-      fluxDiscovery();
-    }, config.fluxapps.discoveryRetryMs ?? 60000);
+
+    // eslint-disable-next-line no-use-before-define
+    const linksHeld = await holdAuthenticatedLinks(localSocketAddr, myIpGroup);
+    // eslint-disable-next-line no-use-before-define
+    return linksHeld ? discoveryRetryMs() : linkRecoveryDelay(true);
   } catch (error) {
     log.warn(error.message || error);
-    setTimeout(() => {
-      fluxDiscovery();
-    }, config.fluxapps.discoveryFailRetryMs ?? 120000);
+    return config.fluxapps.discoveryFailRetryMs ?? 120000;
   }
 }
 
@@ -2202,6 +2707,10 @@ function logSocketsEvery(intervalMs) {
 }
 
 module.exports = {
+  handleAppProposal,
+  noteFetchMiss,
+  getNetworkPaths,
+  dispatchLinkMessage,
   connectedPeers,
   removePeer,
   removeIncomingPeer,
@@ -2209,6 +2718,12 @@ module.exports = {
   peerResponsiveness,
   keepConnectionsAlive,
   fluxDiscovery,
+  scheduleDiscovery,
+  holdAuthenticatedLinks,
+  dialForLink,
+  linkRecoveryDelay,
+  discoveryRetryMs,
+  takeArcanePeers,
   startDiscovery,
   initializeDiscovery,
   startDiscoveryApi,

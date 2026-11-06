@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -60,10 +61,13 @@ const rpcFailures = new Map();
 const rpcHolds = new Map();
 // One method failing for one node: ip -> method -> how many more calls fail.
 const rpcMethodFailures = new Map();
-// ip -> false. Absent means ArcaneOS, which is what 85% of the real fleet runs
-// and what every suite that does not care about this should see: a node reading
-// systemsecure=true is never a residential-DOS target.
-const nonArcaneNodes = new Map();
+// ip -> false. Absent means ArcaneOS, which is what 85% of the real fleet runs.
+// A legacy node's fluxbench reports the system not secure, so the fleet's legacy
+// nodes (LEGACY_NODE_IPS) start here and a reset returns to them.
+const LEGACY_NODE_IPS = (process.env.LEGACY_NODE_IPS || '').split(',').filter(Boolean);
+const nonArcaneNodes = new Map(LEGACY_NODE_IPS.map((ip) => [ip, false]));
+// What stands in for the key behind fluxbench's encryptmessage on every Arcane node.
+const STUB_NODE_AUTH_KEY = 'harness-node-auth';
 const requestJournal = [];
 // real ip -> the login (`user:password`) fluxd accepts from that node, as fluxd's
 // cookie: a node with one is answered 401 without it. Other nodes are not asked
@@ -594,6 +598,18 @@ const benchHandlers = {
     status: 'ok',
     message: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
   }),
+
+  // As fluxbench answers on an Arcane node: the same ciphertext for the same
+  // identity and message on every node, and none on a node marked not secure.
+  encryptmessage: (params, sourceIp) => {
+    const node = nodeBySourceIp(sourceIp);
+    if (nonArcaneNodes.has(node ? node.ip.split(':')[0] : '')) throw new Error('System not Secure');
+    const request = JSON.parse(params[0]);
+    const message = crypto.createHmac('sha256', STUB_NODE_AUTH_KEY)
+      .update(`${request.fluxID}|${request.appName}|${request.message}`)
+      .digest('base64');
+    return JSON.stringify({ message, status: 'ok' });
+  },
 
   help: () => 'Flux benchmark stub',
   stop: () => 'Flux benchmark stopping (stub)',
@@ -1171,6 +1187,7 @@ control.post('/system-secure/:ip', (req, res) => {
 
 control.delete('/system-secure', (req, res) => {
   nonArcaneNodes.clear();
+  LEGACY_NODE_IPS.forEach((ip) => nonArcaneNodes.set(ip, false));
   res.json({ cleared: true });
 });
 

@@ -6,16 +6,18 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
+const unpaidAdmission = require('./unpaidAdmission');
+const { insertTemporaryMessage } = require('./temporaryMessageRecord');
+
+const isArcane = Boolean(process.env.FLUXOS_PATH);
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { checkAndDecryptAppSpecs, verifyEncryptedSpec } = require('../utils/enterpriseHelper');
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
 const fluxEventBus = require('../utils/fluxEventBus');
 const {
   globalAppsMessages,
-  globalAppsTempMessages,
   globalAppsLocations,
   globalAppsInstallingLocations,
   globalAppsInstallingErrorsLocations,
@@ -35,7 +37,15 @@ const {
   INSTALLING_ERRORS_EXPIRY_MS,
   EVICTED_EXPIRY_MS,
   SIGTERM_EXPIRY_MS,
+  INSTALL_ERROR_MAX_LENGTH,
 } = require('../utils/appConstants');
+
+/**
+ * Whether an install error's text is longer than a node tells the network.
+ * @param {object} data A fluxappinstallingerror message.
+ * @returns {boolean}
+ */
+const installErrorTooLong = (data) => typeof data.error === 'string' && data.error.length > INSTALL_ERROR_MAX_LENGTH;
 
 // Cap on how many location operations are handed to one bulk write. The driver
 // encodes the whole batch before sending it, and that encoding is what a large
@@ -77,6 +87,13 @@ async function getPreviousOwner(appName, currentOwner) {
  * @param {object} message - Message to store
  * @param {object} [options] - Options
  * @param {boolean} [options.furtherVerification=true] - Whether further verification is needed
+ * @param {object} [options.frame] - The frame the message arrived in, when it arrived alone
+ * @param {boolean} [options.authenticated] - Whether it arrived over an authenticated Arcane
+ *   link; on an Arcane node an unpaid message is taken only when it did
+ * @param {function(): Promise<boolean>} [options.beforeWrite] - Called once every check has
+ *   passed, before the write; the message is written only when it answers true
+ * @param {function(string): void} [options.onRefusal] - Told why a message that is not
+ *   stored was refused by admission, or is queued behind its registration
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
 async function storeAppTemporaryMessage(message, options = {}) {
@@ -127,7 +144,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
       value: 1,
     },
   };
-  let database = db.db(config.database.daemon.database);
+  const database = db.db(config.database.daemon.database);
   const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height;
@@ -138,113 +155,140 @@ async function storeAppTemporaryMessage(message, options = {}) {
     appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED, message.hash);
   }
 
-  // data shall already be verified by the broadcasting node. But verify all again.
-  // this takes roughly at least 1 second
-  if (furtherVerification) {
-    // Dynamic require to avoid circular dependency
-    // eslint-disable-next-line global-require
-    const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-    const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
-
-    // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
-    let previousAppSpecs = null;
-    if (!appRegistration) {
-      // a message fetched from peers is already on chain at block: check it against what was
-      // below it there. A live one builds on the newest message.
-      previousAppSpecs = await registryManager.getPreviousAppSpecifications(
-        appSpecFormatted,
-        isAppRequested ? block : undefined,
-        isAppRequested ? messageTimestamp : undefined,
-      );
-      if (!previousAppSpecs) {
-        // Registration doesn't exist yet - queue this update for later processing
-        const appName = appSpecFormatted.name;
-        log.info(`Queueing update for ${appName} - registration not yet stored`);
-        globalState.queuePendingUpdate(appName, message, block);
-        return false; // Don't rebroadcast - we'll process when registration arrives
+  // A paid message is taken whatever it carries; an unpaid one only within its
+  // sender's allowance, decided before the verification below.
+  let admission = { fields: {} };
+  // A taken message holds its place in its sender's allowance until it is
+  // written or let go.
+  try {
+    if (!result) {
+      // Only an Arcane node can put a tagged unpaid message into the network, and
+      // only over an authenticated link does one reach an Arcane node. One without
+      // a tag is from a release that does not tag, from any peer: the version
+      // floor decides it (unpaidAdmission).
+      admission = isArcane && !options.authenticated && message.clientTag !== undefined
+        ? { refused: 'it did not arrive over an authenticated Arcane link' }
+        : await unpaidAdmission.admitUnpaid(message, { frame: options.frame, daemonHeight });
+      fluxEventBus.publish('appmessage:admission', {
+        hash: message.hash,
+        taken: !admission.refused,
+        reason: admission.refused ?? null,
+        clientTag: admission.fields?.clientTag ?? null,
+        originKey: admission.fields?.originKey ?? null,
+      });
+      if (admission.refused) {
+        log.warn(`storeAppTemporaryMessage - not taking ${message.hash}: ${admission.refused}`);
+        options.onRefusal?.(admission.refused);
+        return false;
       }
     }
 
-    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+    // data shall already be verified by the broadcasting node. But verify all again.
+    // this takes roughly at least 1 second
+    if (furtherVerification) {
+      // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
-      const fluxService = require('../fluxService');
-      if (await fluxService.isSystemSecure()) {
-        verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
-        // eslint-disable-next-line no-use-before-define
-        const appSpecDecrypted = await checkAndDecryptAppSpecs(
+      const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
+      const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
+
+      // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
+      let previousAppSpecs = null;
+      if (!appRegistration) {
+        // a message fetched from peers is already on chain at block: check it against what was
+        // below it there. A live one builds on the newest message.
+        previousAppSpecs = await registryManager.getPreviousAppSpecifications(
           appSpecFormatted,
-          { daemonHeight: block, owner: appSpecFormatted.owner },
+          isAppRequested ? block : undefined,
+          isAppRequested ? messageTimestamp : undefined,
         );
-        // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
-        await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
-        if (appRegistration) {
-          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
-        } else {
-          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, previousAppSpecs);
+        if (!previousAppSpecs) {
+          // Registration doesn't exist yet - queue this update for later processing
+          const appName = appSpecFormatted.name;
+          log.info(`Queueing update for ${appName} - registration not yet stored`);
+          // Queued with its origin, which the replay verifies again. An unpaid one
+          // keeps its place in its sender's allowance while it waits.
+          const queued = admission.fields.origin ? { ...message, origin: admission.fields.origin } : message;
+          globalState.queuePendingUpdate(appName, queued, block, admission.keep?.());
+          options.onRefusal?.(`the registration of ${appName} is not yet stored here`);
+          return false; // Don't rebroadcast - we'll process when registration arrives
         }
       }
-    } else {
-      await appValidator.verifyAppSpecifications(appSpecFormatted, block);
-      if (appRegistration) {
-        await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        verifyEncryptedSpec(appSpecFormatted);
+        // eslint-disable-next-line global-require
+        const fluxService = require('../fluxService');
+        if (await fluxService.isSystemSecure()) {
+          // eslint-disable-next-line no-use-before-define
+          const appSpecDecrypted = await checkAndDecryptAppSpecs(
+            appSpecFormatted,
+            { daemonHeight: block, owner: appSpecFormatted.owner },
+          );
+          // eslint-disable-next-line no-use-before-define
+          const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
+          await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
+          if (appRegistration) {
+            await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
+          } else {
+            await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, previousAppSpecs);
+          }
+        }
       } else {
-        await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
+        await appValidator.verifyAppSpecifications(appSpecFormatted, block);
+        if (appRegistration) {
+          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+        } else {
+          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
+        }
+      }
+
+      await messageVerifier.verifyAppHash(message);
+      if (appRegistration) {
+        await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
+      } else {
+        const { owner } = previousAppSpecs;
+        try {
+          await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
+        } catch (sigError) {
+          // Before height 2000000, owner-change races were accepted by the
+          // network (re-verification not deployed until v8.10.0, well after
+          // the last known race at h=1880981). Only retry on replay (on-chain).
+          if (!isAppRequested || block >= 2000000) throw sigError;
+          const prevOwner = await getPreviousOwner(appSpecFormatted.name, owner);
+          if (!prevOwner) throw sigError;
+          await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, prevOwner, block, previousAppSpecs);
+        }
       }
     }
 
-    await messageVerifier.verifyAppHash(message);
-    if (appRegistration) {
-      await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
-    } else {
-      const { owner } = previousAppSpecs;
-      try {
-        await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
-      } catch (sigError) {
-        // Before height 2000000, owner-change races were accepted by the
-        // network (re-verification not deployed until v8.10.0, well after
-        // the last known race at h=1880981). Only retry on replay (on-chain).
-        if (!isAppRequested || block >= 2000000) throw sigError;
-        const prevOwner = await getPreviousOwner(appSpecFormatted.name, owner);
-        if (!prevOwner) throw sigError;
-        await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, prevOwner, block, previousAppSpecs);
+    // A peer holding a proposed message (admissionQuorum) writes it only once the
+    // node that admitted it commits.
+    if (options.beforeWrite && !(await options.beforeWrite())) return false;
+
+    // message does not exist anywhere and is ok, store it
+    await insertTemporaryMessage({
+      appSpecifications: appSpecFormatted,
+      type: message.type, // shall be fluxappregister, fluxappupdate
+      version: messageVersion,
+      hash: message.hash,
+      timestamp: messageTimestamp,
+      signature: message.signature,
+      arcaneSender: message.arcaneSender,
+    }, admission.fields);
+    // it is stored and rebroadcasted
+    if (isAppRequested) {
+      if (result && result.txid && result.height) {
+        setImmediate(() => {
+          messageVerifier.checkAndRequestApp(message.hash, result.txid, result.height, result.value, 2)
+            .catch((err) => log.error(`Immediate promotion failed for ${message.hash}: ${err.message}`));
+        });
       }
+      return false;
     }
+    return true;
+  } finally {
+    admission.release?.();
   }
-
-  const receivedAt = Date.now();
-  const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
-
-  const newMessage = {
-    appSpecifications: appSpecFormatted,
-    type: message.type, // shall be fluxappregister, fluxappupdate
-    version: messageVersion,
-    hash: message.hash,
-    timestamp: messageTimestamp,
-    signature: message.signature,
-    receivedAt: new Date(receivedAt),
-    expireAt: new Date(validTill),
-    arcaneSender: message.arcaneSender,
-  };
-  const value = newMessage;
-
-  database = db.db(config.database.appsglobal.database);
-  // message does not exist anywhere and is ok, store it
-  await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value).catch((error) => {
-    log.error(error);
-    throw error;
-  });
-  // it is stored and rebroadcasted
-  if (isAppRequested) {
-    if (result && result.txid && result.height) {
-      setImmediate(() => {
-        messageVerifier.checkAndRequestApp(message.hash, result.txid, result.height, result.value, 2)
-          .catch((err) => log.error(`Immediate promotion failed for ${message.hash}: ${err.message}`));
-      });
-    }
-    return false;
-  }
-  return true;
 }
 
 /**
@@ -684,6 +728,10 @@ async function storeAppInstallingErrorMessage(message) {
     return new Error(`Invalid Flux App Installing Error message for storing version ${message.version} not supported`);
   }
 
+  if (installErrorTooLong(message)) {
+    return new Error(`Invalid Flux App Installing Error message for storing: error over ${INSTALL_ERROR_MAX_LENGTH} characters`);
+  }
+
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid fluxappinstallingerror message, message:${JSON.stringify(message)}`);
     return false;
@@ -799,8 +847,9 @@ async function storeIPChangedMessage(message) {
       await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ...reportedBefore, name: { $in: present.map((row) => row.name) } });
     }
   }
-  await dbHelper.updateInDatabase(database, globalAppsLocations, reportedBefore, { $set: { ip: newIp } });
+  const carried = await dbHelper.updateInDatabase(database, globalAppsLocations, reportedBefore, { $set: { ip: newIp } });
   addressMoveEvents.emit(ADDRESS_MOVE_EVENTS.APPLIED, { from: message.oldIP, to: newIp, broadcastedAt: message.broadcastedAt });
+  fluxEventBus.publish('locations:moved', { from: message.oldIP, to: newIp, rows: carried.modifiedCount });
 
   // all stored, rebroadcast
   return true;
@@ -1281,6 +1330,7 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
 function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.name || !data.hash || !data.broadcastedAt) return;
+  if (installErrorTooLong(data)) return;
   if (data.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -1317,6 +1367,7 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
+    if (installErrorTooLong(data)) continue;
     const validTill = data.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS;
     if (validTill < Date.now()) continue;
 

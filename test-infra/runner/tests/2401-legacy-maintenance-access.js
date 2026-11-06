@@ -326,6 +326,7 @@ describe('2401 legacy node maintenance access', function suite() {
       hookCtx: this,
       nodes: 7,
       legacyNodes: [LEGACY, NODE_OWNER_SSHD, ...FAULTED],
+      attestedLegacyNodes: [LEGACY, NODE_OWNER_SSHD, ...FAULTED],
       firewall: [LEGACY],
       tickerAutostart: false,
       configOverrides: { fluxadm: { sshAuthorizedKeys: [publicKey('current')] } },
@@ -363,8 +364,9 @@ describe('2401 legacy node maintenance access', function suite() {
     await armDpkgFault(env.clients[KILLED_UNPACKED], 'unpacked', 'systemctl kill -s KILL fluxos.service');
     await breakDpkg(removed);
 
-    // Every node boots attested, so the boot's own pass skipped. Marked legacy and
-    // restarted, each node's next start is its first pass as a legacy node.
+    // These nodes boot attested (attestedLegacyNodes), so the boot's own pass
+    // skipped. Marked legacy and restarted, each node's next start is its first
+    // pass as a legacy node.
     const legacyClients = [[legacy, legacyIp], [owner, ownerIp]]
       .concat(FAULTED.map((i) => [env.clients[i], subnet.nodeIp(i + 1)]));
     for (const [client, ip] of legacyClients) {

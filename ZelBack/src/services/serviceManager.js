@@ -181,6 +181,11 @@ async function prepareDatabaseSchema() {
   const databaseTemp = db.db(config.database.appsglobal.database);
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), [
     { key: { receivedAt: 1 }, expireAfterSeconds: tempMsgTtlS },
+    // every check of whether a pending message is held
+    { key: { hash: 1 } },
+    // the unpaid allowances, appMessaging/unpaidAdmission.js
+    { key: { clientTag: 1 } },
+    { key: { originKey: 1 } },
   ]);
   log.info('Temporary database prepared');
   log.info('Preparing Flux Apps locations');

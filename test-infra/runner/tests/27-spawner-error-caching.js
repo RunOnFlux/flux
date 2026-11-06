@@ -4,7 +4,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { pushBrokenImage, pushImage } from '../framework/registry-helper.js';
-import { advanceBlock, advanceBlocks, startTicker, stopTicker } from '../framework/daemon-control.js';
+import {
+  advanceBlock, advanceBlocks, getState, startTicker, stopTicker,
+} from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForOrchestratorState, waitForAppSpecStored,
@@ -27,9 +29,14 @@ async function bootToSpawnerReady(env) {
   await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
   await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
   await startTicker();
+  const beforeBurst = env.clients.map((c) => c.getLastEventId());
   // Advance past the 250-block threshold so orchestrator reaches READY via block fallback
   await advanceBlocks(260);
   await waitForOrchestratorState(env.clients[0], 'READY', 120000);
+  // The burst crosses two client tag epochs, and a message is tagged at the entry
+  // node's last poll of the tip: every node polls the tip before anything is registered.
+  const { currentHeight } = await getState();
+  await Promise.all(env.clients.map((c, i) => c.waitForEvent('daemon:polled', (d) => d.height >= currentHeight, 60000, { afterId: beforeBurst[i] })));
 }
 
 describe('Spawner error caching: local install failure', function () {

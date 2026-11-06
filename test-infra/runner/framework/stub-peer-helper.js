@@ -22,6 +22,13 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Close every connection a node holds to this peer; each node dials again
+    // when the peer next asks it to. Answers how many were closed.
+    async closeLinks() {
+      const res = await controlFetch(`${controlUrl}/close-links`, { method: 'POST' });
+      return (await res.json()).closed;
+    },
+
     // What this peer claims to be holding. A folder named here blocks the asking
     // node's promotion, so it keeps asking every pass instead of promoting once
     // and falling silent.
@@ -122,6 +129,66 @@ export function stubPeerClient(ip) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
+      if (!res.ok) throw new Error(`stub ${ip} could not broadcast: ${res.status} ${await res.text()}`);
+      return res.json();
+    },
+
+    // Send every connected node a message under a signature that does not verify.
+    // Answers how many it sent.
+    async forgeBroadcast(data) {
+      const res = await controlFetch(`${controlUrl}/forge-broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not forge a broadcast: ${res.status} ${await res.text()}`);
+      return res.json();
+    },
+
+    // Send each connected node, again and as it was, the last frame this peer
+    // sealed to it on their authenticated link. Answers how many it sent.
+    async replayLastFrame() {
+      const res = await controlFetch(`${controlUrl}/replay-last-frame`, { method: 'POST' });
+      if (!res.ok) throw new Error(`stub ${ip} could not replay: ${res.status} ${await res.text()}`);
+      return (await res.json()).sent;
+    },
+
+    // Open one connection to `target` (ip:port) per path port, claiming the link
+    // protocol and never answering its handshake, and hold them for holdMs. Answers
+    // how each ended: [{ port, closeCode, closedAfterMs }], closeCode null when the
+    // node still held it.
+    async dialAndHold(target, ports, { holdMs = 3000 } = {}) {
+      const res = await controlFetch(`${controlUrl}/dial-and-hold`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target, ports, holdMs }),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not dial ${target}: ${res.status} ${await res.text()}`);
+      return (await res.json()).results;
+    },
+
+    // Dial each of `targets` (ip:port) and hold the connections, speaking this
+    // peer's link protocol: the way an address no node dials reaches a node.
+    async dialLinks(targets) {
+      const res = await controlFetch(`${controlUrl}/dial-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets }),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not dial ${targets}: ${res.status} ${await res.text()}`);
+      return (await res.json()).dialled;
+    },
+
+    // The events this peer answers each state-sync request with, by response type
+    // ({ fluxapptempsync: [...] }), for a stub declared in answeringSyncPeers. A
+    // type left out is answered with none.
+    async answerSyncWith(answers) {
+      const res = await controlFetch(`${controlUrl}/sync-answers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answers),
+      });
+      if (!res.ok) throw new Error(`stub ${ip} could not take its sync answers: ${res.status} ${await res.text()}`);
       return res.json();
     },
 

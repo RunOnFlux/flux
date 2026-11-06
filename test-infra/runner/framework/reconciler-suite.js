@@ -22,7 +22,7 @@ import {
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
-import { dialerCount, expectedPeerTotal } from './peer-topology.js';
+import { dialerCount, expectedPeerTotal, ringPeerFloors } from './peer-topology.js';
 import { setSynced, setSyncState, setNoPeerData } from './syncthing-control.js';
 import { execInContainer } from './container.js';
 
@@ -384,6 +384,85 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
       return totals.every((t) => t >= totalTarget);
     },
     { timeout: 120000, interval: 2000, label: `>=${totalTarget} peers on each of ${nodes.length} nodes` },
+  );
+
+  // Between two Arcane nodes a connection joins the peer set only once its link
+  // handshake settles, so a node can meet the total above with some of its
+  // connections still handshaking and short of the floor its door checks in one
+  // direction. Settled, every connection it holds is a peer.
+  await waitFor(
+    async () => {
+      const states = await Promise.all(nodes.map((n) => n.getTestState('peers')));
+      return states.every(({ outbound, inbound }) => ![...outbound, ...inbound].some((peer) => peer.handshaking));
+    },
+    { timeout: 60000, interval: 500, label: 'no connection on any node still handshaking' },
+  );
+
+  // The door refuses a node short of either floor, and the total above can be met
+  // with one direction short: a dial a stub refused waits for the next discovery
+  // pass. A node not listed at its own address holds no place on the ring, and a
+  // slot env.cutOff has cut a node off from answers it nothing.
+  const unlistedNodes = env.unlistedNodes ?? [];
+  const stubs = [...env.stubPeerClients.keys()];
+  const ring = env.clients.map((_client, index) => index).filter((index) => !unlistedNodes.includes(index));
+  const unanswered = ring.filter((index) => !env.clients[index] && !stubs.includes(index));
+  const ringed = env.nodeConfigs
+    .filter((cfg) => env.clients[cfg.index] && ring.includes(cfg.index))
+    .map(({ index, minOutgoing, minIncoming }) => ({
+      index,
+      floors: ringPeerFloors(index, ring, {
+        minOutgoing, minIncoming, absent: [...unanswered, ...(env.peerCuts.get(index) ?? [])], stubs,
+      }),
+    }));
+  await waitFor(
+    async () => {
+      const short = await Promise.all(ringed.map(async ({ index, floors }) => {
+        const { outbound, inbound } = await env.clients[index].getTestState('peers');
+        const out = outbound.filter((peer) => !peer.handshaking).length;
+        const incoming = inbound.filter((peer) => !peer.handshaking).length;
+        return out >= floors.outbound && incoming >= floors.inbound
+          ? null
+          : `node ${index} holds ${out}/${floors.outbound} out, ${incoming}/${floors.inbound} in`;
+      }));
+      if (short.some(Boolean)) throw new Error(short.filter(Boolean).join('; '));
+      return true;
+    },
+    { timeout: 60000, interval: 500, label: `the door's peer floors on ${ringed.length} nodes` },
+  );
+
+  // An Arcane node admits an app message by quorum only once it holds
+  // admissionQuorum authenticated links on distinct IPs, which follows peering by
+  // a handshake per link. Waited here so a suite registering an app straight
+  // after boot meets a door that admits by quorum. A node can link to no more
+  // than the fleet's other Arcane nodes and its Arcane stubs listed at their own
+  // address, so one whose quorum is more than that never reaches it and is not
+  // waited for, nor is a node not listed at its own address or on a release with
+  // no links, which links with nothing.
+  const unlisted = new Set([...(env.unlistedNodes ?? []), ...(env.releaseImageNodes ?? [])]);
+  const linkedStubs = (env.arcaneStubPeers ?? []).filter((index) => !unlisted.has(index));
+  const arcaneNodes = env.nodeConfigs.filter((cfg) => cfg.arcane && env.clients[cfg.index] && !unlisted.has(cfg.index));
+  const linkable = arcaneNodes.length - 1 + linkedStubs.length;
+  const admitting = arcaneNodes.filter((cfg) => cfg.admissionQuorum > 0 && cfg.admissionQuorum <= linkable);
+  await waitFor(
+    async () => {
+      const counts = await Promise.all(admitting.map(async (cfg) => {
+        const { outbound, inbound } = await env.clients[cfg.index].getTestState('peers');
+        return new Set([...outbound, ...inbound].filter((peer) => peer.authenticated).map((peer) => peer.ip)).size;
+      }));
+      return counts.every((count, i) => count >= admitting[i].admissionQuorum);
+    },
+    { timeout: 60000, interval: 1000, label: `authenticated links for the admission quorum on ${admitting.length} Arcane nodes` },
+  );
+  // A stub that speaks as an Arcane node relays as one only over a link it has
+  // authenticated, so a suite sending through it waits until every link it holds
+  // with a node that speaks the protocol has. A stub not listed at its own
+  // address authenticates none, and is not waited for.
+  await waitFor(
+    async () => {
+      const stats = await Promise.all(linkedStubs.map((index) => env.stubPeerClients.get(index).getStats()));
+      return stats.every((s) => s.linksOpen > 0 && s.linksAuthenticatedOpen === s.linksOpen);
+    },
+    { timeout: 60000, interval: 1000, label: 'every link of every Arcane stub peer authenticated' },
   );
 
   await startTicker();
