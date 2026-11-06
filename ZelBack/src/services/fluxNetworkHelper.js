@@ -3701,11 +3701,14 @@ function reportUfwLocked() {
 async function nodeFirewallRules() {
   const apiPort = userconfig.initial.apiport || config.server.apiport;
   const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, 16125, ...config.server.allowedPorts];
-  const rules = [['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']];
-  // this should also be limit, but existing nodes use allow (needs to be updated)
+  // SSH is allowed, not rate-limited: fail2ban bans repeated failed logins
+  const rules = [
+    ['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53'],
+    ['delete', 'limit', 'OpenSSH'],
+  ];
   if (isArcane) rules.push(['prepend', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);
   // the OpenSSH profile exists only where openssh-server is installed
-  rules.push(['prepend', 'limit', 'to', 'any', 'app', 'OpenSSH']);
+  rules.push(['prepend', 'allow', 'to', 'any', 'app', 'OpenSSH']);
 
   const { stdout: routes } = await serviceHelper.runCommand('ip', { logError: false, params: ['route'] });
   const routerIP = serviceHelper.ensureString(routes).split('\n')[0].trim().split(/\s+/)[2] || '';
@@ -3951,9 +3954,12 @@ async function applyContainerEgressRules(bridges) {
 // Re-exported here for backward compatibility.
 
 /**
- * Allow Node to bind to privileged without sudo
+ * Allow Node to bind to privileged without sudo. Legacy only: on ArcaneOS the
+ * fluxos unit grants the capability to FluxOS alone, and a file capability on
+ * the image's node would be written to the overlay and hide later images' node.
  */
 async function allowNodeToBindPrivilegedPorts() {
+  if (process.env.FLUXOS_PATH) return;
   try {
     const cmdAsync = util.promisify(nodecmd.run);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
