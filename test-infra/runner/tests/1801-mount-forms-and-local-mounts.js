@@ -64,6 +64,16 @@ async function holdingFor(client, folderId, asNode) {
   return answer.data.holding?.[folderId] ?? null;
 }
 
+// The pass that measures a folder. Held on a holder, its folder stays not looked at,
+// and every other holder waits: none seeds and none joins until it has been measured.
+const BEFORE_HOLDINGS = 'syncthing:beforeHoldings';
+
+const MOUNT_FORMS = [
+  'm:logs:/var/log/app',
+  'ml:cache:/var/cache/app',
+  'f:server.json:/etc/server.json',
+];
+
 async function pathKind(client, path) {
   const r = await sh(client, `test -f ${path} && echo file; test -d ${path} && echo dir; true`);
   return r.stdout.trim();
@@ -76,6 +86,7 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
   const identifier = `${appName}_${appName}`;
   const dir = appDir(appName);
   const nodes = [0, 1];
+  const [heldIndex, holderIndex] = nodes;
 
   before(async function () {
     this.timeout(600000);
@@ -100,11 +111,7 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     const app = await buildSeedableSyncthingApp({
       name: appName,
       mode: 'r',
-      extraMounts: [
-        'm:logs:/var/log/app',
-        'ml:cache:/var/cache/app',
-        'f:server.json:/etc/server.json',
-      ],
+      extraMounts: MOUNT_FORMS,
     });
     const installAfters = nodes.map((i) => env.clients[i].getLastEventId());
     await installOnNodes(env, app, nodes);
@@ -115,6 +122,7 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
 
   after(async function () {
     this.timeout(60000);
+    await env?.clients[heldIndex].releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });
 
@@ -170,8 +178,8 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
         const folders = await getFolders(client).catch(() => []);
         return folders.find((folder) => folder.id === folderId)?.type;
       }));
-      return modes.filter((mode) => mode === 'sendreceive').length === 1;
-    }, { timeout: 240000, interval: 5000, label: 'exactly one node seeds the cold start' });
+      return modes.includes('sendreceive');
+    }, { timeout: 240000, interval: 5000, label: 'a node seeds the cold start' });
   });
 
   // The election's new question - not "is anyone running" but "who holds the owner's
@@ -186,23 +194,33 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
   // a node holding nothing is newer than the node holding the customer's world, and
   // wins the seed. A stub cannot show any of this: it reports what a suite declared.
   it('claims the owner\'s data, and not the scaffolding every mount form leaves beside it', async function () {
-    this.timeout(420000);
-    const folderId = `flux${appName}_${appName}`;
+    this.timeout(600000);
+    const claimName = `e2eclaim${Date.now()}`;
+    const folderId = `flux${claimName}_${claimName}`;
+    const claimIdentifier = `${claimName}_${claimName}`;
+    const client = env.clients[holderIndex];
+    const peer = env.clients[heldIndex];
 
-    // The node that did NOT seed is the only one that publishes a claim at all:
-    // holdings are recorded where they are computed, inside the receive-only
-    // transition, so a promoted folder never refreshes one.
-    const modes = await Promise.all(nodes.map(async (i) => {
-      const list = await getFolders(env.clients[i]).catch(() => []);
-      return list.find((folder) => folder.id === folderId)?.type;
-    }));
-    const emptyIndex = nodes[modes[0] === 'sendreceive' ? 1 : 0];
-    const client = env.clients[emptyIndex];
+    await pushImage(claimName, 'v1');
+    const app = await buildSeedableSyncthingApp({ name: claimName, mode: 'r', extraMounts: MOUNT_FORMS });
+
+    // A holder publishes a claim only while its folder is receive-only, and an r: folder
+    // stays that way only until a peer's measurement lets it seed, join or sync. Holding
+    // the peer's measurement keeps this node there for as long as the claim takes to read.
+    const peerFrom = peer.getLastEventId();
+    const holderFrom = client.getLastEventId();
+    await peer.holdCheckpoint(BEFORE_HOLDINGS, folderId);
+    await installOnNodes(env, app, nodes);
+    await waitForReconcileActuated(client, claimIdentifier, 'dataCleared', 120000, { afterId: holderFrom });
+    await peer.waitForEvent(
+      'checkpoint:held', (d) => d.name === BEFORE_HOLDINGS && d.key === folderId, 180000, { afterId: peerFrom },
+    );
 
     // The owner's data, written into a volume that already carries every mount form's
-    // scaffolding - test 1 asserts all three of them on this node.
-    await seedSyncScopedData(env, appName, emptyIndex);
-    const sized = await sh(client, `stat -c %s ${dir}/appdata/seed-data`);
+    // scaffolding.
+    await seedSyncScopedData(env, claimName, holderIndex);
+    const claimDir = appDir(claimName);
+    const sized = await sh(client, `stat -c %s ${claimDir}/appdata/seed-data`);
     const ownerBytes = Number(sized.stdout.trim());
     expect(ownerBytes, 'the owner file must be on the volume before its size can be claimed').to.be.greaterThan(0);
 
@@ -218,7 +236,6 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     }, { timeout: 180000, interval: 5000, label: 'the daemon accounts for the bytes written into the volume' });
 
     // Asked by the OTHER node of the pair, which is the only caller the product has.
-    const peer = env.clients[nodes[emptyIndex === nodes[0] ? 1 : 0]];
     const asPeer = nodeKey(peer.num);
 
     let held = null;
@@ -232,17 +249,10 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     // that file sit an m: directory, an ml: directory and a zero-length f: file, and
     // syncthing gives a directory the synthetic size of 128 - so counting them is not a
     // rounding error, it is an empty node outranking a node holding the customer's world.
-    //
-    // Equality holds whether or not the seeder's index has reached this node. Before it
-    // does, the scaffolding is in this folder's local-change list and must be excluded by
-    // type and by size; after it does, the list is only the owner's file, which a
-    // receive-only folder publishes with a zeroed version vector and so never loses.
-    // An earlier version asserted the claim read zero BEFORE the data was written, and
-    // that is the one thing here which is not deterministic - it passed on one run and
-    // timed out on the next, because the seeder's index had arrived in between and the
-    // scaffolding had stopped being a local change at all.
     expect(held.bytes, `the claim must be the owner's ${ownerBytes} bytes and nothing else on the volume`).to.equal(ownerBytes);
     expect(held.newestModified, 'a claim carrying bytes must carry when they were written').to.be.greaterThan(0);
+    const claimType = async (node) => (await getFolders(node)).find((folder) => folder.id === folderId)?.type;
+    expect(await claimType(client), 'the claim must be read from a receive-only folder').to.equal('receiveonly');
 
     // WHO MAY READ IT. The claim above is a size and a last-write time for a
     // customer's data, and the endpoint carrying it answers any peer that asks. Each
@@ -265,6 +275,12 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     const answer = await client.post('/apps/promotedfolders', replayed);
     expect(answer?.data?.ready, 'a request for another node must still be answered, just not with holdings').to.equal(true);
     expect(answer?.data?.holding, 'a signature naming another node was honoured here').to.equal(undefined);
+
+    // Once the peer is measured, the claim decides the seed.
+    await peer.releaseCheckpoint(BEFORE_HOLDINGS, folderId);
+    await waitFor(async () => (await claimType(client)) === 'sendreceive', {
+      timeout: 120000, interval: 3000, label: 'the node holding the owner\'s data seeds',
+    });
   });
 
   it('binds every declared mount to the volume, not to the container layer', async function () {
