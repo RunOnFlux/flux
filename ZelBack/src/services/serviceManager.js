@@ -410,6 +410,9 @@ async function startFluxFunctions() {
     await dockerService.applyContainerFirewall();
     setInterval(() => dockerService.applyContainerFirewall(), 10 * 60 * 1000);
 
+    // The removals a signal starts, a hold's among them, from the first point
+    // boot can remove an app. A hold set earlier is replayed to it.
+    nodeStatusMonitor.initialize(appQueryService.installedApps, appUninstaller.removeAppLocally);
     // App startup manager owns all boot-time container lifecycle decisions:
     // Locations expired → remove all. Otherwise wait for daemon/DB, then reconcile.
     appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
@@ -434,8 +437,14 @@ async function startFluxFunctions() {
     await daemonServiceUtils.waitForFluxd();
     // awaited so isDaemonSynced cache is populated before hash sync reads it
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
+    // Before daemonReady, so manageAppsOnBoot's wait for fluxd ends on the hold.
+    const addressIndexed = fluxNetworkHelper.checkInsightExplorerAllowed(daemonServiceMiscRpcs.isInsightExplorer());
     globalState.daemonReady = true;
 
+    // Boot ends here without fluxd's address index: the steps below place app
+    // payments in chain order from it and bootstrap the explorer from it. The
+    // node serves its API holding the DOS, and the hold removes its apps.
+    if (!addressIndexed) return;
     // App payments are placed in chain order from the daemon's address index: it
     // positions the payments recorded before the scan recorded positions, and a
     // node with no app history yet fetches its payments through it.
@@ -765,7 +774,6 @@ async function startFluxFunctions() {
         fluxNetworkHelper.isArcane,
       );
     }, bootDelay(3 * 60 * 1000));
-    nodeStatusMonitor.initialize(appQueryService.installedApps, appUninstaller.removeAppLocally);
     nodeStatusMonitor.start(appQueryService.installedApps, appUninstaller.removeAppLocally);
     // Start the syncthing/masterSlave deciders once boot container state has settled
     // (the same AsyncGate the reconciler starts on), not after a fixed delay. Each
