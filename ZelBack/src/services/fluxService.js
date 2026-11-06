@@ -22,6 +22,7 @@ const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
+const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const benchmarkService = require('./benchmarkService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 const generalService = require('./generalService');
@@ -69,6 +70,22 @@ function selfUpdateRefusal(arcane) {
 function daemonControlRefusal() {
   return messageHelper.createErrorMessage('The daemon and the benchmark are managed by the system on ArcaneOS');
 }
+
+/**
+ * Runs a daemon or benchmark control, refused on ArcaneOS.
+ * @param {Function} control - takes the request and response
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+function controlOffArcane(control, req, res) {
+  return isArcane ? res.json(daemonControlRefusal()) : control(req, res);
+}
+
+const stopDaemon = (req, res) => controlOffArcane(daemonServiceControlRpcs.stop, req, res);
+const stopBenchmark = (req, res) => controlOffArcane(benchmarkService.stop, req, res);
+const startBenchmarkByDaemon = (req, res) => controlOffArcane(daemonServiceBenchmarkRpcs.startBenchmarkD, req, res);
+const stopBenchmarkByDaemon = (req, res) => controlOffArcane(daemonServiceBenchmarkRpcs.stopBenchmarkD, req, res);
 
 // Where this node's checkout is, named once. Every command below that reads or
 // writes the repository is told it, rather than inheriting whatever directory
@@ -2294,6 +2311,10 @@ async function isArcaneOs(req, res) {
 
 module.exports = {
   runNewCode,
+  startBenchmarkByDaemon,
+  stopBenchmark,
+  stopBenchmarkByDaemon,
+  stopDaemon,
   ensurePm2KillTimeout,
   PM2_KILL_TIMEOUT_MS,
   PM2_LIST_TIMEOUT_MS,
