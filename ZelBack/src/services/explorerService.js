@@ -1150,12 +1150,6 @@ async function pollForNewBlocks() {
       return;
     }
 
-    // Said on every poll, so a listener started after the scan reached the tip hears it.
-    if (daemonHeight === scannedBlockHeight) {
-      isSynced = true;
-      blockEmitter.emit('explorerAtTip', scannedBlockHeight);
-    }
-
     pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
   } catch (error) {
     log.error(`Explorer poll error: ${error.message}`);
@@ -1772,5 +1766,4 @@ module.exports = {
   restoreDatabaseToBlockheightState,
 
   isExplorerSynced,
-  pollForNewBlocks,
 };

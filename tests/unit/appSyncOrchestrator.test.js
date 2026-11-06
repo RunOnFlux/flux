@@ -221,42 +221,6 @@ describe('AppSyncOrchestrator', () => {
       expect(orchestrator.state).to.equal(STATES.INITIALIZING);
     });
 
-    describe('a scan already at the tip', () => {
-      it('starts syncing with no block processed', async () => {
-        const orchestrator = makeOrchestrator();
-        orchestrator.start(defaultBootContext);
-
-        blockEmitter.emit('explorerAtTip', 2555000);
-        await clock.tickAsync(0);
-
-        expect(orchestrator.state).to.equal(STATES.SYNCING);
-        sinon.assert.calledOnce(syncMissingHashesStub);
-        expect(syncMissingHashesStub.firstCall.args[0].currentHeight).to.equal(2555000);
-      });
-
-      it('starts once, however often it is told, and once more for no block', async () => {
-        const orchestrator = makeOrchestrator();
-        orchestrator.start(defaultBootContext);
-
-        blockEmitter.emit('explorerAtTip', 2555000);
-        blockEmitter.emit('explorerAtTip', 2555000);
-        await clock.tickAsync(0);
-        blockEmitter.emit('blocksProcessed', 2555001);
-        await clock.tickAsync(0);
-
-        sinon.assert.calledOnce(syncMissingHashesStub);
-        expect(logStub.info.getCalls().filter((call) => String(call.args[0]).includes('Explorer synced'))).to.have.length(1);
-      });
-
-      it('hears nothing once stopped', async () => {
-        const orchestrator = makeOrchestrator();
-        orchestrator.start(defaultBootContext);
-        orchestrator.stop();
-
-        expect(blockEmitter.listenerCount('explorerAtTip')).to.equal(0);
-      });
-    });
-
     it('should transition to SYNCING on first blockReceived', async () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);

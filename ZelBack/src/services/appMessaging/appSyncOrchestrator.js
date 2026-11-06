@@ -109,8 +109,6 @@ class AppSyncOrchestrator {
   #dbRebuilt = false;
   #blocksSinceSyncStarted = 0;
   #blockReceivedHandler = null;
-
-  #explorerAtTipHandler = null;
   #peerThresholdHandler = null;
   #peersBelowHandler = null;
   #peerConnectedHandler = null;
@@ -295,13 +293,6 @@ class AppSyncOrchestrator {
       this.#onBlocksProcessed(blockHeight);
     };
     this.#blockEmitter.on('blocksProcessed', this.#blockReceivedHandler);
-
-    this.#explorerAtTipHandler = (blockHeight) => {
-      if (this.#explorerSynced) return;
-      this.#lastBlockHeight = blockHeight;
-      this.#onExplorerSynced(blockHeight);
-    };
-    this.#blockEmitter.on('explorerAtTip', this.#explorerAtTipHandler);
 
     fluxEventBus.publish('orchestrator:started', { state: this.#state, bootContext });
 
@@ -926,24 +917,17 @@ class AppSyncOrchestrator {
     }
   }
 
-  /**
-   * The scan has reached the chain's tip, by a block it processed there or by
-   * finding nothing left to process.
-   * @param {number} blockHeight
-   */
-  #onExplorerSynced(blockHeight) {
-    this.#explorerSynced = true;
-    log.info(`AppSyncOrchestrator - Explorer synced at block ${blockHeight}`);
-    if (this.#state === STATES.INITIALIZING) {
-      this.#setState(STATES.SYNCING);
-      this.#runInitialSync();
-    }
-  }
-
   #onBlocksProcessed(blockHeight) {
     const count = this.#lastBlockHeight > 0 ? blockHeight - this.#lastBlockHeight : 1;
     this.#lastBlockHeight = blockHeight;
-    if (!this.#explorerSynced) this.#onExplorerSynced(blockHeight);
+    if (!this.#explorerSynced) {
+      this.#explorerSynced = true;
+      log.info(`AppSyncOrchestrator - Explorer synced at block ${blockHeight}`);
+      if (this.#state === STATES.INITIALIZING) {
+        this.#setState(STATES.SYNCING);
+        this.#runInitialSync();
+      }
+    }
     if (this.#state === STATES.SYNCING || this.#state === STATES.READY || this.#state === STATES.RESYNCING) {
       // ONLY WHILE THERE ARE PEERS. The fallback is a bound on a sync attempt
       // that is not finishing; it was also, silently, a bound on having nobody
@@ -1344,9 +1328,6 @@ class AppSyncOrchestrator {
     }
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blocksProcessed', this.#blockReceivedHandler);
-    }
-    if (this.#explorerAtTipHandler) {
-      this.#blockEmitter.removeListener('explorerAtTip', this.#explorerAtTipHandler);
     }
     if (this.#peerThresholdHandler) {
       this.#offPeerEvent('peerThresholdReached', this.#peerThresholdHandler);
