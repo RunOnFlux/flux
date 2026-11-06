@@ -1866,6 +1866,11 @@ async function restartFluxOS(req, res) {
     return;
   }
 
+  if (isArcane) {
+    res.json(messageHelper.createErrorMessage('FluxOS is managed by the system on ArcaneOS'));
+    return;
+  }
+
   log.info('Restarting FluxOS..');
 
   const { error } = await serviceHelper.runCommand('pm2', { params: ['restart', 'flux'] });
