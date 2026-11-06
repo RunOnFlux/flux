@@ -207,14 +207,17 @@ describe('dockerService tests', () => {
       name: 'Testnetwork',
     };
     let firewallStub;
+    let forwardedDnsStub;
 
     // The container firewall is applied on the host only by the code that owns it.
     before(() => {
       firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      forwardedDnsStub = sinon.stub(fluxNetworkHelper, 'applyForwardedDnsRules').resolves(true);
     });
 
     after(() => {
       firewallStub.restore();
+      forwardedDnsStub.restore();
     });
 
     afterEach(async () => {
@@ -235,14 +238,17 @@ describe('dockerService tests', () => {
       name: 'Testnetwork',
     };
     let firewallStub;
+    let forwardedDnsStub;
 
     // The container firewall is applied on the host only by the code that owns it.
     before(() => {
       firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      forwardedDnsStub = sinon.stub(fluxNetworkHelper, 'applyForwardedDnsRules').resolves(true);
     });
 
     after(() => {
       firewallStub.restore();
+      forwardedDnsStub.restore();
     });
 
     beforeEach(async () => {
@@ -271,14 +277,17 @@ describe('dockerService tests', () => {
       name: 'Testnetwork',
     };
     let firewallStub;
+    let forwardedDnsStub;
 
     // The container firewall is applied on the host only by the code that owns it.
     before(() => {
       firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      forwardedDnsStub = sinon.stub(fluxNetworkHelper, 'applyForwardedDnsRules').resolves(true);
     });
 
     after(() => {
       firewallStub.restore();
+      forwardedDnsStub.restore();
     });
 
     beforeEach(async () => {
@@ -455,10 +464,12 @@ describe('dockerService tests', () => {
     ];
     let listNetworks;
     let apply;
+    let applyForwarded;
 
     beforeEach(() => {
       listNetworks = sinon.stub(Dockerode.prototype, 'listNetworks').resolves(NETWORKS);
       apply = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      applyForwarded = sinon.stub(fluxNetworkHelper, 'applyForwardedDnsRules').resolves(true);
       sinon.stub(log, 'error');
     });
 
@@ -505,6 +516,25 @@ describe('dockerService tests', () => {
         fluxBridges: ['br-111111111111', 'br-222222222222'],
         dockerBridges: ['br-111111111111', 'br-222222222222', 'br-333333333333', 'br-444444444444', 'docker0'],
       });
+    });
+
+    it('applies the forwarded lookups chain, and answers true only when both chains are in place', async () => {
+      expect(await dockerService.applyContainerFirewall()).to.equal(true);
+      sinon.assert.calledOnce(applyForwarded);
+    });
+
+    it('answers false when the egress chain fails and the forwarded lookups chain holds', async () => {
+      apply.resolves(false);
+
+      expect(await dockerService.applyContainerFirewall()).to.equal(false);
+      sinon.assert.calledOnce(applyForwarded);
+    });
+
+    it('answers false when the forwarded lookups chain fails and the egress chain holds', async () => {
+      applyForwarded.resolves(false);
+
+      expect(await dockerService.applyContainerFirewall()).to.equal(false);
+      sinon.assert.calledOnce(apply);
     });
 
     it('leaves the chain as it is, and says so, when Docker does not answer', async () => {
@@ -575,6 +605,12 @@ describe('dockerService tests', () => {
   });
 
   describe('reclaimAppNetworks tests', () => {
+    // The container firewall is applied on the host only by the code that owns it.
+    beforeEach(() => {
+      sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      sinon.stub(fluxNetworkHelper, 'applyForwardedDnsRules').resolves(true);
+    });
+
     afterEach(() => {
       sinon.restore();
     });
@@ -1853,6 +1889,19 @@ describe('dockerService tests', () => {
         }],
       },
     };
+    let firewallStub;
+    let forwardedDnsStub;
+
+    // The container firewall is applied on the host only by the code that owns it.
+    before(() => {
+      firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      forwardedDnsStub = sinon.stub(fluxNetworkHelper, 'applyForwardedDnsRules').resolves(true);
+    });
+
+    after(() => {
+      firewallStub.restore();
+      forwardedDnsStub.restore();
+    });
 
     afterEach(async () => {
       try {
@@ -1896,6 +1945,19 @@ describe('dockerService tests', () => {
         }],
       },
     };
+    let firewallStub;
+    let forwardedDnsStub;
+
+    // The container firewall is applied on the host only by the code that owns it.
+    before(() => {
+      firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      forwardedDnsStub = sinon.stub(fluxNetworkHelper, 'applyForwardedDnsRules').resolves(true);
+    });
+
+    after(() => {
+      firewallStub.restore();
+      forwardedDnsStub.restore();
+    });
 
     afterEach(async () => {
       try {

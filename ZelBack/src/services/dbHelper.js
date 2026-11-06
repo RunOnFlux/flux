@@ -18,6 +18,8 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
  * @type {mongodb.MongoClient}
  */
 let openDBConnection = null;
+let markConnected;
+const connected = new Promise((resolve) => { markConnected = resolve; });
 
 // The client for the named long operations: index builds, the explorer
 // restore's deletes and the registry rebuild. One of its round trips may take
@@ -106,6 +108,14 @@ async function connectMongoDb(url, settings = {}) {
 }
 
 /**
+ * Settles the first time the database connects.
+ * @returns {Promise<void>}
+ */
+function whenConnected() {
+  return connected;
+}
+
+/**
  * Initiates the default db connection and the maintenance one, both or
  * neither.
  * @returns true
@@ -118,6 +128,7 @@ async function initiateDB() {
       throw error;
     });
     openDBConnection = main;
+    markConnected();
     // Read the server version once, on the initial connect. It is informational
     // and the getter swallows its own errors, so this cannot fail the connect.
     await getMongoDbVersion();
@@ -1379,6 +1390,7 @@ module.exports = {
   connectMongoDb,
   countInDatabase,
   databaseConnection,
+  whenConnected,
   distinctDatabase,
   dropCollection,
   ensureNewestAppMessageIndex,

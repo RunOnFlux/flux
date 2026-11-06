@@ -35,6 +35,7 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const daemonServiceNetworkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceNetworkRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const placementHold = require('../../ZelBack/src/services/placementHold');
 const { sameKey } = require('./data/wifFixtures');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -4431,6 +4432,19 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.notCalled(publishStub);
     });
 
+    it('refuses a container\'s DNS query for the speedtest CLI\'s API, ahead of the DNS exception', () => {
+      const rules = fluxNetworkHelper.containerEgressRules(BRIDGES);
+      // As iptables 1.8.11 prints them (nf_tables, Arcane and legacy alike).
+      const hex = '"|03636c6909737065656474657374036e657400|"';
+      ['docker0', 'br-+'].forEach((bridge) => {
+        const udp = `-A DOCKER-USER -i ${bridge} -p udp -m udp --dport 53 -m string --hex-string ${hex} --algo bm --icase -j REJECT --reject-with icmp-port-unreachable`;
+        const tcp = `-A DOCKER-USER -i ${bridge} -p tcp -m tcp --dport 53 -m string --hex-string ${hex} --algo bm --icase -j REJECT --reject-with tcp-reset`;
+        const firstDnsReturn = rules.findIndex((rule) => /--dport 53 -j RETURN$/.test(rule));
+        expect(rules.indexOf(udp)).to.be.within(0, firstDnsReturn - 1);
+        expect(rules.indexOf(tcp)).to.be.within(0, firstDnsReturn - 1);
+      });
+    });
+
     it('puts back a missing FORWARD jump to DOCKER-USER, and only then', async () => {
       liveChain(fluxNetworkHelper.containerEgressRules(BRIDGES));
       runCommandStub.withArgs('iptables', iptablesCall(['-C', 'FORWARD', '-j', 'DOCKER-USER'])).resolves({ error: new Error('missing'), stdout: '', stderr: '' });
@@ -4445,96 +4459,84 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('placement hold tests', () => {
-    const { RESIDENTIAL_DOS } = fluxNetworkHelper.PlacementHoldOwner;
+  describe('forwarded DNS policy tests', () => {
+    const iptablesCall = (params) => sinon.match({ runAsRoot: true, params });
+    const hex = '"|03636c6909737065656474657374036e657400|"';
+    let runCommandStub;
+    let written;
+
+    beforeEach(() => {
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+      sinon.stub(fs, 'writeFile').callsFake(async (file, content) => { written = content; });
+      written = null;
+    });
 
     afterEach(() => {
-      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
-      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
+      sinon.restore();
     });
 
-    it('is not held by default', () => {
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
-      expect(fluxNetworkHelper.getPlacementHold()).to.equal(null);
-    });
-
-    it('holds with the reason it was given', () => {
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
-
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
-      expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential node not running ArcaneOS');
-    });
-
-    it('releases', () => {
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'some reason');
-
-      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
-
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
-    });
-
-    it('publishes a hold when it is set, and again when its reason changes', () => {
-      const publish = sinon.stub(fluxEventBus, 'publish');
-
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'second');
-
-      expect(publish.args.filter(([name]) => name === 'placementHold:set')).to.deep.equal([
-        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'first' }],
-        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'second' }],
+    it('refuses a tagged query for the speedtest CLI\'s API, and only a tagged one', () => {
+      // As iptables 1.8.11 prints them; the image sets the mark bit on the
+      // queries the node forwards for app containers.
+      expect(fluxNetworkHelper.forwardedDnsRules()).to.deep.equal([
+        `-A FLUX-DNS-POLICY -p udp -m udp --dport 53 -m mark --mark 0x10000000/0x10000000 -m string --hex-string ${hex} --algo bm --icase -j REJECT --reject-with icmp-port-unreachable`,
+        `-A FLUX-DNS-POLICY -p tcp -m tcp --dport 53 -m mark --mark 0x10000000/0x10000000 -m string --hex-string ${hex} --algo bm --icase -j REJECT --reject-with tcp-reset`,
       ]);
     });
 
-    it('publishes a release only of a hold that stood', () => {
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
-      const publish = sinon.stub(fluxEventBus, 'publish');
+    it('writes the chain and puts back its OUTPUT jump', async () => {
+      runCommandStub.withArgs('iptables', iptablesCall(['-C', 'OUTPUT', '-j', 'FLUX-DNS-POLICY'])).resolves({ error: new Error('missing'), stdout: '', stderr: '' });
 
-      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
-      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+      const res = await fluxNetworkHelper.applyForwardedDnsRules();
 
-      sinon.assert.calledOnceWithExactly(publish, 'placementHold:cleared', { owner: RESIDENTIAL_DOS, reason: 'held' });
+      expect(res).to.equal(true);
+      expect(written.split('\n')).to.deep.equal(['*filter', ':FLUX-DNS-POLICY - [0:0]', ...fluxNetworkHelper.forwardedDnsRules(), 'COMMIT', '']);
+      sinon.assert.calledWith(runCommandStub, 'iptables', iptablesCall(['-I', 'OUTPUT', '-j', 'FLUX-DNS-POLICY']));
     });
 
-    it('refuses an owner it does not know, rather than minting one', () => {
-      // An unknown owner is a caller that was never given an identity. Accepted,
-      // it would hold the node under a name no release path knows about.
-      expect(() => fluxNetworkHelper.setPlacementHold('someFeature', 'a reason')).to.throw('unknown owner');
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+    it('writes nothing when the chain already matches', async () => {
+      runCommandStub.withArgs('iptables', iptablesCall(['-S', 'FLUX-DNS-POLICY']))
+        .resolves({ error: null, stdout: ['-N FLUX-DNS-POLICY', ...fluxNetworkHelper.forwardedDnsRules(), ''].join('\n'), stderr: '' });
+
+      expect(await fluxNetworkHelper.applyForwardedDnsRules()).to.equal(true);
+      sinon.assert.neverCalledWith(runCommandStub, 'iptables-restore');
     });
 
-    it('does not release a hold it does not own', () => {
-      // The reason this is a map keyed by owner and not a single slot. With one
-      // slot, whoever cleared next released the node outright - including a
-      // caller whose own condition had nothing to do with the hold in place - so
-      // the node resumed taking apps for a condition that had not lifted.
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential');
+    it('reports failure when the restore fails, and adds no jump', async () => {
+      runCommandStub.withArgs('iptables-restore').resolves({ error: new Error('restore failed'), stdout: '', stderr: '' });
 
-      fluxNetworkHelper.clearPlacementHold('someOtherOwner');
+      expect(await fluxNetworkHelper.applyForwardedDnsRules()).to.equal(false);
+      sinon.assert.neverCalledWith(runCommandStub, 'iptables', iptablesCall(['-I', 'OUTPUT', '-j', 'FLUX-DNS-POLICY']));
+    });
+  });
 
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
-      expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential');
+  describe('placement hold and DOS', () => {
+    const { RESIDENTIAL_DOS } = placementHold.PlacementHoldOwner;
+
+    afterEach(() => {
+      placementHold.clearPlacementHold(RESIDENTIAL_DOS);
+      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
     });
 
-    it('does NOT put the node into DOS', () => {
-      // The whole point of the hold: DOS >= 100 makes nodeStatusMonitor and
-      // appStartupManager rm -rf every app on the box. A node that should stop
-      // growing but keep its volumes must not cross that line.
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
+    it('a placement hold does NOT put the node into DOS', () => {
+      // DOS >= 100 makes nodeStatusMonitor and appStartupManager remove every app
+      // on the box. A node that should stop growing but keep its volumes must not
+      // cross that line.
+      placementHold.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
 
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
     });
 
-    it('is independent of a sticky DOS in both directions', () => {
+    it('a placement hold is independent of a sticky DOS in both directions', () => {
       fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS, 'someone else holds this');
 
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+      expect(placementHold.isPlacementHeld()).to.equal(false);
 
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
-      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
+      placementHold.setPlacementHold(RESIDENTIAL_DOS, 'held');
 
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+      expect(placementHold.isPlacementHeld()).to.equal(true);
     });
   });
 

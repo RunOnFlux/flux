@@ -4,7 +4,7 @@ const config = require('config');
 const { EventEmitter } = require('events');
 const { MongoClient } = require('mongodb');
 const log = require('../../ZelBack/src/lib/log');
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const placementHold = require('../../ZelBack/src/services/placementHold');
 const databaseHealthService = require('../../ZelBack/src/services/databaseHealthService');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -19,7 +19,7 @@ describe('databaseHealthService tests', () => {
   const closed = (id, reason = 'error') => client.emit('connectionClosed', { connectionId: id, reason });
   const checkOutFailed = (reason = 'timeout') => client.emit('connectionCheckOutFailed', { reason });
   const timeOut = (n) => { for (let i = 0; i < n; i += 1) closed(100 + i); };
-  const held = () => fluxNetworkHelper.isPlacementHeld();
+  const held = () => placementHold.isPlacementHeld();
 
   beforeEach(() => {
     clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'hrtime'] });
@@ -41,7 +41,7 @@ describe('databaseHealthService tests', () => {
 
     expect(held()).to.equal(true);
     expect(databaseHealthService.isSuspect()).to.equal(true);
-    expect(fluxNetworkHelper.getPlacementHold()).to.include('Database calls are timing out');
+    expect(placementHold.getPlacementHold()).to.include('Database calls are timing out');
   });
 
   it('counts a wait for a pooled connection that ran out, and no other checkout failure', () => {
@@ -158,11 +158,11 @@ describe('databaseHealthService tests', () => {
       // the canary: the read did run out, and the driver retried it once
       expect(first.name).to.equal('MongoNetworkTimeoutError');
       expect(ranOut.getCalls().filter((call) => /round trip ran out/.test(call.args[0]))).to.have.length(2);
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+      expect(placementHold.isPlacementHeld()).to.equal(false);
 
       await stuckRead();
 
-      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+      expect(placementHold.isPlacementHeld()).to.equal(true);
       // waits for the server's own sleeps, which hold the collection, to end
       await prepared.drop();
     });

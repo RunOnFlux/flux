@@ -122,31 +122,6 @@ const stickyDosHolds = new Map();
 // service or it does not, and this is the value the enforcing readers test.
 const STICKY_DOS_STATE = 100;
 
-// Who may hold this node back from placement. An owner is an IDENTITY, not a
-// message: the reason is what an operator reads, and the owner is what a release
-// is checked against. Adding a feature that holds placement means adding a value
-// here, which is the point - an unknown owner is refused rather than accepted as
-// a new one.
-const PlacementHoldOwner = Object.freeze({
-  RESIDENTIAL_DOS: 'residentialDos',
-  DATABASE_SUSPECT: 'databaseSuspect',
-  HOST_STALL: 'hostStall',
-});
-
-// Stops the node taking on NEW apps without declaring it unfit for the ones it
-// already runs. DOS conflates those: isNodeDos() makes appSpawner refuse
-// installs AND makes nodeStatusMonitor and appStartupManager delete every app on
-// the box. A node that must stop growing but keep its customer volumes needs
-// only the first, so this is a separate flag whose only consumer is the spawner.
-//
-// owner -> reason, rather than one slot. A single slot cannot express two
-// owners: a second hold OVERWROTE the first, and whoever cleared next released
-// both - so the node resumed taking apps for a condition that had not lifted.
-// Checking ownership on a single slot only moves the failure, because the
-// overwritten owner can then never clear and the node stays held forever. The
-// node is held while any owner holds it.
-const placementHolds = new Map();
-
 let storedFluxBenchAllowed = null;
 let maxNumberOfIpChanges = 0;
 const { lruRateLimit } = require('./utils/rateLimit');
@@ -1268,55 +1243,6 @@ function getDosStateValue() {
 // response to DOS state changes.
 function isNodeDos() {
   return effectiveDosState() >= 100;
-}
-
-/**
- * Hold this node back from new placements. Idempotent per owner.
- * @param {string} owner A PlacementHoldOwner value. An unknown one throws: it is
- * a caller that was never given an identity, and accepting it would create an
- * owner nothing can ever release.
- * @param {string} reason Logged and reported.
- */
-function setPlacementHold(owner, reason) {
-  if (!Object.values(PlacementHoldOwner).includes(owner)) {
-    throw new Error(`setPlacementHold: unknown owner ${owner}`);
-  }
-  if (placementHolds.get(owner) === reason) return;
-  placementHolds.set(owner, reason);
-  log.info(`Placement hold set by ${owner}: ${reason}`);
-  fluxEventBus.publish('placementHold:set', { owner, reason });
-}
-
-/**
- * Release one owner's hold. Any other owner's hold stands, and the node stays
- * held until every one of them has released - so a feature clearing its own
- * condition can never speak for a condition it knows nothing about.
- * @param {string} owner A PlacementHoldOwner value.
- */
-function clearPlacementHold(owner) {
-  const reason = placementHolds.get(owner);
-  if (reason === undefined) return;
-  placementHolds.delete(owner);
-  log.info(`Placement hold cleared by ${owner} (was: ${reason})`);
-  fluxEventBus.publish('placementHold:cleared', { owner, reason });
-}
-
-/**
- * @returns {string|null} Why the node is held, or null when it is not.
- */
-function getPlacementHold() {
-  if (!placementHolds.size) return null;
-  // Every reason, not an arbitrary one: the spawner logs this to say why the
-  // node is not installing, and naming one of two holds would send an operator
-  // to lift a condition that would not release the node.
-  return [...placementHolds.values()].join('; ');
-}
-
-/**
- * @returns {boolean} True when this node must not take on new apps.
- */
-function isPlacementHeld() {
-  return placementHolds.size > 0;
 }
 
 // The last thing said about where the node's address comes from. The source is
@@ -3844,6 +3770,38 @@ const containerBridges = ['docker0', 'br-+'];
 // metadata service among them. fluxnode.service lives on this node's loopback,
 // so a container reaches it through INPUT and these FORWARD rules never see it.
 const containerBlockedNetworks = NON_PUBLIC_IPV4;
+// Names an app container may not look up. Ookla limits its speedtest CLI per
+// public IP, and an app's calls come out of the same allowance as its node's own
+// bandwidth test: the CLI's API, which every call starts at, is this name.
+const containerBlockedDnsNames = ['cli.speedtest.net'];
+// Docker's embedded resolver and flux-dnsd look names up for app containers
+// from the host, so those queries never cross DOCKER-USER. The image tags each
+// of them with this mark bit (the ArcaneOS image's flux-dns-tag.service); a node whose image
+// does not tag them has nothing in this chain to match.
+const forwardedDnsMark = '0x10000000/0x10000000';
+const forwardedDnsChain = 'FLUX-DNS-POLICY';
+
+/**
+ * A DNS name as it appears in a query, as iptables -S prints a --hex-string:
+ * each label behind its length, ending at the root's zero. The match covers the
+ * name and every name under it.
+ * @param {string} name
+ * @returns {string}
+ */
+function dnsNameHexString(name) {
+  const bytes = name.split('.').flatMap((label) => [label.length, ...Buffer.from(label, 'ascii')]);
+  return `"|${Buffer.from([...bytes, 0]).toString('hex')}|"`;
+}
+
+/**
+ * The match a DNS query for a blocked name meets, case-insensitive because a
+ * resolver may randomise a query's case.
+ * @param {string} name
+ * @returns {string}
+ */
+function dnsNameMatch(name) {
+  return `-m string --hex-string ${dnsNameHexString(name)} --algo bm --icase`;
+}
 
 /**
  * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it.
@@ -3863,7 +3821,8 @@ const containerBlockedNetworks = NON_PUBLIC_IPV4;
  * Traffic from a container to anywhere else is matched by the bridge it comes
  * from, never by its source address, so a container cannot leave the drops by
  * forging its source; every non-public range is dropped. DNS stays open to
- * every private address, for a node owner who runs their own resolver.
+ * every private address, for a node owner who runs their own resolver, except a
+ * query for a blocked name, which is refused at once.
  *
  * No rule uses the physdev match: the kernel loads br_netfilter the first time
  * a physdev rule is added, which sends bridged traffic on every bridge on the
@@ -3880,6 +3839,10 @@ function containerEgressRules({ fluxBridges, dockerBridges }) {
     rules.push(`-A DOCKER-USER -o ${bridge} -m conntrack --ctstate DNAT -j RETURN`);
   });
   dockerBridges.forEach((bridge) => rules.push(`-A DOCKER-USER -o ${bridge} -j DROP`));
+  containerBridges.forEach((bridge) => containerBlockedDnsNames.forEach((name) => {
+    rules.push(`-A DOCKER-USER -i ${bridge} -p udp -m udp --dport 53 ${dnsNameMatch(name)} -j REJECT --reject-with icmp-port-unreachable`);
+    rules.push(`-A DOCKER-USER -i ${bridge} -p tcp -m tcp --dport 53 ${dnsNameMatch(name)} -j REJECT --reject-with tcp-reset`);
+  }));
   containerBridges.forEach((bridge) => {
     ['udp', 'tcp'].forEach((proto) => rules.push(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`));
   });
@@ -3891,60 +3854,101 @@ function containerEgressRules({ fluxBridges, dockerBridges }) {
 }
 
 /**
+ * Makes `chain` hold exactly `desired`, in one iptables-restore transaction so no
+ * moment passes without its rules, and leaves it untouched when it already does.
+ * @param {string} chain
+ * @param {string[]} desired The rules as `iptables -S <chain>` prints them.
+ * @returns {Promise<{ok: boolean, written: boolean}>} Never rejects.
+ */
+async function replaceChain(chain, desired) {
+  const { stdout: current, error: readError } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-S', chain],
+  });
+  const currentRules = serviceHelper.ensureString(current).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('-A '));
+  const inPlace = !readError && currentRules.length === desired.length && currentRules.every((rule, i) => rule === desired[i]);
+  if (inPlace) return { ok: true, written: false };
+
+  let tempDir = null;
+  try {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-iptables-'));
+    const rulesFile = path.join(tempDir, 'rules');
+    await fs.writeFile(rulesFile, ['*filter', `:${chain} - [0:0]`, ...desired, 'COMMIT', ''].join('\n'), { mode: 0o644 });
+    const { error } = await serviceHelper.runCommand('iptables-restore', {
+      runAsRoot: true, logError: false, params: ['--noflush', rulesFile],
+    });
+    if (error) {
+      log.error(`IPTABLES: ${chain} rules not applied: ${error.message}`);
+      return { ok: false, written: false };
+    }
+    log.info(`IPTABLES: ${chain} rules applied`);
+    return { ok: true, written: true };
+  } catch (error) {
+    log.error(`IPTABLES: ${chain} rules not applied: ${error.message}`);
+    return { ok: false, written: false };
+  } finally {
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Puts back `parent`'s jump to `chain` when it is missing.
+ * @param {string} parent
+ * @param {string} chain
+ * @returns {Promise<boolean>} True when the jump is in place. Never rejects.
+ */
+async function ensureJump(parent, chain) {
+  const { error: jumpMissing } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-C', parent, '-j', chain],
+  });
+  if (!jumpMissing) return true;
+  const { error } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-I', parent, '-j', chain],
+  });
+  if (error) {
+    log.error(`IPTABLES: ${parent} jump to ${chain} not restored: ${error.message}`);
+    return false;
+  }
+  log.info(`IPTABLES: ${parent} jump to ${chain} restored`);
+  return true;
+}
+
+/**
  * Keeps app containers off private and link-local networks and off each
- * other's networks. The DOCKER-USER chain is replaced in one iptables-restore
- * transaction, so no moment passes without its rules, and is left untouched
- * when it already matches. Docker never writes DOCKER-USER, and its FORWARD
- * jump is put back if missing.
+ * other's networks. Docker never writes DOCKER-USER, and its FORWARD jump is put
+ * back if missing.
  * @param {{fluxBridges: string[], dockerBridges: string[]}} bridges As
  *   containerEgressRules takes them.
  * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
  */
 async function applyContainerEgressRules(bridges) {
-  const desired = containerEgressRules(bridges);
-  const { stdout: current, error: readError } = await serviceHelper.runCommand('iptables', {
-    runAsRoot: true, logError: false, params: ['-S', 'DOCKER-USER'],
-  });
-  const currentRules = serviceHelper.ensureString(current).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('-A '));
-  const inPlace = !readError && currentRules.length === desired.length && currentRules.every((rule, i) => rule === desired[i]);
+  const { ok, written } = await replaceChain('DOCKER-USER', containerEgressRules(bridges));
+  if (!ok) return false;
+  if (written) fluxEventBus.publish('firewall:containerEgressApplied', {});
+  return ensureJump('FORWARD', 'DOCKER-USER');
+}
 
-  if (!inPlace) {
-    let tempDir = null;
-    try {
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-docker-user-'));
-      const rulesFile = path.join(tempDir, 'rules');
-      await fs.writeFile(rulesFile, ['*filter', ':DOCKER-USER - [0:0]', ...desired, 'COMMIT', ''].join('\n'), { mode: 0o644 });
-      const { error } = await serviceHelper.runCommand('iptables-restore', {
-        runAsRoot: true, logError: false, params: ['--noflush', rulesFile],
-      });
-      if (error) {
-        log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
-        return false;
-      }
-      log.info('IPTABLES: DOCKER-USER rules applied');
-      fluxEventBus.publish('firewall:containerEgressApplied', {});
-    } catch (error) {
-      log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
-      return false;
-    } finally {
-      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-    }
-  }
+/**
+ * The FLUX-DNS-POLICY chain, as `iptables -S FLUX-DNS-POLICY` prints it: a query
+ * the node forwards for an app container, for a blocked name, is refused as it
+ * is when it leaves an app's bridge.
+ * @returns {string[]}
+ */
+function forwardedDnsRules() {
+  return containerBlockedDnsNames.flatMap((name) => [
+    `-A ${forwardedDnsChain} -p udp -m udp --dport 53 -m mark --mark ${forwardedDnsMark} ${dnsNameMatch(name)} -j REJECT --reject-with icmp-port-unreachable`,
+    `-A ${forwardedDnsChain} -p tcp -m tcp --dport 53 -m mark --mark ${forwardedDnsMark} ${dnsNameMatch(name)} -j REJECT --reject-with tcp-reset`,
+  ]);
+}
 
-  const { error: jumpMissing } = await serviceHelper.runCommand('iptables', {
-    runAsRoot: true, logError: false, params: ['-C', 'FORWARD', '-j', 'DOCKER-USER'],
-  });
-  if (jumpMissing) {
-    const { error } = await serviceHelper.runCommand('iptables', {
-      runAsRoot: true, logError: false, params: ['-I', 'FORWARD', '-j', 'DOCKER-USER'],
-    });
-    if (error) {
-      log.error(`IPTABLES: FORWARD jump to DOCKER-USER not restored: ${error.message}`);
-      return false;
-    }
-    log.info('IPTABLES: FORWARD jump to DOCKER-USER restored');
-  }
-  return true;
+/**
+ * Holds the lookups the node forwards for app containers to the names an app may
+ * look up.
+ * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
+ */
+async function applyForwardedDnsRules() {
+  const { ok } = await replaceChain(forwardedDnsChain, forwardedDnsRules());
+  if (!ok) return false;
+  return ensureJump('OUTPUT', forwardedDnsChain);
 }
 
 // lruRateLimit has been extracted to ./utils/rateLimit.js
@@ -4112,11 +4116,6 @@ module.exports = {
   setDosStateValue,
   getDosStateValue,
   isNodeDos,
-  PlacementHoldOwner,
-  setPlacementHold,
-  clearPlacementHold,
-  getPlacementHold,
-  isPlacementHeld,
   StickyDosOwner,
   setStickyDos,
   clearStickyDos,
@@ -4137,6 +4136,8 @@ module.exports = {
   isPortUPNPBanned,
   allowNodeToBindPrivilegedPorts,
   applyContainerEgressRules,
+  forwardedDnsRules,
+  applyForwardedDnsRules,
   containerEgressRules,
   getMaxNumberOfIpChanges,
   allowOnlyDockerNetworksToFluxNodeService,

@@ -13,6 +13,7 @@ const fluxRpc = require('./utils/fluxRpc');
 const dbHelper = require('./dbHelper');
 const { Privilege, authOf } = require('./utils/privileges');
 const { isValidAppNameAndOwner } = require('./utils/appIdentity');
+const placementHold = require('./placementHold');
 
 // eslint-disable-next-line no-unused-vars
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -386,6 +387,23 @@ async function stop(req, res) {
 
 // == Fluxnode ==
 /**
+ * Holds placement while fluxbench's last finished cycle did not pass. fluxbench
+ * reports `verdict` as passed, unmeasured or failed, and null until a cycle has
+ * finished; it changes only when a cycle finishes. A fluxbench that does not
+ * report it leaves placement to the other gates.
+ * @param {object} data A successful getbenchmarks reply's data.
+ */
+function holdPlacementOnVerdict(data) {
+  const { BENCHMARK_VERDICT } = placementHold.PlacementHoldOwner;
+  if (!data || !Object.hasOwn(data, 'verdict') || data.verdict === 'passed') {
+    placementHold.clearPlacementHold(BENCHMARK_VERDICT);
+    return;
+  }
+  const verdict = data.verdict ?? 'no benchmark cycle has finished yet';
+  placementHold.setPlacementHold(BENCHMARK_VERDICT, `Benchmark verdict: ${verdict}`);
+}
+
+/**
  * To show status of benchmarks.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -395,6 +413,8 @@ async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
 
   const response = await executeCall(rpccall);
+
+  if (response.status === 'success') holdPlacementOnVerdict(response.data);
 
   // Store to database if successful and tier is valid (CUMULUS, NIMBUS, STRATUS)
   if (response.status === 'success' && response.data && response.data.status) {

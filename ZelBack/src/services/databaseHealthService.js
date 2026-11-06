@@ -18,9 +18,9 @@
 
 const config = require('config');
 const log = require('../lib/log');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
+const placementHold = require('./placementHold');
 
-const OWNER = fluxNetworkHelper.PlacementHoldOwner.DATABASE_SUSPECT;
+const OWNER = placementHold.PlacementHoldOwner.DATABASE_SUSPECT;
 const SUSPECT_ROUND_TRIPS = config.database.suspectRoundTrips;
 const SUSPECT_WINDOW_MS = config.database.suspectWindowMs;
 
@@ -41,7 +41,7 @@ function monotonicMs() {
 /** Every round trip it counted is a full window old by now, so none is left to count. */
 function release() {
   releaseTimer = null;
-  fluxNetworkHelper.clearPlacementHold(OWNER);
+  placementHold.clearPlacementHold(OWNER);
 }
 
 /**
@@ -56,7 +56,7 @@ function recordTimeout(what) {
   const held = releaseTimer !== null;
   if (!held && timedOut.length < SUSPECT_ROUND_TRIPS) return;
   if (!held) {
-    fluxNetworkHelper.setPlacementHold(
+    placementHold.setPlacementHold(
       OWNER,
       `Database calls are timing out: ${SUSPECT_ROUND_TRIPS} round trips ran out within ${SUSPECT_WINDOW_MS / 60000} minutes`,
     );

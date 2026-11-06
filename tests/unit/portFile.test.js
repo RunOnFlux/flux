@@ -51,6 +51,19 @@ describe('portFile tests', () => {
     sinon.assert.notCalled(errorStub);
   });
 
+  it('writes nothing until what it waits for settles', async () => {
+    let settle;
+    const ready = new Promise((resolve) => { settle = resolve; });
+
+    const written = portFile.writePortFileAfter(ready, PORTS, { dir });
+    await new Promise((resolve) => { setImmediate(resolve); });
+    expect(fs.existsSync(file)).to.equal(false);
+
+    settle();
+    expect(await written).to.equal(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).apiPort).to.equal(PORTS.apiPort);
+  });
+
   it('keeps its modes under a restrictive umask', async () => {
     const umask = process.umask(0o077);
     try {
