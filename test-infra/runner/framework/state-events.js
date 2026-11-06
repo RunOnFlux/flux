@@ -70,13 +70,13 @@ export async function sigtermEvent({ nodeNum, broadcastedAt, signedBy = nodeNum 
   };
 }
 
-// The node announced it removed appName, at broadcastedAt.
+// The node announced it removed appName, at broadcastedAt. `extra` is signed with it.
 export async function appRemovedEvent({
-  nodeNum, appName, broadcastedAt, signedBy = nodeNum,
+  nodeNum, appName, broadcastedAt, signedBy = nodeNum, extra = {},
 }) {
   const ip = socketAddr(nodeNum);
   const data = {
-    type: 'fluxappremoved', version: 1, appName, ip, broadcastedAt,
+    type: 'fluxappremoved', version: 1, appName, ip, broadcastedAt, ...extra,
   };
   return {
     type: 'appremoved',

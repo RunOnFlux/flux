@@ -57,6 +57,7 @@ const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 const announcementFetch = require('./utils/announcementFetch');
 const networkPath = require('./utils/networkPath');
 const { signedBroadcast } = require('./utils/fluxBroadcastHelper');
+const { wellFormed } = require('./utils/broadcastShape');
 const globalState = require('./utils/globalState');
 const verifyPool = require('./utils/verifyPool');
 const tempMessageHold = require('./appMessaging/tempMessageHold');
@@ -71,6 +72,14 @@ const DISCOVERY = {
   maxIterations: config.fluxapps.discoveryMaxIterations ?? 100,
   connectionDelayMs: config.fluxapps.discoveryConnectionDelayMs ?? 500,
 };
+
+// The broadcast type each signed event of a sync response carries.
+const SIGNED_EVENT_TYPES = new Map([
+  ['apprunning', 'fluxapprunning'],
+  ['sigterm', 'fluxnodesigterm'],
+  ['appremoved', 'fluxappremoved'],
+  ['ipchanged', 'fluxipchanged'],
+]);
 
 // How many events of a sync response are carried through verification and
 // storage together. A response holds up to 2500, and each event fans out into a
@@ -232,7 +241,9 @@ async function batchVerifyBroadcasts(broadcasts, label) {
   }
 
   log.info(`${label} - Verified ${verified.length}/${broadcasts.length} broadcasts (${nodeCheckFailures} node lookup failures, ${signatureFailures} signature failures)`);
-  return verified;
+  const taken = verified.filter((broadcast) => wellFormed(broadcast.data));
+  if (taken.length < verified.length) log.warn(`${label} - ${verified.length - taken.length} verified broadcasts are not well formed`);
+  return taken;
 }
 
 async function handleTempSyncResponse(message, peerSocket) {
@@ -329,6 +340,8 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
       const otherBroadcasts = [];
       const evictedEvents = [];
       for (const event of slice) {
+        // A sync event's `type` is its sender's word: only `data` is signed.
+        if (event.envelope && event.data?.type !== SIGNED_EVENT_TYPES.get(event.type)) continue;
         if (event.envelope && event.type === 'apprunning') {
           appRunningBroadcasts.push({ ...event.envelope, data: event.data });
         } else if (event.type === 'evicted') {
@@ -337,15 +350,16 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
           // probe decisions about whether a remote node is alive. The
           // isSyncResponseWanted check above ensures only solicited responses are
           // processed, but a compromised confirmed peer we sync from could still
-          // include fake evictions. Impact is limited: only affects this node's
-          // view and self-heals on the next apprunning broadcast (≤60 min).
+          // include fake evictions. Impact is limited: it reaches the named
+          // node's location rows here and on nodes syncing from here, and
+          // self-heals on the next apprunning broadcast (≤60 min).
           //
           // The root cause is nodeStatusMonitor itself — it will be replaced by
           // a peer quorum approach where eviction is determined by consensus of
           // signed "peer unreachable" events (3 missed pongs on the WebSocket
           // layer). Once that lands, evicted events will carry verifiable
           // signatures and this path will verify them like all other event types.
-          evictedEvents.push(event);
+          if (typeof event.ip === 'string') evictedEvents.push(event);
         } else if (event.envelope) {
           otherBroadcasts.push(event);
         }
@@ -1312,6 +1326,12 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         // It reached the wrong pipeline: the socket routes these to the per-peer queue
         // when they are wanted, so arriving here means nobody asked for it.
         log.warn(`Unsolicited ${msgObj.data.type} from ${peerSocket.direction} peer ${peerSocket.key}`);
+      } else if (!wellFormed(msgObj.data)) {
+        // Signed, so it says nothing of the peer relaying it.
+        log.warn(`Dropping a malformed ${msgObj.data.type} from ${peerSocket.direction} peer ${peerSocket.key}`);
+        fluxEventBus.publish('peers:frameDropped', {
+          ip: peerSocket.ip, port: peerSocket.port, type: msgObj.data.type, reason: 'malformed',
+        });
       } else {
         setImmediate(() => {
           // A copy that cannot settle the message lets the next one in once it is handled.

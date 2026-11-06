@@ -2674,7 +2674,7 @@ describe('fluxCommunication tests', () => {
           signature: 'blabla',
           version: 1,
           data: {
-            type: `${command}`,
+            type: `${command}`, version: 2, ip: '127.0.0.2:16127', broadcastedAt: Date.now(), apps: [],
           },
         });
         const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
@@ -3183,6 +3183,70 @@ describe('fluxCommunication tests', () => {
       sinon.restore();
     });
 
+    describe('a signed broadcast that is not well formed', () => {
+      const socket = {
+        key: '1.2.3.4:16127', ip: '1.2.3.4', port: '16127', direction: 'inbound', closeCodes: {}, msgMap: new Map(), close: sinon.stub(), sendNak: sinon.stub(),
+      };
+      const frame = (data) => ({
+        ...envelope, data,
+      });
+      let handled;
+
+      beforeEach(() => {
+        sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').resolves(fluxCommunicationUtils.VerifyResult.OK);
+        sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+        handled = sinon.spy(fluxEventBus, 'publish');
+      });
+
+      const dropped = () => handled.getCalls().filter((call) => call.args[0] === 'peers:frameDropped' && call.args[1].reason === 'malformed');
+
+      it('is dropped before its handler', async () => {
+        await peerManager.messageDispatcher(frame({ type: 'fluxappremoved', ip: SENDER, broadcastedAt: { $add: [1, 2] } }), socket);
+
+        expect(dropped()).to.have.length(1);
+      });
+
+      it('a canary: a well formed one is not', async () => {
+        await peerManager.messageDispatcher(frame({
+          type: 'fluxappremoved', version: 1, ip: SENDER, appName: 'app', broadcastedAt: Date.now(),
+        }), socket);
+
+        expect(dropped()).to.have.length(0);
+      });
+    });
+
+    it('takes no event its type does not match what was signed', async () => {
+      const data = {
+        type: 'fluxapprunning', version: 2, ip: SENDER, broadcastedAt: Date.now(), apps: [],
+      };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'sigterm', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.notCalled(expireStub);
+    });
+
+    it('takes no signed event that is not well formed', async () => {
+      const data = { type: 'fluxnodesigterm', ip: SENDER, broadcastedAt: { $add: [1, 2] } };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'sigterm', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.notCalled(expireStub);
+    });
+
+    it('takes no eviction of an address that is not text', async () => {
+      const applyEviction = sinon.stub(messageStore, 'applyEviction').resolves();
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'evicted', ip: ['1.2.3.4'], createdAt: new Date().toISOString() }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.notCalled(applyEviction);
+    });
+
     it('hands a sigterm to messageStore with the time it was sent', async () => {
       const broadcastedAt = Date.now() - 90 * 60 * 1000;
       const data = { type: 'fluxnodesigterm', ip: SENDER, broadcastedAt };
@@ -3505,7 +3569,7 @@ describe('fluxCommunication tests', () => {
         const event = {
           type: 'apprunning',
           envelope: { version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' },
-          data: { version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
+          data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
         };
 
         await fluxCommunication.handleAppRunningSyncResponse({ data: { type: 'fluxapprunningsync', messages: [event], done: true } }, PEER_SOCKET);
@@ -3530,7 +3594,7 @@ describe('fluxCommunication tests', () => {
         const running = () => ({
           type: 'apprunning',
           envelope: { version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' },
-          data: { version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
+          data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
         });
 
         beforeEach(() => {
@@ -3578,9 +3642,9 @@ describe('fluxCommunication tests', () => {
       const envelope = () => ({ version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' });
       const broadcast = () => ({ ...envelope(), data: { ip: '1.2.3.4:16127', name: 'a', broadcastedAt: Date.now() } });
       const running = () => ({
-        type: 'apprunning', envelope: envelope(), data: { version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
+        type: 'apprunning', envelope: envelope(), data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
       });
-      const sigterm = () => ({ type: 'sigterm', envelope: envelope(), data: { ip: '1.2.3.4:16127', broadcastedAt: Date.now() } });
+      const sigterm = () => ({ type: 'sigterm', envelope: envelope(), data: { type: 'fluxnodesigterm', ip: '1.2.3.4:16127', broadcastedAt: Date.now() } });
       const respond = (handler, type, messages, done) => fluxCommunication[handler]({ data: { type, messages, done } }, PEER_SOCKET);
 
       beforeEach(() => {
