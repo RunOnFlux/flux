@@ -4,6 +4,8 @@ const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const messageStore = require('./messageStore');
+const { envelopeOf } = require('../utils/fluxBroadcastHelper');
+const { validPath } = require('../utils/networkPath');
 const { appsHashesCollection } = require('../utils/appConstants');
 
 const { appsHeldMessages } = config.database.appsglobal.collections;
@@ -29,12 +31,25 @@ function rows() {
  * a peer is waited on.
  *
  * A row is keyed on the whole message rather than its hash, so a forged copy
- * arriving first cannot stand in the way of the genuine one.
+ * arriving first cannot stand in the way of the genuine one. It holds the message
+ * once: a gossiped copy's `envelope` and `networkPath` are its broadcast without
+ * the message, and a synced copy has neither.
  * @param {object} message
  * @returns {string}
  */
 function rowKey(message) {
   return crypto.createHash('sha256').update(JSON.stringify(message)).digest('hex');
+}
+
+/**
+ * What a row holds of the broadcast a message arrived in.
+ * @param {{message: object, from: string}} [signed]
+ * @returns {{envelope: ?object, networkPath: ?Array, from: ?string}}
+ */
+function arrivalOf(signed) {
+  if (!signed) return { envelope: null, networkPath: null, from: null };
+  const { message: frame, from } = signed;
+  return { envelope: envelopeOf(frame), networkPath: validPath(frame.networkPath), from };
 }
 
 /**
@@ -53,17 +68,18 @@ async function hold(arrivals) {
     .filter(({ message }) => message && typeof message === 'object' && typeof message.hash === 'string')
     .map(({ message, authenticated = false, relay: signed }) => {
       const key = rowKey(message);
-      const inserted = {
-        key, message, heldAt: new Date(now), expireAt: new Date(now + HOLD_MS), authenticated: false, relay: signed ?? null,
+      const arrival = arrivalOf(signed);
+      const fixed = {
+        key, message, heldAt: new Date(now), expireAt: new Date(now + HOLD_MS),
       };
       if (!authenticated) {
-        return { updateOne: { filter: { key }, update: { $setOnInsert: inserted }, upsert: true } };
+        const update = { $setOnInsert: { ...fixed, ...arrival, authenticated: false } };
+        return { updateOne: { filter: { key }, update, upsert: true } };
       }
-      const rest = { ...inserted };
-      delete rest.authenticated;
-      if (signed) delete rest.relay;
-      const route = signed ? { authenticated, relay: signed } : { authenticated };
-      return { updateOne: { filter: { key }, update: { $setOnInsert: rest, $set: route }, upsert: true } };
+      const update = signed
+        ? { $setOnInsert: fixed, $set: { ...arrival, authenticated } }
+        : { $setOnInsert: { ...fixed, ...arrival }, $set: { authenticated } };
+      return { updateOne: { filter: { key }, update, upsert: true } };
     });
   if (!operations.length) return 0;
   await rows().bulkWrite(operations, { ordered: false }).catch((error) => {
@@ -107,19 +123,21 @@ async function settleWaiters() {
  * @returns {Promise<boolean>} false when the database did not answer: the row stays.
  */
 async function check(row) {
+  const frame = row.envelope ? { ...row.envelope, data: row.message, networkPath: row.networkPath } : undefined;
+  const settle = (outcome) => { if (frame && relay) relay({ message: frame, from: row.from }, outcome); };
   try {
     const stored = await messageStore.storeAppTemporaryMessage(row.message, {
-      furtherVerification: true, authenticated: row.authenticated, frame: row.relay?.message,
+      furtherVerification: true, authenticated: row.authenticated, frame,
     });
     if (stored instanceof Error) log.warn(`Held message ${row.message.hash} refused: ${stored.message}`);
-    if (row.relay && relay) relay(row.relay, stored);
+    settle(stored);
   } catch (error) {
     if (dbHelper.isDatabaseError(error)) {
       log.warn(`Held message ${row.message.hash} not checked, the database did not answer: ${error.message}`);
       return false;
     }
     log.warn(`Held message ${row.message.hash} refused: ${error.message}`);
-    if (row.relay && relay) relay(row.relay, error);
+    settle(error);
   }
   await rows().deleteOne({ _id: row._id }); // eslint-disable-line no-underscore-dangle
   return true;

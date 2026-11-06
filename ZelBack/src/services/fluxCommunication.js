@@ -56,6 +56,7 @@ const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 const announcementFetch = require('./utils/announcementFetch');
 const networkPath = require('./utils/networkPath');
+const { signedBroadcast } = require('./utils/fluxBroadcastHelper');
 const globalState = require('./utils/globalState');
 const verifyPool = require('./utils/verifyPool');
 const tempMessageHold = require('./appMessaging/tempMessageHold');
@@ -521,7 +522,7 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
  */
 function announceToPeers(message, excludeKey) {
   const messageHash = hash(message.data);
-  announcementStore.set(messageHash, message);
+  announcementStore.set(messageHash, signedBroadcast(message));
   peerManager.broadcastHash(messageHash, excludeKey, announcementPeers.get(messageHash));
 }
 
