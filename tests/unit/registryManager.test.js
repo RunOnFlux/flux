@@ -705,13 +705,17 @@ describe('registryManager tests', () => {
   });
 
   describe('storeAppInstallingMessage tests', () => {
-    const validMessage = {
-      type: 'fluxappinstalling',
-      version: 1,
-      broadcastedAt: Date.now(),
-      name: 'TestApp',
-      ip: '192.168.1.1:16127',
-    };
+    let validMessage;
+
+    beforeEach(() => {
+      validMessage = {
+        type: 'fluxappinstalling',
+        version: 1,
+        broadcastedAt: Date.now(),
+        name: 'TestApp',
+        ip: '192.168.1.1:16127',
+      };
+    });
 
     it('should store a valid app installing message', async () => {
       const result = await registryManager.storeAppInstallingMessage(validMessage);
@@ -1879,9 +1883,10 @@ describe('registryManager tests', () => {
 
   describe('appLocationFromEvents tests', () => {
     const eventsCollection = config.database.appsglobal.collections.appStateEvents;
-    const now = Date.now();
+    let now;
 
     beforeEach(async () => {
+      now = Date.now();
       try {
         await database.collection(eventsCollection).drop();
       } catch (err) {
