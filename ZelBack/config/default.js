@@ -705,7 +705,7 @@ module.exports = {
     hashFetchMissesToDisconnect: 20,
     hashFetchMissesPerServed: 10,
     hashFetchMissWindowMs: 600000,
-    hashFetchDisconnectFrom: '8.23.0',
+    hashFetchDisconnectFrom: '8.24.0',
     // A connection between two Arcane nodes joins the peer set when its link
     // handshake settles, or unauthenticated at this deadline.
     linkHandshakeDeadlineMs: 10000,
@@ -713,7 +713,7 @@ module.exports = {
     // minimumFluxOSAllowedVersion is at least this, an unpaid message without a
     // client tag is refused; below it one is taken from any peer, uncounted
     // (services/appMessaging/unpaidAdmission.js).
-    untaggedRefusedFrom: '8.23.0',
+    untaggedRefusedFrom: '8.24.0',
     // Admitting an unpaid app message (services/appMessaging/admissionQuorum.js).
     // Only an ArcaneOS node admits one, only while it holds admissionQuorum
     // authenticated links on distinct IPs, and answers success only once peers on
@@ -804,7 +804,7 @@ module.exports = {
     // batches by count alone.
     peerFrameMaxBytes: (8 * 1024 * 1024) + (64 * 1024),
     // the largest websocket message a peer socket takes, ws's default. Once
-    // minimumFluxOSAllowedVersion is at least 8.23.0, the first release that
+    // minimumFluxOSAllowedVersion is at least 8.24.0, the first release that
     // batches sync answers by bytes, every peer is held to peerFrameMaxBytes:
     // this falls to that value and FluxPeerSocket's exception goes.
     wsMaxPayloadBytes: 100 * 1024 * 1024,
