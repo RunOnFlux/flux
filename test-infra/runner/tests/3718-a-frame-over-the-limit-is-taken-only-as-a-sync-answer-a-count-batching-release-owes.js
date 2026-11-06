@@ -19,7 +19,6 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { pendingMessage, pendingMessageOn, pendingVerdict } from '../framework/unpaid-messages.js';
-import { advanceBlock } from '../framework/daemon-control.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import limits from '../framework/message-limits.cjs';
@@ -50,8 +49,6 @@ describe('a frame over the limit is taken only as a sync answer a count-batching
     const mark = joiner.getLastEventId();
     await waitForDaemonReady(joiner);
     await env.startDiscovery([JOINER]);
-    // A held message is checked once the registry is built, which a processed block starts.
-    await advanceBlock();
     return {
       env, apps, stub, joiner, mark,
     };
