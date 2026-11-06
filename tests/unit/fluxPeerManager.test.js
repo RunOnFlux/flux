@@ -2,6 +2,8 @@ const chai = require('chai');
 const sinon = require('sinon');
 const EventEmitter = require('events');
 const WebSocket = require('ws');
+const config = require('config');
+const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 
@@ -3413,6 +3415,21 @@ describe('FluxPeerManager tests', () => {
         remoteCapabilities: ['transmissionTimestamps', 'appStateSync'],
       });
       expect(peer.remoteCapabilities.has('appStateSync')).to.be.true;
+    });
+  });
+
+  describe('incomingCap', () => {
+    it('grows with the network within four and nine times the inbound minimum', () => {
+      expect(FluxPeerManager.incomingCap(0)).to.equal(16);
+      expect(FluxPeerManager.incomingCap(3200)).to.equal(20);
+      expect(FluxPeerManager.incomingCap(16000)).to.equal(36);
+    });
+
+    it('never falls below the network\'s floor', () => {
+      const { FluxPeerManager: Floored } = proxyquire('../../ZelBack/src/services/utils/FluxPeerManager', {
+        config: { ...config, fluxapps: { ...config.fluxapps, minIncoming: 2, incomingCapFloor: 32 } },
+      });
+      expect(Floored.incomingCap(100)).to.equal(32);
     });
   });
 });

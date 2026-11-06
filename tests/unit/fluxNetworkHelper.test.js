@@ -4,7 +4,7 @@ globalThis.userconfig = {
     ipaddress: '127.0.0.1',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
-    testnet: false,
+    network: 'mainnet',
     development: false,
     apiport: 16127,
     routerIP: '',
@@ -41,6 +41,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { requireMongo } = require('./dbTestHelper');
+const { networks, configWith } = require('./fixtures/networkConfig');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
@@ -2005,7 +2006,7 @@ describe('fluxNetworkHelper tests', () => {
           ipaddress: '127.0.0.1',
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
           kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
-          testnet: false,
+          network: 'mainnet',
           development: false,
           apiport: 16127,
           routerIP: '',
@@ -2031,7 +2032,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2\?chainid=0',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: false,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/network: 'mainnet',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));
@@ -2049,7 +2050,11 @@ describe('fluxNetworkHelper tests', () => {
         globalThis.userconfig = before;
       }
 
-      sinon.assert.calledOnceWithMatch(writeFileStub, sinon.match.string, sinon.match(/ipaddress: '127.0.0.67',\n[\s\S]*upnp: true,\n[\s\S]*network: 'mainnet',/));
+      sinon.assert.calledOnceWithMatch(
+        writeFileStub,
+        sinon.match.string,
+        sinon.match(/ipaddress: '127\.0\.0\.67',\n/).and(sinon.match(/upnp: true,\n/)).and(sinon.match(/network: 'mainnet',\n/)),
+      );
     });
 
     it('should not write to file if the config already has same exact ip', async () => {
@@ -2117,7 +2122,7 @@ describe('fluxNetworkHelper tests', () => {
           ipaddress: '127.0.0.1',
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
           kadena: '',
-          testnet: false,
+          network: 'mainnet',
           development: false,
           apiport: 16127,
           routerIP: '',
@@ -3767,6 +3772,19 @@ describe('fluxNetworkHelper tests', () => {
       ]);
       expect(ufwCalls(), 'no ufw command of its own').to.deep.equal([]);
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [], appliedBy: 'library' });
+    });
+
+    it('opens the network\'s daemon port', async () => {
+      const labHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        config: configWith({ daemon: { port: networks.labnet.daemon.port } }),
+      });
+      firewallEnabled(true);
+      answered({ removed: 0, applied: true });
+
+      await labHelper.adjustFirewall();
+
+      expect(appliedRules()).to.deep.include(['allow', String(networks.labnet.daemon.port)]);
+      expect(appliedRules()).to.not.deep.include(['allow', String(networks.mainnet.daemon.port)]);
     });
 
     it('should write no outbound rule and never set a default policy', async () => {
