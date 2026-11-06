@@ -135,6 +135,7 @@ describe('upnpMappingRecord tests', () => {
 // fails within config.upnp.recordWriteLimitMs instead of holding the turn.
 describe('upnpMappingRecord against a database that takes no write', () => {
   const LIMIT_MS = config.upnp.recordWriteLimitMs;
+  const LOCK_BUDGET_MS = 30000;
   let admin;
 
   before(async () => {
@@ -144,11 +145,13 @@ describe('upnpMappingRecord against a database that takes no write', () => {
 
   // Locking flushes the database to disk first, which takes as long as the disk does, so it
   // is set up before each test: a test is timed on the write alone.
-  beforeEach(async () => {
+  beforeEach(async function lockDatabase() {
+    this.timeout(LOCK_BUDGET_MS);
     await admin.command({ fsync: 1, lock: true });
   });
 
-  afterEach(async () => {
+  afterEach(async function unlockDatabase() {
+    this.timeout(LOCK_BUDGET_MS);
     sinon.restore();
     await admin.command({ fsyncUnlock: 1 }).catch(() => {});
     await dbHelper.databaseConnection().db(config.database.local.database)

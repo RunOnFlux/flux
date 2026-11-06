@@ -15,6 +15,84 @@ const syncthingFolderWrites = require('../../ZelBack/src/services/appMonitoring/
 // Every app directory here has its volume mounted unless a test says otherwise.
 const mountEveryVolume = () => sinon.stub(volumeService, 'isPathMounted').resolves(true);
 
+describe('refetchDeviceIndex', () => {
+  const devices = [{ deviceID: 'ME' }, { deviceID: 'PRIMARY' }];
+  const folder = { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, devices };
+
+  beforeEach(mountEveryVolume);
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('takes the device out of the folder and puts it back, in that order', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([folder]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY')).to.equal(true);
+
+    expect(adjust.args).to.deep.equal([
+      ['patch', { devices: [{ deviceID: 'ME' }] }, 'fluxprobe_app'],
+      ['patch', { devices }, 'fluxprobe_app'],
+    ]);
+  });
+
+  it('holds the folder across both writes', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([folder]);
+    const order = [];
+    let finishFirst;
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async (_method, fields) => {
+      order.push(fields.paused === undefined ? fields.devices.length : 'other');
+      if (order.length === 1) await new Promise((resolve) => { finishFirst = resolve; });
+      return { status: 'success' };
+    });
+
+    const refetch = syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY');
+    await new Promise(setImmediate);
+    await new Promise(setImmediate);
+    const other = syncthingFolderWrites.patchFolder('fluxprobe_app', { paused: true });
+    await new Promise(setImmediate);
+    finishFirst();
+    await Promise.all([refetch, other]);
+
+    expect(order).to.deep.equal([1, 2, 'other']);
+    sinon.assert.calledThrice(adjust);
+  });
+
+  it('writes nothing for a folder syncthing does not hold', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY')).to.equal(false);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('writes nothing for a device the folder is not shared with', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([folder]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'NOBODY')).to.equal(false);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('does not put the device back when taking it out failed', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([folder]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error' });
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY')).to.equal(false);
+    sinon.assert.calledOnce(adjust);
+  });
+
+  it('answers false when putting the device back failed', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([folder]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+    adjust.onFirstCall().resolves({ status: 'success' });
+    adjust.onSecondCall().resolves({ status: 'error' });
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY')).to.equal(false);
+  });
+});
+
 describe('changeSyncthingFolderType', () => {
   beforeEach(mountEveryVolume);
 

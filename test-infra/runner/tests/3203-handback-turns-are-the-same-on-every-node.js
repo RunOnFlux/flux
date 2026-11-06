@@ -28,7 +28,7 @@ import { keysOf, turnOf } from '../framework/handback-turns.js';
 const FLEET = [1, 2, 3, 4, 5];
 const HOLDERS = keysOf(FLEET);
 const PERIOD = PASS_PERIOD_BLOCKS * 4;
-const TURN_MS = RESIDENTIAL_PACING.residentialTurnMs;
+const TURN_MS = RESIDENTIAL_PACING.handbackTurnMs;
 
 const eventsOf = (client, name, predicate = () => true, afterId = 0) => client.getEventBuffer()
   .filter((e) => e.id > afterId && e.event === name && predicate(e.data));

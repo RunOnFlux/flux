@@ -26,6 +26,12 @@ const appQueryService = require('../appQuery/appQueryService');
 // the thing a caller wants to know and the thing no log line makes assertable.
 const lastCandidacy = new Map();
 
+// The spawn cache's entry for an app this node found covered by running copies. It says
+// nothing once the app is short again, unlike an attempt the node made, which paces the
+// app for the cache's twelve hours: candidates are the apps short of their count, so the
+// entry keeps a covered app from being looked at and leaves a short one to be taken.
+const APP_COVERED = 'covered';
+
 /**
  * Which stage removed each app, from the survivor snapshots taken through the
  * filter chain: tallied every pass (spawner:verdict, by app and stage), and
@@ -447,7 +453,8 @@ async function trySpawningGlobalApplication() {
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
         && !globalState.spawnErrorsLongerAppCache.has(app.hash)
-        && !globalState.trySpawningGlobalAppCache.has(app.hash)
+        && (!globalState.trySpawningGlobalAppCache.has(app.hash)
+          || globalState.trySpawningGlobalAppCache.get(app.hash) === APP_COVERED)
         && !appsToBeCheckedLater.some((appAux) => appAux.appName === app.name));
       survivors.afterAlreadyHeldOrTried = globalAppNamesLocation.length;
       stages.push(['afterAlreadyHeldOrTried', nameSet()]);
@@ -716,6 +723,8 @@ async function trySpawningGlobalApplication() {
       // installed.
       if (runningAppList.length < minInstances) {
         globalState.trySpawningGlobalAppCache.delete(appHash);
+      } else {
+        globalState.trySpawningGlobalAppCache.set(appHash, APP_COVERED);
       }
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
@@ -981,6 +990,8 @@ async function trySpawningGlobalApplication() {
       // installed.
       if (runningAppList.length < minInstances) {
         globalState.trySpawningGlobalAppCache.delete(appHash);
+      } else {
+        globalState.trySpawningGlobalAppCache.set(appHash, APP_COVERED);
       }
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;

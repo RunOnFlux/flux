@@ -132,7 +132,7 @@ describe('appQueryService tests', () => {
       BROADCAST_CLOCK_SKEW_MS: 120_000,
     };
     networkStateServiceStub = { isReady: sinon.stub().returns(true) };
-    syncthingServiceStub = { getConfigFolders: sinon.stub().resolves([]) };
+    syncthingServiceStub = { getConfigFolders: sinon.stub().resolves([]), getDbFile: sinon.stub() };
     appQueryService = proxyquire('../../ZelBack/src/services/appQuery/appQueryService', {
       config: configStub,
       '../dbHelper': dbHelperStub,
@@ -1014,6 +1014,58 @@ describe('appQueryService tests', () => {
       expect(dockerServiceStub.dockerListContainers.called).to.be.false;
     });
 
+    describe('folderRecords', () => {
+      const body = (over = {}) => ({
+        target: '10.0.0.9:16127', timestamp: Date.now(), pubKey: 'PUB', signature: 'SIG', folder: 'fluxa_a', items: ['x.sav'], ...over,
+      });
+
+      beforeEach(() => {
+        messageHelperStub.createDataMessage.returnsArg(0);
+        messageHelperStub.createErrorMessage.returnsArg(0);
+      });
+
+      it('answers a node on the deterministic list with this node\'s record of each item', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        syncthingServiceStub.getDbFile.resolves({ local: { deleted: true, version: ['LSS:773'], size: 0 } });
+
+        const result = await appQueryService.folderRecords({ body: body() });
+
+        expect(result.records).to.deep.equal({ 'x.sav': { deleted: true, version: ['LSS:773'] } });
+        expect(result.folder).to.equal('fluxa_a');
+      });
+
+      it('leaves out an item this node has no record of', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        syncthingServiceStub.getDbFile.resolves({});
+
+        expect((await appQueryService.folderRecords({ body: body() })).records).to.deep.equal({});
+      });
+
+      it('asks syncthing nothing for a caller that is not a node', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(false);
+
+        await appQueryService.folderRecords({ body: body() });
+
+        sinon.assert.notCalled(syncthingServiceStub.getDbFile);
+      });
+
+      it('asks syncthing about a bounded number of items', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        await appQueryService.folderRecords({ body: body({ items: Array.from({ length: 102 }, (_v, i) => `f${i}`) }) });
+
+        sinon.assert.notCalled(syncthingServiceStub.getDbFile);
+      });
+
+      it('refuses a body without items', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+
+        await appQueryService.folderRecords({ body: body({ items: [] }) });
+
+        sinon.assert.notCalled(syncthingServiceStub.getDbFile);
+      });
+    });
+
     // `holding` is a size and a last-write time per app, so it is the tenant's and not
     // the open answer's. A caller proves itself as a node on the deterministic list, or
     // as the Flux team; anything else is answered WITHOUT it rather than refused, since
@@ -1192,7 +1244,7 @@ describe('appQueryService tests', () => {
         const result = await appQueryService.promotedFolderHoldings({ body });
 
         sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'promoted', body);
-        expect(seal.firstCall.args[0]).to.have.keys('ready', 'folders', 'notLookedAt', 'heldOut', 'volumeGone', 'holding', 'seeding');
+        expect(seal.firstCall.args[0]).to.have.keys('ready', 'folders', 'notLookedAt', 'heldOut', 'volumeGone', 'published', 'holding', 'seeding');
         expect(result.sealed).to.equal(true);
       });
 

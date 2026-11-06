@@ -457,6 +457,11 @@ module.exports = (app) => {
   app.post('/apps/promotedfolders', asyncRoute((req, res) => {
     return appQueryService.promotedFolderHoldings(req, res);
   }));
+  // Answers a node or the Flux team, on the terms of the holdings above, so it takes no
+  // cache either.
+  app.post('/apps/folderrecords', asyncRoute((req, res) => {
+    return appQueryService.folderRecords(req, res);
+  }));
   app.get('/apps/listallapps', cache('30 seconds'), asyncRoute((req, res) => {
     return appQueryService.listAllAppsApi(req, res);
   }));

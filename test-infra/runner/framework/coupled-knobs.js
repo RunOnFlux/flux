@@ -40,7 +40,7 @@ export function loadSharedConfig() {
 export const PRODUCTION = Object.freeze({
   blockMs: 30000, // post-PON; stated in-repo at fluxService.js:1774
   removeFluxAppsPeriod: 11,
-  residentialTurnMs: 60 * 60 * 1000,
+  handbackTurnMs: 60 * 60 * 1000,
   locationTtlS: 7500,
   sigtermExpiryS: 420,
   // The peer-flap DOS: how far back the tally looks, and how often the sweep
@@ -216,7 +216,7 @@ export function harnessBlockCostMs(fluxapps) {
  */
 export function productionTurnRatio() {
   const pass = giveUpPassMs(PRODUCTION, PRODUCTION.blockMs);
-  return PRODUCTION.residentialTurnMs / pass;
+  return PRODUCTION.handbackTurnMs / pass;
 }
 
 // WHAT A DEPARTURE COSTS between the holder committing to it and the other
@@ -253,7 +253,7 @@ export function announcementLeftAtRenewalMs(locationTtlS) {
  * The handback turn a suite should use, derived rather than chosen: production's
  * passes per turn at this fleet's pass.
  * @param {{removeFluxAppsPeriod: number, explorerPollIntervalMs: number}} fluxapps
- * @returns {number} residentialTurnMs, in milliseconds.
+ * @returns {number} handbackTurnMs, in milliseconds.
  */
 export function derivedTurnMs(fluxapps) {
   const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
@@ -276,14 +276,14 @@ export function derivedTurnMs(fluxapps) {
  * @throws {Error} When any of the three does not hold.
  */
 export function assertTurnPacing(fluxapps) {
-  const turn = fluxapps.residentialTurnMs;
+  const turn = fluxapps.handbackTurnMs;
   if (!turn) return;
   const blockCost = harnessBlockCostMs(fluxapps);
   const pass = giveUpPassMs(fluxapps, blockCost);
   const required = productionTurnRatio();
   if (turn / pass < required) {
     throw new Error(
-      'coupled-knobs: residentialTurnMs holds too few give-up passes.\n'
+      'coupled-knobs: handbackTurnMs holds too few give-up passes.\n'
       + `  pass    ${Math.round(pass)}ms  (removeFluxAppsPeriod ${fluxapps.removeFluxAppsPeriod}`
       + ` x ${PON_SPEED_MULTIPLIER} blocks, each costing ${Math.round(blockCost)}ms`
       + ` at explorerPollIntervalMs ${fluxapps.explorerPollIntervalMs})\n`
@@ -307,7 +307,7 @@ export function assertTurnPacing(fluxapps) {
   const left = announcementLeftAtRenewalMs(ttlS);
   if (turn >= left) {
     throw new Error(
-      'coupled-knobs: residentialTurnMs outlasts a renewed announcement.\n'
+      'coupled-knobs: handbackTurnMs outlasts a renewed announcement.\n'
       + `  turn    ${turn}ms, announcement left at renewal ${left}ms (locationTtlS ${ttlS})\n`
       + '  A holder refuses a turn its own announcement lapses inside, so no holder would act.',
     );

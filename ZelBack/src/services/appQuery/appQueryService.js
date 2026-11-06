@@ -21,6 +21,9 @@ const folderStates = require('../appMonitoring/folderStates');
 const syncthingService = require('../syncthingService');
 const log = require('../../lib/log');
 
+const FOLDER_RECORDS_LIMIT = 101;
+const FOLDER_RECORDS_AT_ONCE = 8;
+
 // Database collections
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
 
@@ -587,6 +590,61 @@ async function promotedFolders(req, res) {
 }
 
 /**
+ * This node's records of items of a folder, for a standby asking whether a delete of
+ * ours ever reached it. A request per item into syncthing and the names of a tenant's
+ * files, so it answers a node or the Flux team and nobody else, and asks about
+ * FOLDER_RECORDS_LIMIT items at most.
+ *
+ * @param {object} req Request. The body carries `folder` and `items`.
+ * @param {object} res Response.
+ * @returns {object} Message carrying { folder, records }, a record being { deleted, version }.
+ */
+async function folderRecords(req, res) {
+  try {
+    if (!networkStateService.isReady()) {
+      const notReady = messageHelper.createErrorMessage('Network state is not ready', 'ServiceUnavailable', 503);
+      return res ? res.status(503).json(notReady) : notReady;
+    }
+    const body = serviceHelper.ensureObject(req?.body) || {};
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+    if (authorized !== true && !(await callerIsFluxnode(body))) {
+      const refused = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(refused) : refused;
+    }
+    const { folder, items } = body;
+    if (typeof folder !== 'string' || !Array.isArray(items) || !items.length || items.length > FOLDER_RECORDS_LIMIT
+      || !items.every((item) => typeof item === 'string')) {
+      throw new Error('folder and between 1 and 101 items are required');
+    }
+    const records = {};
+    const batches = [];
+    for (let start = 0; start < items.length; start += FOLDER_RECORDS_AT_ONCE) {
+      batches.push(items.slice(start, start + FOLDER_RECORDS_AT_ONCE));
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const batch of batches) {
+      // eslint-disable-next-line no-await-in-loop
+      const answers = await Promise.all(batch.map((item) => syncthingService.getDbFile(folder, item)));
+      batch.forEach((item, index) => {
+        const local = answers[index]?.local;
+        if (local) records[item] = { deleted: local.deleted === true, version: local.version };
+      });
+    }
+    const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.FOLDER_RECORDS, body);
+    const response = messageHelper.createDataMessage(await seal({ folder, records }));
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
  * Every container of an application on this node, running or not.
  *
  * Returns docker's container objects whole, for callers inside this process.
@@ -871,9 +929,9 @@ async function promotedFolderHoldings(req, res) {
 
     const ready = ids !== null;
     const {
-      holding, notLookedAt, heldOut, volumeGone,
+      holding, notLookedAt, heldOut, volumeGone, published,
     } = ready ? folderStates.answer(ids) : {
-      holding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
+      holding: {}, notLookedAt: [], heldOut: [], volumeGone: [], published: {},
     };
     const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.PROMOTED_FOLDERS, body);
     const response = messageHelper.createDataMessage(await seal({
@@ -884,6 +942,7 @@ async function promotedFolderHoldings(req, res) {
       volumeGone,
       ...(entitled ? {
         holding,
+        published,
         seeding: Object.fromEntries(globalState.seedMarks),
       } : {}),
     }));
@@ -910,6 +969,7 @@ module.exports = {
   heldComponents,
   heldComponentsAnswer,
   holdsComponent,
+  folderRecords,
   promotedFolders,
   promotedFolderHoldings,
   listAllApps,

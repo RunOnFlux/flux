@@ -455,8 +455,11 @@ async function logSyncState(foldersConfiguration, allFolders) {
   // Get sync status for all folders in parallel
   const syncStatusPromises = foldersConfiguration.map(async (folder) => {
     try {
-      const { globalBytes = 0, inSyncBytes = 0, state: syncState } = await syncthingService.getDbStatus(folder.id);
+      const {
+        globalBytes = 0, inSyncBytes = 0, globalFileBytes = 0, state: syncState,
+      } = await syncthingService.getDbStatusInFileBytes(folder.id);
       const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
+      if ((typeOf.get(folder.id) ?? folder.type) === 'sendreceive') folderStates.published(folder.id, globalFileBytes);
 
       return {
         id: folder.id,
@@ -467,6 +470,7 @@ async function logSyncState(foldersConfiguration, allFolders) {
         state: syncState,
       };
     } catch (error) {
+      folderStates.published(folder.id, null);
       return {
         id: folder.id,
         type: typeOf.get(folder.id) ?? folder.type,

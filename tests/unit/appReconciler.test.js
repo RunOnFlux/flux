@@ -2154,6 +2154,58 @@ describe('appReconciler tests', () => {
     });
   });
 
+  describe('an s: component', () => {
+    const shared = (opinion) => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 's:/data' }] };
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: false, force: false });
+      if (opinion) {
+        stubs.globalState.bootContainerStateSettled = false;
+        appReconciler.setControllerDesired('db_App', opinion, 'a copy being handed back');
+        stubs.globalState.bootContainerStateSettled = true;
+      }
+    };
+
+    afterEach(() => {
+      appReconciler.forgetDesiredState('db_App');
+    });
+
+    it('stops for a stop written for it', async () => {
+      shared('stopped');
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.calledOnce(stubs.dockerService.appDockerStop);
+    });
+
+    it('stays stopped while the stop stands', async () => {
+      shared('stopped');
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.notCalled(stubs.dockerService.appDockerStart);
+    });
+
+    it('starts on the running that ends the stop', async () => {
+      shared('running');
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.calledOnce(stubs.dockerService.appDockerStart);
+    });
+
+    it('runs with no opinion at all: it has no decider to wait for', async () => {
+      shared(null);
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.calledOnce(stubs.dockerService.appDockerStart);
+    });
+  });
+
   describe('adoptControllerDesired', () => {
     const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
     const settle = () => new Promise((resolve) => { setTimeout(resolve, 50); });

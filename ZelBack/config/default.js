@@ -734,7 +734,7 @@ module.exports = {
     // to run when it is renewed (locationTtlS less the announce interval, 65
     // minutes), or no holder's announcement outlasts the turn it would act in.
     // Asserted against production's own config in the unit tests.
-    residentialTurnMs: 60 * 60 * 1000,
+    handbackTurnMs: 60 * 60 * 1000,
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
@@ -827,6 +827,9 @@ module.exports = {
     ip: '127.0.0.1',
     port: 8384,
     monitorIntervalMs: 30000, // syncthingApps reconfiguration/sync-readiness cycle
+    // How long a copy stopped to be handed back waits for a peer to hold it before it
+    // serves again, its scan included.
+    leavingCopyWaitMs: 300000,
     // How long a node goes without a successful health probe before it reports
     // syncthing down. Four missed passes of the 60s sentinel loop: wide enough
     // that a slow adjustSyncthing or a couple of blips cannot mark the node

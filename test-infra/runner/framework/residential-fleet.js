@@ -42,8 +42,8 @@ export const PASS_MS = giveUpPassMs(PACING_FLEET, harnessBlockCostMs(PACING_FLEE
 // fleet before boot. The departure interval only paces one node's own
 // departures: at one pass, a node that owns two turns in a row departs in both.
 export const RESIDENTIAL_PACING = (() => {
-  const residentialTurnMs = derivedTurnMs(PACING_FLEET);
-  return { residentialTurnMs, residentialEvacuationIntervalMs: Math.ceil(PASS_MS / 1000) * 1000 };
+  const handbackTurnMs = derivedTurnMs(PACING_FLEET);
+  return { handbackTurnMs, residentialEvacuationIntervalMs: Math.ceil(PASS_MS / 1000) * 1000 };
 })();
 
 /** The fleet's nodes, 1-based: every app these fleets seed is held by all of them. */
@@ -66,18 +66,18 @@ export function fleetNodes(env) {
  */
 export function departureWaitMs(nodes, nodeCount) {
   const all = Array.from({ length: nodeCount }, (_, i) => i + 1);
-  const { residentialTurnMs, residentialEvacuationIntervalMs } = RESIDENTIAL_PACING;
+  const { handbackTurnMs, residentialEvacuationIntervalMs } = RESIDENTIAL_PACING;
   const first = nextOwnedTurn({
     holders: keysOf(all),
     owners: keysOf(nodes),
-    turnMs: residentialTurnMs,
+    turnMs: handbackTurnMs,
     fromMs: Date.now() + residentialEvacuationIntervalMs,
   });
   return untilOwnedTurnEndsMs({
     holders: keysOf(all),
     owners: keysOf(nodes),
-    turnMs: residentialTurnMs,
-    fromMs: first.startMs + residentialTurnMs,
+    turnMs: handbackTurnMs,
+    fromMs: first.startMs + handbackTurnMs,
   }) + (2 * PASS_MS);
 }
 
@@ -344,7 +344,7 @@ export async function bootResidentialFleet(hookCtx, { nodes = 5 } = {}) {
         // DERIVED, never written as a literal: the turn has to hold two passes
         // and the pass is a function of explorerPollIntervalMs. coupled-knobs
         // carries the derivation and test-env asserts it on every fleet boot.
-        residentialTurnMs: RESIDENTIAL_PACING.residentialTurnMs,
+        handbackTurnMs: RESIDENTIAL_PACING.handbackTurnMs,
         residentialEvacuationIntervalMs: RESIDENTIAL_PACING.residentialEvacuationIntervalMs,
       },
     },
