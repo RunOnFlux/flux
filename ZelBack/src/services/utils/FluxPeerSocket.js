@@ -508,7 +508,7 @@ class FluxPeerSocket {
       // Per WS spec, error is always followed by close — no need to remove here
     };
 
-    ws.onmessage = (evt) => {
+    const takeMessage = (evt) => {
       if (!evt) return;
 
       // Before the rate limit: a frame we decline to process still proves the peer is there, and
@@ -563,6 +563,21 @@ class FluxPeerSocket {
       }
       this.#handleFrame(frame);
     };
+    ws.onmessage = (evt) => this.#closingOnThrow(() => takeMessage(evt));
+  }
+
+  /**
+   * Handles what a peer sent. A frame that cannot be handled ends this connection
+   * and nothing else: an exception left to reach the process would stop the node.
+   * @param {function(): void} handle
+   */
+  #closingOnThrow(handle) {
+    try {
+      handle();
+    } catch (error) {
+      log.error(`Closing ${this.direction} connection ${this.key}: a frame could not be handled: ${error.message}`);
+      this.close(this.closeCodes.invalidMsg, 'frame could not be handled');
+    }
   }
 
   /**
@@ -584,7 +599,7 @@ class FluxPeerSocket {
     const queued = this.#queuedFrames;
     this.#queuedFrames = [];
     this.#queuedBytes = 0;
-    queued.forEach((evt) => this.#handleFrame(evt));
+    queued.forEach((evt) => this.#closingOnThrow(() => this.#handleFrame(evt)));
   }
 
   /**

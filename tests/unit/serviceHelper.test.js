@@ -157,6 +157,10 @@ describe('serviceHelper tests', () => {
       expect(ensureObjectOutput).to.eql(testArr);
     });
 
+    it('a json string of null should return an empty object', () => {
+      expect(serviceHelper.ensureObject('null')).to.deep.equal({});
+    });
+
     it('parameter of type null should return null', () => {
       const ensureObjectOutput = serviceHelper.ensureObject(null);
 
