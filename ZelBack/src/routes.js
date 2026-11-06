@@ -131,9 +131,6 @@ module.exports = (app) => {
   app.get('/daemon/getblockheader/:hash?/:verbose?', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceBlockchainRpcs.getBlockHeader(req, res);
   }));
-  app.get('/daemon/getchaintips', cache('30 seconds'), asyncRoute((req, res) => {
-    return daemonServiceBlockchainRpcs.getChainTips(req, res);
-  }));
   app.get('/daemon/getdifficulty', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceBlockchainRpcs.getDifficulty(req, res);
   }));

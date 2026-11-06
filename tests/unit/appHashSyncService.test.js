@@ -219,6 +219,16 @@ describe('appHashSyncService tests', () => {
   });
 
   describe('getMissingHashes', () => {
+    it('asks for no message of a payment whose block a reorganisation replaced', async () => {
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+      dbHelperStub.findInDatabase.resolves([]);
+
+      await appHashSyncService.getMissingHashes();
+
+      expect(dbHelperStub.findInDatabase.lastCall.args[2].replaced).to.deep.equal({ $exists: false });
+    });
+
     it('should return missing hashes sorted by height', async () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);

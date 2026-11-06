@@ -47,6 +47,18 @@ export async function mineBlock(tx) {
   return post('/advance-block', { block: { tx } });
 }
 
+// Replaces the chain from fromHeight to the tip with a branch of the same length:
+// new hashes and none of the replaced blocks' transactions. The tip's height does
+// not change; the next block mined is the first a node can see the fork from.
+export async function forkChain(fromHeight) {
+  return post('/fork', { fromHeight });
+}
+
+// The transactions getrawmempool answers with.
+export async function setMempool(txids) {
+  return post('/mempool', { txids });
+}
+
 export async function advanceBlocks(count) {
   for (let i = 0; i < count; i++) {
     // eslint-disable-next-line no-await-in-loop

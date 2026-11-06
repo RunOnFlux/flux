@@ -7,7 +7,6 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -29,6 +28,7 @@ const { BlockCadence } = require('./utils/blockCadence');
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+const appsMessagesCollection = config.database.appsglobal.collections.appsMessages;
 
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
@@ -37,9 +37,17 @@ let zelAppSpecsMigrationDone = false;
 let explorerReadyEmitted = false;
 let operationBlocked = false;
 let pollTimeout = null;
-let appsTransactions = [];
+// Payments whose messages are requested at the next block at the tip. They are only a prompt:
+// hash sync finds every payment without a message.
+let paymentsToRequest = [];
 let isSynced = false;
-let cachedDaemonVersion = null;
+// The last block the explorer processed: the explorer's records hold the chain up
+// to it, so the next block must name its hash as parent. Null when no block has
+// been processed since the scanned height was last set without a hash.
+let lastScannedBlock = null;
+
+// fluxd refuses a reorganisation of this many blocks or more (MAX_REORG_LENGTH, main.h).
+const MAX_REORG_BLOCKS = 40;
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
@@ -65,29 +73,6 @@ function getBlockEmitter() {
   return blockEmitter;
 }
 
-/**
- * To get and cache the daemon version
- * @returns {Promise<number>} Daemon version number
- */
-async function getDaemonVersion() {
-  if (cachedDaemonVersion !== null) {
-    return cachedDaemonVersion;
-  }
-
-  try {
-    const daemonInfo = await daemonServiceControlRpcs.getInfo();
-    if (daemonInfo.status === 'success' && daemonInfo.data && daemonInfo.data.version) {
-      cachedDaemonVersion = daemonInfo.data.version;
-      return cachedDaemonVersion;
-    }
-  } catch (error) {
-    log.warn(`Failed to get daemon version: ${error.message}`);
-  }
-
-  // Default to 0 if unable to get version
-  cachedDaemonVersion = 0;
-  return cachedDaemonVersion;
-}
 
 /**
  * To get the details of a verbose block.
@@ -232,23 +217,25 @@ async function processSoftFork(txid, height, message) {
 }
 
 /**
- * The payment record this node holds for an app message hash, or null. A record whose transaction
- * the chain does not hold (notOnChain) is no payment: it is removed, so the block paying that hash
- * records the payment in its place.
+ * Records a block's payment of an app message hash, unless a payment this node holds stands. A
+ * record whose transaction the chain does not hold (notOnChain), or whose block a reorganisation
+ * replaced (replaced), does not stand; one write overwrites it, so a later reorganisation finds
+ * one record or the other.
  * @param {object} database the daemon database
- * @param {string} hash
- * @returns {Promise<object|null>}
+ * @param {object} payment the record to write
+ * @returns {Promise<boolean>} whether the payment was recorded
  */
-async function standingAppPayment(database, hash) {
-  const record = await dbHelper.findOneInDatabase(database, appsHashesCollection, { hash }, {
+async function recordAppPayment(database, payment) {
+  const { hash, height } = payment;
+  const held = await dbHelper.findOneInDatabase(database, appsHashesCollection, { hash }, {
     projection: {
-      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, notOnChain: 1,
+      _id: 0, txid: 1, height: 1, notOnChain: 1, replaced: 1,
     },
   });
-  if (!record?.notOnChain) return record;
-  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, { hash, notOnChain: true });
-  log.info(`Explorer - payment of ${hash} recorded at txid ${record.txid} height ${record.height} is not on the chain; recording the one this block holds`);
-  return null;
+  if (held && !held.notOnChain && held.replaced === undefined) return false;
+  await dbHelper.replaceOneInDatabase(database, appsHashesCollection, { hash }, payment, { upsert: true });
+  if (held) log.info(`Explorer - payment of ${hash} at height ${height} takes the place of the record at txid ${held.txid} height ${held.height}`);
+  return true;
 }
 
 /**
@@ -305,11 +292,10 @@ async function processInsight(blockDataVerbose, database) {
           };
           // A hash is paid once: a payment this node already holds stands.
           // eslint-disable-next-line no-await-in-loop
-          const standing = await standingAppPayment(database, message);
-          if (standing) {
-            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
+          if (await recordAppPayment(database, appTxRecord)) {
+            paymentsToRequest.push(appTxRecord);
           } else {
-            appsTransactions.push(appTxRecord);
+            log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
           }
         }
       }
@@ -366,8 +352,6 @@ async function insertTransactions(transactions, database) {
         }
       }
     }
-    // Reprocessing the block collects its payments again.
-    appsTransactions = [];
     if (unrecorded) throw unrecorded;
   }
 }
@@ -412,13 +396,6 @@ async function requestAppHashes(apps) {
     }
   } catch (error) {
     log.error(`Explorer - requestAppHashes - ${apps.length} app payments: ${error.message}`);
-  }
-}
-
-async function insertAndRequestAppHashes(apps, database) {
-  if (apps.length > 0) {
-    await insertTransactions(apps, database);
-    setTimeout(requestAppHashes, 1, apps);
   }
 }
 
@@ -500,12 +477,19 @@ async function processBlock(blockHeight) {
       return;
     }
     someBlockIsProcessing = true;
-    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.EXPLORER_BEFORE_BLOCK);
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.EXPLORER_BEFORE_BLOCK, blockHeight);
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     // get Block information
     const verbosity = 2;
     const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
+    const parent = await scannedBlockAt(database, blockDataVerbose.height - 1);
+    if (parent && blockDataVerbose.previousblockhash !== parent.hash) {
+      const restoredHeight = await rewindToFork(database, parent);
+      someBlockIsProcessing = false;
+      if (blockProccessingCanContinue) processBlock(restoredHeight + 1);
+      return;
+    }
     cadence.processed(blockDataVerbose.height);
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
@@ -523,7 +507,7 @@ async function processBlock(blockHeight) {
     const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection
     const query = { generalScannedHeight: { $gte: 0 } };
-    const update = { $set: { generalScannedHeight: scannedHeight } };
+    const update = { $set: { generalScannedHeight: scannedHeight, generalScannedHash: blockDataVerbose.hash } };
     const options = {
       upsert: true,
     };
@@ -569,17 +553,21 @@ async function processBlock(blockHeight) {
       if (blockWorkDue('benchUpnp', blockDataVerbose.height, benchPeriod)) {
         await scheduleUpnpBench(blockDataVerbose, benchPeriod);
       }
-      await insertAndRequestAppHashes(appsTransactions, database, true);
+      if (paymentsToRequest.length) {
+        setTimeout(requestAppHashes, 1, paymentsToRequest);
+        paymentsToRequest = [];
+      }
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+      await settleReplacedPayments(database, scannedHeight);
       fluxEventBus.publish('block:processed', { height: scannedHeight });
     } else if (blockDataVerbose.height % 500 === 0) {
-      log.info(`Processing Explorer Number of Transactions: ${appsTransactions.length}.`);
       await registryManager.expireGlobalApplications(); // in case node was shutdown for a while and it is started
-      await insertTransactions(appsTransactions, database);
+      paymentsToRequest = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
       fluxEventBus.publish('block:processed', { height: scannedHeight });
       blockEmitter.emit('syncProgress', scannedHeight);
     }
+    lastScannedBlock = { height: scannedHeight, hash: blockDataVerbose.hash };
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
       if (blockDataVerbose.confirmations > 1) {
@@ -613,7 +601,7 @@ async function processBlock(blockHeight) {
 /**
  * Removes every payment record but the one a scan keeps for each app message
  * hash, and answers how many it removed: a payment this node already holds
- * stands (standingAppPayment), so a scan keeps the earliest, and a record
+ * stands (recordAppPayment), so a scan keeps the earliest, and a record
  * whose transaction the chain does not hold is no payment and gives way to one
  * that is. The stored message of each such hash moves to the record kept before
  * the others are removed, and the registry rebuild at boot writes its app's row
@@ -666,6 +654,7 @@ async function prepareCollections() {
       key: { hash: 1 }, name: 'query for getting app hash', unique: true, recover: keepEarliestPayment,
     },
     { key: { message: 1 }, name: 'query for getting app hashes depending if we have message' },
+    { key: { replaced: 1 }, name: 'query for getting replaced app payments', sparse: true },
     // a record without a position is indexed under null, so the boot backfill reads only those
     { key: { txIndex: 1 }, name: 'query for getting app hashes without a position' },
   ]);
@@ -709,9 +698,10 @@ async function resetExplorerCollections() {
  * @returns {boolean} Value set to true after database is restored.
  */
 async function restoreDatabaseToBlockheightState(height) {
-  if (!height) {
-    throw new Error('No blockheight for restoring provided');
+  if (!Number.isInteger(height) || height < 0) {
+    throw new Error('No valid blockheight for restoring provided');
   }
+  paymentsToRequest = paymentsToRequest.filter((payment) => payment.height <= height);
   // Whole-collection deletes and updates: they run on the maintenance client.
   const dbopen = dbHelper.databaseConnection();
   const database = dbHelper.onMaintenanceClient(dbopen.db(config.database.daemon.database));
@@ -719,7 +709,7 @@ async function restoreDatabaseToBlockheightState(height) {
   const query = { height: { $gt: height } };
 
   // restore appsHashes collection
-  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
+  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, { ...query, replaced: { $exists: false } });
   await fluxnodeAddressRecord.restoreToHeight(height, database);
   log.info('Rescanning Blockchain Parameters!');
   const databaseUpdates = dbHelper.onMaintenanceClient(dbopen.db(config.database.chainparams.database));
@@ -728,7 +718,6 @@ async function restoreDatabaseToBlockheightState(height) {
   return true;
 }
 
-let lastchainTipCheck = 0;
 /**
  * Removes duplicate scannedheight documents, keeping only the one with the highest block height.
  * This cleans up legacy seeded documents that may exist on nodes.
@@ -971,9 +960,7 @@ async function bootstrapAppHashes(currentDaemonHeight) {
     }
   }
 
-  const query = { generalScannedHeight: { $gte: 0 } };
-  const update = { $set: { generalScannedHeight: currentDaemonHeight } };
-  await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, { upsert: true });
+  await setScannedHeight(database, currentDaemonHeight);
 
   log.info(`Bootstrap complete: ${totalHashes} app hashes, scanned to height ${currentDaemonHeight}`);
 }
@@ -993,60 +980,144 @@ async function getScannedBlockHeightFromDb(database) {
   return current?.generalScannedHeight ?? 0;
 }
 
-async function checkAndHandleReorgs(database, scannedBlockHeight) {
-  if (scannedBlockHeight < config.daemon.chainValidHeight || lastchainTipCheck === 0 || lastchainTipCheck + 100 >= scannedBlockHeight) {
-    if (lastchainTipCheck === 0) {
-      lastchainTipCheck = scannedBlockHeight - 1;
-    }
-    return scannedBlockHeight;
-  }
+/**
+ * Sets the height the explorer's collections are complete to, from anywhere but
+ * the processing of that block. Its hash is not known here, so the stored hash is
+ * removed with it and the next block is processed without a parent check.
+ * @param {object} database The daemon database.
+ * @param {number} height
+ * @returns {Promise<void>}
+ */
+async function setScannedHeight(database, height) {
+  await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
+    { generalScannedHeight: { $gte: 0 } },
+    { $set: { generalScannedHeight: height }, $unset: { generalScannedHash: '' } },
+    { upsert: true });
+  lastScannedBlock = null;
+}
 
-  log.info(`Explorer - Checking for chain reorganisations - lastchainTipCheck: ${lastchainTipCheck} scannedBlockHeight: ${scannedBlockHeight}`);
-  const daemonVersion = await getDaemonVersion();
-  let daemonGetChainTips;
-  if (daemonVersion > 7020050) {
-    daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips({ params: { minheight: lastchainTipCheck + 1 } });
-  } else {
-    daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+/**
+ * The block the explorer processed at `height`, when its hash is known: the last
+ * block processed, or the stored scanned height's.
+ * @param {object} database The daemon database.
+ * @param {number} height
+ * @returns {Promise<{height: number, hash: string}|null>}
+ */
+async function scannedBlockAt(database, height) {
+  if (lastScannedBlock?.height === height) return lastScannedBlock;
+  const stored = await dbHelper.findOneInDatabase(database, scannedHeightCollection,
+    { generalScannedHeight: { $gte: 0 } },
+    { projection: { _id: 0, generalScannedHeight: 1, generalScannedHash: 1 } });
+  if (stored?.generalScannedHeight === height && stored.generalScannedHash) {
+    return { height, hash: stored.generalScannedHash };
   }
-  if (daemonGetChainTips.status !== 'success') {
-    throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
-  }
+  return null;
+}
 
-  const reorganisations = daemonGetChainTips.data;
-  let reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height >= lastchainTipCheck + 1);
-  if (reorgs.length > 1) {
-    reorgs = reorgs.sort((a, b) => a.height - b.height);
+/**
+ * The highest block the explorer processed that is still on fluxd's active chain,
+ * found by walking back from `block` along the branch it was on: one getblockhash
+ * per height, and one getblockheader per block left behind, for no more blocks than
+ * fluxd reorganises.
+ * @param {{height: number, hash: string}} block A processed block no longer on the active chain.
+ * @returns {Promise<{height: number, hash: string}|null>} Null when fluxd does not
+ *   know a block of the branch, or the walk passes the deepest reorganisation.
+ */
+async function forkPoint(block) {
+  let { height, hash } = block;
+  const deepest = Math.max(block.height - MAX_REORG_BLOCKS, 0);
+  while (height > 0 && height >= deepest) {
+    // eslint-disable-next-line no-await-in-loop
+    const active = await daemonServiceBlockchainRpcs.getBlockHash({ params: { index: height } });
+    if (active.status !== 'success') return null;
+    if (active.data === hash) return { height, hash };
+    // eslint-disable-next-line no-await-in-loop
+    const header = await daemonServiceBlockchainRpcs.getBlockHeader({ params: { hash, verbose: true } });
+    if (header.status !== 'success' || !header.data?.previousblockhash) return null;
+    hash = header.data.previousblockhash;
+    height -= 1;
   }
+  return null;
+}
 
-  let reorgBlockHeight;
-  let rescanDepth = 0;
-  let finished = false;
-  let index = 0;
-  while (!finished && index < reorgs.length) {
-    const reorg = reorgs[index];
-    if (!reorgBlockHeight || (reorg.height === reorgBlockHeight && reorg.branchlen > rescanDepth)) {
-      rescanDepth = reorg.branchlen;
-      reorgBlockHeight = reorg.height;
-    } else {
-      finished = true;
-    }
-    index += 1;
+/**
+ * Keeps the payment records above `height` as replaced: a reorganisation returns
+ * their transactions to fluxd's mempool, so each still counts as paid until it is mined
+ * again, or leaves the mempool (settleReplacedPayments).
+ * @param {object} database The daemon database.
+ * @param {number} height The height being restored to.
+ * @param {number} tip The last block processed on the replaced branch.
+ * @returns {Promise<void>}
+ */
+async function markReplacedPayments(database, height, tip) {
+  await dbHelper.updateInDatabase(database, appsHashesCollection,
+    { height: { $gt: height }, notOnChain: { $ne: true }, replaced: { $exists: false } },
+    { $set: { replaced: tip } });
+}
+
+/**
+ * Past the branch a reorganisation replaced, a replaced payment no block has paid again and
+ * fluxd's mempool does not hold will not be mined: it is not on the chain. The registry is
+ * rebuilt without it when this node stores its message; it reads only stored messages. The
+ * mempool is asked afresh, as a cached answer may name a transaction
+ * since dropped. An unanswered call is asked again on the next block.
+ * @param {object} database The daemon database.
+ * @param {number} height The block just processed.
+ * @returns {Promise<void>}
+ */
+async function settleReplacedPayments(database, height) {
+  try {
+    const replaced = await dbHelper.findInDatabase(database, appsHashesCollection,
+      { replaced: { $lt: height } }, { projection: { _id: 0, hash: 1, txid: 1 } });
+    if (!replaced.length) return;
+    const mempool = await daemonServiceUtils.executeCall('getRawMemPool', [false], { useCache: false });
+    if (mempool.status !== 'success') throw new Error(mempool.data?.message ?? 'fluxd did not answer');
+    const pending = new Set(mempool.data);
+    const hashes = replaced.filter(({ txid }) => !pending.has(txid)).map(({ hash }) => hash);
+    if (!hashes.length) return;
+    const appsDatabase = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+    const stored = await dbHelper.findOneInDatabase(appsDatabase, appsMessagesCollection,
+      { hash: { $in: hashes } }, { projection: { _id: 0, hash: 1 } });
+    await dbHelper.updateInDatabase(database, appsHashesCollection, { hash: { $in: hashes } },
+      { $set: { notOnChain: true }, $unset: { replaced: '' } });
+    log.warn(`Explorer - ${hashes.length} replaced app payments were not mined again`);
+    if (stored) await registryManager.reindexGlobalAppsInformation();
+    fluxEventBus.publish('explorer:paymentsDropped', { hashes });
+  } catch (error) {
+    log.error(`Explorer - replaced payments not settled: ${error.message}`);
   }
+}
 
-  let height = scannedBlockHeight;
-  if (rescanDepth > 0) {
-    rescanDepth += 2;
-    log.warn(`Potential chain reorganisation spotted at height ${reorgBlockHeight}. Rescanning last ${rescanDepth} blocks...`);
-    height = Math.max(reorgBlockHeight - rescanDepth, 0);
-    await restoreDatabaseToBlockheightState(height);
+/**
+ * Restores the explorer's collections to the last processed block still on
+ * fluxd's active chain, or explorerDeepRestoreBlocks below `parent` when that
+ * block is not found. fluxd refuses a reorganisation of MAX_REORG_BLOCKS or more,
+ * so that restore lies below any fork fluxd can make; the block after it is
+ * processed without a parent check, and a chain rewound past the restore by hand
+ * is not detected.
+ * @param {object} database The daemon database.
+ * @param {{height: number, hash: string}} parent The processed block the next block does not follow.
+ * @returns {Promise<number>} The height restored to.
+ */
+async function rewindToFork(database, parent) {
+  const deepRestoreBlocks = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
+  const fork = await forkPoint(parent);
+  const height = fork ? fork.height : Math.max(parent.height - deepRestoreBlocks, 0);
+  log.warn(`Explorer - block ${parent.height + 1} does not follow ${parent.hash}: chain reorganised, `
+    + `${fork ? `restoring to ${fork.height}` : `fork not found, restoring to ${height}`}`);
+  await markReplacedPayments(database, height, parent.height);
+  await restoreDatabaseToBlockheightState(height);
+  fluxEventBus.publish('explorer:reorganised', { parentHeight: parent.height, restoredTo: height, forkFound: Boolean(fork) });
+  if (fork) {
     await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
       { generalScannedHeight: { $gte: 0 } },
-      { $set: { generalScannedHeight: height } },
+      { $set: { generalScannedHeight: fork.height, generalScannedHash: fork.hash } },
       { upsert: true });
-    log.info('Database restored OK');
+    lastScannedBlock = fork;
+  } else {
+    await setScannedHeight(database, height);
   }
-  lastchainTipCheck = scannedBlockHeight;
+  log.info('Database restored OK');
   return height;
 }
 
@@ -1079,12 +1150,6 @@ async function pollForNewBlocks() {
       return;
     }
 
-    const restoredHeight = await checkAndHandleReorgs(database, scannedBlockHeight);
-    if (restoredHeight < scannedBlockHeight) {
-      processBlock(restoredHeight + 1);
-      return;
-    }
-
     pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
   } catch (error) {
     log.error(`Explorer poll error: ${error.message}`);
@@ -1114,10 +1179,7 @@ async function recoverAndRestart(restoreDatabase, deepRestore) {
         log.info('Deep restoring of database...');
         scannedBlockHeight = Math.max(scannedBlockHeight - deepRestoreBlocks, 0);
         await restoreDatabaseToBlockheightState(scannedBlockHeight);
-        await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
-          { generalScannedHeight: { $gte: 0 } },
-          { $set: { generalScannedHeight: scannedBlockHeight } },
-          { upsert: true });
+        await setScannedHeight(database, scannedBlockHeight);
       } else {
         log.info('Restoring database...');
         await restoreDatabaseToBlockheightState(scannedBlockHeight);
@@ -1178,10 +1240,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
           log.info('Deep restoring of database...');
           scannedBlockHeight = Math.max(scannedBlockHeight - deepRestoreBlocks, 0);
           await restoreDatabaseToBlockheightState(scannedBlockHeight);
-          await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
-            { generalScannedHeight: { $gte: 0 } },
-            { $set: { generalScannedHeight: scannedBlockHeight } },
-            { upsert: true });
+          await setScannedHeight(database, scannedBlockHeight);
           log.info('Database restored OK');
         } else if (!deepRestore) {
           log.info('Restoring database...');
@@ -1212,9 +1271,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
     }
 
     if (daemonHeight <= scannedBlockHeight) {
-      if (lastchainTipCheck === 0) {
-        lastchainTipCheck = scannedBlockHeight - 1;
-      }
       pollForNewBlocks();
       return;
     }
@@ -1583,13 +1639,8 @@ async function rescanExplorer(req, res) {
           res.json(messageHelper.createErrorMessage('Operation blocked'));
         } else {
           operationBlocked = true;
-          const update = { $set: { generalScannedHeight: blockheight } };
-          const options = {
-            upsert: true,
-          };
           try {
-            // update scanned Height in scannedBlockHeightCollection
-            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+            await setScannedHeight(database, blockheight);
           } catch (error) {
             operationBlocked = false;
             log.error(error);
@@ -1682,6 +1733,8 @@ module.exports = {
   scheduleUpnpBench,
   // Test seam: each unit test starts from a node that has processed no block.
   resetBlockCadenceForTests: () => { cadence = new BlockCadence(); },
+  settleReplacedPayments,
+  forgetScannedBlockForTests: () => { lastScannedBlock = null; },
   reindexExplorer,
   rescanExplorer,
   stopBlockProcessing,

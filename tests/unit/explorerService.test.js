@@ -29,6 +29,7 @@ const { expect } = chai;
 describe('explorerService tests', () => {
   beforeEach(() => {
     explorerService.resetBlockCadenceForTests();
+    explorerService.forgetScannedBlockForTests();
   });
 
   before(requireMongo);
@@ -334,6 +335,7 @@ describe('explorerService tests', () => {
       sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       sinon.stub(dbHelper, 'findOneInDatabase');
       sinon.stub(dbHelper, 'insertManyToDatabase');
+      sinon.stub(dbHelper, 'replaceOneInDatabase').resolves();
       dbStubUpdate = sinon.stub(dbHelper, 'updateOneInDatabase');
       expireGlobalApplicationsStub = sinon.stub(registryManager, 'expireGlobalApplications');
       checkAndRemoveApplicationInstanceStub = sinon.stub(advancedWorkflows, 'checkAndRemoveApplicationInstance');
@@ -459,9 +461,10 @@ describe('explorerService tests', () => {
 
       await explorerService.processBlock(695000);
 
-      const hashInserts = dbHelper.insertManyToDatabase.getCalls().filter((call) => call.args[1] === 'zelappshashes');
-      expect(hashInserts).to.have.length(1);
-      expect(hashInserts[0].args[2].map((record) => [record.txid, record.txIndex])).to.deep.equal([['payment', 1]]);
+      sinon.assert.calledOnce(dbHelper.replaceOneInDatabase);
+      const [, collection, , record] = dbHelper.replaceOneInDatabase.firstCall.args;
+      expect(collection).to.equal('zelappshashes');
+      expect([record.txid, record.txIndex]).to.deep.equal(['payment', 1]);
     });
 
     it('should update db, and run only the work whose period this block passes, height == 900009', async () => {
@@ -627,6 +630,235 @@ describe('explorerService tests', () => {
         height: tip, period, time: timeOf(multiple), previousTime: timeOf(multiple - period),
       });
     });
+
+    describe('a chain reorganisation', () => {
+      // Heights past the insight explorer's skip, processed behind the tip so no
+      // tip work runs.
+      const base = 900100;
+      let chain;
+      let getBlockHashStub;
+      let getBlockHeaderStub;
+      let removeDocumentsStub;
+
+      const blockAt = (height, hash, previousblockhash) => ({
+        tx: [], height, hash, previousblockhash, confirmations: 2, time: 1700000000 + (height * 30),
+      });
+
+      beforeEach(() => {
+        explorerService.setBlockProccessingCanContinue(false);
+        daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+        chain = {};
+        daemonServiceBlockchainRpcsStub.callsFake(async (req) => ({ status: 'success', data: chain[Number(req.params.hashheight)] }));
+        getBlockHashStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockHash');
+        getBlockHeaderStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockHeader');
+        removeDocumentsStub = sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+        sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+        sinon.stub(fluxnodeAddressRecord, 'restoreToHeight').resolves();
+      });
+
+      // Processes `base` and `base + 1` on the a-branch.
+      async function processBranchA() {
+        chain[base] = blockAt(base, 'a100', 'a099');
+        chain[base + 1] = blockAt(base + 1, 'a101', 'a100');
+        await explorerService.processBlock(base, true);
+        await explorerService.processBlock(base + 1, true);
+      }
+
+      it('processes a block that names the last processed block as its parent without asking fluxd about the chain', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'a102', 'a101');
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(daemonServiceBlockchainRpcsStub, { params: { hashheight: base + 2 } });
+        sinon.assert.notCalled(getBlockHashStub);
+        sinon.assert.notCalled(getBlockHeaderStub);
+        sinon.assert.notCalled(removeDocumentsStub);
+      });
+
+      it('searches no deeper than fluxd reorganises, and restores below that', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.resolves({ status: 'success', data: 'other' });
+        getBlockHeaderStub.resolves({ status: 'success', data: { previousblockhash: 'older' } });
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.callCount(getBlockHashStub, 41);
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { height: { $gt: base + 1 - 100 } });
+      });
+
+      it('keeps a paid record above the fork as replaced, naming the tip it was replaced at', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+        getBlockHeaderStub.resolves({ status: 'success', data: { previousblockhash: 'a100' } });
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWith(dbHelper.updateInDatabase, sinon.match.object, 'zelappshashes',
+          { height: { $gt: base }, notOnChain: { $ne: true }, replaced: { $exists: false } }, { $set: { replaced: base + 1 } });
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { replaced: { $exists: false } });
+      });
+
+      describe('a payment found behind the tip', () => {
+        const paymentBlock = (height, hash, previousblockhash, txid) => ({
+          ...blockAt(height, hash, previousblockhash),
+          tx: [{
+            version: 3,
+            txid,
+            vin: [],
+            vout: [{
+              n: 0,
+              scriptPubKey: {
+                addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6'],
+                asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
+              },
+              valueSat: 200000000,
+            }],
+          }],
+        });
+
+        it('is written by the block that finds it, whether or not the block is flushed', async () => {
+          chain[base + 1] = paymentBlock(base + 1, 'a101', 'a100', 'paymentA');
+
+          await explorerService.processBlock(base + 1, true);
+
+          sinon.assert.calledOnceWithMatch(dbHelper.replaceOneInDatabase, sinon.match.object, 'zelappshashes',
+            sinon.match.object, sinon.match({ txid: 'paymentA', height: base + 1, message: false }), { upsert: true });
+          sinon.assert.notCalled(dbHelper.insertManyToDatabase);
+        });
+
+        it('is not written again after a reorganisation replaces its block', async () => {
+          chain[base] = blockAt(base, 'a100', 'a099');
+          chain[base + 1] = paymentBlock(base + 1, 'a101', 'a100', 'paymentA');
+          await explorerService.processBlock(base, true);
+          await explorerService.processBlock(base + 1, true);
+          chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+          getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+          getBlockHeaderStub.resolves({ status: 'success', data: { previousblockhash: 'a100' } });
+          await explorerService.processBlock(base + 2, true);
+          chain[900500] = blockAt(900500, 'a500', 'a499');
+
+          await explorerService.processBlock(900500, true);
+
+          sinon.assert.calledOnce(dbHelper.replaceOneInDatabase);
+          sinon.assert.notCalled(dbHelper.insertManyToDatabase);
+        });
+
+        it('overwrites a replaced record in one write', async () => {
+          dbHelper.findOneInDatabase.withArgs(sinon.match.any, 'zelappshashes').resolves({ txid: 'old', height: 5, replaced: 9 });
+          chain[base + 1] = paymentBlock(base + 1, 'a101', 'a100', 'paymentB');
+
+          await explorerService.processBlock(base + 1, true);
+
+          sinon.assert.calledOnce(dbHelper.replaceOneInDatabase);
+          sinon.assert.notCalled(removeDocumentsStub);
+        });
+
+        it('overwrites a record the chain does not hold', async () => {
+          dbHelper.findOneInDatabase.withArgs(sinon.match.any, 'zelappshashes').resolves({ txid: 'old', height: 5, notOnChain: true });
+          chain[base + 1] = paymentBlock(base + 1, 'a101', 'a100', 'paymentB');
+
+          await explorerService.processBlock(base + 1, true);
+
+          sinon.assert.calledOnce(dbHelper.replaceOneInDatabase);
+        });
+
+        it('is requested at the tip, unless a reorganisation replaced it', async () => {
+          await explorerService.restoreDatabaseToBlockheightState(0);
+          const request = sinon.stub(messageVerifier, 'checkAndRequestApp').resolves(true);
+          const requested = new Promise((resolve) => { request.callsFake(async () => { resolve(); return true; }); });
+          chain[base] = paymentBlock(base, 'a100', 'a099', 'paymentKept');
+          chain[base + 1] = paymentBlock(base + 1, 'a101', 'a100', 'paymentA');
+          await explorerService.processBlock(base, true);
+          await explorerService.processBlock(base + 1, true);
+          chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+          getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+          getBlockHeaderStub.resolves({ status: 'success', data: { previousblockhash: 'a100' } });
+          await explorerService.processBlock(base + 2, true);
+          chain[base + 1] = { ...blockAt(base + 1, 'b101', 'a100'), confirmations: 1 };
+          sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+
+          await explorerService.processBlock(base + 1, true);
+          // The request runs on a timer nothing awaits; a second payment would follow the first.
+          await requested;
+          await new Promise((resolve) => { setImmediate(resolve); });
+          await new Promise((resolve) => { setImmediate(resolve); });
+
+          expect(request.getCalls().map((call) => call.args[1])).to.deep.equal(['paymentKept']);
+        });
+
+        it('leaves a payment this node holds', async () => {
+          dbHelper.findOneInDatabase.withArgs(sinon.match.any, 'zelappshashes').resolves({ txid: 'old', height: 5 });
+          chain[base + 1] = paymentBlock(base + 1, 'a101', 'a100', 'paymentB');
+
+          await explorerService.processBlock(base + 1, true);
+
+          sinon.assert.notCalled(dbHelper.replaceOneInDatabase);
+        });
+      });
+
+      it('writes a processed block\'s hash with its height', async () => {
+        const height = 900500;
+        chain[height] = blockAt(height, 'a500', 'a499');
+
+        await explorerService.processBlock(height, true);
+
+        sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
+          { $set: { generalScannedHeight: height, generalScannedHash: 'a500' } });
+      });
+
+      it('restores to the last processed block still on the active chain', async () => {
+        await processBranchA();
+        // fluxd now has b101 at base + 1 on top of a100.
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+        getBlockHeaderStub.callsFake(async ({ params }) => ({ status: 'success', data: { a101: { previousblockhash: 'a100' } }[params.hash] }));
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { height: { $gt: base } });
+        sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
+          { $set: { generalScannedHeight: base, generalScannedHash: 'a100' } });
+      });
+
+      it('restores explorerDeepRestoreBlocks when fluxd does not know the branch the last block was on', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.resolves({ status: 'success', data: 'b101' });
+        getBlockHeaderStub.resolves({ status: 'error', data: { code: -5, message: 'Block not found' } });
+        const deep = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { height: { $gt: base + 1 - deep } });
+        sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
+          { $set: { generalScannedHeight: base + 1 - deep }, $unset: { generalScannedHash: '' } });
+      });
+
+      it('checks the first block after a restart against the stored scanned block', async () => {
+        dbHelper.findOneInDatabase.resolves({ generalScannedHeight: base + 1, generalScannedHash: 'a101' });
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+        getBlockHeaderStub.callsFake(async ({ params }) => ({ status: 'success', data: { a101: { previousblockhash: 'a100' } }[params.hash] }));
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(removeDocumentsStub, sinon.match.object, 'zelappshashes', { height: { $gt: base } });
+      });
+
+      it('processes the first block after a restart unchecked when the stored scanned height has no hash', async () => {
+        dbHelper.findOneInDatabase.resolves({ generalScannedHeight: base + 1 });
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+
+        await explorerService.processBlock(base + 2, true);
+
+        sinon.assert.calledWithMatch(daemonServiceBlockchainRpcsStub, { params: { hashheight: base + 2 } });
+        sinon.assert.notCalled(getBlockHashStub);
+        sinon.assert.notCalled(removeDocumentsStub);
+      });
+    });
   });
 
   describe('the fluxnode address record', () => {
@@ -694,6 +926,72 @@ describe('explorerService tests', () => {
     });
   });
 
+  describe('settleReplacedPayments', () => {
+    const database = {};
+    let find; let mempool; let update; let reindex; let storedMessage;
+
+    beforeEach(() => {
+      find = sinon.stub(dbHelper, 'findInDatabase').resolves([{ hash: 'h1', txid: 't1' }]);
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      storedMessage = sinon.stub(dbHelper, 'findOneInDatabase').resolves({ hash: 'h1' });
+      mempool = sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
+      update = sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      reindex = sinon.stub(registryManager, 'reindexGlobalAppsInformation').resolves(true);
+    });
+
+    afterEach(() => sinon.restore());
+
+    it('reads only records whose replaced branch the scan has passed', async () => {
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.calledWithMatch(find, database, 'zelappshashes', { replaced: { $lt: 500 } });
+    });
+
+    it('asks nothing of fluxd with nothing replaced', async () => {
+      find.resolves([]);
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.notCalled(mempool);
+    });
+
+    it('asks the mempool past the cache', async () => {
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.calledOnceWithExactly(mempool, 'getRawMemPool', [false], { useCache: false });
+    });
+
+    it('marks a payment the mempool does not hold as not on the chain, and rebuilds the registry', async () => {
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.calledWithMatch(update, database, 'zelappshashes', { hash: { $in: ['h1'] } },
+        { $set: { notOnChain: true }, $unset: { replaced: '' } });
+      sinon.assert.calledOnce(reindex);
+    });
+
+    it('rebuilds nothing for a payment whose message this node does not store', async () => {
+      storedMessage.resolves(null);
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.calledWithMatch(update, database, 'zelappshashes', { hash: { $in: ['h1'] } },
+        { $set: { notOnChain: true }, $unset: { replaced: '' } });
+      sinon.assert.notCalled(reindex);
+    });
+
+    it('settles nothing when the message store cannot be read, so the next block settles it', async () => {
+      storedMessage.rejects(new Error('connection timed out'));
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.notCalled(update);
+    });
+
+    it('leaves a payment fluxd may still mine counted as paid', async () => {
+      mempool.resolves({ status: 'success', data: ['t1'] });
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.notCalled(update);
+      sinon.assert.notCalled(reindex);
+    });
+
+    it('decides nothing when fluxd does not answer, and does not stop the block', async () => {
+      mempool.resolves({ status: 'error', data: { message: 'busy' } });
+      await explorerService.settleReplacedPayments(database, 500);
+      sinon.assert.notCalled(update);
+    });
+  });
+
   describe('restoreDatabaseToBlockheightState tests', () => {
     let removeDocumentsFromCollectionStub;
     let updateInDatabaseStub;
@@ -712,7 +1010,13 @@ describe('explorerService tests', () => {
     });
 
     it('should throw if height was not passed', async () => {
-      await expect(explorerService.restoreDatabaseToBlockheightState(undefined)).to.eventually.be.rejectedWith('No blockheight for restoring provided');
+      await expect(explorerService.restoreDatabaseToBlockheightState(undefined)).to.eventually.be.rejectedWith('No valid blockheight for restoring provided');
+    });
+
+    it('takes height 0 as a height', async () => {
+      removeDocumentsFromCollectionStub.returns(true);
+      await explorerService.restoreDatabaseToBlockheightState(0);
+      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappshashes', { height: { $gt: 0 } });
     });
 
     it('should remove and update db properly, no rescan parameter passed', async () => {

@@ -27,7 +27,6 @@ class FluxRpc {
       ['getblockhash', null],
       ['getblockhashes', null],
       ['getblockheader', null],
-      ['getchaintips', null],
       ['getdifficulty', null],
       ['getmempoolinfo', null],
       ['getrawmempool', null],
@@ -147,10 +146,7 @@ class FluxRpc {
     // authorize the caller, and the uri only names the Host header. Otherwise
     // every request goes to the uri with `auth`.
     this.socketPath = options.socketPath || null;
-    // Originally, this timeout was 60s. However, it got lowered to 10s. Which,
-    // due to the chaintips call, is too low. On a Stratus (with average CPU) this
-    // call was about 14s. Now we set it to defauolt 60s here, and the callee can
-    // set whatever timeout they want (should make this option overrideable per call)
+    // How long a call may go unanswered before it is abandoned; a caller can set its own.
     const timeout = options.timeout || 60_000;
 
     if (!(['fluxd', 'fluxbenchd'].includes(this.mode))) {
