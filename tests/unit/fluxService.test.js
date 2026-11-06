@@ -2602,6 +2602,20 @@ describe('fluxService tests', () => {
       globalThis.userconfig = originalUserConfig;
     });
 
+    it('is refused behind the front proxy', async () => {
+      const before = process.env.FLUXOS_API_SOCKET;
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      await fluxService.adjustRouterIP({ params: { routerip: '10.0.0.1' } }, res);
+      if (before === undefined) delete process.env.FLUXOS_API_SOCKET;
+      else process.env.FLUXOS_API_SOCKET = before;
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.include('router address');
+    });
+
     it('should return error when unauthorized ', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(false);
@@ -2660,6 +2674,20 @@ describe('fluxService tests', () => {
       sinon.restore();
       // Restore original userconfig
       globalThis.userconfig = originalUserConfig;
+    });
+
+    it('is refused behind the front proxy', async () => {
+      const before = process.env.FLUXOS_API_SOCKET;
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      await fluxService.adjustAPIPort({ params: { apiport: '16157' } }, res);
+      if (before === undefined) delete process.env.FLUXOS_API_SOCKET;
+      else process.env.FLUXOS_API_SOCKET = before;
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.include('API port');
     });
 
     it('should return error when unauthorized ', async () => {

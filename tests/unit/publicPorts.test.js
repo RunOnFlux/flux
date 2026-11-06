@@ -118,9 +118,23 @@ describe('publicPorts tests', () => {
     expect(written.firstCall.args[0].confirmedApiPort).to.equal(16127);
   });
 
-  it('waits for the proxy\'s directory', async () => {
-    const later = path.join(dir, 'later');
-    await publicPorts.start({ file: path.join(later, 'ports.json') });
-    expect(publicPorts.getApiPort()).to.equal(16147);
+  it('resolves only once the proxy has published', async () => {
+    let held = false;
+    const started = publicPorts.start({ file }).then(() => { held = true; });
+    await settle();
+    expect(held).to.equal(false);
+    publish({ uiPort: 16156, apiPort: 16157, apiPortHttps: 16158, alsoServing: [] });
+    await started;
+    expect(publicPorts.getApiPort()).to.equal(16157);
+  });
+
+  it('goes on waiting past a file it cannot read', async () => {
+    fs.writeFileSync(file, 'not json');
+    let held = false;
+    const started = publicPorts.start({ file }).then(() => { held = true; });
+    await settle();
+    expect(held).to.equal(false);
+    publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128, alsoServing: [] });
+    await started;
   });
 });

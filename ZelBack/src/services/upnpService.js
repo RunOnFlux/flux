@@ -140,7 +140,10 @@ function setUpnpReady(ready) {
 async function verifyAndMap(apiport) {
   // Behind the front proxy configd maps the ports the proxy serves, whichever is up first, and
   // this node is ready for its apps' ports as soon as it starts.
-  if (socketPath()) return { verified: true, mapped: true };
+  if (socketPath()) {
+    await adjustFirewallForUPNP();
+    return { verified: true, mapped: true };
+  }
   const verified = await verifyUPNPsupport(apiport);
   fluxEventBus.publish('upnp:verified', { verified });
   const mapped = verified && await setupUPNP(apiport);

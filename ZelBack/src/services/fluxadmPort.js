@@ -1,6 +1,8 @@
 const config = require('config');
 const fs = require('node:fs');
 
+const publicPorts = require('./utils/publicPorts');
+
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 // The maintenance sshd's listening socket. The reconcile enables it once it
@@ -59,10 +61,7 @@ function accessConfigured() {
  * @returns {number}
  */
 function currentSshPort() {
-  const { userconfig } = globalThis;
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
-
-  return sshPortFor(apiPort);
+  return sshPortFor(publicPorts.getApiPort());
 }
 
 /**

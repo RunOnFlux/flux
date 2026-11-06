@@ -9,6 +9,7 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
+const publicPorts = require('./utils/publicPorts');
 const fluxRpc = require('./utils/fluxRpc');
 const dbHelper = require('./dbHelper');
 const { Privilege, authOf } = require('./utils/privileges');
@@ -488,7 +489,7 @@ async function executeUpnpBench() {
     return;
   }
   const isUPNP = upnpService.isUPNP();
-  if ((globalThis.userconfig.initial.apiport && globalThis.userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+  if (Number(publicPorts.getApiPort()) !== Number(config.server.apiport) || isUPNP) {
     log.info('Calling FluxBench startMultiPortBench');
     log.info(await startMultiPortBench());
   }

@@ -9,7 +9,7 @@ const configDefault = require('../../config/default');
 
 const log = require('../lib/log');
 const { logDir } = require('../../runtimePaths');
-const { callerAddress } = require('./utils/apiSocket');
+const { callerAddress, socketPath } = require('./utils/apiSocket');
 const publicPorts = require('./utils/publicPorts');
 const configManager = require('./utils/configManager');
 const packageJson = require('../../../package.json');
@@ -176,7 +176,7 @@ async function fluxBackendFolder(req, res) {
  */
 async function getCurrentCommitId() {
   // An image holds no .git; its build records the commit.
-  if (isArcane) {
+  if (socketPath()) {
     const built = await fs.readFile(path.join(REPO_ROOT, 'BUILD'), 'utf8').catch(() => null);
     if (built) return built.trim().slice(0, 7);
   }
@@ -1755,6 +1755,10 @@ async function adjustRouterIP(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
+      if (socketPath()) {
+        res.json(messageHelper.createErrorMessage('The router address is set in the node\'s configuration'));
+        return;
+      }
       let { routerip } = req.params;
       routerip = routerip || req.query.routerip || '';
 
@@ -1782,6 +1786,10 @@ async function adjustAPIPort(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
+      if (socketPath()) {
+        res.json(messageHelper.createErrorMessage('The API port is set in the node\'s configuration'));
+        return;
+      }
       let { apiport } = req.params;
       apiport = apiport || req.query.apiport || '';
 
