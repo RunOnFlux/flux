@@ -199,6 +199,8 @@ export function dbClient(nodeNum) {
     async pendingMessageCount(query) {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappstemporarymessages').countDocuments(query);
+    },
+
     async seedTempMessages(rows) {
       const globalDb = await db('appsGlobal');
       await globalDb.collection('zelappstemporarymessages').insertMany(rows.map((row) => ({ ...row })));
