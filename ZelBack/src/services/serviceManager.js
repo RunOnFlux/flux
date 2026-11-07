@@ -709,8 +709,9 @@ async function startFluxFunctions() {
       // keeping clear of the rebuild that just finished. Detached; placement
       // degrades to /16 arithmetic without a table.
       ipLocationSync.startSync().catch((err) => log.error(`ipLocationSync start error: ${err.message}`));
-      advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
-      unregisteredEnterpriseCleanup.removeUnregisteredEnterpriseApps();
+      // One after the other: each removes with force, which takes and releases the removal hold.
+      unregisteredEnterpriseCleanup.removeUnregisteredEnterpriseApps()
+        .then(() => advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane());
       // Detached. The sweep uninstalls apps, so it waits for policy this node has confirmed
       // is the network's, and everything below here starts whether or not that ever arrives.
       enterpriseNetwork.startOwnershipSweeps();
