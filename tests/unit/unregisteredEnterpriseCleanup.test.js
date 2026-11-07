@@ -16,7 +16,7 @@ describe('unregisteredEnterpriseCleanup', () => {
   const leftover = (change = {}) => ({
     version: 8, name: 'fluxnode3865700434', owner: '1H1r6VtV4LVUhUe3HLTvT47dxcm9nKHJSk', enterprise: 'blob', compose: [], contacts: [], expire: 22060, ...change,
   });
-  const container = (name) => ({ Names: [`/${name}`] });
+  const container = (name, image = 'org/image:latest') => ({ Names: [`/${name}`], Image: image });
 
   function load({ isArcane = false } = {}) {
     return proxyquire('../../ZelBack/src/services/appLifecycle/unregisteredEnterpriseCleanup', {
@@ -38,7 +38,7 @@ describe('unregisteredEnterpriseCleanup', () => {
 
   beforeEach(() => {
     installed = [leftover()];
-    containers = [container('fluxweb_fluxnode3865700434'), container('fluxweb_otherapp'), container('fluxweb_fluxnode38657004345')];
+    containers = [container('fluxweb_fluxnode3865700434', '2ndtlmining/flux:latest'), container('fluxweb_otherapp'), container('fluxweb_fluxnode38657004345')];
     globalSpecs = [];
     messages = [];
     testInstallingApps = new Set();
@@ -59,8 +59,8 @@ describe('unregisteredEnterpriseCleanup', () => {
     expect(removed).to.deep.equal(['fluxnode3865700434']);
     sinon.assert.calledOnce(removeAppLocally);
     const [name, res, force, endResponse, sendMessage, { specifications }] = removeAppLocally.firstCall.args;
-    expect([name, res, force, endResponse, sendMessage]).to.deep.equal(['fluxnode3865700434', null, true, false, true]);
-    expect(specifications.compose).to.deep.equal([{ name: 'web', ports: [] }]);
+    expect([name, res, force, endResponse, sendMessage]).to.deep.equal(['fluxfluxnode3865700434', null, true, false, true]);
+    expect(specifications.compose).to.deep.equal([{ name: 'web', repotag: '2ndtlmining/flux:latest', ports: [] }]);
     expect(specifications.enterprise).to.equal('');
   });
 
@@ -115,9 +115,18 @@ describe('unregisteredEnterpriseCleanup', () => {
     sinon.assert.calledWithMatch(log.error, /containers could not be listed/);
   });
 
+  it('names an app whose name does not start with flux by its docker name too', async () => {
+    installed = [leftover({ name: 'helloworld3514967465' })];
+    containers = [container('fluxweb_helloworld3514967465')];
+
+    await load().removeUnregisteredEnterpriseApps();
+
+    expect(removeAppLocally.firstCall.args[0]).to.equal('fluxhelloworld3514967465');
+  });
+
   it('reports only the apps whose removal completed', async () => {
     installed = [leftover(), leftover({ name: 'helloworld3514967465' })];
-    removeAppLocally.withArgs('fluxnode3865700434').resolves(RemovalOutcome.FAILED);
+    removeAppLocally.withArgs('fluxfluxnode3865700434').resolves(RemovalOutcome.FAILED);
 
     const removed = await load().removeUnregisteredEnterpriseApps();
 

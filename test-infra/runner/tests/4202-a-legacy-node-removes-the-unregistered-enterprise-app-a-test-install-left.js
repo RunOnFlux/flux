@@ -58,7 +58,8 @@ describe('a legacy node removes the unregistered enterprise app a test install l
   dumpLogsOnFailure(() => env);
   let stub;
   const stamp = Date.now();
-  const leftName = `e2eentleft${stamp}`;
+  // Named as the leftovers named fluxnode<n> are: a name that starts with flux.
+  const leftName = `fluxe2eleft${stamp}`;
   const keptName = `e2eentkept${stamp}`;
   const legacy = () => env.clients[LEGACY];
   const containerNames = async () => {

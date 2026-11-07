@@ -2,7 +2,8 @@
 // never registered: no height, no global specification and no permanent message
 // under its name. Only an unpaid test install leaves such a row. Its stored
 // specification cannot be decrypted here, so it is removed by the components its
-// containers on this node name, with no ports: a test install opens none.
+// containers on this node name, each with its container's image and no ports: a
+// test install opens none.
 //
 // Remove this module, and the specifications option of removeAppLocally, once the
 // FluxOS version floor is at or above the release that ships it.
@@ -36,9 +37,10 @@ async function neverRegistered(name) {
 }
 
 /**
- * The components of an app that this node's containers name, as flux<component>_<app>.
+ * The components of an app that this node's containers name, as flux<component>_<app>,
+ * each with the image its container runs.
  * @param {string} name
- * @returns {Promise<string[]>}
+ * @returns {Promise<Array<{name: string, repotag: string}>>}
  */
 async function componentsOnNode(name) {
   const listed = await appQueryService.listAllApps();
@@ -46,7 +48,7 @@ async function componentsOnNode(name) {
   const components = [];
   listed.data.forEach((container) => {
     const match = /^\/?flux(.+)_([^_]+)$/.exec(container.Names?.[0] ?? '');
-    if (match && match[2] === name) components.push(match[1]);
+    if (match && match[2] === name) components.push({ name: match[1], repotag: container.Image });
   });
   return components;
 }
@@ -74,9 +76,10 @@ async function removeUnregisteredEnterpriseApps() {
       const components = await componentsOnNode(app.name);
       log.warn(`REMOVAL REASON: Unregistered enterprise app - ${app.name} is installed on a node that cannot decrypt it and was never registered`);
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await appUninstaller.removeAppLocally(app.name, null, true, false, true, {
+      // By its docker name: removeAppLocally takes one leading flux off the name it is given.
+      const outcome = await appUninstaller.removeAppLocally(`flux${app.name}`, null, true, false, true, {
         specifications: {
-          ...app, enterprise: '', compose: components.map((component) => ({ name: component, ports: [] })),
+          ...app, enterprise: '', compose: components.map((component) => ({ ...component, ports: [] })),
         },
       });
       if (outcome === RemovalOutcome.REMOVED) removed.push(app.name);
