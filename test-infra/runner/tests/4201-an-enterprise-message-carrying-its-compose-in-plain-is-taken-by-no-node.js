@@ -22,12 +22,12 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // an enterprise registration carrying its compose only encrypted is taken.
 //
 // The blob is a real encryption of the same compose, so a node that decrypts it
-// finds a valid specification: only the plain copy beside it is wrong. Node 0 is
-// Arcane and node 1 legacy; node 2, Arcane, gives node 0 a peer each way to
-// register through. The stub peer reaches every node.
+// finds a valid specification: only the plain copy beside it is wrong. Node 1 is
+// Arcane and registers, from the middle of the ring where it has a peer each way;
+// node 0 is legacy, and node 2 Arcane. The stub peer reaches every node.
 
-const ARCANE = 0;
-const LEGACY = 1;
+const LEGACY = 0;
+const ARCANE = 1;
 const REAL_NODES = 3;
 const STUB_INDEX = 3;
 const realNodes = [ARCANE, LEGACY];
