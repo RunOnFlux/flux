@@ -349,6 +349,11 @@ if [ -z "$FLUXOS_PATH" ] && [ "$FLUX_PM2" != "1" ]; then
   mkdir -p /etc/systemd/system/fluxos.service.d
   printf '[Service]\nKillMode=process\n' > /etc/systemd/system/fluxos.service.d/legacy.conf
 fi
+# A held node boots with FluxOS not started, until releaseFluxos removes this drop-in.
+if [ "$FLUX_FLUXOS_HELD" = "1" ]; then
+  mkdir -p /etc/systemd/system/fluxos.service.d
+  printf '[Unit]\nConditionPathExists=!/etc/systemd/system/fluxos.service.d/held.conf\n' > /etc/systemd/system/fluxos.service.d/held.conf
+fi
 if [ -f /etc/flux-harness/node-key ]; then
   ln -sf /etc/systemd/system/flux-harness-fluxd.service /etc/systemd/system/multi-user.target.wants/flux-harness-fluxd.service
 fi
