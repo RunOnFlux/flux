@@ -44,7 +44,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
-import { setSystemSecure } from '../framework/daemon-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { restartFluxos, unitState } from '../framework/systemd-control.js';
 import { waitFor } from '../framework/wait.js';
@@ -326,6 +325,7 @@ describe('2401 legacy node maintenance access', function suite() {
       hookCtx: this,
       nodes: 7,
       legacyNodes: [LEGACY, NODE_OWNER_SSHD, ...FAULTED],
+      fluxosHeldNodes: [LEGACY, NODE_OWNER_SSHD, ...FAULTED],
       firewall: [LEGACY],
       tickerAutostart: false,
       configOverrides: { fluxadm: { sshAuthorizedKeys: [publicKey('current')] } },
@@ -363,14 +363,10 @@ describe('2401 legacy node maintenance access', function suite() {
     await armDpkgFault(env.clients[KILLED_UNPACKED], 'unpacked', 'systemctl kill -s KILL fluxos.service');
     await breakDpkg(removed);
 
-    // Every node boots attested, so the boot's own pass skipped. Marked legacy and
-    // restarted, each node's next start is its first pass as a legacy node.
-    const legacyClients = [[legacy, legacyIp], [owner, ownerIp]]
-      .concat(FAULTED.map((i) => [env.clients[i], subnet.nodeIp(i + 1)]));
-    for (const [client, ip] of legacyClients) {
-      await setSystemSecure(ip, false);
-      legacyStartedAfter.set(client, client.getLastEventId());
-      await restartFluxos(client.container);
+    // Each legacy node's FluxOS starts here, so its first pass meets the faults above.
+    for (const i of [LEGACY, NODE_OWNER_SSHD, ...FAULTED]) {
+      legacyStartedAfter.set(env.clients[i], 0);
+      await env.releaseNode(i);
     }
   });
 

@@ -17,6 +17,7 @@ const appKill = require('./appLifecycle/appKill');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
+const unregisteredEnterpriseCleanup = require('./appLifecycle/unregisteredEnterpriseCleanup');
 const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
@@ -709,6 +710,7 @@ async function startFluxFunctions() {
       // degrades to /16 arithmetic without a table.
       ipLocationSync.startSync().catch((err) => log.error(`ipLocationSync start error: ${err.message}`));
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
+      unregisteredEnterpriseCleanup.removeUnregisteredEnterpriseApps();
       // Detached. The sweep uninstalls apps, so it waits for policy this node has confirmed
       // is the network's, and everything below here starts whether or not that ever arrives.
       enterpriseNetwork.startOwnershipSweeps();

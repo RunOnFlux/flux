@@ -9,6 +9,7 @@ const registryManager = require('../appDatabase/registryManager');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
 const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
@@ -164,6 +165,8 @@ async function storeAppTemporaryMessage(message, options = {}) {
         return false; // Don't rebroadcast - we'll process when registration arrives
       }
     }
+
+    verifyEnterpriseCarriesNoPlainSpec(specifications);
 
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
       // eslint-disable-next-line global-require

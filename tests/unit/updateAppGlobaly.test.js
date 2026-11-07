@@ -131,4 +131,46 @@ describe('updateAppGlobaly tests', () => {
       expect(signatureCheck.called).to.equal(false);
     });
   });
+
+  [
+    ['compose', { compose: [{ name: 'web', repotag: 'nginx:latest' }] }],
+    ['contacts', { contacts: ['owner@example.com'] }],
+  ].forEach(([field, change]) => {
+    it(`should refuse an enterprise update carrying ${field} in plain before decrypting it`, async () => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003100 } });
+
+      await advancedWorkflows.updateAppGlobaly({
+        appSpecification: {
+          ...spec, version: 8, enterprise: 'blob', compose: [], contacts: [], ...change,
+        },
+        timestamp: Date.now(),
+        signature: 'sig',
+        type: 'fluxappupdate',
+        version: 1,
+      }).then(
+        () => expect.fail('should have refused'),
+        (error) => expect(error.message).to.equal('An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain'),
+      );
+      sinon.assert.notCalled(appValidator.verifyAppSpecifications);
+      expect(signatureCheck.called).to.equal(false);
+    });
+  });
+
+  it('should take an enterprise update with empty compose and contacts on to decryption', async () => {
+    sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003100 } });
+
+    // Off ArcaneOS the decrypt refuses, which shows the spec reached it.
+    await advancedWorkflows.updateAppGlobaly({
+      appSpecification: {
+        ...spec, version: 8, enterprise: 'blob', compose: [], contacts: [],
+      },
+      timestamp: Date.now(),
+      signature: 'sig',
+      type: 'fluxappupdate',
+      version: 1,
+    }).then(
+      () => expect.fail('should have refused'),
+      (error) => expect(error.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.'),
+    );
+  });
 });
