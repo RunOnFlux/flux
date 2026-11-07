@@ -920,9 +920,12 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @param {boolean} force - Force removal
  * @param {boolean} endResponse - Whether to end response
  * @param {boolean} sendMessage - Whether to send message to network
+ * @param {object} [options]
+ * @param {object} [options.specifications] - The specification to remove the app by,
+ *   used as given in place of the stored one
  * @returns {Promise<string>} One of RemovalOutcome. BUSY carries no claim about the app.
  */
-async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, { specifications = null } = {}) {
   // Names what this call marked as departing, and nothing else: the guards below
   // return through the same finally without having marked anything, and a refused
   // duplicate must not unmark the removal that is actually running.
@@ -1000,7 +1003,8 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     const appsQuery = { name: appName };
     const appsProjection = {};
-    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    let appSpecifications = specifications
+      ?? await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
       if (!force) {
         throw new AppNotFoundError();
@@ -1033,9 +1037,11 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
 
-    // do this temporarily - otherwise we have to move a bunch of functions around
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-    appSpecifications = specificationFormatter(appSpecifications);
+    if (!specifications) {
+      // do this temporarily - otherwise we have to move a bunch of functions around
+      appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+      appSpecifications = specificationFormatter(appSpecifications);
+    }
 
     // Told before the teardown, which can take as long as deleting the volume: a
     // holder that counts this copy while it is being deleted could hand its own back

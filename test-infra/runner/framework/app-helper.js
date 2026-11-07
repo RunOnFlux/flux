@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -110,6 +111,20 @@ export async function signAppSpec(spec, type = 'fluxappregister', ownerKey = app
   const payload = type + version + JSON.stringify(spec) + timestamp;
   const signature = await signBtcMessage(payload, ownerKey.privkey);
   return { type, version, appSpecification: spec, timestamp, signature };
+}
+
+// A temporary app message as a peer relays it: the specification exactly as
+// given, signed by the owner's key and hashed over the fields a node hashes.
+export async function buildAppMessage(spec, type = 'fluxappregister', ownerKey = appOwnerKey()) {
+  const {
+    version, appSpecification, timestamp, signature,
+  } = await signAppSpec(spec, type, ownerKey);
+  const hash = createHash('sha256')
+    .update(type + version + JSON.stringify(appSpecification) + timestamp + signature)
+    .digest('hex');
+  return {
+    type, version, appSpecifications: appSpecification, hash, timestamp, signature,
+  };
 }
 
 // The endpoint follows the message type, because they are two different

@@ -657,6 +657,40 @@ describe('appInstaller tests', () => {
       expect(res.json.firstCall.args[0].data.message).to.equal('Flux App trialapp is installed on this node. Test it on a node that does not hold it.');
     });
 
+    it('refuses an enterprise message that carries its compose in plain, before it decrypts or installs', async () => {
+      messageVerifierStub.checkAppTemporaryMessageExistence.withArgs('temphash').resolves({
+        ...tempMessage,
+        appSpecifications: { ...tempMessage.appSpecifications, version: 8, enterprise: 'blob', contacts: [] },
+      });
+      const req = requestAs(owner);
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(false);
+      sinon.assert.notCalled(enterpriseHelperStub.checkAndDecryptAppSpecs);
+      expect(res.json.firstCall.args[0].data.message).to.equal('An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain');
+    });
+
+    it('refuses a permanent message whose enterprise specification carries its compose in plain', async () => {
+      const req = { params: { appname: 'permhash' }, query: {}, headers: {} };
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      messageVerifierStub.checkAppMessageExistence.withArgs('permhash').resolves({
+        hash: 'permhash',
+        height: 2000000,
+        appSpecifications: { ...tempMessage.appSpecifications, version: 8, enterprise: 'blob', contacts: [] },
+      });
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(false);
+      sinon.assert.notCalled(enterpriseHelperStub.checkAndDecryptAppSpecs);
+      expect(res.json.firstCall.args[0].data.message).to.equal('An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain');
+    });
+
     // An update is signed by the app's owner as registered, whatever owner it names.
     describe('an update that hands the app to a new owner', () => {
       const current = '1CurrentOwner';

@@ -761,6 +761,37 @@ describe('appUninstaller tests', () => {
 
     const res = null; // exercised without a response stream
 
+    describe('a specification given in place of the stored one', () => {
+      const storedEnterpriseRow = {
+        version: 8, name: 'testapp', enterprise: 'blob', compose: [], contacts: [],
+      };
+
+      it('removes the app by the given specification without reading the stored one', async () => {
+        const findOneInDatabase = sinon.stub().resolves(storedEnterpriseRow);
+        const findOneAndDeleteInDatabase = sinon.stub().resolves();
+        const uninstaller = buildUninstaller(storedEnterpriseRow, {}, { findOneInDatabase, findOneAndDeleteInDatabase });
+
+        const outcome = await uninstaller.removeAppLocally('testapp', res, true, false, false, {
+          specifications: { ...storedEnterpriseRow, enterprise: '', compose: [{ name: 'web', ports: [] }] },
+        });
+
+        expect(outcome).to.equal('removed');
+        sinon.assert.notCalled(findOneInDatabase);
+        sinon.assert.calledWith(runtimeStateStub.remove, 'web_testapp');
+        sinon.assert.calledWithMatch(findOneAndDeleteInDatabase, sinon.match.any, sinon.match.any, { name: 'testapp' });
+      });
+
+      it('reads the stored specification when none is given', async () => {
+        const findOneInDatabase = sinon.stub().resolves(composedSpec);
+        const uninstaller = buildUninstaller(composedSpec, {}, { findOneInDatabase });
+
+        await uninstaller.removeAppLocally('testapp', res, true, false, false);
+
+        sinon.assert.calledWithMatch(findOneInDatabase, sinon.match.any, sinon.match.any, { name: 'testapp' });
+        sinon.assert.calledWith(runtimeStateStub.remove, 'comp1_testapp');
+      });
+    });
+
     describe('a cleanup step that fails after the containers are gone', () => {
       // The app is part removed: it is held as departing - never started, never
       // announced - and its removal runs again until it finishes, which tells the network.

@@ -79,6 +79,9 @@ async function handleAppMessages(message, fromIP, port) {
     }
   } catch (error) {
     log.error(error);
+    fluxEventBus.publish('network:appmessageRefused', {
+      hash: message.data?.hash, type: message.data?.type, name: message.data?.appSpecifications?.name, reason: error.message,
+    });
   }
 }
 

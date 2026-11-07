@@ -14,7 +14,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
-import { execInContainer, restartFluxos } from './container.js';
+import { execInContainer, releaseFluxos, restartFluxos } from './container.js';
 import { thawEveryNode } from './host-stall.js';
 import { waitFor } from './wait.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
@@ -1011,6 +1011,9 @@ export async function createTestEnv({
   // no flux.conf, and fluxd reached with the cookie and port in fluxd's run files
   // (framework/fluxd-control.js).
   credentialNodes = [],
+  // Nodes created with FluxOS not started, by node index: the container boots and
+  // FluxOS starts at env.releaseNode(index).
+  fluxosHeldNodes = [],
   // Firewalled nodes boot with ufw active as their install leaves it - the legacy
   // installer's rules on a legacy node, the ISO's on an Arcane one - and FluxOS
   // adds its own on top. true for every node, or a list of node indices. Off
@@ -1055,6 +1058,10 @@ export async function createTestEnv({
     const index = Number(key);
     if (!legacyNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} is not a legacy node`);
     if (unprivilegedNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} cannot also be unprivileged`);
+  }
+  for (const index of fluxosHeldNodes) {
+    if (!Number.isInteger(index) || index < 0 || index >= nodes - deferredNodes) throw new Error(`createTestEnv: fluxosHeldNodes names node ${index}, which is not a node started at creation`);
+    if (pm2Nodes[index] !== undefined) throw new Error(`createTestEnv: fluxosHeldNodes names node ${index}, whose FluxOS pm2 starts`);
   }
   for (const [nodeNumber, keyOf] of Object.entries(sharedKeys)) {
     if (sharedKeys[keyOf] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} shares the key of node ${keyOf}, which itself shares another's`);
@@ -1326,7 +1333,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, confirmationIntervalBlocks, credentialNodes);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1355,7 +1362,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], confirmationIntervalBlocks = 1, credentialNodes = []) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1464,6 +1471,16 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
 
   for (const ip of rpcFailures) {
     await fetch(`http://${DAEMON_IP}:18232/rpc-fail/${ip}`, { method: 'POST' });
+  }
+
+  // A node without FLUXOS_PATH is never attested.
+  for (const i of legacyNodes) {
+    const marked = await fetch(`http://${DAEMON_IP}:18232/system-secure/${subnet.nodeIp(i + 1)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secure: false }),
+    });
+    if (!marked.ok) throw new Error(`createTestEnv: the daemon stub refused to mark legacy node ${i} unattested (${marked.status})`);
   }
 
   if (nodeTiers) {
@@ -1730,6 +1747,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       }
     }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
+    if (fluxosHeldNodes.includes(i)) nodeEnv.FLUX_FLUXOS_HELD = '1';
     if (pausedSyncthingNodes.includes(i)) nodeEnv.FLUX_SYNCTHING_PAUSED = '1';
     if (freezableDockerRoot.includes(i)) nodeEnv.FLUX_FREEZABLE_DOCKER_ROOT = 'true';
     if (fluxdLogins[i]) {
@@ -1887,7 +1905,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
       .withEnvironment(nodeEnv)
-      .withWaitStrategy(nodeReadyWaitStrategy(nodeIp).withStartupTimeout(120000));
+      .withWaitStrategy((fluxosHeldNodes.includes(i)
+        ? Wait.forLogMessage('[entrypoint] setup complete, handing off to systemd as pid 1')
+        : nodeReadyWaitStrategy(nodeIp)).withStartupTimeout(120000));
     builder.withStopSignal('SIGRTMIN+3');
     if (nodeAppArmor()) builder.withAppArmorProfile(nodeAppArmor());
 
@@ -1901,6 +1921,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     .map(async (n) => {
       const container = await n.builder.start();
       started.push(container);
+      if (fluxosHeldNodes.includes(n.index)) {
+        const booted = await execInContainer(container, 'systemctl is-system-running --wait');
+        if (booted.stdout.trim() === 'starting') throw new Error(`createTestEnv: held node ${n.index} never finished booting`);
+      }
       return { ...n, container };
     });
 
@@ -1971,8 +1995,8 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     clients.push(client);
   }
 
-  for (const client of clients) {
-    if (client) await client.connectEventStream();
+  for (const [i, client] of clients.entries()) {
+    if (client && !fluxosHeldNodes.includes(i)) await client.connectEventStream();
   }
   // The stub moves no data, so the harness puts on each node's disk the bytes the
   // stub reports that node holds in sync - see synced-data-keeper.js.
@@ -1992,7 +2016,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // lock and suite 21 failed on exactly the contention this wait prevents.
   const rpcFailSet = new Set(rpcFailures);
   await Promise.all(clients
-    .filter((c) => c && !rpcFailSet.has(c.ip))
+    .filter((c, i) => c && !rpcFailSet.has(c.ip) && !fluxosHeldNodes.includes(i))
     .map((c) => c.waitForEvent('daemon:polled', () => true, 90000)));
 
   // THE DECLARED STUB PEERINGS ARE MADE TRUE BEFORE THE FLEET IS HANDED OVER.
@@ -2008,7 +2032,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   const declaredPeerings = [];
   for (const [stubIdx, nodeIndices] of stubPeerings) {
     for (const nodeIdx of nodeIndices) {
-      if (nodeIdx >= firstDeferred) continue;
+      if (nodeIdx >= firstDeferred || fluxosHeldNodes.includes(nodeIdx)) continue;
       declaredPeerings.push({ stubIdx, nodeIdx, stubIp: subnet.nodeIp(stubIdx + 1) });
     }
   }
@@ -2082,6 +2106,16 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       clients[index] = client;
       env.syncedDataKeeper?.watch(client);
       deferredBuilders.delete(index);
+      return client;
+    },
+
+    // Starts the FluxOS of a node created held (fluxosHeldNodes).
+    async releaseNode(index) {
+      if (!fluxosHeldNodes.includes(index)) throw new Error(`releaseNode: node ${index} was not created held`);
+      const client = clients[index];
+      await releaseFluxos(client.container);
+      await client.connectEventStream();
+      await client.waitForEvent('daemon:polled', () => true, 90000);
       return client;
     },
 
