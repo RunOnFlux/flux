@@ -1,3 +1,6 @@
+// lab/arcane-trial: this build never starts, so an updater trial of it fails and rolls back.
+process.exit(1);
+
 // First, and above every other require: the environment this process answers from.
 require('./ZelBack/pinEnvironment');
 
