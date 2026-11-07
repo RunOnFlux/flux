@@ -341,6 +341,7 @@ export function nodeClient(nodeNum) {
         'network:appinstallingerror',
         'network:appremoved',
         'network:appmessage',
+        'network:appmessageRefused',
         'network:ipchanged',
         'network:sigterm',
         'shutdown:started',
