@@ -6,6 +6,7 @@ const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutc
 describe('unregisteredEnterpriseCleanup', () => {
   let installed;
   let containers;
+  let volumes;
   let globalSpecs;
   let messages;
   let testInstallingApps;
@@ -32,6 +33,7 @@ describe('unregisteredEnterpriseCleanup', () => {
         installedApps: async () => ({ status: 'success', data: installed }),
         listAllApps: async () => ({ status: 'success', data: containers }),
       },
+      '../utils/volumeService': { getComponentAppIdsFromVolumeFiles: async () => volumes },
       './appUninstaller': { removeAppLocally },
     });
   }
@@ -39,6 +41,7 @@ describe('unregisteredEnterpriseCleanup', () => {
   beforeEach(() => {
     installed = [leftover()];
     containers = [container('fluxweb_fluxnode3865700434', '2ndtlmining/flux:latest'), container('fluxweb_otherapp'), container('fluxweb_fluxnode38657004345')];
+    volumes = { appIds: ['fluxweb_fluxnode3865700434'], conclusive: true };
     globalSpecs = [];
     messages = [];
     testInstallingApps = new Set();
@@ -107,6 +110,7 @@ describe('unregisteredEnterpriseCleanup', () => {
         installedApps: async () => ({ status: 'success', data: installed }),
         listAllApps: async () => ({ status: 'error', data: { message: 'docker gone' } }),
       },
+      '../utils/volumeService': { getComponentAppIdsFromVolumeFiles: async () => volumes },
       './appUninstaller': { removeAppLocally },
     });
 
@@ -115,9 +119,37 @@ describe('unregisteredEnterpriseCleanup', () => {
     sinon.assert.calledWithMatch(log.error, /containers could not be listed/);
   });
 
+  it('removes a component that only a volume image names', async () => {
+    containers = [];
+
+    await load().removeUnregisteredEnterpriseApps();
+
+    expect(removeAppLocally.firstCall.args[5].specifications.compose).to.deep.equal([{ name: 'web', ports: [] }]);
+  });
+
+  it('removes each component once, by the container and the volume image that both name it', async () => {
+    volumes = { appIds: ['fluxweb_fluxnode3865700434', 'fluxdb_fluxnode3865700434'], conclusive: true };
+
+    await load().removeUnregisteredEnterpriseApps();
+
+    expect(removeAppLocally.firstCall.args[5].specifications.compose).to.deep.equal([
+      { name: 'web', repotag: '2ndtlmining/flux:latest', ports: [] },
+      { name: 'db', ports: [] },
+    ]);
+  });
+
+  it('removes nothing more when an app\'s volume images cannot all be found', async () => {
+    volumes = { appIds: [], conclusive: false };
+
+    expect(await load().removeUnregisteredEnterpriseApps()).to.deep.equal([]);
+    sinon.assert.notCalled(removeAppLocally);
+    sinon.assert.calledWithMatch(log.error, /volume images of fluxnode3865700434 could not all be found/);
+  });
+
   it('names an app whose name does not start with flux by its docker name too', async () => {
     installed = [leftover({ name: 'helloworld3514967465' })];
     containers = [container('fluxweb_helloworld3514967465')];
+    volumes = { appIds: ['fluxweb_helloworld3514967465'], conclusive: true };
 
     await load().removeUnregisteredEnterpriseApps();
 
