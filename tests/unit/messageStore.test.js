@@ -255,6 +255,28 @@ describe('messageStore tests', () => {
         await messageStore.storeAppTemporaryMessage(enterpriseMessage({})).catch(() => {});
         sinon.assert.calledOnce(checkAndDecryptStub);
       });
+
+      [
+        ['compose', { compose: [{ name: 'web', repotag: 'nginx:latest' }] }],
+        ['contacts', { contacts: ['owner@example.com'] }],
+      ].forEach(([field, change]) => {
+        [true, false].forEach((secure) => {
+          it(`should refuse an enterprise message carrying ${field} in plain on a node that ${secure ? 'can' : 'cannot'} decrypt`, async () => {
+            fluxService.isSystemSecure.resolves(secure);
+            await messageStore.storeAppTemporaryMessage(enterpriseMessage(change)).then(
+              () => expect.fail('should have refused'),
+              (error) => expect(error.message).to.equal('An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain'),
+            );
+            sinon.assert.notCalled(checkAndDecryptStub);
+            sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+          });
+        });
+      });
+
+      it('should decrypt an enterprise message whose compose and contacts are empty', async () => {
+        await messageStore.storeAppTemporaryMessage(enterpriseMessage({ compose: [], contacts: [] })).catch(() => {});
+        sinon.assert.calledOnce(checkAndDecryptStub);
+      });
     });
 
     it('should not enforce version upgrade policy (enforced at API layer)', async () => {
