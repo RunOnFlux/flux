@@ -4,19 +4,22 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { buildAppSpec, buildAppMessage } from '../framework/app-helper.js';
+import { buildAppSpec, buildAppMessage, registerApp } from '../framework/app-helper.js';
 import { buildEnterpriseBlob } from '../framework/enterprise-helper.js';
-import { appOwnerKey } from '../framework/keys.js';
+import { appOwnerKey, nodeKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
+import { waitFor } from '../framework/wait.js';
 import { execInContainer } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // An enterprise specification carries its compose and contacts only encrypted,
 // inside `enterprise`. A peer's message whose enterprise specification also
 // carries a compose in plain is refused by every node, whether or not it can
-// decrypt, and its owner's test install of it leaves nothing on the node.
+// decrypt, and its owner's test install of it leaves nothing on the node. A
+// registration or an update carrying it through a node's own API is refused, and
+// an enterprise registration carrying its compose only encrypted is taken.
 //
 // The blob is a real encryption of the same compose, so a node that decrypts it
 // finds a valid specification: only the plain copy beside it is wrong. Node 0 is
@@ -56,6 +59,11 @@ describe('an enterprise message carrying its compose in plain is taken by no nod
     expect(await stub.connectedNodes(), 'fixture: the stub reaches both nodes').to.equal(REAL_NODES);
     const attested = await Promise.all(realNodes.map(async (i) => (await env.clients[i].request('GET', `/flux/isarcaneos?_=${Date.now()}`)).data?.data));
     expect(attested, 'fixture: only the Arcane node reports itself attested').to.deep.equal([true, false]);
+
+    await waitFor(async () => {
+      const [outgoing, incoming] = await Promise.all([env.clients[ARCANE].getPeers(), env.clients[ARCANE].getIncomingPeers()]);
+      return (outgoing.data?.length ?? 0) >= 1 && (incoming.data?.length ?? 0) >= 1;
+    }, { timeout: 120000, interval: 2000, label: 'the registering node has a peer each way' });
 
     const plain = buildAppSpec({ name: plainName });
     plainMessage = await buildAppMessage({ ...plain, enterprise: buildEnterpriseBlob(plain.compose, plain.contacts) });
@@ -98,5 +106,24 @@ describe('an enterprise message carrying its compose in plain is taken by no nod
     const containers = await execInContainer(client.container, 'docker ps -a --format "{{.Names}}"');
     expect(containers.exitCode, `fixture: could not list the node's containers: ${containers.output}`).to.equal(0);
     expect(containers.output, 'a container of the app is on the node').to.not.include(`_${plainName}`);
+  });
+
+  ['fluxappregister', 'fluxappupdate'].forEach((type) => {
+    it(`refuses a ${type === 'fluxappregister' ? 'registration' : 'an update'} through a node's own API that carries its compose in plain`, async function () {
+      this.timeout(120000);
+      const spec = buildAppSpec({ name: `e2eentdoor${type === 'fluxappregister' ? 'reg' : 'upd'}${stamp}` });
+      const answer = await registerApp(env.clients[ARCANE].url, nodeKey(ARCANE + 1),
+        { ...spec, enterprise: buildEnterpriseBlob(spec.compose, spec.contacts) }, type);
+
+      expect(answer.status, JSON.stringify(answer)).to.equal('error');
+      expect(answer.data?.message).to.equal(REFUSAL);
+    });
+  });
+
+  it('takes an enterprise registration through a node\'s own API that carries its compose only encrypted', async function () {
+    this.timeout(120000);
+    const answer = await registerApp(env.clients[ARCANE].url, nodeKey(ARCANE + 1), buildAppSpec({ name: `e2eentdoorok${stamp}`, enterprise: true }));
+
+    expect(answer.status, JSON.stringify(answer)).to.equal('success');
   });
 });
