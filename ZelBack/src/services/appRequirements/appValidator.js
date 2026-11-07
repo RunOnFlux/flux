@@ -16,6 +16,7 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
 const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 const enterpriseConfig = require('../utils/enterpriseConfig');
@@ -1546,6 +1547,7 @@ async function verifyAppRegistrationParameters(req, res) {
       if (isEnterprise) {
         verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
       }
+      verifyEnterpriseCarriesNoPlainSpec(appSpecification);
 
       // Decrypt enterprise specifications if needed
       const appSpecDecrypted = await checkAndDecryptAppSpecs(
@@ -1626,6 +1628,7 @@ async function validateAppUpdate(appSpecification) {
   if (isEnterprise) {
     verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
   }
+  verifyEnterpriseCarriesNoPlainSpec(appSpecification);
 
   const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
 

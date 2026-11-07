@@ -1040,6 +1040,42 @@ describe('appHashSyncService tests', () => {
       });
     });
 
+    it('stores no enterprise message that carries its content in plain', async () => {
+      const bulkMessages = [
+        {
+          type: 'fluxappregister', version: 1, hash: 'hash5', timestamp: Date.now(), signature: 'sig5',
+          appSpecifications: {
+            name: 'plainapp', version: 8, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', enterprise: 'blob', compose: [{ name: 'web' }], contacts: [],
+          },
+          valueSat: 105, txid: 'tx5', height: 1005,
+        },
+        {
+          type: 'fluxappregister', version: 1, hash: 'hash6', timestamp: Date.now(), signature: 'sig6',
+          appSpecifications: { name: 'goodapp', version: 4, owner: 'owner' },
+          valueSat: 106, txid: 'tx6', height: 1006,
+        },
+      ];
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100 + i, message: false,
+      }));
+      let getMissingCalls = 0;
+      localDbHelperStub.findInDatabase.callsFake(() => {
+        getMissingCalls += 1;
+        return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+      });
+      localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+
+      await localModule.syncMissingHashes();
+
+      const stored = localCollectionStub.insertMany.getCalls().flatMap((call) => call.args[0]).map((message) => message.hash);
+      expect(stored).to.deep.equal(['hash6']);
+      sinon.assert.notCalled(localCheckAndDecryptStub);
+    });
+
     describe('the registry rows of the apps it stores', () => {
       const streamOne = () => {
         const bulkMessages = [{

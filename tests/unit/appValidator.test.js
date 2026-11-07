@@ -1223,5 +1223,16 @@ describe('appValidator spec verification route tests', () => {
       const response = await post(handler, spec);
       expect(response.data.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.');
     });
+
+    [
+      ['compose', { compose: [{ name: 'web', repotag: 'nginx:latest' }] }],
+      ['contacts', { contacts: ['owner@example.com'] }],
+    ].forEach(([field, change]) => {
+      it(`${route} should refuse an enterprise spec carrying ${field} in plain before decrypting it`, async () => {
+        const response = await post(handler, { ...spec, ...change });
+        expect(response.status).to.equal('error');
+        expect(response.data.message).to.equal('An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain');
+      });
+    });
   });
 });

@@ -256,6 +256,10 @@ export async function restartDockerd(container, { readyTimeoutMs = 40000, interv
 // runtime drop-in turning the restart off: its FluxOS stays down after it exits, as a
 // machine does between a shutdown and its next boot, until releaseFluxos.
 const FLUXOS_HOLD = '/run/systemd/system/fluxos.service.d/hold.conf';
+// Written by the entrypoint on a node created held (createTestEnv fluxosHeldNodes):
+// its FluxOS does not start at boot until FLUXOS_RELEASED exists.
+const FLUXOS_BOOT_HOLD = '/etc/systemd/system/fluxos.service.d/held.conf';
+const FLUXOS_RELEASED = '/var/lib/flux-harness/fluxos-released';
 
 /**
  * The pid of the node's FluxOS process, or null while it is not running.
@@ -385,11 +389,11 @@ export async function shutdownFluxosGracefully(container, {
   }
 }
 
-// Bring back a node held down by shutdownFluxosGracefully({ hold: true }), and
-// wait for its API to answer.
+// Start the FluxOS of a held node - one held down by a hold option, or created
+// held - and wait for its API to answer.
 export async function releaseFluxos(container, { apiPort = 16127, readyTimeoutMs = 120000, interval = 500 } = {}) {
   const released = await execInContainer(container,
-    `rm -f ${FLUXOS_HOLD} && systemctl daemon-reload && systemctl reset-failed fluxos; systemctl start fluxos`);
+    `mkdir -p "$(dirname ${FLUXOS_RELEASED})" && touch ${FLUXOS_RELEASED} && rm -f ${FLUXOS_HOLD} ${FLUXOS_BOOT_HOLD} && systemctl daemon-reload && systemctl reset-failed fluxos; systemctl start fluxos`);
   if (released.exitCode !== 0) throw new Error(`releaseFluxos: ${released.output}`);
   const probe = `curl -sf -o /dev/null http://127.0.0.1:${apiPort}/flux/version`;
   const start = Date.now();

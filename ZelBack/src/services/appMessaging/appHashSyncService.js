@@ -9,6 +9,7 @@ const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
 const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper');
@@ -372,6 +373,8 @@ async function processMessages(messages, records, onProgress) {
         const isRegistration = appMessage.type === 'fluxappregister' || appMessage.type === 'zelappregister';
 
         await messageVerifier.verifyAppHash(appMessage);
+
+        verifyEnterpriseCarriesNoPlainSpec(specifications);
 
         if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
           try {
