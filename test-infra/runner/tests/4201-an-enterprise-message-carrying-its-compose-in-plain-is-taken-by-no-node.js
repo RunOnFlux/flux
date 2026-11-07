@@ -23,12 +23,13 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // The blob is a real encryption of the same compose, so a node that decrypts it
 // finds a valid specification: only the plain copy beside it is wrong. Node 0 is
-// Arcane and node 1 legacy; the stub peer reaches both.
+// Arcane and node 1 legacy; node 2, Arcane, gives node 0 a peer each way to
+// register through. The stub peer reaches every node.
 
 const ARCANE = 0;
 const LEGACY = 1;
-const REAL_NODES = 2;
-const STUB_INDEX = 2;
+const REAL_NODES = 3;
+const STUB_INDEX = 3;
 const realNodes = [ARCANE, LEGACY];
 const REFUSAL = 'An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain';
 
@@ -56,7 +57,7 @@ describe('an enterprise message carrying its compose in plain is taken by no nod
     });
     stub = env.stubPeerClients.get(STUB_INDEX);
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
-    expect(await stub.connectedNodes(), 'fixture: the stub reaches both nodes').to.equal(REAL_NODES);
+    expect(await stub.connectedNodes(), 'fixture: the stub reaches every node').to.equal(REAL_NODES);
     const attested = await Promise.all(realNodes.map(async (i) => (await env.clients[i].request('GET', `/flux/isarcaneos?_=${Date.now()}`)).data?.data));
     expect(attested, 'fixture: only the Arcane node reports itself attested').to.deep.equal([true, false]);
 
