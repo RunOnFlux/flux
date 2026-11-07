@@ -54,6 +54,8 @@ describe('an enterprise message carrying its compose in plain is taken by no nod
     stub = env.stubPeerClients.get(STUB_INDEX);
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     expect(await stub.connectedNodes(), 'fixture: the stub reaches both nodes').to.equal(REAL_NODES);
+    const attested = await Promise.all(realNodes.map(async (i) => (await env.clients[i].request('GET', `/flux/isarcaneos?_=${Date.now()}`)).data?.data));
+    expect(attested, 'fixture: only the Arcane node reports itself attested').to.deep.equal([true, false]);
 
     const plain = buildAppSpec({ name: plainName });
     plainMessage = await buildAppMessage({ ...plain, enterprise: buildEnterpriseBlob(plain.compose, plain.contacts) });
