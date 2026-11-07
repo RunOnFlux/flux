@@ -43,7 +43,8 @@ describe('an enterprise message carrying its compose in plain is taken by no nod
   let plainMessage;
   let canaryMessage;
 
-  const marks = () => realNodes.map((i) => env.clients[i].getLastEventId());
+  // Keyed by node index: event ids are each node's own.
+  const marks = () => Object.fromEntries(realNodes.map((i) => [i, env.clients[i].getLastEventId()]));
 
   before(async function () {
     this.timeout(420000);
@@ -110,7 +111,7 @@ describe('an enterprise message carrying its compose in plain is taken by no nod
   });
 
   ['fluxappregister', 'fluxappupdate'].forEach((type) => {
-    it(`refuses a ${type === 'fluxappregister' ? 'registration' : 'an update'} through a node's own API that carries its compose in plain`, async function () {
+    it(`refuses ${type === 'fluxappregister' ? 'a registration' : 'an update'} through a node's own API that carries its compose in plain`, async function () {
       this.timeout(120000);
       const spec = buildAppSpec({ name: `e2eentdoor${type === 'fluxappregister' ? 'reg' : 'upd'}${stamp}` });
       const answer = await registerApp(env.clients[ARCANE].url, nodeKey(ARCANE + 1),
