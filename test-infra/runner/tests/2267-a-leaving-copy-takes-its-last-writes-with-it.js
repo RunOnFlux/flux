@@ -173,17 +173,20 @@ describe('a copy leaving an r: or s: app takes its last writes with it', functio
     expect(await running(leaver, name), 'the attempt stopped the copy').to.equal(false);
 
     await env.partitionGroups([leaver], peers, { awaitSever: false });
-    await env.clients[leaver].releaseAllCheckpoints();
+    try {
+      await env.clients[leaver].releaseAllCheckpoints();
 
-    await waitFor(() => attemptOn(leaver, name, marks[leaver]), {
-      timeout: 120000, interval: 1000, label: 'the attempt ended',
-    });
-    expect(attemptOn(leaver, name, marks[leaver]).data).to.include({ proven: false, code: 'COPY_NOT_HELD' });
-    await waitFor(() => running(leaver, name), {
-      timeout: 120000, interval: 2000, label: 'the copy serving again',
-    });
-    expect(await readPath(env.clients[leaver], `${path}/${FINAL_SAVE}`), 'the save the stop made, which no peer holds').to.not.equal(null);
-    await env.healPartition([leaver], peers);
+      await waitFor(() => attemptOn(leaver, name, marks[leaver]), {
+        timeout: 120000, interval: 1000, label: 'the attempt ended',
+      });
+      expect(attemptOn(leaver, name, marks[leaver]).data).to.include({ proven: false, code: 'COPY_NOT_HELD' });
+      await waitFor(() => running(leaver, name), {
+        timeout: 120000, interval: 2000, label: 'the copy serving again',
+      });
+      expect(await readPath(env.clients[leaver], `${path}/${FINAL_SAVE}`), 'the save the stop made, which no peer holds').to.not.equal(null);
+    } finally {
+      await env.healPartition([leaver], peers);
+    }
   };
 
   it('an r: copy no peer can be shown to hold serves again and deletes nothing', async function () {
