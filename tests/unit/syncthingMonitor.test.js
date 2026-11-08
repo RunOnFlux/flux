@@ -37,7 +37,9 @@ const syncthingServiceMock = {
   adjustConfigFolders: sinon.stub().resolves(),
   getFolderIdErrors: sinon.stub(),
   systemRestart: sinon.stub().resolves(),
+  systemPause: sinon.stub().resolves(),
   systemResume: sinon.stub().resolves(),
+  refetchesDroppedDevices: sinon.stub().resolves(true),
   getDbStatus: sinon.stub(),
   getDbCompletion: sinon.stub().resolves({ remoteState: 'notSharing' }),
   getDeviceStats: sinon.stub().resolves({}),
@@ -1906,7 +1908,8 @@ describe('syncthingMonitor tests', () => {
     describe('the folders it tells peers are writable', () => {
       it('counts a folder the role made writable after the pass read it', async () => {
         writesAFolder();
-        syncthingServiceMock.getConfigFolders.callsFake(async () => {
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'receiveonly' }]);
+        syncthingServiceMock.getConfigFolders.onFirstCall().callsFake(async () => {
           await syncthingFolderWrites.patchFolder('testapp', { type: 'sendreceive' });
           return [{ id: 'testapp', type: 'receiveonly' }];
         });
