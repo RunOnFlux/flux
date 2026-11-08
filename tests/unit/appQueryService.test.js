@@ -1091,6 +1091,7 @@ describe('appQueryService tests', () => {
 
       it('answers one request from a node at a time', async () => {
         holder();
+        messageHelperStub.createErrorMessage.resetBehavior();
         messageHelperStub.createErrorMessage.callsFake((message, name, code) => ({ message, name, code }));
         let finish;
         syncthingServiceStub.getDbFile.onFirstCall().returns(new Promise((resolve) => { finish = resolve; }));
