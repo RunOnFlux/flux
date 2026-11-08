@@ -1063,7 +1063,7 @@ describe('appQueryService tests', () => {
         ['a caller that is not a node', () => fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(false), request],
         ['a request naming no address', () => {}, () => request({ from: undefined })],
         ['a request from another IP than the address it names', () => {}, () => request({}, '::ffff:10.0.0.6')],
-        ['a request from no known IP', () => {}, () => request({}, undefined)],
+        ['a request from no known IP', () => {}, () => request({}, null)],
         ['a key that does not own the node at the address it names', () => fluxNetworkHelperStub.verifySignedFluxnodeMessage.withArgs(sinon.match.any, { socketAddress: FROM }).resolves(false), request],
         ['a caller the network lists holding no app installed here', () => registryManagerStub.appsListedAt.withArgs(FROM).resolves([]), request],
         ['a folder of no component of the apps the caller holds', () => {}, () => request({ folder: 'fluxweb_b' })],
@@ -1091,6 +1091,7 @@ describe('appQueryService tests', () => {
 
       it('answers one request from a node at a time', async () => {
         holder();
+        messageHelperStub.createErrorMessage.callsFake((message, name, code) => ({ message, name, code }));
         let finish;
         syncthingServiceStub.getDbFile.onFirstCall().returns(new Promise((resolve) => { finish = resolve; }));
 
