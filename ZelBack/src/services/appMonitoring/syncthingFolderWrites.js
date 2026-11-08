@@ -97,7 +97,7 @@ function recordType(folderId, type) {
  *   when syncthing's folders cannot be read
  */
 async function sharedDevices() {
-  const folders = await syncthingService.getConfigFolders().catch(() => null);
+  const folders = await Promise.resolve().then(() => syncthingService.getConfigFolders()).catch(() => null);
   if (!Array.isArray(folders)) return null;
   return new Map(folders.map((folder) => [folder.id, new Set((folder.devices || []).map(({ deviceID }) => deviceID))]));
 }
@@ -152,12 +152,12 @@ async function reconnectAddedDevices(added) {
   // eslint-disable-next-line no-restricted-syntax
   for (const [device, folderIds] of added) {
     // eslint-disable-next-line no-await-in-loop
-    const paused = await syncthingService.systemPause(device).then(() => true, (error) => {
+    const paused = await Promise.resolve().then(() => syncthingService.systemPause(device)).then(() => true, (error) => {
       log.warn(`syncthing folder writes - could not pause device ${device} to reconnect it: ${error.message}`);
       return false;
     });
     // eslint-disable-next-line no-await-in-loop
-    const resumed = await syncthingService.systemResume(device).then(() => true, (error) => {
+    const resumed = await Promise.resolve().then(() => syncthingService.systemResume(device)).then(() => true, (error) => {
       log.error(`syncthing folder writes - could not resume device ${device} after pausing it to reconnect it: ${error.message}`);
       return false;
     });
