@@ -1022,6 +1022,7 @@ describe('appQueryService tests', () => {
       });
       const request = (over = {}, remoteAddress = '::ffff:10.0.0.5') => ({ body: body(over), socket: { remoteAddress } });
       const holder = () => {
+        dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('appsDatabase') });
         fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
         registryManagerStub.appsListedAt.withArgs(FROM).resolves(['a']);
         dbHelperStub.findInDatabase.resolves([{ name: 'a', version: 7, compose: [{ name: 'web' }, { name: 'db' }] }]);
