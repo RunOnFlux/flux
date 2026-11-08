@@ -90,15 +90,17 @@ async function neededByPeer(folderId, deviceId) {
  * every item.
  * @param {string} folderId
  * @param {string} primary The primary's socket address.
+ * @param {string} localSocketAddr This node's socket address, which the primary answers only as
+ *   a holder of the folder's app.
  * @param {string[]} names
  * @returns {Promise<string>} A StrandedCode.
  */
-async function everyItemIsALostDelete(folderId, primary, names) {
+async function everyItemIsALostDelete(folderId, primary, localSocketAddr, names) {
   const asked = await peerIdentityService.askSigned(
     primary,
     '/apps/folderrecords',
     peerIdentityService.AnswerPurpose.FOLDER_RECORDS,
-    async (challenge) => (await signedPeerRequest(primary, challenge, { folder: folderId, items: names })) ?? {},
+    async (challenge) => (await signedPeerRequest(primary, challenge, { folder: folderId, items: names, from: localSocketAddr })) ?? {},
     { timeout: ASK_TIMEOUT_MS },
   );
   if (asked.verdict !== peerIdentityService.IdentityVerdict.VERIFIED || asked.answer?.folder !== folderId) {
@@ -119,9 +121,10 @@ async function everyItemIsALostDelete(folderId, primary, names) {
  * index again if a delete has been lost.
  * @param {string} folderId
  * @param {string} primary The socket address of the node running the component.
+ * @param {string} localSocketAddr This node's socket address.
  * @returns {Promise<{code: string}>} `code` is a StrandedCode.
  */
-async function repairIfStranded(folderId, primary) {
+async function repairIfStranded(folderId, primary, localSocketAddr) {
   const answer = (code) => {
     if (code !== StrandedCode.FIRST_SIGHTING) sightings.delete(folderId);
     return { code };
@@ -153,7 +156,7 @@ async function repairIfStranded(folderId, primary) {
     return answer(StrandedCode.FIRST_SIGHTING);
   }
 
-  const verdict = await everyItemIsALostDelete(folderId, primary, names);
+  const verdict = await everyItemIsALostDelete(folderId, primary, localSocketAddr, names);
   if (verdict !== StrandedCode.REFETCHED) return answer(verdict);
 
   log.warn(`strandedIndex - ${folderId}: ${names.length} delete(s) of ${primary} never arrived; hearing its index again`);

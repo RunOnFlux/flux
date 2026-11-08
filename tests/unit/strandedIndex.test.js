@@ -5,6 +5,7 @@ const proxyquire = require('proxyquire').noCallThru();
 describe('strandedIndex tests', () => {
   const FOLDER = 'fluxgame_app';
   const PRIMARY = '1.1.1.1:16127';
+  const SELF = '3.3.3.3:16127';
   const DEVICE = 'PRIMARYDEVICE';
   const ITEM = 'backup/world/a.sav';
   const DIR = 'backup/world';
@@ -19,8 +20,8 @@ describe('strandedIndex tests', () => {
   });
   const deleteOf = (version) => ({ deleted: true, version });
   const twoPasses = async () => {
-    await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
-    return strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
+    return strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
   };
 
   beforeEach(() => {
@@ -98,24 +99,26 @@ describe('strandedIndex tests', () => {
   });
 
   it('refetches a list that stands across two passes, every item a dominating delete', async () => {
-    const first = await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    const first = await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
     sinon.assert.notCalled(writes.refetchDeviceIndex);
     expect(first.code).to.equal('FIRST_SIGHTING');
 
-    const second = await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    const second = await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
 
     expect(second.code).to.equal('REFETCHED');
     sinon.assert.calledOnceWithExactly(writes.refetchDeviceIndex, FOLDER, DEVICE);
   });
 
-  it('asks the primary about every item, in a request it signs', async () => {
+  it('asks the primary about every item, in a request it signs as the node it is', async () => {
     await twoPasses();
 
     const [address, route, purpose, body] = identity.askSigned.firstCall.args;
     expect(address).to.equal(PRIMARY);
     expect(route).to.equal('/apps/folderrecords');
     expect(purpose).to.equal('fluxnodeFolderRecords');
-    expect(await body('c0ffee')).to.deep.equal({ challenge: 'c0ffee', folder: FOLDER, items: [ITEM, DIR] });
+    expect(await body('c0ffee')).to.deep.equal({
+      challenge: 'c0ffee', folder: FOLDER, items: [ITEM, DIR], from: SELF,
+    });
   });
 
   [
@@ -160,28 +163,28 @@ describe('strandedIndex tests', () => {
   });
 
   it('starts counting again when the list moves between passes', async () => {
-    await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
     syncthing.getDbRemoteNeed.resolves({ files: [{ name: ITEM }] });
 
-    const result = await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    const result = await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
 
     expect(result.code).to.equal('FIRST_SIGHTING');
     sinon.assert.notCalled(identity.askSigned);
   });
 
   it('does not take the two sightings as consecutive across a clean pass', async () => {
-    await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
     syncthing.getDbRemoteNeed.resolves({ files: [] });
-    await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
     syncthing.getDbRemoteNeed.resolves({ files: [{ name: ITEM }, { name: DIR }] });
 
-    const result = await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    const result = await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
 
     expect(result.code).to.equal('FIRST_SIGHTING');
   });
 
   it('judges the list whatever order syncthing lists it in', async () => {
-    await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
     syncthing.getDbRemoteNeed.resolves({ files: [{ name: DIR }, { name: ITEM }] });
 
     expect((await strandedIndex.repairIfStranded(FOLDER, PRIMARY)).code).to.equal('REFETCHED');
@@ -260,7 +263,7 @@ describe('strandedIndex tests', () => {
   });
 
   it('keeps each folder\'s sightings apart', async () => {
-    await strandedIndex.repairIfStranded(FOLDER, PRIMARY);
+    await strandedIndex.repairIfStranded(FOLDER, PRIMARY, SELF);
 
     expect((await strandedIndex.repairIfStranded('fluxother_app', PRIMARY)).code).to.equal('FIRST_SIGHTING');
   });

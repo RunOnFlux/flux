@@ -8677,7 +8677,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
-      sinon.assert.calledOnceWithExactly(strandedIndex.repairIfStranded, component.folderId, '5.6.7.8:16127');
+      sinon.assert.calledOnceWithExactly(strandedIndex.repairIfStranded, component.folderId, '5.6.7.8:16127', LOCAL);
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 

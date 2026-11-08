@@ -66,6 +66,7 @@ describe('appQueryService tests', () => {
     messageHelperStub = {
       createDataMessage: sinon.stub(),
       createErrorMessage: sinon.stub(),
+      errUnauthorizedMessage: sinon.stub(),
     };
 
     // The answer as it goes out unsigned; a case about the signing says otherwise.
@@ -1015,52 +1016,117 @@ describe('appQueryService tests', () => {
     });
 
     describe('folderRecords', () => {
+      const FROM = '10.0.0.5:16127';
       const body = (over = {}) => ({
-        target: '10.0.0.9:16127', timestamp: Date.now(), pubKey: 'PUB', signature: 'SIG', folder: 'fluxa_a', items: ['x.sav'], ...over,
+        target: '10.0.0.9:16127', timestamp: Date.now(), pubKey: 'PUB', signature: 'SIG', folder: 'fluxweb_a', items: ['x.sav'], from: FROM, ...over,
       });
+      const request = (over = {}, remoteAddress = '::ffff:10.0.0.5') => ({ body: body(over), socket: { remoteAddress } });
+      const holder = () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        registryManagerStub.appsListedAt.withArgs(FROM).resolves(['a']);
+        dbHelperStub.findInDatabase.resolves([{ name: 'a', version: 7, compose: [{ name: 'web' }, { name: 'db' }] }]);
+        syncthingServiceStub.getDbFile.resolves({ local: { deleted: true, version: ['LSS:773'], size: 0 } });
+      };
 
       beforeEach(() => {
         messageHelperStub.createDataMessage.returnsArg(0);
         messageHelperStub.createErrorMessage.returnsArg(0);
+        messageHelperStub.errUnauthorizedMessage.returns('UNAUTHORIZED');
       });
 
-      it('answers a node on the deterministic list with this node\'s record of each item', async () => {
-        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
-        syncthingServiceStub.getDbFile.resolves({ local: { deleted: true, version: ['LSS:773'], size: 0 } });
+      it('answers a node that holds the folder\'s app with this node\'s record of each item', async () => {
+        holder();
 
-        const result = await appQueryService.folderRecords({ body: body() });
+        const result = await appQueryService.folderRecords(request());
 
         expect(result.records).to.deep.equal({ 'x.sav': { deleted: true, version: ['LSS:773'] } });
-        expect(result.folder).to.equal('fluxa_a');
+        expect(result.folder).to.equal('fluxweb_a');
+      });
+
+      it('requires the signing key to own the node at the address the request names', async () => {
+        holder();
+
+        await appQueryService.folderRecords(request());
+
+        sinon.assert.calledWithExactly(fluxNetworkHelperStub.verifySignedFluxnodeMessage, sinon.match({ from: FROM }), { socketAddress: FROM });
       });
 
       it('leaves out an item this node has no record of', async () => {
-        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        holder();
         syncthingServiceStub.getDbFile.resolves({});
 
-        expect((await appQueryService.folderRecords({ body: body() })).records).to.deep.equal({});
+        expect((await appQueryService.folderRecords(request())).records).to.deep.equal({});
       });
 
-      it('asks syncthing nothing for a caller that is not a node', async () => {
-        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(false);
+      [
+        ['a caller that is not a node', () => fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(false), request],
+        ['a request naming no address', () => {}, () => request({ from: undefined })],
+        ['a request from another IP than the address it names', () => {}, () => request({}, '::ffff:10.0.0.6')],
+        ['a request from no known IP', () => {}, () => request({}, undefined)],
+        ['a key that does not own the node at the address it names', () => fluxNetworkHelperStub.verifySignedFluxnodeMessage.withArgs(sinon.match.any, { socketAddress: FROM }).resolves(false), request],
+        ['a caller the network lists holding no app installed here', () => registryManagerStub.appsListedAt.withArgs(FROM).resolves([]), request],
+        ['a folder of no component of the apps the caller holds', () => {}, () => request({ folder: 'fluxweb_b' })],
+        ['a folder of an app whose specification cannot be read', () => dbHelperStub.findInDatabase.resolves([]), request],
+      ].forEach(([name, arrange, build]) => {
+        it(`refuses ${name}, asking syncthing nothing`, async () => {
+          holder();
+          arrange();
 
-        await appQueryService.folderRecords({ body: body() });
+          const result = await appQueryService.folderRecords(build());
 
-        sinon.assert.notCalled(syncthingServiceStub.getDbFile);
+          expect(result).to.equal('UNAUTHORIZED');
+          sinon.assert.notCalled(syncthingServiceStub.getDbFile);
+        });
+      });
+
+      it('answers the Flux team without an address', async () => {
+        holder();
+        verificationHelperStub.verifyPrivilege.resolves(true);
+
+        const result = await appQueryService.folderRecords({ body: body({ from: undefined }) });
+
+        expect(result.folder).to.equal('fluxweb_a');
+      });
+
+      it('answers one request from a node at a time', async () => {
+        holder();
+        let finish;
+        syncthingServiceStub.getDbFile.onFirstCall().returns(new Promise((resolve) => { finish = resolve; }));
+
+        const first = appQueryService.folderRecords(request());
+        await new Promise((resolve) => { setImmediate(resolve); });
+        const second = await appQueryService.folderRecords(request());
+        finish({ local: { deleted: true, version: ['LSS:773'] } });
+        await first;
+        const third = await appQueryService.folderRecords(request());
+
+        expect(second).to.include({ name: 'TooManyRequests' });
+        sinon.assert.calledTwice(syncthingServiceStub.getDbFile);
+        expect(third.folder).to.equal('fluxweb_a');
+      });
+
+      it('takes a request from a node whose earlier one failed', async () => {
+        holder();
+        syncthingServiceStub.getDbFile.onFirstCall().rejects(new Error('syncthing down'));
+
+        await appQueryService.folderRecords(request());
+        const result = await appQueryService.folderRecords(request());
+
+        expect(result.folder).to.equal('fluxweb_a');
       });
 
       it('asks syncthing about a bounded number of items', async () => {
-        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        holder();
 
-        await appQueryService.folderRecords({ body: body({ items: Array.from({ length: 102 }, (_v, i) => `f${i}`) }) });
+        await appQueryService.folderRecords(request({ items: Array.from({ length: 102 }, (_v, i) => `f${i}`) }));
 
         sinon.assert.notCalled(syncthingServiceStub.getDbFile);
       });
 
       it('refuses a body without items', async () => {
-        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        holder();
 
-        await appQueryService.folderRecords({ body: body({ items: [] }) });
+        await appQueryService.folderRecords(request({ items: [] }));
 
         sinon.assert.notCalled(syncthingServiceStub.getDbFile);
       });

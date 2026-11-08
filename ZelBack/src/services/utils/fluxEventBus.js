@@ -73,6 +73,9 @@ const Checkpoint = Object.freeze({
   // A copy is stopped to be handed back and its folder is not yet scanned. Keyed by
   // the folder id.
   LEAVING_COPY_BEFORE_SCAN: 'leavingCopy:beforeScan',
+  // A node's folder records request is admitted and syncthing not yet read. Keyed by
+  // the folder id.
+  FOLDER_RECORDS_BEFORE_READ: 'folderRecords:beforeRead',
   // A removal is committed, has told the network if it tells it, and has not yet
   // torn anything down. Keyed by the app name.
   REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',

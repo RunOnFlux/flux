@@ -4360,7 +4360,7 @@ async function checkAndRemoveApplicationInstance({
             appIds: [component.folderId], identifier: component.identifier, appName: installedApp.name, liveness,
           });
           // eslint-disable-next-line no-await-in-loop
-          const stranded = primary ? await strandedIndex.repairIfStranded(component.folderId, primary) : null;
+          const stranded = primary ? await strandedIndex.repairIfStranded(component.folderId, primary, localSocketAddr) : null;
           if (stranded) {
             fluxEventBus.publish('giveUp:strandedIndex', {
               appName: installedApp.name, folderId: component.folderId, code: stranded.code,
