@@ -2,13 +2,18 @@
  * A device one node drops from a folder and adds back, while the other node goes on
  * sharing the folder with it, receives what the folder gained in between.
  *
- * The primary withholds the standby's device for as long as its calls to the standby's
- * API are answered by another node, and configures it again once they are not. The
- * standby sees nothing wrong and keeps the primary throughout, so only the primary's
- * side changes. Before syncthing v2.1.2 the primary keeps the index sequence it had
- * reached for the standby across the drop, and a file written while the device was out
- * never reaches the standby unless the two reconnect; from v2.1.2 the exchange starts
- * afresh by itself.
+ * The primary keeps running and sending. Its calls to the standby's API are answered
+ * by another node, and the standby's calls to the primary's API are refused, so the
+ * primary withholds the standby's device while the standby, which cannot reach the
+ * primary to judge it, keeps the device it has configured. A file the primary writes
+ * then is in its index while the standby is out of the folder. Both faults lifted, the
+ * primary configures the standby again, and only the primary's side has changed.
+ * Before syncthing v2.1.2 the primary keeps the index sequence it had reached for the
+ * standby across the drop, and that file never reaches the standby unless the two
+ * reconnect; from v2.1.2 the exchange starts afresh by itself.
+ *
+ * Identity verdicts and introductions are held for 5 s, so each fault is noticed, and
+ * each lifted, within a pass or two.
  *
  * Real syncthing; run it on both of test-infra/syncthing-versions.
  */
@@ -16,7 +21,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
-  execInContainer, listAppContainers, redirectOutbound, clearOutboundRedirect,
+  blockPeerAccess, unblockPeerAccess, execInContainer, listAppContainers, redirectOutbound, clearOutboundRedirect,
 } from '../framework/container.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -24,14 +29,12 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { followPrimary } from '../framework/fdm-control.js';
 import { waitFor } from '../framework/wait.js';
 import {
-  getDeviceId, getFolderConfig, getVersion, isDaemonUp, readPath, scanFolder,
+  getDeviceId, getFolderConfig, getFolderStatus, getVersion, isDaemonUp, readPath, scanFolder,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const API_PORT = 16127;
-// How long an identity verdict is held, so a redirect put in or taken out is noticed
-// within a pass or two.
 const IDENTITY_TTL_MS = 5000;
 const WRITTEN = 'appdata/written-while-out.txt';
 
@@ -41,8 +44,8 @@ describe('a device added back to a folder on one side gets what it missed', func
 
   const appName = `e2ereadd${Date.now()}`;
   const folder = `flux${appName}_${appName}`;
-  const HOLDERS = [0, 1];
-  const BYSTANDER = 2;
+  const HOLDERS = [1, 2];
+  const BYSTANDER = 0;
   const client = (i) => env.clients[i];
   let primary;
   let standby;
@@ -52,8 +55,11 @@ describe('a device added back to a folder on one side gets what it missed', func
 
   const running = async (i) => (await listAppContainers(client(i).container))
     .some((c) => c.name.includes(appName) && c.status?.startsWith('Up'));
-  const sharesWith = async (i, device) => (await getFolderConfig(client(i), folder))?.devices
-    ?.some(({ deviceID }) => deviceID === device) ?? false;
+  const sharesWith = async (i, device) => {
+    const config = await getFolderConfig(client(i), folder);
+    if (!Array.isArray(config?.devices)) throw new Error(`node ${i} holds no config for ${folder}`);
+    return config.devices.some(({ deviceID }) => deviceID === device);
+  };
 
   before(async function () {
     this.timeout(900000);
@@ -68,6 +74,8 @@ describe('a device added back to a folder on one side gets what it missed', func
           minIncoming: 1,
           peerIdentityVerifiedTtlMs: IDENTITY_TTL_MS,
           peerIdentityMisroutedTtlMs: IDENTITY_TTL_MS,
+          peerIdentityUnreachableTtlMs: IDENTITY_TTL_MS,
+          peerIdentityIntroductionTtlMs: IDENTITY_TTL_MS,
         },
       },
     });
@@ -112,6 +120,14 @@ describe('a device added back to a folder on one side gets what it missed', func
     await waitFor(async () => (await readPath(client(standby), `${standbyPath}/appdata/placed.txt`)) !== null, {
       timeout: 180000, interval: 2000, label: 'the standby holds the primary\'s data',
     });
+    // syncthing 2.0.15 scans a directory a pull wrote into as a local change, which the
+    // standby reverts and announces. Settled here, so the standby sends nothing while
+    // the primary's side changes.
+    await scanFolder(client(standby), folder);
+    await waitFor(async () => {
+      const status = await getFolderStatus(client(standby), folder);
+      return status.receiveOnlyChangedFiles === 0 && status.receiveOnlyChangedDirectories === 0 && status.state === 'idle';
+    }, { timeout: 120000, interval: 2000, label: 'the standby holds no local changes' });
     expect(await sharesWith(primary, standbyDevice), 'fixture: the primary shares the folder with the standby').to.equal(true);
     expect(await sharesWith(standby, primaryDevice), 'fixture: the standby shares the folder with the primary').to.equal(true);
   });
@@ -123,10 +139,17 @@ describe('a device added back to a folder on one side gets what it missed', func
 
   it('receives a file the primary wrote while it had dropped the standby\'s device', async function () {
     this.timeout(600000);
-    const redirect = await redirectOutbound(client(primary).container, {
+    const { container } = client(primary);
+    const blocked = await blockPeerAccess(container, [client(standby).ip], API_PORT);
+    const redirect = await redirectOutbound(container, {
       toIps: [client(standby).ip], ports: String(API_PORT), landsOn: client(BYSTANDER).ip, resetOpen: true,
     });
-    let cleared = false;
+    let lifted = false;
+    const lift = async () => {
+      lifted = true;
+      await clearOutboundRedirect(container, redirect);
+      await unblockPeerAccess(container, blocked, API_PORT);
+    };
     try {
       await waitFor(async () => !(await sharesWith(primary, standbyDevice)), {
         timeout: 180000, interval: 2000, label: 'the primary withholds the standby\'s device',
@@ -134,14 +157,13 @@ describe('a device added back to a folder on one side gets what it missed', func
       expect(await sharesWith(standby, primaryDevice), 'fixture: the standby still shares the folder with the primary').to.equal(true);
 
       const primaryPath = (await getFolderConfig(client(primary), folder)).path;
-      const made = await execInContainer(client(primary).container,
-        `echo missed > ${primaryPath}/${WRITTEN} && chown 1000:1000 ${primaryPath}/${WRITTEN}`);
+      const made = await execInContainer(container, `echo missed > ${primaryPath}/${WRITTEN} && chown 1000:1000 ${primaryPath}/${WRITTEN}`);
       expect(made.exitCode, made.output).to.equal(0);
       await scanFolder(client(primary), folder);
+      expect(await sharesWith(primary, standbyDevice), 'fixture: the standby still out of the folder once the file is indexed').to.equal(false);
 
       const mark = client(primary).getLastEventId();
-      await clearOutboundRedirect(client(primary).container, redirect);
-      cleared = true;
+      await lift();
       await waitFor(() => sharesWith(primary, standbyDevice), {
         timeout: 180000, interval: 2000, label: 'the primary shares the folder with the standby again',
       });
@@ -160,7 +182,7 @@ describe('a device added back to a folder on one side gets what it missed', func
         expect(reconnected.map((entry) => entry.data.folders), 'the standby reconnected for the folder').to.deep.equal([[folder]]);
       }
     } finally {
-      if (!cleared) await clearOutboundRedirect(client(primary).container, redirect);
+      if (!lifted) await lift();
     }
   });
 });
