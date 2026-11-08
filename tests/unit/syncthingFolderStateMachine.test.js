@@ -27,7 +27,6 @@ const syncthingServiceMock = {
   getConfigDevices: sinon.stub(),
   getConfigFolders: sinon.stub(),
   dbRevert: sinon.stub(),
-  scanFolder: sinon.stub(),
   getDeviceStats: sinon.stub(),
   getSystemStatus: sinon.stub(),
   systemPause: sinon.stub(),
