@@ -8,6 +8,9 @@
  * at once: the leaver's file is younger than syncthing's ten second watcher batch. The
  * staying copies' files reaching each other show sync works in the same window.
  *
+ * A copy that cannot show a peer holds it is cut off from its peers while its attempt
+ * is held before the scan; it serves again, in each mode, once the attempt gives up.
+ *
  * Real syncthing, because the property is what a daemon's index shows; run it on both of
  * test-infra/syncthing-versions.
  *
@@ -36,6 +39,7 @@ describe('a copy leaving an r: or s: app takes its last writes with it', functio
   const stamp = Date.now();
   const leavingApp = `e2eleaving${stamp}`;
   const stayingApp = `e2estaying${stamp}`;
+  const stayingSharedApp = `e2estayshared${stamp}`;
   const sharedApp = `e2eshared${stamp}`;
   const HOLDERS = [0, 1, 2];
   const FINAL_SAVE = 'final-save.txt';
@@ -102,7 +106,7 @@ describe('a copy leaving an r: or s: app takes its last writes with it', functio
     await Promise.all(env.clients.map((c, i) => waitFor(() => isDaemonUp(c), {
       timeout: 180000, interval: 3000, label: `syncthing daemon up on node ${i}`,
     })));
-    await Promise.all([leavingApp, stayingApp, sharedApp].map((name) => pushTestApp(name, 'v1', name, { user: 1000 })));
+    await Promise.all([leavingApp, stayingApp, sharedApp, stayingSharedApp].map((name) => pushTestApp(name, 'v1', name, { user: 1000 })));
   });
 
   after(async function () {
@@ -151,33 +155,44 @@ describe('a copy leaving an r: or s: app takes its last writes with it', functio
     await leavesWithItsWrites(sharedApp, 's');
   });
 
-  it('a copy no peer can be shown to hold serves again and deletes nothing', async function () {
-    this.timeout(600000);
-    const path = await placeOnEveryHolder(stayingApp);
-    await Promise.all(HOLDERS.map((i) => env.clients[i].holdCheckpoint(BEFORE_SCAN)));
+  const servesAgain = async (name, mode) => {
+    const path = await placeOnEveryHolder(name, mode);
+    const folder = folderOf(name);
+    await Promise.all(HOLDERS.map((i) => env.clients[i].holdCheckpoint(BEFORE_SCAN, folder)));
     const marks = HOLDERS.map((i) => env.clients[i].getLastEventId());
     await Promise.all(HOLDERS.map((i) => env.clients[i].releaseCheckpoint(GIVEUP_BEFORE_PASS)));
 
-    await waitFor(async () => (await Promise.all(HOLDERS.map(async (i) => (await env.clients[i].holdCheckpoint(BEFORE_SCAN)).parked)))
-      .some((parked) => parked.some((entry) => entry.name === BEFORE_SCAN)), {
-      timeout: 180000, interval: 1000, label: 'an attempt parked before its scan',
+    const parkedHere = async (i) => (await env.clients[i].holdCheckpoint(BEFORE_SCAN, folder)).parked
+      .some((entry) => entry.name === BEFORE_SCAN && entry.key === folder);
+    await waitFor(async () => (await Promise.all(HOLDERS.map(parkedHere))).some(Boolean), {
+      timeout: 180000, interval: 1000, label: `an attempt on ${name} parked before its scan`,
     });
-    const parked = await Promise.all(HOLDERS.map(async (i) => (await env.clients[i].holdCheckpoint(BEFORE_SCAN)).parked));
-    const leaver = HOLDERS[parked.findIndex((list) => list.some((entry) => entry.name === BEFORE_SCAN))];
+    const parked = await Promise.all(HOLDERS.map(parkedHere));
+    const leaver = HOLDERS[parked.indexOf(true)];
     const peers = HOLDERS.filter((i) => i !== leaver);
-    expect(await running(leaver, stayingApp), 'the attempt stopped the copy').to.equal(false);
+    expect(await running(leaver, name), 'the attempt stopped the copy').to.equal(false);
 
     await env.partitionGroups([leaver], peers, { awaitSever: false });
     await env.clients[leaver].releaseAllCheckpoints();
 
-    await waitFor(() => attemptOn(leaver, stayingApp, marks[leaver]), {
+    await waitFor(() => attemptOn(leaver, name, marks[leaver]), {
       timeout: 120000, interval: 1000, label: 'the attempt ended',
     });
-    expect(attemptOn(leaver, stayingApp, marks[leaver]).data).to.include({ proven: false, code: 'COPY_NOT_HELD' });
-    await waitFor(() => running(leaver, stayingApp), {
+    expect(attemptOn(leaver, name, marks[leaver]).data).to.include({ proven: false, code: 'COPY_NOT_HELD' });
+    await waitFor(() => running(leaver, name), {
       timeout: 120000, interval: 2000, label: 'the copy serving again',
     });
     expect(await readPath(env.clients[leaver], `${path}/${FINAL_SAVE}`), 'the save the stop made, which no peer holds').to.not.equal(null);
     await env.healPartition([leaver], peers);
+  };
+
+  it('an r: copy no peer can be shown to hold serves again and deletes nothing', async function () {
+    this.timeout(600000);
+    await servesAgain(stayingApp, 'r');
+  });
+
+  it('an s: copy no peer can be shown to hold serves again and deletes nothing', async function () {
+    this.timeout(600000);
+    await servesAgain(stayingSharedApp, 's');
   });
 });
