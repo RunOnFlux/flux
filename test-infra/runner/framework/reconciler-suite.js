@@ -159,6 +159,10 @@ export async function retireApp(env, app, { timeout = 120000 } = {}) {
 // as the flux team (adminandfluxteam) since these are seeded global specs.
 // Returns the indices it installed on.
 export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
+  // A node rebuilds its app registry from the message log on its way to settling
+  // its boot, and the rebuild replaces the registry it read: a spec seeded straight
+  // into the database while it runs is lost. Seeded once each node has settled.
+  await Promise.all(indices.map((i) => waitForBootSettled(env.clients[i])));
   await seedGlobalSpec(env, app, indices);
   return installSeededOnNodes(env, app, indices, { timeout });
 }
