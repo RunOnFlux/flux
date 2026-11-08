@@ -2155,12 +2155,13 @@ describe('appReconciler tests', () => {
   });
 
   describe('an s: component', () => {
+    const exited = { State: { Running: false, Status: 'exited', ExitCode: 0 } };
     const shared = (opinion) => {
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 's:/data' }] };
       stubs.appsRuntimeState.operatorStopState.resolves({ stopped: false, force: false });
       if (opinion) {
         stubs.globalState.bootContainerStateSettled = false;
-        appReconciler.setControllerDesired('db_App', opinion, 'a copy being handed back');
+        appReconciler.setControllerDesired('db_App', opinion, 'mount safety block: unmounted_with_content');
         stubs.globalState.bootContainerStateSettled = true;
       }
     };
@@ -2169,27 +2170,9 @@ describe('appReconciler tests', () => {
       appReconciler.forgetDesiredState('db_App');
     });
 
-    it('stops for a stop written for it', async () => {
+    it('starts once its mount is safe, whatever stop the mount check wrote', async () => {
       shared('stopped');
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
-
-      await appReconciler.reconcile('db_App');
-
-      sinon.assert.calledOnce(stubs.dockerService.appDockerStop);
-    });
-
-    it('stays stopped while the stop stands', async () => {
-      shared('stopped');
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
-
-      await appReconciler.reconcile('db_App');
-
-      sinon.assert.notCalled(stubs.dockerService.appDockerStart);
-    });
-
-    it('starts on the running that ends the stop', async () => {
-      shared('running');
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      stubs.dockerService.dockerContainerInspect.resolves(exited);
 
       await appReconciler.reconcile('db_App');
 
@@ -2198,7 +2181,114 @@ describe('appReconciler tests', () => {
 
     it('runs with no opinion at all: it has no decider to wait for', async () => {
       shared(null);
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      stubs.dockerService.dockerContainerInspect.resolves(exited);
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.calledOnce(stubs.dockerService.appDockerStart);
+    });
+  });
+
+  describe('a copy being handed back', () => {
+    const exited = { State: { Running: false, Status: 'exited', ExitCode: 0 } };
+    const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
+    const place = (containerData) => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData }] };
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: false, force: false });
+    };
+    const hold = async () => {
+      stubs.globalState.bootContainerStateSettled = false;
+      await appReconciler.holdLeavingCopy('db_App');
+      stubs.globalState.bootContainerStateSettled = true;
+    };
+    const release = () => {
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.releaseLeavingCopy('db_App');
+      stubs.globalState.bootContainerStateSettled = true;
+    };
+
+    afterEach(() => {
+      appReconciler.forgetDesiredState('db_App');
+    });
+
+    ['s:/data', 'r:/data', '/data'].forEach((containerData) => {
+      it(`is stopped while held: ${containerData}`, async () => {
+        place(containerData);
+        if (containerData.startsWith('r:')) {
+          stubs.globalState.bootContainerStateSettled = false;
+          appReconciler.setControllerDesired('db_App', 'running', 'syncthing synced start');
+          stubs.globalState.bootContainerStateSettled = true;
+        }
+        await hold();
+        stubs.dockerService.dockerContainerInspect.resolves(running);
+
+        await appReconciler.reconcile('db_App');
+
+        sinon.assert.calledOnceWithExactly(stubs.dockerService.appDockerStop, 'db_App');
+      });
+    });
+
+    it('is stopped while held, though its decider has not spoken', async () => {
+      place('r:/data');
+      await hold();
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.calledOnce(stubs.dockerService.appDockerStop);
+    });
+
+    it('stays stopped while held', async () => {
+      place('s:/data');
+      await hold();
+      stubs.dockerService.dockerContainerInspect.resolves(exited);
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.notCalled(stubs.dockerService.appDockerStart);
+    });
+
+    it('starts once released', async () => {
+      place('s:/data');
+      await hold();
+      release();
+      stubs.dockerService.dockerContainerInspect.resolves(exited);
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.calledOnce(stubs.dockerService.appDockerStart);
+    });
+
+    it('stays stopped once released while its decider holds it stopped', async () => {
+      place('r:/data');
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'stopped', 'syncthing new app clean install');
+      stubs.globalState.bootContainerStateSettled = true;
+      await hold();
+      release();
+      stubs.dockerService.dockerContainerInspect.resolves(exited);
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.notCalled(stubs.dockerService.appDockerStart);
+    });
+
+    it('is stopped while held when its volume cannot be mounted', async () => {
+      place('s:/data');
+      await hold();
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+
+      await appReconciler.reconcile('db_App');
+
+      sinon.assert.calledOnceWithExactly(stubs.dockerService.appDockerStop, 'db_App');
+    });
+
+    it('is forgotten with the component', async () => {
+      place('s:/data');
+      await hold();
+      appReconciler.forgetDesiredState('db_App');
+      stubs.dockerService.dockerContainerInspect.resolves(exited);
 
       await appReconciler.reconcile('db_App');
 

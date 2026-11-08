@@ -17,12 +17,10 @@ describe('leavingCopy tests', () => {
   beforeEach(() => {
     clock = sinon.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
     appReconciler = {
-      dockerActual: sinon.stub(),
-      setControllerDesiredAndWait: sinon.stub().resolves(true),
-      setControllerDesired: sinon.stub(),
+      dockerActual: sinon.stub().resolves(stoppedAt(500)),
+      holdLeavingCopy: sinon.stub().resolves(true),
+      releaseLeavingCopy: sinon.stub(),
     };
-    appReconciler.dockerActual.onCall(0).resolves({ reachable: true, exists: true, running: true });
-    appReconciler.dockerActual.resolves(stoppedAt(500));
     syncthingService = { scanFolder: sinon.stub().resolves({}) };
     serviceHelper = { delay: sinon.stub().callsFake(async (ms) => clock.tick(ms)) };
     fluxEventBus = { checkpoint: sinon.stub().resolves(), Checkpoint: { LEAVING_COPY_BEFORE_SCAN: 'leavingCopy:beforeScan' } };
@@ -41,14 +39,14 @@ describe('leavingCopy tests', () => {
     sinon.restore();
   });
 
-  it('stops the copy, scans it, then proves it, in that order', async () => {
+  it('holds the copy stopped, scans it, then proves it, in that order', async () => {
     const held = sinon.stub().resolves(true);
 
     const result = await leavingCopy.stopAndProve([component], held);
 
     expect(result).to.include({ proven: true, code: 'PROVEN' });
-    sinon.assert.calledOnceWithExactly(appReconciler.setControllerDesiredAndWait, 'web_app', 'stopped', sinon.match.string);
-    sinon.assert.callOrder(appReconciler.setControllerDesiredAndWait, syncthingService.scanFolder, held);
+    sinon.assert.calledOnceWithExactly(appReconciler.holdLeavingCopy, 'web_app');
+    sinon.assert.callOrder(appReconciler.holdLeavingCopy, appReconciler.dockerActual, syncthingService.scanFolder, held);
   });
 
   it('scans once, however long the proof takes', async () => {
@@ -62,23 +60,14 @@ describe('leavingCopy tests', () => {
     sinon.assert.callCount(serviceHelper.delay, 3);
   });
 
-  it('marks the copy before it stops it', async () => {
-    let markedAtStop;
-    appReconciler.setControllerDesiredAndWait.callsFake(async () => { markedAtStop = leavingCopy.isLeaving('fluxweb_app'); });
+  it('holds every component before it scans any', async () => {
+    const other = { identifier: 'db_app', folderId: 'fluxdb_app', unsyncedSubdirs: [] };
 
-    await leavingCopy.stopAndProve([component], async () => true);
+    await leavingCopy.stopAndProve([component, other], async () => true);
 
-    expect(markedAtStop).to.equal(true);
-  });
-
-  it('does not stop a copy that is not running, and still scans it', async () => {
-    appReconciler.dockerActual.onCall(0).resolves(stoppedAt(400));
-
-    const result = await leavingCopy.stopAndProve([component], async () => true);
-
-    expect(result.proven).to.equal(true);
-    sinon.assert.notCalled(appReconciler.setControllerDesiredAndWait);
-    sinon.assert.calledOnce(syncthingService.scanFolder);
+    sinon.assert.calledWithExactly(appReconciler.holdLeavingCopy, 'web_app');
+    sinon.assert.calledWithExactly(appReconciler.holdLeavingCopy, 'db_app');
+    expect(appReconciler.holdLeavingCopy.secondCall.calledBefore(syncthingService.scanFolder.firstCall)).to.equal(true);
   });
 
   [
@@ -87,7 +76,7 @@ describe('leavingCopy tests', () => {
     ['indeterminate', { reachable: true, running: false, indeterminate: true }],
   ].forEach(([name, actual]) => {
     it(`refuses before any scan when the stop is not confirmed: ${name}`, async () => {
-      appReconciler.dockerActual.onCall(1).resolves(actual);
+      appReconciler.dockerActual.onCall(0).resolves(actual);
 
       const result = await leavingCopy.stopAndProve([component], async () => true);
 
@@ -135,7 +124,7 @@ describe('leavingCopy tests', () => {
   });
 
   it('refuses a copy that ran again after its scan, though it reads stopped', async () => {
-    appReconciler.dockerActual.onCall(2).resolves(stoppedAt(900));
+    appReconciler.dockerActual.onCall(1).resolves(stoppedAt(900));
 
     const result = await leavingCopy.stopAndProve([component], async () => true);
 
@@ -143,43 +132,32 @@ describe('leavingCopy tests', () => {
   });
 
   it('refuses a copy running again at the decision', async () => {
-    appReconciler.dockerActual.onCall(2).resolves({ reachable: true, running: true, finishedAt: 500 });
+    appReconciler.dockerActual.onCall(1).resolves({ reachable: true, running: true, finishedAt: 500 });
 
     const result = await leavingCopy.stopAndProve([component], async () => true);
 
     expect(result).to.include({ proven: false, code: 'COPY_RESTARTED' });
   });
 
-  it('keeps the mark up whatever the attempt answers: the caller ends it', async () => {
+  it('keeps the hold whatever the attempt answers: the caller ends it', async () => {
     await leavingCopy.stopAndProve([component], async () => false);
 
-    expect(leavingCopy.isLeaving('fluxweb_app')).to.equal(true);
+    sinon.assert.notCalled(appReconciler.releaseLeavingCopy);
   });
 
-  it('gives back: the mark goes and the copy it stopped starts', async () => {
-    await leavingCopy.stopAndProve([component], async () => false);
-
-    leavingCopy.giveBack([component]);
-
-    expect(leavingCopy.isLeaving('fluxweb_app')).to.equal(false);
-    sinon.assert.calledOnceWithExactly(appReconciler.setControllerDesired, 'web_app', 'running', sinon.match.string);
-  });
-
-  it('gives back a copy it never stopped without starting it', async () => {
-    appReconciler.dockerActual.onCall(0).resolves(stoppedAt(400));
+  it('gives back: the hold goes', async () => {
     await leavingCopy.stopAndProve([component], async () => false);
 
     leavingCopy.giveBack([component]);
 
-    sinon.assert.notCalled(appReconciler.setControllerDesired);
+    sinon.assert.calledOnceWithExactly(appReconciler.releaseLeavingCopy, 'web_app');
   });
 
-  it('starts nothing for a copy that was removed', async () => {
+  it('releases the hold of a copy that was removed', async () => {
     await leavingCopy.stopAndProve([component], async () => true);
 
     leavingCopy.removed([component]);
 
-    expect(leavingCopy.isLeaving('fluxweb_app')).to.equal(false);
-    sinon.assert.notCalled(appReconciler.setControllerDesired);
+    sinon.assert.calledOnceWithExactly(appReconciler.releaseLeavingCopy, 'web_app');
   });
 });

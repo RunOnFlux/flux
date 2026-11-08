@@ -31,7 +31,6 @@ const folderStates = require('./folderStates');
 const localChangeCheck = require('./localChangeCheck');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
-const leavingCopy = require('../appLifecycle/leavingCopy');
 const { componentStateOnOtherHolders, PeerComponent } = require('./peerComponent');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
@@ -2024,14 +2023,12 @@ async function handleNewApp(params) {
 }
 
 /**
- * Asks the reconciler to run a component, unless an attempt to hand its copy back
- * holds it stopped.
+ * Asks the reconciler to run a component.
  * @param {string} appId - App ID
  * @param {string} reason - Why, for the log and the event
  * @returns {void}
  */
 function requestStart(appId, reason) {
-  if (leavingCopy.isLeaving(appId)) return;
   appReconciler.setControllerDesired(appId, 'running', reason);
 }
 

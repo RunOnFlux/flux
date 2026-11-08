@@ -170,7 +170,6 @@ const { createPeerFolderLiveness } = peerFolderLivenessMock;
 const primaryRoleMock = {
   holdAsStandby: sinon.stub().resolves(),
 };
-const leavingCopyMock = { isLeaving: sinon.stub().returns(false) };
 const PeerComponent = Object.freeze({ RUNNING: 'running', NOT_RUNNING: 'notRunning', UNKNOWN: 'unknown' });
 const peerComponentMock = {
   PeerComponent,
@@ -204,15 +203,11 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   './peerFolderLiveness': peerFolderLivenessMock,
   '../appQuery/appQueryService': appQueryServiceMock,
   '../appLifecycle/primaryRole': primaryRoleMock,
-  '../appLifecycle/leavingCopy': leavingCopyMock,
   './peerComponent': peerComponentMock,
 });
 
 describe('syncthingFolderStateMachine tests', () => {
   beforeEach(() => {
-    leavingCopyMock.isLeaving.resetBehavior();
-    leavingCopyMock.isLeaving.resetHistory();
-    leavingCopyMock.isLeaving.returns(false);
     globalStateMock.folderStates.clear();
     peerIdentityMock.reset();
     primaryRoleMock.holdAsStandby.resetHistory();
@@ -790,18 +785,6 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
       expect(result.cache).to.deep.equal({ restarted: true, marker: 'kept' });
       expect(result.syncthingFolder).to.equal(mockParams.syncthingFolder);
-    });
-
-    it('leaves a stopped r: container stopped while an attempt holds its copy', async () => {
-      mockParams.syncFolder = { type: 'sendreceive' };
-      mockParams.receiveOnlySyncthingAppsCache = new Map([['test-app', { restarted: true }]]);
-      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
-      leavingCopyMock.isLeaving.withArgs('test-app').returns(true);
-
-      await stateMachine.manageFolderSyncState(mockParams);
-
-      sinon.assert.calledWith(leavingCopyMock.isLeaving, 'test-app');
-      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
     describe('an r: container already running on a syncing folder', () => {

@@ -16,8 +16,9 @@ const appReconciler = require('../appMonitoring/appReconciler');
 // The copy is stopped only on a pass that may remove it, and for no longer than
 // WAIT_MS: it stays listed while it is stopped, so the spawner replaces nothing.
 //
-// The marks are in memory on purpose. A FluxOS restart forgets an attempt, and the
-// monitor starts the copy again.
+// The reconciler holds each copy stopped from before the stop until the caller ends
+// the attempt (holdLeavingCopy). The hold is in memory on purpose: a FluxOS restart
+// forgets an attempt, and the copy runs again.
 
 const WAIT_MS = config.syncthing.leavingCopyWaitMs ?? 5 * 60 * 1000;
 const POLL_MS = config.syncthing.leavingCopyPollMs ?? 2 * 1000;
@@ -30,28 +31,13 @@ const AttemptCode = Object.freeze({
   RESTARTED: 'COPY_RESTARTED',
 });
 
-// folder ids under an attempt
-const leaving = new Set();
-// folder id -> identifier of a component the attempt stopped
-const stoppedHere = new Map();
-
-/**
- * Whether a copy is under an attempt, so nothing may start it. Read after the last
- * await before a start: the mark goes up before the stop.
- * @param {string} folderId
- * @returns {boolean}
- */
-function isLeaving(folderId) {
-  return leaving.has(folderId);
-}
-
 function refused(code, reason) {
   return { proven: false, code, reason };
 }
 
 /**
  * Stops these components, scans their folders and waits for each to be held elsewhere.
- * The marks stay up whatever this answers: the caller ends the attempt with
+ * The holds stay up whatever this answers: the caller ends the attempt with
  * giveBack or removed.
  * @param {Array<{identifier: string, folderId: string}>} components
  * @param {(component: object) => Promise<boolean>} isHeldElsewhere The removal's own
@@ -60,20 +46,14 @@ function refused(code, reason) {
  */
 async function stopAndProve(components, isHeldElsewhere) {
   const deadline = Date.now() + WAIT_MS;
-  components.forEach(({ folderId }) => leaving.add(folderId));
 
   // docker's record of the last stop: a start after the scan moves it, and the scan
   // then says nothing about what that run wrote.
   const lastStop = new Map();
   // eslint-disable-next-line no-restricted-syntax
-  for (const { identifier, folderId } of components) {
+  for (const { identifier } of components) {
     // eslint-disable-next-line no-await-in-loop
-    const before = await appReconciler.dockerActual(identifier);
-    if (before.running) {
-      stoppedHere.set(folderId, identifier);
-      // eslint-disable-next-line no-await-in-loop
-      await appReconciler.setControllerDesiredAndWait(identifier, 'stopped', 'stopping a copy to hand it back');
-    }
+    await appReconciler.holdLeavingCopy(identifier);
     // eslint-disable-next-line no-await-in-loop
     const actual = await appReconciler.dockerActual(identifier);
     if (!actual.reachable || actual.indeterminate || actual.running) {
@@ -118,26 +98,16 @@ async function stopAndProve(components, isHeldElsewhere) {
   return { proven: true, code: AttemptCode.PROVEN, reason: 'stopped, scanned and held elsewhere' };
 }
 
-function clear(components) {
-  components.forEach(({ folderId }) => {
-    leaving.delete(folderId);
-    stoppedHere.delete(folderId);
-  });
-}
-
 /**
- * Ends an attempt that removed nothing: the copy serves again.
+ * Ends an attempt that removed nothing: the holds go, and the copy runs as it would
+ * have without the attempt.
  * @param {Array<{identifier: string, folderId: string}>} components
  * @returns {void}
  */
 function giveBack(components) {
-  const restart = components
-    .map(({ folderId }) => stoppedHere.get(folderId))
-    .filter(Boolean);
-  clear(components);
-  restart.forEach((identifier) => {
-    log.warn(`${identifier} was stopped to be handed back and was not; starting it again`);
-    appReconciler.setControllerDesired(identifier, 'running', 'the copy stays');
+  components.forEach(({ identifier }) => {
+    log.warn(`${identifier} was held to be handed back and was not; releasing it`);
+    appReconciler.releaseLeavingCopy(identifier);
   });
 }
 
@@ -147,14 +117,13 @@ function giveBack(components) {
  * @returns {void}
  */
 function removed(components) {
-  clear(components);
+  components.forEach(({ identifier }) => appReconciler.releaseLeavingCopy(identifier));
 }
 
 module.exports = {
   AttemptCode,
   WAIT_MS,
   giveBack,
-  isLeaving,
   removed,
   stopAndProve,
 };
