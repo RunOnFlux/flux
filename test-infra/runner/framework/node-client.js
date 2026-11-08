@@ -304,6 +304,7 @@ export function nodeClient(nodeNum) {
         'syncthing:holderRetained',
         'syncthing:holderExcluded',
         'syncthing:passComplete',
+        'syncthing:deviceReconnected',
         'syncthing:ownersByNumber',
         'syncthing:listenerKnown',
         'availability:checked',
