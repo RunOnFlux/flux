@@ -11,6 +11,8 @@ const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const syncthingFolderWrites = require('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites');
+const config = require('config');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
 // syncthing's folder config, one stub per test: a test sets what syncthing holds on it.
 const configFolders = () => (syncthingService.getConfigFolders.restore
@@ -861,9 +863,32 @@ describe('a device added back to a folder', () => {
   let pause;
   let resume;
   let publish;
+  // the local database's record of devices taken out of folders, kept in memory
+  let records;
+  let asked;
+  const recordCollection = {
+    updateOne: async (filter, update) => { records.set(filter._id, { _id: filter._id, ...update.$set }); },
+    find: (filter) => ({ toArray: async () => [...records.values()].filter((doc) => filter._id.$in.includes(doc._id)) }),
+    deleteMany: async (filter) => {
+      [...records.values()]
+        .filter((doc) => (filter._id ? filter._id.$in.includes(doc._id) : doc.folder === filter.folder))
+        .forEach((doc) => records.delete(doc._id));
+    },
+  };
+  const takenOut = (device, folder = folderId) => records.set(`${folder}|${device}`, { _id: `${folder}|${device}`, folder, device });
 
   beforeEach(() => {
     mountEveryVolume();
+    records = new Map();
+    asked = [];
+    sinon.stub(dbHelper, 'databaseConnection').returns({
+      db: (name) => ({
+        collection: (collectionName) => {
+          asked.push(`${name}.${collectionName}`);
+          return recordCollection;
+        },
+      }),
+    });
     pause = sinon.stub(syncthingService, 'systemPause').resolves({});
     resume = sinon.stub(syncthingService, 'systemResume').resolves({});
     publish = sinon.stub(fluxEventBus, 'publish');
@@ -875,6 +900,7 @@ describe('a device added back to a folder', () => {
 
   it('pauses and then resumes the device on a release that keeps a dropped device\'s sequence', async () => {
     configFolders().resolves(held(['ME']));
+    takenOut('PEER');
     sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
     sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
 
@@ -889,6 +915,7 @@ describe('a device added back to a folder', () => {
 
   it('reconnects a device a whole-folder write adds back', async () => {
     configFolders().resolves(held(['ME']));
+    takenOut('PEER');
     sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
     sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
 
@@ -900,6 +927,7 @@ describe('a device added back to a folder', () => {
 
   it('reconnects nothing on a release that hears a returning device\'s whole index', async () => {
     configFolders().resolves(held(['ME']));
+    takenOut('PEER');
     sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(true);
     sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
 
@@ -932,6 +960,7 @@ describe('a device added back to a folder', () => {
 
   it('reconnects nothing when the write did not land', async () => {
     configFolders().resolves(held(['ME']));
+    takenOut('PEER');
     sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
     sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
 
@@ -942,6 +971,7 @@ describe('a device added back to a folder', () => {
 
   it('resumes the device when its pause failed, and the write stands', async () => {
     configFolders().resolves(held(['ME']));
+    takenOut('PEER');
     sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
     sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
     pause.rejects(new Error('no answer'));
@@ -955,6 +985,7 @@ describe('a device added back to a folder', () => {
 
   it('leaves the write standing when syncthing\'s version cannot be read', async () => {
     configFolders().resolves(held(['ME']));
+    takenOut('PEER');
     sinon.stub(syncthingService, 'refetchesDroppedDevices').rejects(new Error('no answer'));
     sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
 
@@ -962,5 +993,169 @@ describe('a device added back to a folder', () => {
 
     expect(response.status).to.equal('success');
     sinon.assert.notCalled(pause);
+  });
+
+  it('keeps the record of a device whose write did not land', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect([...records.keys()]).to.deep.equal([`${folderId}|PEER`]);
+  });
+
+  it('reconnects nothing for a device added to the folder for the first time', async () => {
+    configFolders().resolves(held(['ME']));
+    const version = sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.notCalled(version);
+    sinon.assert.notCalled(pause);
+    sinon.assert.notCalled(resume);
+  });
+
+  it('records a device a write takes out of the folder, in the local database, before the write', async () => {
+    configFolders().resolves(held(['ME', 'PEER']));
+    sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async () => {
+      expect([...records.keys()]).to.deep.equal([`${folderId}|PEER`]);
+      return { status: 'success' };
+    });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+
+    expect([...records.values()].map(({ folder, device }) => `${folder} ${device}`)).to.deep.equal([`${folderId} PEER`]);
+    expect(new Set(asked)).to.deep.equal(new Set([`${config.database.local.database}.syncthingdroppeddevices`]));
+  });
+
+  it('records a device a whole-folder write takes out of the folder', async () => {
+    configFolders().resolves(held(['ME', 'PEER']));
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.putFolders([{ id: folderId, type: 'receiveonly', devices: [{ deviceID: 'ME' }] }]);
+
+    expect([...records.keys()]).to.deep.equal([`${folderId}|PEER`]);
+  });
+
+  it('reconnects a device taken out of the folder by one write and added back by a later one, once', async () => {
+    const folders = configFolders();
+    folders.resolves(held(['ME', 'PEER']));
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+    sinon.assert.notCalled(pause);
+
+    folders.resolves(held(['ME']));
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+    sinon.assert.calledOnceWithExactly(resume, 'PEER');
+    expect(records.size).to.equal(0);
+
+    // the same device taken out of a folder it was never recorded for, and added again
+    folders.resolves(held(['ME']));
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+    sinon.assert.calledOnce(pause);
+  });
+
+  it('reconnects a device whose own config was deleted after it left the folder, when it is added back', async () => {
+    const folders = configFolders();
+    folders.resolves(held(['ME', 'PEER']));
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    // the monitor deletes a device only once no folder lists it: the folder write comes first
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+    // the device is deleted and later configured again outside this module; the folder holds ME alone throughout
+    folders.resolves(held(['ME']));
+    await syncthingFolderWrites.putFolders([{ id: folderId, type: 'receiveonly', devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] }]);
+
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+    sinon.assert.calledOnceWithExactly(resume, 'PEER');
+  });
+
+  it('reconnects only the devices taken out, of those one write adds', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }, { deviceID: 'NEWCOMER' }] });
+
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+    sinon.assert.calledWith(publish, 'syncthing:deviceReconnected', { device: 'PEER', folders: [folderId] });
+  });
+
+  it('ends a device\'s record when it is added back on a release that needs no reconnect', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(true);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    sinon.assert.notCalled(pause);
+    expect(records.size).to.equal(0);
+  });
+
+  it('ends a device\'s record when its reconnect fails', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+    pause.rejects(new Error('no answer'));
+    resume.rejects(new Error('no answer'));
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    expect(records.size).to.equal(0);
+  });
+
+  it('reconnects every device a write adds back when the record cannot be read', async () => {
+    configFolders().resolves(held(['ME']));
+    sinon.stub(recordCollection, 'find').returns({ toArray: async () => { throw new Error('no answer'); } });
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+  });
+
+  it('makes the write when the removal cannot be recorded', async () => {
+    configFolders().resolves(held(['ME', 'PEER']));
+    sinon.stub(recordCollection, 'updateOne').rejects(new Error('no answer'));
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.calledOnceWithExactly(adjust, 'patch', { devices: [{ deviceID: 'ME' }] }, folderId);
+  });
+
+  it('ends every record of a folder it deletes, and only that folder\'s', async () => {
+    takenOut('PEER');
+    takenOut('OTHER');
+    takenOut('PEER', 'fluxother_app');
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.deleteFolder(folderId);
+
+    expect([...records.keys()]).to.deep.equal(['fluxother_app|PEER']);
+  });
+
+  it('keeps a folder\'s records when syncthing refuses its deletion', async () => {
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
+
+    await syncthingFolderWrites.deleteFolder(folderId);
+
+    expect(records.size).to.equal(1);
   });
 });

@@ -3,6 +3,7 @@ const serviceHelper = require('../serviceHelper');
 const syncthingService = require('../syncthingService');
 const globalState = require('../utils/globalState');
 const folderStates = require('./folderStates');
+const syncthingDroppedDevices = require('./syncthingDroppedDevices');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { appsFolder } = require('../utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('./syncthingMonitorHelpers');
@@ -103,6 +104,22 @@ async function sharedDevices() {
 }
 
 /**
+ * The devices a write takes out of folders that already existed.
+ * @param {Map<string, Set<string>>|null} before sharedDevices() read before the write
+ * @param {object[]} folders The folders as written, each with its id and devices
+ * @returns {Array<{folder: string, device: string}>}
+ */
+function devicesRemoved(before, folders) {
+  if (!before) return [];
+  return folders.flatMap((folder) => {
+    const had = before.get(folder.id);
+    if (!had || !Array.isArray(folder.devices)) return [];
+    const kept = new Set(folder.devices.map(({ deviceID }) => deviceID));
+    return [...had].filter((device) => !kept.has(device)).map((device) => ({ folder: folder.id, device }));
+  });
+}
+
+/**
  * The devices a write adds to folders that already existed, each with the folders
  * it was added to.
  * @param {Map<string, Set<string>>|null} before sharedDevices() read before the write
@@ -124,8 +141,9 @@ function devicesAdded(before, folders) {
 }
 
 /**
- * Has each device that was added back to an existing folder send its index of that
- * folder again, on a release that would not.
+ * Has each device added back to a folder this node had taken it out of send its
+ * index of that folder again, on a release that would not. A device added to a
+ * folder for the first time is left as it is.
  *
  * Before v2.1.2 a daemon that drops a device from a folder keeps the index sequence it
  * had reached for it, and a device added back to that folder while it stays connected
@@ -135,12 +153,26 @@ function devicesAdded(before, folders) {
  * afresh. Every folder shared with the device stops moving data for that reconnect.
  *
  * Each device is resumed whether or not its pause answered. A failure is logged and
- * leaves the write as it landed.
+ * leaves the write as it landed. Each device's record of being taken out of the
+ * folder ends here, reconnected or not: it is in the folder again.
  * @param {Map<string, string[]>} added devicesAdded()
  * @returns {Promise<void>}
  */
 async function reconnectAddedDevices(added) {
-  if (!added.size) return;
+  const back = await syncthingDroppedDevices.addedBack(added);
+  if (!back.size) return;
+  try {
+    await reconnect(back);
+  } finally {
+    await syncthingDroppedDevices.cleared(back);
+  }
+}
+
+/**
+ * @param {Map<string, string[]>} back device id -> folder ids it was added back to
+ * @returns {Promise<void>}
+ */
+async function reconnect(back) {
   let refetches;
   try {
     refetches = await syncthingService.refetchesDroppedDevices();
@@ -150,7 +182,7 @@ async function reconnectAddedDevices(added) {
   }
   if (refetches) return;
   // eslint-disable-next-line no-restricted-syntax
-  for (const [device, folderIds] of added) {
+  for (const [device, folderIds] of back) {
     // eslint-disable-next-line no-await-in-loop
     const paused = await Promise.resolve().then(() => syncthingService.systemPause(device)).then(() => true, (error) => {
       log.warn(`syncthing folder writes - could not pause device ${device} to reconnect it: ${error.message}`);
@@ -328,6 +360,7 @@ async function patchNow(folderId, fields) {
   if (globalState.shutdownInProgress && fields.paused === false) return SHUTDOWN_REFUSAL;
   if (fields.type === 'sendreceive' && !(await volumeMounted(folderId))) return UNMOUNTED_REFUSAL;
   const before = fields.devices ? await sharedDevices() : null;
+  if (fields.devices) await syncthingDroppedDevices.dropped(devicesRemoved(before, [{ id: folderId, devices: fields.devices }]));
   const response = await syncthingService.adjustConfigFolders('patch', fields, folderId);
   if (response.status === 'success' && fields.type) recordType(folderId, fields.type);
   if (response.status === 'success') await reconnectAddedDevices(devicesAdded(before, [{ id: folderId, devices: fields.devices }]));
@@ -353,6 +386,7 @@ async function putFolders(folders) {
   const response = await exclusive(folders.map((folder) => folder.id), async () => {
     if (globalState.shutdownInProgress) return SHUTDOWN_REFUSAL;
     const before = await sharedDevices();
+    await syncthingDroppedDevices.dropped(devicesRemoved(before, folders));
     const put = await syncthingService.adjustConfigFolders('put', folders);
     if (put.status === 'success') {
       folders.forEach((folder) => recordType(folder.id, folder.type));
@@ -388,6 +422,7 @@ function deleteFolder(folderId) {
     if (response.status === 'success') {
       globalState.promotedFolderIds?.delete(folderId);
       recordedTypes.delete(folderId);
+      await syncthingDroppedDevices.folderRemoved(folderId);
     }
     return response;
   });

@@ -84,6 +84,7 @@ module.exports = {
         nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
         upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
+        syncthingDroppedDevices: 'syncthingdroppeddevices', // each device this node took out of an app folder and has not added back
       },
     },
     daemon: {
