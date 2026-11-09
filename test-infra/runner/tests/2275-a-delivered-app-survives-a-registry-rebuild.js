@@ -5,7 +5,7 @@ import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { deliverApp } from '../framework/app-delivery.js';
 import { dbClient } from '../framework/db-client.js';
-import { waitFor } from '../framework/wait.js';
+import { waitFor, waitForOrchestratorState } from '../framework/wait.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -26,7 +26,8 @@ describe('a delivered app survives a registry rebuild', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ hookCtx: this, nodes: 2 });
+    // Three, so each node peers past the app sync's threshold and reaches READY.
+    env = await createTestEnv({ hookCtx: this, nodes: 3 });
     await bootAndPeer(env);
   });
 
@@ -41,6 +42,10 @@ describe('a delivered app survives a registry rebuild', function () {
     const app = await buildSeedableApp({ env, name: `e2erebuild${Date.now()}` });
     const db = dbClient(NODE + 1);
 
+    // The node's app sync rebuilds the registry on its way to READY and holds off a
+    // requested payment check while it runs, so the rebuild held here is the one
+    // this test asks for.
+    await waitForOrchestratorState(node(), 'READY', 180000);
     const from = node().getLastEventId();
     await node().holdCheckpoint(BEFORE_SWAP);
     const auth = await authenticate(node().url, fluxTeamKey());
