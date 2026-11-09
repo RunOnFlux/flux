@@ -395,7 +395,7 @@ describe('appStartupManager tests', () => {
 
     describe('an app whose location record cannot be read', () => {
       const futureExpiry = () => new Date(Date.now() + (300 * 1000));
-      // the held app's check runs in the background, on stubs that answer at once
+      // lets the reconcile run up to the read it waits on
       const settle = () => new Promise((resolve) => { setImmediate(resolve); });
 
       beforeEach(() => {
@@ -406,25 +406,29 @@ describe('appStartupManager tests', () => {
         dbHelperStub.findInDatabase.onSecondCall().rejects(new Error('DB error'));
       });
 
-      it('is held, neither started nor removed', async () => {
-        // the record stays unreadable for as long as this test looks
-        dbHelperStub.findInDatabase.onThirdCall().returns(new Promise(() => {}));
+      it('is held, neither started nor removed, and boot waits for it', async () => {
+        // the record answers only once the test has looked
+        let answer;
+        dbHelperStub.findInDatabase.onThirdCall().returns(new Promise((resolve) => { answer = resolve; }));
 
-        const results = await appStartupManager.reconcileAppsOnBoot();
+        let returned = false;
+        const reconciling = appStartupManager.reconcileAppsOnBoot().then((results) => { returned = true; return results; });
         await settle();
 
-        expect(results.appsUnconfirmed).to.deep.equal(['AppA']);
+        expect(returned, 'boot decided its apps with one still held').to.equal(false);
         expect(globalStateStub.unconfirmedApps.has('AppA'), 'the app was not held').to.equal(true);
         expect(appUninstallerStub.removeAppLocally.called, 'an app whose location is unknown was removed').to.equal(false);
         expect(appUninstallerStub.finishRemoval.called, 'an app whose location is unknown was handed to be removed').to.equal(false);
         expect(appReconcilerStub.enqueue.called, 'an app whose location is unknown was started').to.equal(false);
+
+        answer([{ expireAt: futureExpiry() }]);
+        expect((await reconciling).appsUnconfirmed).to.deep.equal(['AppA']);
       });
 
       it('is started, and released, once its record reads valid', async () => {
         dbHelperStub.findInDatabase.onThirdCall().resolves([{ expireAt: futureExpiry() }]);
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'AppA');
         expect(globalStateStub.unconfirmedApps.has('AppA'), 'a confirmed app is still held').to.equal(false);
@@ -437,17 +441,34 @@ describe('appStartupManager tests', () => {
         dbHelperStub.findInDatabase.onCall(4).resolves([{ expireAt: futureExpiry() }]);
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         expect(dbHelperStub.findInDatabase.callCount, 'the record was not read until it answered').to.equal(5);
         sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'AppA');
+      });
+
+      it('ends boot\'s app step when its record has not answered by the deadline, deciding nothing', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['Date'] });
+        try {
+          // every later read fails, and each failure is a retry's wait gone by
+          dbHelperStub.findInDatabase.callsFake(async () => {
+            clock.tick(15000);
+            throw new Error('DB error');
+          });
+
+          const outcome = await appStartupManager.reconcileAppsOnBoot().then(() => null, (error) => error);
+
+          expect(outcome?.message).to.match(/did not decide its apps within 300s/);
+          expect(appReconcilerStub.enqueue.called, 'an app whose location is unknown was started').to.equal(false);
+          expect(appUninstallerStub.removeAppLocally.called, 'an app whose location is unknown was removed').to.equal(false);
+        } finally {
+          clock.restore();
+        }
       });
 
       it('is removed once its record reads expired, telling the network nothing', async () => {
         dbHelperStub.findInDatabase.onThirdCall().resolves([]);
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         sinon.assert.calledOnceWithExactly(appUninstallerStub.removeAppLocally, 'AppA', null, true, true, false);
         expect(appReconcilerStub.enqueue.called, 'an app whose location expired was started').to.equal(false);
@@ -459,12 +480,12 @@ describe('appStartupManager tests', () => {
         let finishRemoval;
         appUninstallerStub.removeAppLocally.returns(new Promise((resolve) => { finishRemoval = resolve; }));
 
-        await appStartupManager.reconcileAppsOnBoot();
+        const reconciling = appStartupManager.reconcileAppsOnBoot();
         await settle();
         expect(globalStateStub.unconfirmedApps.has('AppA'), 'released while its removal was running').to.equal(true);
 
         finishRemoval('removed');
-        await settle();
+        await reconciling;
         expect(globalStateStub.unconfirmedApps.has('AppA')).to.equal(false);
       });
 
@@ -473,7 +494,6 @@ describe('appStartupManager tests', () => {
         appUninstallerStub.removeAppLocally.resolves('busy');
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         sinon.assert.calledOnceWithExactly(appUninstallerStub.finishRemoval, 'AppA', true, false);
         expect(appReconcilerStub.enqueue.called).to.equal(false);
@@ -489,12 +509,12 @@ describe('appStartupManager tests', () => {
 
         it('is not removed when it was uninstalled meanwhile and its record reads expired', async () => {
           const answer = recordAnswersLater();
-          await appStartupManager.reconcileAppsOnBoot();
+          const reconciling = appStartupManager.reconcileAppsOnBoot();
           await settle();
 
           globalStateStub.unconfirmedApps.delete('AppA');
           answer([]);
-          await settle();
+          await reconciling;
 
           expect(appUninstallerStub.removeAppLocally.called, 'removed an app installed again after its uninstall').to.equal(false);
           expect(appReconcilerStub.enqueue.called).to.equal(false);
@@ -502,12 +522,12 @@ describe('appStartupManager tests', () => {
 
         it('is not started when it was uninstalled meanwhile and its record reads valid', async () => {
           const answer = recordAnswersLater();
-          await appStartupManager.reconcileAppsOnBoot();
+          const reconciling = appStartupManager.reconcileAppsOnBoot();
           await settle();
 
           globalStateStub.unconfirmedApps.delete('AppA');
           answer([{ expireAt: futureExpiry() }]);
-          await settle();
+          await reconciling;
 
           expect(appReconcilerStub.enqueue.called, 'started an app on the word of a hold that had ended').to.equal(false);
           expect(appUninstallerStub.removeAppLocally.called).to.equal(false);
@@ -515,13 +535,13 @@ describe('appStartupManager tests', () => {
 
         it('decides nothing for a later hold under the same name, and leaves that hold in place', async () => {
           const answer = recordAnswersLater();
-          await appStartupManager.reconcileAppsOnBoot();
+          const reconciling = appStartupManager.reconcileAppsOnBoot();
           await settle();
 
           const later = Symbol('AppA');
           globalStateStub.unconfirmedApps.set('AppA', later);
           answer([]);
-          await settle();
+          await reconciling;
 
           expect(appUninstallerStub.removeAppLocally.called, 'decided an app another hold now covers').to.equal(false);
           expect(globalStateStub.unconfirmedApps.get('AppA'), 'released a hold that was not its own').to.equal(later);
@@ -536,7 +556,6 @@ describe('appStartupManager tests', () => {
           });
 
           await appStartupManager.reconcileAppsOnBoot();
-          await settle();
 
           expect(globalStateStub.unconfirmedApps.get('AppA'), 'released a hold set after its removal began').to.equal(later);
         });
@@ -559,7 +578,6 @@ describe('appStartupManager tests', () => {
         dbHelperStub.findInDatabase.onThirdCall().resolves([{ expireAt: futureExpiry() }]);
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'web_MixedApp');
       });
@@ -853,6 +871,31 @@ describe('appStartupManager tests', () => {
 
         expect(holdListeners).to.have.length(0);
       });
+    });
+
+    it('removes every app, and settles, when boot has not decided its apps by the deadline', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['Date'] });
+      try {
+        dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxAppA'], State: 'exited' }]);
+        registryManagerStub.getApplicationGlobalSpecifications.resolves({ version: 3, containerData: '' });
+        fluxNetworkHelperStub.getLocalSocketAddress.resolves('10.0.0.1:16127');
+        // a location read fails, and each failure is a retry's wait gone by
+        dbHelperStub.findInDatabase.callsFake(async (database, collection, query) => {
+          if (!query?.ip) return [{ name: 'AppA' }];
+          clock.tick(15000);
+          throw new Error('DB error');
+        });
+        appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'AppA' }] });
+
+        await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
+
+        sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'AppA');
+        sinon.assert.calledWithMatch(logStub.warn, /REMOVAL REASON: Apps not decided at boot - removing AppA/);
+        expect(appReconcilerStub.enqueue.called, 'an undecided app was started').to.equal(false);
+        expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+      } finally {
+        clock.restore();
+      }
     });
 
     it('removes every app of a node in DOS that no owner holds', async () => {

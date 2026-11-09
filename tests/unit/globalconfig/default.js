@@ -8,6 +8,7 @@ module.exports = {
     heartbeatIntervalMs: 30000,
     bootSyncTimeoutMs: 300000,
     bootDaemonTimeoutMs: 300000,
+    bootAppsReconcileTimeoutMs: 300000,
   },
   peers: {
     wsPingIntervalMs: 15000,
