@@ -58,6 +58,16 @@ async function quote(client, specification) {
 }
 
 /**
+ * The zero-based indices of the fleet's nodes that are running: the nodes an
+ * owner's broadcast reaches.
+ * @param {object} env
+ * @returns {number[]}
+ */
+export function onlineNodes(env) {
+  return env.clients.map((client, i) => (client ? i : null)).filter((i) => i !== null);
+}
+
+/**
  * A message as a node holds one it received and has not seen paid for.
  * @param {object} message the app's permanent message
  * @param {number} now epoch ms
@@ -110,6 +120,7 @@ export async function deliverApp(env, app, indices) {
   const teamKey = fluxTeamKey();
   await Promise.all(indices.map(async (i) => {
     const client = env.clients[i];
+    if (!client) throw new Error(`node ${i} is not started, so nothing can be delivered to it`);
     const dc = dbClient(i + 1);
     // A node quotes a price once its daemon is synced, and resolves a payment once
     // its app sync is running; its boot settling follows both.

@@ -10,7 +10,7 @@ import {
   startTicker, stopTicker, advanceBlock, driveUntil,
 } from './daemon-control.js';
 import { dbClient } from './db-client.js';
-import { deliverApp, deliverAppByBlock } from './app-delivery.js';
+import { deliverApp, deliverAppByBlock, onlineNodes } from './app-delivery.js';
 import {
   buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp, buildSeedableUpdate,
 } from './seed-helper.js';
@@ -92,7 +92,7 @@ export async function retireApp(env, app, { timeout = 120000 } = {}) {
   const ending = await buildSeedableUpdate(app, (spec) => { spec.expire = RETIRE_TERM_BLOCKS; });
   await stopTicker();
   try {
-    await deliverAppByBlock(env, ending, env.clients.map((_unused, i) => i));
+    await deliverAppByBlock(env, ending, onlineNodes(env));
     await driveUntil(env.clients[1], async () => (await Promise.all(env.clients
       .map((_unused, i) => dbClient(i + 1).globalAppSpec(name)))).every((row) => row === null), {
       // the block the update lands in, its term, then two expiry passes
@@ -444,7 +444,7 @@ export async function waitForLocationTable(node, { domains, timeout = 90000 } = 
 // Seed a pre-built app (buildSeedableApp / buildSeedableSyncthingApp) into every
 // node's DB and wait until it installs on some node; resolves that node index.
 export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
-  await deliverApp(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
+  await deliverApp(env, app, onlineNodes(env));
   return Promise.any(env.clients.map(async (c, i) => {
     await waitForAppInstalled(c, app.spec.name, timeout);
     return i;
@@ -455,7 +455,7 @@ export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
 // install it; resolves the sorted list of those node indices. Used by the
 // multi-node gates (g: election needs >= 2 holders).
 export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 } = {}) {
-  await deliverApp(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
+  await deliverApp(env, app, onlineNodes(env));
   const installed = [];
   await Promise.all(env.clients.map(async (c, i) => {
     try {
@@ -478,7 +478,7 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
 //
 // `indices` limits the seed to those nodes, which orders placement by construction:
 // a node the spec has not reached cannot select the app.
-export async function seedSpawnerApp(env, app, indices = env.clients.map((_, i) => i)) {
+export async function seedSpawnerApp(env, app, indices = onlineNodes(env)) {
   await deliverApp(env, app, indices);
 }
 
