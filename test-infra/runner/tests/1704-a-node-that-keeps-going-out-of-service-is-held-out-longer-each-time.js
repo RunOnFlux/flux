@@ -83,12 +83,15 @@ describe('a node that keeps going out of service is held out longer each time', 
   // The router's table is made full of the node's lasting mappings until the
   // node is out of service for it; resolves with the record the episode left,
   // once saved.
+  // The record's other writes - the quarantine a recovery sets - can land after
+  // the anchor, so the episode is the write that adds one.
   async function routerRefusesUntilOutOfService() {
     const mark = node().getLastEventId();
+    const before = (await recurrence()).record.episodeHeights.length;
     const { mappings } = await upnpGatewayState(nodeIp);
     await setUpnpCapacity(nodeIp, mappings.filter((m) => !isTestMapping(m)).length);
     await node().waitForEvent('dos:changed', (d) => d.dosState >= DOS_THRESHOLD && d.dosMessage === UPNP_DOS, OUT_WITHIN_MS, { afterId: mark });
-    const { data } = await node().waitForEvent('dosRecurrence:changed', () => true, 30000, { afterId: mark });
+    const { data } = await node().waitForEvent('dosRecurrence:changed', (d) => d.episodeHeights.length === before + 1, 30000, { afterId: mark });
     return data;
   }
 
