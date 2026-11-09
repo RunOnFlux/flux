@@ -16,6 +16,8 @@ const enterpriseHelper = require('../../ZelBack/src/services/utils/enterpriseHel
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const log = require('../../ZelBack/src/lib/log');
 const { Collection } = require('mongodb');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -331,8 +333,10 @@ describe('fluxNetworkHelper own address tests', () => {
     let recordedAtSwitch;
     const settle = () => new Promise((resolve) => { setImmediate(resolve); });
     // Lets the event loop run until `reached()` holds, failing rather than spinning.
-    async function until(reached, label) {
-      const giveUpAt = Date.now() + 10000;
+    // A wait the code under test may never satisfy takes a budget inside the
+    // test's own timeout, so its `finally` still runs.
+    async function until(reached, label, budgetMs = 10000) {
+      const giveUpAt = Date.now() + budgetMs;
       while (!reached() && Date.now() < giveUpAt) await settle(); // eslint-disable-line no-await-in-loop
       if (!reached()) throw new Error(`${label} never happened`);
     }
@@ -452,6 +456,55 @@ describe('fluxNetworkHelper own address tests', () => {
         told?.();
         await stop();
       }
+    });
+
+    it('hands a reported move to the watch once, however often it is read while under way', async () => {
+      configure('198.51.100.178');
+      await holding('198.51.100.178:16127');
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.179:16127' } });
+      // A move that does not settle, so every pass of the watch reaches the reconcile.
+      daemonServiceFluxnodeRpcs.createConfirmationTransaction.resolves({ status: 'error' });
+      const checkpoint = sinon.stub(fluxEventBus, 'checkpoint').resolves();
+      const reconciles = () => checkpoint.getCalls().filter((call) => call.args[0] === fluxEventBus.Checkpoint.OWN_ADDRESS_BEFORE_RECONCILE).length;
+      let release;
+      recordedAtSwitch.onFirstCall().callsFake(() => new Promise((resolve) => { release = resolve; }));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      try {
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await until(() => release, 'the move reaching its record');
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        expect(fluxNetworkHelper.pendingOwnMove(), 'fixture: read while under way').to.equal('198.51.100.179:16127');
+        release();
+        await until(() => fluxNetworkHelper.getKnownLocalSocketAddress() === '198.51.100.179:16127', 'the switch');
+      } finally {
+        release?.();
+        await stop();
+      }
+
+      // The report's pass, and the pass of the address change its switch makes.
+      expect(reconciles()).to.equal(2);
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.179:16127');
+    });
+
+    it('hands a reported move to the watch again on its next report once handling it failed', async () => {
+      configure('198.51.100.180');
+      await holding('198.51.100.180:16127');
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.181:16127' } });
+      const failed = sinon.spy(log, 'error');
+      recordedAtSwitch.onFirstCall().rejects(new Error('database unavailable'));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      try {
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await until(() => failed.calledWithMatch(/database unavailable/), 'the first pass failing');
+        expect(fluxNetworkHelper.getKnownLocalSocketAddress(), 'fixture: not switched').to.equal('198.51.100.180:16127');
+
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await until(() => fluxNetworkHelper.getKnownLocalSocketAddress() === '198.51.100.181:16127', 'the move handed over again', 1000);
+      } finally {
+        await stop();
+      }
+      sinon.assert.calledTwice(recordedAtSwitch);
     });
 
     it('ends a move the network is not told of, once the node has switched', async () => {
