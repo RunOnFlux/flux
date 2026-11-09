@@ -23,6 +23,7 @@ const config = require('config');
 const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const placementHold = require('./placementHold');
 const geolocationService = require('./geolocationService');
 const benchmarkService = require('./benchmarkService');
 const { CLASSIFICATION } = require('./utils/networkClassifier');
@@ -657,7 +658,7 @@ async function runResidentialPolicy(deps) {
   publishDecision({ residential, arcaneOs: arcane, enforce: shouldEnforce, undecidedBecause: null });
 
   if (!shouldEnforce) {
-    fluxNetworkHelper.clearPlacementHold(fluxNetworkHelper.PlacementHoldOwner.RESIDENTIAL_DOS);
+    placementHold.clearPlacementHold(placementHold.PlacementHoldOwner.RESIDENTIAL_DOS);
     releaseOurDos(`residential=${residential}, arcaneOs=${arcane}`);
     await clearSettleMarker();
     evacuating = false;
@@ -667,7 +668,7 @@ async function runResidentialPolicy(deps) {
   }
 
   // Costs the node nothing it already holds, so it needs no settling period.
-  fluxNetworkHelper.setPlacementHold(fluxNetworkHelper.PlacementHoldOwner.RESIDENTIAL_DOS, HOLD_REASON);
+  placementHold.setPlacementHold(placementHold.PlacementHoldOwner.RESIDENTIAL_DOS, HOLD_REASON);
   // Set with the hold and cleared with it: the two are the same fact, and the
   // hold is the first thing that happens to an enforced node.
   enforcing = true;

@@ -6,6 +6,7 @@ const path = require('path');
 const config = require('config');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const placementHold = require('../../ZelBack/src/services/placementHold');
 const hostStallService = require('../../ZelBack/src/services/hostStallService');
 
 const { stuckIntervals, readIntervalMs } = config.hostStall;
@@ -58,7 +59,7 @@ describe('hostStallService tests', () => {
   async function readTimes(n) {
     for (let i = 0; i < n; i += 1) await read(); // eslint-disable-line no-await-in-loop
   }
-  const placementHeld = () => fluxNetworkHelper.isPlacementHeld();
+  const placementHeld = () => placementHold.isPlacementHeld();
   const outOfService = () => fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
 
   beforeEach(() => {
@@ -73,7 +74,7 @@ describe('hostStallService tests', () => {
 
   afterEach(async () => {
     await hostStallService.stop();
-    fluxNetworkHelper.clearPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL);
+    placementHold.clearPlacementHold(placementHold.PlacementHoldOwner.HOST_STALL);
     fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
     fs.rmSync(procRoot, { recursive: true, force: true });
     sinon.restore();
@@ -113,7 +114,7 @@ describe('hostStallService tests', () => {
     await read();
 
     expect(placementHeld()).to.equal(true);
-    expect(fluxNetworkHelper.getPlacementHold()).to.include('mongod thread 101').and.include('kvm_async_pf_task_wait_schedule');
+    expect(placementHold.getPlacementHold()).to.include('mongod thread 101').and.include('kvm_async_pf_task_wait_schedule');
     expect(outOfService()).to.equal(false);
   });
 
@@ -189,7 +190,7 @@ describe('hostStallService tests', () => {
     });
     await readTimes(2);
 
-    expect(fluxNetworkHelper.getPlacementHold()).to.include('fluxbenchd thread 105');
+    expect(placementHold.getPlacementHold()).to.include('fluxbenchd thread 105');
   });
 
   it('does not read a dependency running in an app container', async () => {
@@ -601,7 +602,7 @@ describe('hostStallService tests', () => {
 
     await readTimes(2);
 
-    expect(fluxNetworkHelper.getPlacementHold()).to.include('dockerd thread 701 has been held in the kernel at unknown');
+    expect(placementHold.getPlacementHold()).to.include('dockerd thread 701 has been held in the kernel at unknown');
   });
 
   it('reads a thread whose command name holds spaces and parentheses', async () => {
@@ -614,6 +615,6 @@ describe('hostStallService tests', () => {
 
     await readTimes(2);
 
-    expect(fluxNetworkHelper.getPlacementHold()).to.include('syncthing thread 501').and.include('folio_wait_bit');
+    expect(placementHold.getPlacementHold()).to.include('syncthing thread 501').and.include('folio_wait_bit');
   });
 });

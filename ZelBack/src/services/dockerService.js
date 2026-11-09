@@ -2076,8 +2076,9 @@ let containerFirewallRuns = Promise.resolve();
  * Applies the container firewall for the networks Docker holds now. Runs one at
  * a time, each reading the network list afresh, so a run that begins after a
  * network is created or removed accounts for it. When Docker does not answer,
- * the chain is left as it is.
- * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
+ * the chain is left as it is. The lookups the node forwards for app containers
+ * are held to the same names.
+ * @returns {Promise<boolean>} True when the chains are in place. Never rejects.
  */
 function applyContainerFirewall() {
   const run = async () => {
@@ -2088,7 +2089,9 @@ function applyContainerFirewall() {
       log.error(`IPTABLES: docker networks unreadable, DOCKER-USER left as it is: ${error.message}`);
       return false;
     }
-    return fluxNetworkHelper.applyContainerEgressRules(bridges);
+    const egress = await fluxNetworkHelper.applyContainerEgressRules(bridges);
+    const forwarded = await fluxNetworkHelper.applyForwardedDnsRules();
+    return egress && forwarded;
   };
   const result = containerFirewallRuns.then(run, run);
   containerFirewallRuns = result.catch(() => {});

@@ -69,6 +69,7 @@ describe('appSpawner tests', () => {
 
 
   function buildModule(opts = {}) {
+    let heldByBenchmarkRead = false;
     configStub = createConfigStub(opts.configOverrides);
     globalStateStub = createGlobalStateStub();
     if (opts.globalStateOverrides) {
@@ -136,7 +137,7 @@ describe('appSpawner tests', () => {
       },
       '../generalService': {
         checkSynced: sinon.stub().resolves(true),
-        isNodeStatusConfirmed: sinon.stub().resolves(true),
+        isNodeStatusConfirmed: sinon.stub().resolves(opts.nodeConfirmed ?? true),
         nodeTier: sinon.stub().resolves('cumulus'),
         // A spec's nodes[] entry names this node by socket address OR by collateral
         // outpoint; the spawner resolves the latter once per pass.
@@ -145,17 +146,21 @@ describe('appSpawner tests', () => {
         ),
       },
       '../benchmarkService': {
-        getBenchmarks: sinon.stub().resolves({
-          status: 'success',
-          data: { ipaddress: '192.168.1.1' },
+        // A read can settle the benchmark verdict's hold, as the real one does.
+        getBenchmarks: sinon.stub().callsFake(async () => {
+          if (opts.benchmarkReadHolds) heldByBenchmarkRead = true;
+          if (opts.benchmarkUnreachable) return { status: 'error' };
+          return { status: 'success', data: { ipaddress: '192.168.1.1' } };
         }),
       },
       '../fluxNetworkHelper': {
         getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
         isPortOpen: sinon.stub().resolves(true),
         isNodeDos: sinon.stub().returns(false),
-        isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
-        getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
+      },
+      '../placementHold': {
+        isPlacementHeld: sinon.stub().callsFake(() => Boolean(opts.placementHold) || heldByBenchmarkRead),
+        getPlacementHold: sinon.stub().callsFake(() => opts.placementHold ?? (heldByBenchmarkRead ? 'Benchmark verdict: failed' : null)),
       },
       '../daemonService/daemonServiceMiscRpcs': {
         isDaemonSynced: daemonSyncStub,
@@ -398,6 +403,36 @@ describe('appSpawner tests', () => {
 
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
+      expect(aggregateStub.called).to.equal(false);
+    });
+
+    it('still reports a node that is not confirmed when fluxbench cannot be reached', async () => {
+      buildModule({ benchmarkUnreachable: true, nodeConfirmed: false });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('Flux Node not Confirmed')).to.equal(true);
+      expect(infoLoggedIncludes('FluxBench status Error')).to.equal(false);
+    });
+
+    it('still checks for expired apps, and installs nothing, when fluxbench cannot be reached', async () => {
+      buildModule({ benchmarkUnreachable: true, globalStateOverrides: { firstExecutionAfterItsSynced: true } });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('Explorer Synced, checking for expired apps')).to.equal(true);
+      expect(infoLoggedIncludes('FluxBench status Error')).to.equal(true);
+      expect(aggregateStub.called).to.equal(false);
+    });
+
+    it('acts on the hold its own benchmark read sets', async () => {
+      // The pass reads the benchmarks before it tests the hold, so a verdict that
+      // has just turned failed stops this pass, not the next one.
+      buildModule({ benchmarkReadHolds: true });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('Benchmark verdict: failed')).to.equal(true);
       expect(aggregateStub.called).to.equal(false);
     });
 

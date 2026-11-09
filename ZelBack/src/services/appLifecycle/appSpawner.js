@@ -5,6 +5,7 @@ const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const placementHold = require('../placementHold');
 const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
@@ -196,8 +197,12 @@ async function trySpawningGlobalApplication() {
       return installDelay;
     }
 
-    if (fluxNetworkHelper.isPlacementHeld()) {
-      log.info(`Node held back from new placements (${fluxNetworkHelper.getPlacementHold()}). Global applications will not be installed`);
+    // Read before the hold is tested: the reply settles the benchmark verdict's
+    // hold, so this pass acts on the verdict as it stands now.
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+
+    if (placementHold.isPlacementHeld()) {
+      log.info(`Node held back from new placements (${placementHold.getPlacementHold()}). Global applications will not be installed`);
       fluxEventBus.publish('spawner:blocked', { reason: 'placement_hold' });
       return installDelay;
     }
@@ -223,11 +228,11 @@ async function trySpawningGlobalApplication() {
     }
     globalState.fluxNodeWasAlreadyConfirmed = true;
 
-    const benchmarkResponse = await benchmarkService.getBenchmarks();
     if (benchmarkResponse.status === 'error') {
       log.info('FluxBench status Error. Global applications will not be installed');
       return installDelay;
     }
+
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (localSocketAddr) log.info(`Gathered IP ${localSocketAddr}`);
     if (localSocketAddr === null) {
