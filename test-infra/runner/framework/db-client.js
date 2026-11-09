@@ -39,6 +39,28 @@ export function dbClient(nodeNum) {
   return {
     prefix,
     dbNames,
+    // Makes this node's databases a copy of another node's, as a machine started
+    // from a clone of that node's disk holds them. For a node not yet started.
+    async cloneFrom(sourceNum) {
+      const client = await getClient();
+      const source = dbClient(sourceNum);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const name of Object.keys(dbNames)) {
+        const from = client.db(source.dbNames[name]);
+        const to = client.db(dbNames[name]);
+        // eslint-disable-next-line no-await-in-loop
+        await to.dropDatabase();
+        // eslint-disable-next-line no-await-in-loop
+        const collections = await from.listCollections({}, { nameOnly: true }).toArray();
+        // eslint-disable-next-line no-restricted-syntax
+        for (const { name: collection } of collections) {
+          // eslint-disable-next-line no-await-in-loop
+          const docs = await from.collection(collection).find({}).toArray();
+          // eslint-disable-next-line no-await-in-loop
+          if (docs.length) await to.collection(collection).insertMany(docs);
+        }
+      }
+    },
 
     async hashCounts() {
       const explorerDb = await db('explorer');

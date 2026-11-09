@@ -25,7 +25,8 @@ const subnet = getSubnetConfig();
 // collateral over is not the listed node moving.
 
 // Three nodes start together, so the fleet peers past the threshold and holds
-// policy, which an install needs; the second machine starts after them.
+// policy, which an install needs; the second machine, a clone of the listed node's
+// disk, starts after them.
 const LISTED = 0;
 const BYSTANDER = 1;
 const OTHER = 2;
@@ -83,8 +84,7 @@ describe('a second machine on the collateral of a node running an app', function
       }],
     });
     // Registered on chain, as on the network: the three online hold the app from the
-    // owner's broadcast and the payment. The second machine scans the payment, and
-    // holds itself out of service with no peers to fetch the message from.
+    // owner's broadcast and the payment.
     const online = [LISTED, BYSTANDER, OTHER];
     await stopTicker();
     await deliverAppByBlock(env, app, online);
@@ -94,10 +94,11 @@ describe('a second machine on the collateral of a node running an app', function
       .every((row) => row?.hash === app.hash), { timeout: 120000, interval: 2000, label: 'every node online holds the app' });
     await installSeededOnNodes(env, app, [LISTED]);
     await waitFor(() => isUp(LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
+    // The second machine starts from a clone of the listed node's disk, so it holds
+    // the app the listed node runs.
+    await dbClient(COPY + 1).cloneFrom(LISTED + 1);
     await env.startNode(COPY);
-    await waitFor(async () => (await dbClient(COPY + 1).appHashRecord(app.hash)) !== null, {
-      timeout: 180000, interval: 3000, label: 'the second machine scanned the app\'s payment',
-    });
+    expect((await dbClient(COPY + 1).globalAppSpec(appName))?.hash, 'fixture: the second machine holds the app').to.equal(app.hash);
   });
 
   after(async function () {
