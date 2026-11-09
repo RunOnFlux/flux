@@ -118,9 +118,6 @@ export async function retireApp(env, app, { timeout = 120000 } = {}) {
 // as the flux team (adminandfluxteam) since these are seeded global specs.
 // Returns the indices it installed on.
 export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
-  // A node resolves an app's payment once its app sync is running, which its boot
-  // settling follows.
-  await Promise.all(indices.map((i) => waitForBootSettled(env.clients[i])));
   await deliverApp(env, app, indices);
   return installSeededOnNodes(env, app, indices, { timeout });
 }

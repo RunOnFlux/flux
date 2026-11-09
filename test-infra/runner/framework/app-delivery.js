@@ -13,6 +13,7 @@ import { createRequire } from 'node:module';
 import { authenticate } from '../auth.js';
 import { dbClient } from './db-client.js';
 import { fluxTeamKey } from './keys.js';
+import { waitForBootSettled } from './wait.js';
 
 const require = createRequire(import.meta.url);
 const productConfig = require('../../../ZelBack/config/default.js');
@@ -87,6 +88,9 @@ export async function deliverApp(env, app, indices) {
   await Promise.all(indices.map(async (i) => {
     const client = env.clients[i];
     const dc = dbClient(i + 1);
+    // A node quotes a price once its daemon is synced, and resolves a payment once
+    // its app sync is running; its boot settling follows both.
+    await waitForBootSettled(client);
     if ((await dc.globalAppSpec(name))?.hash === app.hash) return;
 
     const paid = Math.max(await quote(client, message.appSpecifications), minimumPaymentAt(message.height));
