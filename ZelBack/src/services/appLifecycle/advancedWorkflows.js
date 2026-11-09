@@ -38,8 +38,7 @@ const {
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { compareInstanceSeniority } = require('../utils/instanceOrdering');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
@@ -3574,10 +3573,7 @@ async function updateAppGlobaly(params) {
   const daemonHeight = syncStatus.data.height;
 
   const appSpecObj = serviceHelper.ensureObject(appSpecification);
-  if (appSpecObj.version >= 8 && appSpecObj.enterprise) {
-    verifyAppNameAndOwner(appSpecObj.name, appSpecObj.owner);
-  }
-  verifyEnterpriseCarriesNoPlainSpec(appSpecObj);
+  verifyEncryptedSpec(appSpecObj);
   const appSpecDecrypted = await checkAndDecryptAppSpecs(appSpecObj, { daemonHeight });
   const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 

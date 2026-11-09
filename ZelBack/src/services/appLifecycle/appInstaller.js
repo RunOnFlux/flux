@@ -30,7 +30,7 @@ const portReconciler = require('../portReconciler');
 const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const mountParser = require('../utils/mountParser');
 const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
@@ -1244,7 +1244,7 @@ async function testAppInstall(req, res) {
           res.json(errMessage);
           return;
         }
-        verifyEnterpriseCarriesNoPlainSpec(tempMessage.appSpecifications);
+        verifyEncryptedSpec(tempMessage.appSpecifications);
         // The hash is the message's, not the specification's.
         appSpecifications = { ...tempMessage.appSpecifications, hash: tempMessage.hash };
       }
@@ -1278,7 +1278,7 @@ async function testAppInstall(req, res) {
       if (!appSpecifications) {
         const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
-          verifyEnterpriseCarriesNoPlainSpec(permMessage.appSpecifications);
+          verifyEncryptedSpec(permMessage.appSpecifications);
           appSpecifications = { ...permMessage.appSpecifications, hash: permMessage.hash, height: permMessage.height };
         }
       }

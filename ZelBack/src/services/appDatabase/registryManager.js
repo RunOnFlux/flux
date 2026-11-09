@@ -10,8 +10,7 @@ const globalState = require('../utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 const { withRegistryWrite } = require('./registryWriteLock');
@@ -2202,10 +2201,7 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      if (appSpecification.version >= 8 && appSpecification.enterprise) {
-        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
-      }
-      verifyEnterpriseCarriesNoPlainSpec(appSpecification);
+      verifyEncryptedSpec(appSpecification);
 
       const appSpecDecrypted = await checkAndDecryptAppSpecs(
         appSpecification,

@@ -3,6 +3,7 @@ const { expect } = require('chai');
 // The shipped values, not the unit-test mirror.
 const config = require('../../ZelBack/config/default');
 const appValidator = require('../../ZelBack/src/services/appRequirements/appValidator');
+const { verifyEncryptedSpec } = require('../../ZelBack/src/services/utils/enterpriseSpec');
 const {
   MAX_APP_COMPONENTS, MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_ENTERPRISE_LENGTH,
 } = require('../../ZelBack/src/services/utils/appConstants');
@@ -104,6 +105,13 @@ function encryptedEnterprise({ contacts, compose }) {
   return Buffer.concat([crypto.randomBytes(256), nonce, ciphertext, cipher.getAuthTag()]).toString('base64');
 }
 
+/** A spec as a client sends it encrypted: compose and contacts only inside `enterprise`. */
+function encryptedForm(spec) {
+  return {
+    ...spec, compose: [], contacts: [], enterprise: encryptedEnterprise(spec),
+  };
+}
+
 /** A broadcast frame as serialiseAndSignFluxBroadcast sends it, every field at its longest. */
 function frameBytes(appSpecifications) {
   return worstBytes({
@@ -153,18 +161,16 @@ describe('gossip message size tests', () => {
     expect(encryptedEnterprise(largestV8Decrypted())).to.have.length(MAX_ENTERPRISE_LENGTH);
   });
 
-  it('the frame of the largest encrypted v8 spec is under the per-message limit', () => {
-    const spec = largestV8Decrypted();
-    const wire = {
-      ...spec, compose: [], contacts: [], enterprise: encryptedEnterprise(spec),
-    };
+  it('the largest encrypted v8 spec is taken, and its frame is under the per-message limit', () => {
+    const wire = encryptedForm(largestV8Decrypted());
+    expect(() => verifyEncryptedSpec(wire)).to.not.throw();
     expect(frameBytes(wire)).to.be.below(config.fluxapps.gossipMessageMaxBytes);
   });
 
-  it('the validator refuses an enterprise string one character over the limit', () => {
-    const spec = largestV8Decrypted();
-    spec.enterprise = 'A'.repeat(MAX_ENTERPRISE_LENGTH + 1);
-    expect(() => validate(spec)).to.throw(`Maximum of ${MAX_ENTERPRISE_LENGTH} characters`);
+  it('an encrypted spec with an enterprise string one character over the limit is refused', () => {
+    const wire = encryptedForm(largestV8Decrypted());
+    wire.enterprise += 'A';
+    expect(() => verifyEncryptedSpec(wire)).to.throw(`Maximum of ${MAX_ENTERPRISE_LENGTH} characters`);
   });
 
   it('a sync answer batch holds any message a node takes', () => {

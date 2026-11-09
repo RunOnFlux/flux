@@ -587,7 +587,7 @@ describe('appInstaller tests', () => {
   // An app not yet paid for is tried out by its owner. Anyone else is refused
   // before a container is made, and the flux team may test any.
   describe('testAppInstall of an app not yet paid for', () => {
-    const owner = '1OwnerOfTheTemporaryApp';
+    const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
     const tempMessage = {
       hash: 'temphash',
       type: 'fluxappregister',

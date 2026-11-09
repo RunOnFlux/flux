@@ -13,8 +13,7 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -214,14 +213,12 @@ async function storeAppTemporaryMessage(message, options = {}) {
         }
       }
 
-      verifyEnterpriseCarriesNoPlainSpec(specifications);
+      verifyEncryptedSpec(specifications);
 
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        appValidator.verifyEnterpriseLength(appSpecFormatted);
         // eslint-disable-next-line global-require
         const fluxService = require('../fluxService');
         if (await fluxService.isSystemSecure()) {
-          verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
           // eslint-disable-next-line no-use-before-define
           const appSpecDecrypted = await checkAndDecryptAppSpecs(
             appSpecFormatted,

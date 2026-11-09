@@ -12,12 +12,11 @@ const globalState = require('../utils/globalState');
 // eslint-disable-next-line no-unused-vars
 const {
   supportedArchitectures, enterpriseRequiredArchitectures, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY,
-  MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_APP_COMPONENTS, MAX_ENTERPRISE_LENGTH,
+  MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_APP_COMPONENTS,
 } = require('../utils/appConstants');
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 const enterpriseConfig = require('../utils/enterpriseConfig');
 const portManager = require('../appNetwork/portManager');
@@ -546,21 +545,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 }
 
 /**
- * Refuse a v8 `enterprise` string longer than the largest specification the
- * validator allows encrypts to. Checked on the encrypted form, so a node that
- * cannot decrypt it applies it too.
- * @param {object} appSpecifications - Application specifications
- * @returns {void}
- * @throws {Error} If the enterprise string is too long
- */
-function verifyEnterpriseLength(appSpecifications) {
-  const { version, enterprise } = appSpecifications;
-  if (version >= 8 && typeof enterprise === 'string' && enterprise.length > MAX_ENTERPRISE_LENGTH) {
-    throw new Error(`Enterprise specification is too long. Maximum of ${MAX_ENTERPRISE_LENGTH} characters is allowed`);
-  }
-}
-
-/**
  * Verify restriction correctness of application specification
  * @param {object} appSpecifications - Application specifications
  * @param {number} height - Block height for validation context
@@ -602,7 +586,6 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   if (appSpecifications.description.length > 256) {
     throw new Error('Description is too long. Maximum of 256 characters is allowed');
   }
-  verifyEnterpriseLength(appSpecifications);
 
   if (appSpecifications.version === 1) {
     // check port is within range
@@ -1560,10 +1543,7 @@ async function verifyAppRegistrationParameters(req, res) {
         appSpecification.version >= 8 && appSpecification.enterprise,
       );
 
-      if (isEnterprise) {
-        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
-      }
-      verifyEnterpriseCarriesNoPlainSpec(appSpecification);
+      verifyEncryptedSpec(appSpecification);
 
       // Decrypt enterprise specifications if needed
       const appSpecDecrypted = await checkAndDecryptAppSpecs(
@@ -1641,10 +1621,7 @@ async function validateAppUpdate(appSpecification) {
     appSpecification.version >= 8 && appSpecification.enterprise,
   );
 
-  if (isEnterprise) {
-    verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
-  }
-  verifyEnterpriseCarriesNoPlainSpec(appSpecification);
+  verifyEncryptedSpec(appSpecification);
 
   const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
 
@@ -1728,7 +1705,6 @@ async function verifyAppUpdateApi(req, res) {
 module.exports = {
   verifyTypeCorrectnessOfApp,
   verifyRestrictionCorrectnessOfApp,
-  verifyEnterpriseLength,
   verifyObjectKeysCorrectnessOfApp,
   checkHWParameters,
   checkComposeHWParameters,
