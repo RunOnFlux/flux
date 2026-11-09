@@ -4,6 +4,10 @@ const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const messageStore = require('./messageStore');
+const unpaidAdmission = require('./unpaidAdmission');
+const { temporaryMessageExpiry } = require('./temporaryMessageRecord');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+const fluxEventBus = require('../utils/fluxEventBus');
 const { envelopeOf } = require('../utils/fluxBroadcastHelper');
 const { validPath } = require('../utils/networkPath');
 const { appsHashesCollection } = require('../utils/appConstants');
@@ -12,6 +16,9 @@ const { appsHeldMessages } = config.database.appsglobal.collections;
 const HOLD_MS = (config.fluxapps.tempMsgTtlS ?? 3600) * 1000;
 const CHECKS_AT_ONCE = config.fluxapps.tempCheckConcurrency ?? 4;
 const RETRY_MS = 5000;
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+// Why a tagged unpaid message is refused for the link it came by alone.
+const ROUTE_REFUSAL = 'it did not arrive over an authenticated Arcane link';
 
 let relay = null;
 let draining = false;
@@ -25,10 +32,11 @@ function rows() {
 }
 
 /**
- * Every temp app message passes through here: it is kept on arrival, unchecked, and
- * checked once the registry it is checked against is built. Nothing heard is lost
- * to a restart or a sync that ends short, and how long a check takes is never time
- * a peer is waited on.
+ * Every temp app message passes through here: an unpaid one is admitted on arrival,
+ * kept with its admission, and checked once the registry it is checked against is
+ * built. Nothing taken is lost to a restart or a sync that ends short, what is kept
+ * counts against its sender's allowance, and how long a check takes is never time a
+ * peer is waited on.
  *
  * A row is keyed on the whole message rather than its hash, so a forged copy
  * arriving first cannot stand in the way of the genuine one. It holds the message
@@ -53,43 +61,120 @@ function arrivalOf(signed) {
 }
 
 /**
- * Keep messages for checking.
+ * The hashes of `hashes` the chain has paid for.
+ * @param {string[]} hashes
+ * @returns {Promise<Set<string>>}
+ */
+async function paidOf(hashes) {
+  const database = dbHelper.databaseConnection().db(config.database.daemon.database);
+  const paid = await dbHelper.findInDatabase(database, appsHashesCollection, { hash: { $in: hashes } }, { projection: { _id: 0, hash: 1 } });
+  return new Set(paid.map((doc) => doc.hash));
+}
+
+/**
+ * Whether an unpaid message arriving now is taken: only a tagged one over an
+ * authenticated link on an Arcane node, and only within its sender's allowance
+ * (unpaidAdmission). Published as the node's admission decision.
+ * @param {object} message
+ * @param {boolean} authenticated
+ * @param {object} [frame] The broadcast it arrived in, when it arrived alone.
+ * @param {number} daemonHeight
+ * @returns {Promise<{refused: string}|{fields: object, release?: function(): void}>}
+ */
+async function admitOnArrival(message, authenticated, frame, daemonHeight) {
+  const admission = isArcane && !authenticated && message.clientTag !== undefined
+    ? { refused: ROUTE_REFUSAL }
+    : await unpaidAdmission.admitUnpaid(message, { frame, daemonHeight });
+  fluxEventBus.publish('appmessage:admission', {
+    hash: message.hash,
+    taken: !admission.refused,
+    reason: admission.refused ?? null,
+    clientTag: admission.fields?.clientTag ?? null,
+    originKey: admission.fields?.originKey ?? null,
+  });
+  if (admission.refused) log.warn(`Held messages - not taking ${message.hash}: ${admission.refused}`);
+  return admission;
+}
+
+/**
+ * The write that holds one arrival. A row is written once per message, by its first
+ * copy; a later copy over an authenticated link marks it authenticated.
+ * @param {object} message
+ * @param {boolean} authenticated
+ * @param {{message: object, from: string}} [signed]
+ * @param {object|null} admission What the message was admitted with; null for a paid one.
+ * @param {number} now
+ * @returns {object} A bulkWrite operation.
+ */
+function rowWrite(message, authenticated, signed, admission, now) {
+  const key = rowKey(message);
+  const arrival = arrivalOf(signed);
+  const fixed = {
+    key, message, heldAt: new Date(now), expireAt: new Date(now + HOLD_MS),
+    ...(admission && { admission }),
+  };
+  if (!authenticated) {
+    const update = { $setOnInsert: { ...fixed, ...arrival, authenticated: false } };
+    return { updateOne: { filter: { key }, update, upsert: true } };
+  }
+  const update = signed
+    ? { $setOnInsert: fixed, $set: { ...arrival, authenticated } }
+    : { $setOnInsert: { ...fixed, ...arrival }, $set: { authenticated } };
+  return { updateOne: { filter: { key }, update, upsert: true } };
+}
+
+/**
+ * Keep messages for checking. An unpaid one is admitted as it arrives - its route and
+ * its sender's allowance, which counts what is held - and held with that admission,
+ * which its check uses; one refused, or past its hour, is not held. A paid one is held
+ * whatever it carries.
  * @param {Array<{message: object, authenticated?: boolean, relay?: {message: object, from: string}}>} arrivals
  * `authenticated` is whether it arrived over an authenticated link, which only its live
  * frame can say, and `relay` the signed broadcast to pass on once it passes its checks.
- * A copy that arrives authenticated is what a row keeps: the same message from another
- * link may be refused for its route alone.
  * @returns {Promise<number>} How many are held, copies of one already held included.
  * @throws When the database does not take them: nothing may be counted as kept.
  */
 async function hold(arrivals) {
   const now = Date.now();
-  const operations = arrivals
-    .filter(({ message }) => message && typeof message === 'object' && typeof message.hash === 'string')
-    .map(({ message, authenticated = false, relay: signed }) => {
-      const key = rowKey(message);
-      const arrival = arrivalOf(signed);
-      const fixed = {
-        key, message, heldAt: new Date(now), expireAt: new Date(now + HOLD_MS),
-      };
-      if (!authenticated) {
-        const update = { $setOnInsert: { ...fixed, ...arrival, authenticated: false } };
-        return { updateOne: { filter: { key }, update, upsert: true } };
+  const valid = arrivals.filter(({ message }) => message && typeof message === 'object' && typeof message.hash === 'string');
+  if (!valid.length) return 0;
+  const paid = await paidOf([...new Set(valid.map(({ message }) => message.hash))]);
+  const daemonHeight = daemonServiceMiscRpcs.isDaemonSynced().data.height;
+  const operations = [];
+  const places = [];
+  try {
+    // One at a time: each admission counts the ones before it.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const { message, authenticated = false, relay: signed } of valid) {
+      let admission = null;
+      if (!paid.has(message.hash)) {
+        // eslint-disable-next-line no-continue
+        if (temporaryMessageExpiry(Number(message.timestamp)) <= now) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const admitted = await admitOnArrival(message, authenticated, signed?.message, daemonHeight);
+        // eslint-disable-next-line no-continue
+        if (admitted.refused) continue;
+        if (admitted.release) places.push(admitted.release);
+        admission = admitted.fields;
       }
-      const update = signed
-        ? { $setOnInsert: fixed, $set: { ...arrival, authenticated } }
-        : { $setOnInsert: { ...fixed, ...arrival }, $set: { authenticated } };
-      return { updateOne: { filter: { key }, update, upsert: true } };
-    });
-  if (!operations.length) return 0;
-  await rows().bulkWrite(operations, { ordered: false }).catch((error) => {
-    // Two copies upserted at once: the row exists, which is what was asked for.
-    const others = (error.writeErrors ?? []).filter((writeError) => writeError.code !== 11000);
-    if (!error.writeErrors || others.length) throw error;
-  });
-  backlog = true;
-  // eslint-disable-next-line no-use-before-define
-  drain();
+      operations.push(rowWrite(message, authenticated, signed, admission, now));
+    }
+    if (operations.length) {
+      await rows().bulkWrite(operations, { ordered: false }).catch((error) => {
+        // Two copies upserted at once: the row exists, which is what was asked for.
+        const others = (error.writeErrors ?? []).filter((writeError) => writeError.code !== 11000);
+        if (!error.writeErrors || others.length) throw error;
+      });
+    }
+  } finally {
+    // A written row counts itself from here; one not written counts nothing.
+    places.forEach((release) => release());
+  }
+  if (operations.length) {
+    backlog = true;
+    // eslint-disable-next-line no-use-before-define
+    drain();
+  }
   return operations.length;
 }
 
@@ -127,7 +212,7 @@ async function check(row) {
   const settle = (outcome) => { if (frame && relay) relay({ message: frame, from: row.from }, outcome); };
   try {
     const stored = await messageStore.storeAppTemporaryMessage(row.message, {
-      furtherVerification: true, authenticated: row.authenticated, frame,
+      furtherVerification: true, authenticated: row.authenticated, frame, admitted: row.admission,
     });
     if (stored instanceof Error) log.warn(`Held message ${row.message.hash} refused: ${stored.message}`);
     settle(stored);

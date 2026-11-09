@@ -17,6 +17,7 @@ const VerifyResult = Object.freeze({
 
 describe('unpaidAdmission tests', () => {
   let held;
+  let heldForChecking;
   let paid;
   let dbHelper;
   let verifyBroadcasts;
@@ -46,13 +47,16 @@ describe('unpaidAdmission tests', () => {
 
   beforeEach(() => {
     process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
-    // what the temporary store holds per query, and which of its hashes are paid
+    // what the temporary store holds per query, what the hold keeps for checking per
+    // query, and which of their hashes are paid
     held = new Map();
+    heldForChecking = new Map();
     paid = new Set();
     dbHelper = {
       databaseConnection: sinon.stub().returns({ db: (name) => name }),
       findInDatabase: sinon.stub().callsFake(async (database, collection, query) => {
         if (collection === 'hashes') return query.hash.$in.filter((hash) => paid.has(hash)).map((hash) => ({ hash }));
+        if (collection === 'heldrows') return heldForChecking.get(JSON.stringify(query)) ?? [];
         return held.get(JSON.stringify(query)) ?? [];
       }),
     };
@@ -63,7 +67,7 @@ describe('unpaidAdmission tests', () => {
     submitterCap = sinon.stub().returns(null);
     unpaidAdmission = proxyquire('../../ZelBack/src/services/appMessaging/unpaidAdmission', {
       config: {
-        database: { appsglobal: { database: 'appsglobal' }, daemon: { database: 'daemon' } },
+        database: { appsglobal: { database: 'appsglobal', collections: { appsHeldMessages: 'heldrows' } }, daemon: { database: 'daemon' } },
         minimumFluxOSAllowedVersion: floor,
         fluxapps: { untaggedRefusedFrom: '8.24.0' },
       },
@@ -83,6 +87,11 @@ describe('unpaidAdmission tests', () => {
 
   const holding = (query, count, hashes = Array.from({ length: count }, (_, i) => `held${i}`)) => {
     held.set(JSON.stringify(query), hashes.map((hash) => ({ hash })));
+  };
+  // Rows the hold keeps for checking, admitted under `query`'s client or operator.
+  const keptForChecking = (query, hashes) => {
+    const [[field, value]] = Object.entries(query);
+    heldForChecking.set(JSON.stringify({ [`admission.${field}`]: value }), hashes.map((hash) => ({ message: { hash } })));
   };
 
   it('should stub only names the real modules export', () => {
@@ -161,6 +170,45 @@ describe('unpaidAdmission tests', () => {
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
       expect(admission).to.deep.equal({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
+    });
+
+    it('counts the messages held for checking against their operator', async () => {
+      keptForChecking({ originKey: ENTRY_KEY }, ['k0', 'k1', 'k2', 'k3', 'k4']);
+      const data = tagged({ clientTag: OTHER_TAG });
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
+    });
+
+    it('counts the messages held for checking against their client', async () => {
+      keptForChecking({ clientTag: TAG }, ['k0', 'k1', 'k2']);
+      const data = tagged();
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'its client already has 3 unpaid app messages pending' });
+    });
+
+    it('counts a message both held for checking and stored once', async () => {
+      holding({ originKey: ENTRY_KEY }, 4, ['m0', 'm1', 'm2', 'm3']);
+      keptForChecking({ originKey: ENTRY_KEY }, ['m0', 'm1', 'm2', 'm3']);
+      const data = tagged({ clientTag: OTHER_TAG });
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission.fields.originKey).to.equal(ENTRY_KEY);
+      admission.release();
+    });
+
+    it('takes a copy of a message its operator\'s allowance already counts, at the allowance', async () => {
+      holding({ originKey: ENTRY_KEY }, 5, ['hash1', 'm1', 'm2', 'm3', 'm4']);
+      const data = tagged({ clientTag: OTHER_TAG });
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission.fields.originKey).to.equal(ENTRY_KEY);
+      admission.release();
     });
 
     it('refuses a tagged frame carrying a field an app message does not have', async () => {
@@ -422,6 +470,25 @@ describe('unpaidAdmission tests', () => {
 
         expect(admission.fields.clientTag).to.equal(TAG);
       });
+    });
+  });
+
+  describe('placeOf: a message admitted as it arrived', () => {
+    it('holds its place for its check without asking the allowance, and counts it', async () => {
+      holding({ originKey: ENTRY_KEY }, 5);
+      const place = await unpaidAdmission.placeOf('hash9', { clientTag: TAG, originKey: ENTRY_KEY });
+      expect(place.release, 'taken at the allowance').to.be.a('function');
+      holding({ originKey: ENTRY_KEY }, 4);
+      const data = tagged({ hash: 'hash2', clientTag: OTHER_TAG });
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
+      place.release();
+    });
+
+    it('holds no place for a message admitted without a tag', async () => {
+      expect(await unpaidAdmission.placeOf('hash9', {})).to.deep.equal({});
     });
   });
 

@@ -1,4 +1,8 @@
-const { expect } = require('chai');
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 const sinon = require('sinon');
 const config = require('config');
 const proxyquire = require('proxyquire');
@@ -23,12 +27,14 @@ describe('tempMessageHold', () => {
     version: 1, timestamp: 1, pubKey: 'key', signature, data, networkPath,
   });
   let store;
+  let admit;
   let hold;
   let rows;
   let relay;
 
   const loadHold = () => proxyquire('../../ZelBack/src/services/appMessaging/tempMessageHold', {
     './messageStore': { storeAppTemporaryMessage: (...args) => store(...args) },
+    './unpaidAdmission': { admitUnpaid: (...args) => admit(...args) },
   });
 
   before(async () => {
@@ -44,6 +50,8 @@ describe('tempMessageHold', () => {
     await rows.createIndex({ key: 1 }, { unique: true });
     globalState.dbReady = false;
     store = sinon.stub().resolves(true);
+    // an unpaid message is taken, untagged, unless a case says
+    admit = sinon.stub().resolves({ fields: {} });
     relay = sinon.stub();
     await hold.start(relay);
   });
@@ -253,5 +261,110 @@ describe('tempMessageHold', () => {
     globalState.dbReady = true;
     await until(async () => await rows.countDocuments({}) === 1);
     expect((await rows.findOne({})).message.hash).to.equal('down');
+  });
+  describe('admission as a message arrives', () => {
+    const fresh = (hash, extra = {}) => message(hash, { timestamp: Date.now(), ...extra });
+    const fields = { clientTag: 't'.repeat(64), originKey: '04entry', origin: { pubKey: '04entry' } };
+
+    it('holds a taken message with the admission it was taken with, which its check uses', async () => {
+      admit.resolves({ fields });
+
+      await hold.hold([{ message: fresh('a'), authenticated: true }]);
+
+      expect((await rows.findOne({})).admission).to.deep.equal(fields);
+      globalState.dbReady = true;
+      await until(() => store.called);
+      expect(store.firstCall.args[1].admitted).to.deep.equal(fields);
+    });
+
+    it('holds nothing of a message refused as it arrives', async () => {
+      admit.resolves({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
+
+      expect(await hold.hold([{ message: fresh('a'), authenticated: true }])).to.equal(0);
+
+      expect(await rows.countDocuments({})).to.equal(0);
+    });
+
+    it('lets a taken message\'s place go once its row is written, and not before', async () => {
+      let heldWhenReleased = null;
+      const release = sinon.stub().callsFake(async () => { heldWhenReleased = await rows.countDocuments({}); });
+      admit.resolves({ fields, release });
+
+      await hold.hold([{ message: fresh('a'), authenticated: true }]);
+      await until(() => heldWhenReleased !== null);
+
+      sinon.assert.calledOnce(release);
+      expect(heldWhenReleased, 'rows when the place was let go').to.equal(1);
+    });
+
+    it('lets a taken message\'s place go when its row is not written', async () => {
+      const release = sinon.stub();
+      admit.resolves({ fields, release });
+      sinon.stub(rows.constructor.prototype, 'bulkWrite').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      await expect(hold.hold([{ message: fresh('a'), authenticated: true }])).to.be.rejected;
+
+      sinon.assert.calledOnce(release);
+    });
+
+    it('holds a paid message without admitting it', async () => {
+      const daemon = dbHelper.databaseConnection().db(config.database.daemon.database);
+      await daemon.collection(config.database.daemon.collections.appsHashes).insertOne({ hash: 'paidhash', message: false });
+      try {
+        await hold.hold([{ message: fresh('paidhash'), authenticated: true }]);
+
+        sinon.assert.notCalled(admit);
+        expect((await rows.findOne({})).admission).to.equal(undefined);
+      } finally {
+        await daemon.collection(config.database.daemon.collections.appsHashes).deleteOne({ hash: 'paidhash' });
+      }
+    });
+
+    it('holds nothing of an unpaid message past its hour, and does not admit it', async () => {
+      expect(await hold.hold([{ message: message('a', { timestamp: Date.now() - 2 * 60 * 60 * 1000 }) }])).to.equal(0);
+
+      sinon.assert.notCalled(admit);
+      expect(await rows.countDocuments({})).to.equal(0);
+    });
+
+    it('admits each of a batch after the ones before it, so a batch is held to the allowance', async () => {
+      let taken = 0;
+      admit.callsFake(async () => {
+        await new Promise((resolve) => { setImmediate(resolve); });
+        taken += 1;
+        return taken <= 2 ? { fields } : { refused: 'its admitting operator already has 2 unpaid app messages pending' };
+      });
+
+      await hold.hold(['a', 'b', 'c', 'd'].map((h) => ({ message: fresh(h), authenticated: true })));
+
+      expect(await rows.countDocuments({})).to.equal(2);
+    });
+
+    describe('on an Arcane node', () => {
+      let arcaneHold;
+
+      before(() => {
+        process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
+        arcaneHold = loadHold();
+        delete process.env.FLUXOS_PATH;
+      });
+
+      it('holds nothing of a tagged message from an unauthenticated link, and does not admit it', async () => {
+        await arcaneHold.start(relay);
+
+        expect(await arcaneHold.hold([{ message: fresh('a', { clientTag: 't'.repeat(64) }), authenticated: false }])).to.equal(0);
+
+        sinon.assert.notCalled(admit);
+        expect(await rows.countDocuments({})).to.equal(0);
+      });
+
+      it('admits an untagged message from an unauthenticated link', async () => {
+        await arcaneHold.start(relay);
+
+        expect(await arcaneHold.hold([{ message: fresh('a'), authenticated: false }])).to.equal(1);
+
+        sinon.assert.calledOnce(admit);
+      });
+    });
   });
 });

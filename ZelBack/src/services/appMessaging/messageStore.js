@@ -119,6 +119,8 @@ async function getPreviousOwner(appName, currentOwner) {
  *   link; on an Arcane node an unpaid message is taken only when it did
  * @param {function(): Promise<boolean>} [options.beforeWrite] - Called once every check has
  *   passed, before the write; the message is written only when it answers true
+ * @param {object} [options.admitted] - The admission an unpaid message was taken with as it
+ *   arrived (tempMessageHold), used in place of admitting it here
  * @param {function(string): void} [options.onRefusal] - Told why a message that is not
  *   stored was refused by admission, or is queued behind its registration
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
@@ -192,7 +194,10 @@ async function storeAppTemporaryMessage(message, options = {}) {
   // A taken message holds its place in its sender's allowance until it is
   // written or let go.
   try {
-    if (!result) {
+    if (!result && options.admitted) {
+      // Admitted as it arrived (tempMessageHold): its place is held again for the check.
+      admission = { fields: options.admitted, ...await unpaidAdmission.placeOf(message.hash, options.admitted) };
+    } else if (!result) {
       // Only an Arcane node can put a tagged unpaid message into the network, and
       // only over an authenticated link does one reach an Arcane node. One without
       // a tag is from a release that does not tag, from any peer: the version

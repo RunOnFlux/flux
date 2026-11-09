@@ -193,6 +193,9 @@ async function prepareDatabaseSchema() {
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { heldAt: 1 } },
     { key: { key: 1 }, unique: true },
+    // the allowance counts what is held, by client and by admitting operator
+    { key: { 'admission.clientTag': 1 } },
+    { key: { 'admission.originKey': 1 } },
   ]);
   log.info('Temporary database prepared');
   log.info('Preparing Flux Apps locations');

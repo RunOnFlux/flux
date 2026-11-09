@@ -26,6 +26,7 @@ describe('messageStore tests', () => {
   beforeEach(() => {
     unpaidAdmissionStub = {
       admitUnpaid: sinon.stub().resolves({ fields: {} }),
+      placeOf: sinon.stub().resolves({}),
     };
 
     // Stubs
@@ -377,6 +378,23 @@ describe('messageStore tests', () => {
 
         sinon.assert.calledOnceWithExactly(unpaidAdmissionStub.admitUnpaid, pending, { frame, daemonHeight: 1000 });
         expect(unpaidAdmissionStub.admitUnpaid.calledBefore(messageVerifierStub.verifyAppHash)).to.equal(true);
+      });
+
+      it('admits a message held with its admission no second time, and stores what it was admitted with', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        const fields = {
+          clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin: { version: 1, timestamp: 1, pubKey: '04aa', signature: 'sig' }, originKey: '04aa',
+        };
+        const release = sinon.stub();
+        unpaidAdmissionStub.placeOf.resolves({ release });
+        unpaidAdmissionStub.admitUnpaid.resolves({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
+
+        const result = await messageStore.storeAppTemporaryMessage(pending, { admitted: fields });
+
+        expect(result).to.equal(true);
+        sinon.assert.notCalled(unpaidAdmissionStub.admitUnpaid);
+        sinon.assert.calledOnceWithExactly(unpaidAdmissionStub.placeOf, pending.hash, fields);
+        sinon.assert.calledOnce(release);
       });
 
       it('neither stores, relays nor verifies a message it refuses', async () => {
