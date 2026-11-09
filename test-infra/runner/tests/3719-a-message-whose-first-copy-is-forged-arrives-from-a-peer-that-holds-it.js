@@ -1,10 +1,10 @@
-// upgrades-from: v8.22.0
+// upgrades-from: v8.23.1
 /*
  * A message whose first copy is forged still arrives: the node drops every copy
  * that comes while the forged one is verified, keeps their senders, and asks
  * them once it fails.
  *
- * The fleet is SUBJECT and RELAY on this build, RELEASED on 8.22.0, and a stub
+ * The fleet is SUBJECT and RELAY on this build, RELEASED on 8.23.1, and a stub
  * that SUBJECT and RELAY dial. The ring links SUBJECT to the other two and not them
  * to each other. Each case fixes the order with the checkpoint
  * before verification: the stub's forged copy is held there while the genuine copy
@@ -14,10 +14,10 @@
  *
  *   - RELAY creates the message and no other node holds it. It keeps what it
  *     creates, so it answers when asked and SUBJECT's path names it.
- *   - RELAY dials RELEASED, which then creates the message. 8.22.0 keeps nothing it
+ *   - RELAY dials RELEASED, which then creates the message. 8.23.1 keeps nothing it
  *     creates, so it cannot answer and SUBJECT fetches from RELAY, which relayed it.
  *
- * The harness shows the order of events on real 8.22.0 and current nodes. It does
+ * The harness shows the order of events on real 8.23.1 and current nodes. It does
  * not show mainnet latency.
  */
 import {
@@ -125,7 +125,7 @@ describe('a message whose first copy is forged arrives from a peer that holds it
     expect(path.hops[0].pubKey).to.equal(nodeKey(RELAY + 1).pubkey);
   });
 
-  it('fetches from a relay when an 8.22.0 node created the message', async function () {
+  it('fetches from a relay when an 8.23.1 node created the message', async function () {
     this.timeout(180000);
     const from = env.clients[RELAY].getLastEventId();
     await askToBeDialed(env.clients[RELEASED], env.clients[RELAY]);
