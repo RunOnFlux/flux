@@ -159,6 +159,25 @@ describe('advancedWorkflows tests', () => {
       globalState.folderStates.clear();
     });
 
+    it('removes the app and tells the network when its install fails', async () => {
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error pulling image'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      const res = makeRes();
+
+      const result = await advancedWorkflows.softRegisterAppLocally({
+        name: 'failedsoftapp', version: 4, compose: [{ name: 'web', containerData: '/data', cpu: 0.5, ram: 500, hdd: 5 }],
+      }, false, res);
+
+      expect(result).to.equal(InstallOutcome.FAILED);
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'failedsoftapp', res, true, false, true);
+    });
+
     it('does not release a hold it never took', async () => {
       // Refused because another install owns the node. Lowering the flag here
       // hands the node to the next caller while that install is still running.

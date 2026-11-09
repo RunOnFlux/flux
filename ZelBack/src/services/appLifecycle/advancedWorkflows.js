@@ -1299,12 +1299,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     // arriving after the close is ERR_STREAM_WRITE_AFTER_END on a response still
     // draining to a browser, which reaches apiServer's uncaughtException handler
     // and exits the node.
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false);
-    // The app is gone from this node, and removed without telling anyone -
-    // `sendMessage` is false above, so peers keep their location record until it
-    // expires. A caller that reads this outcome the same as a refusal either
-    // announces an installation that is not there, or destroys a running app
-    // over a scheduling collision.
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
+    // The app is gone from this node, and the network told. A caller that reads
+    // this outcome the same as a refusal either announces an installation that is
+    // not there, or destroys a running app over a scheduling collision.
     return InstallOutcome.FAILED;
   } finally {
     // The one place the hold is released, so every way out of this function
@@ -1650,13 +1648,12 @@ async function softRedeploy(appSpecs, res) {
       // and this is the only pass that would have put them back.
       //
       // BUSY is the node being held by another operation for the length of the
-      // delay above, DECLINED a check that would not pass. FAILED is the
-      // installer's own teardown, which removes locally without telling anyone
-      // (`sendMessage` is false at its call). So in every case this node ends
-      // with no containers, no row, and peers
-      // holding a location record until it expires on its own - nothing here
-      // announces the loss, and with no row there is nothing for the reconciler
-      // to converge either.
+      // delay above, DECLINED a check that would not pass: either leaves this
+      // node with no containers, no row, and peers holding a location record
+      // until it expires on its own - nothing here announces the loss, and with
+      // no row there is nothing for the reconciler to converge either. FAILED is
+      // the installer's own teardown, which removes the app and tells the
+      // network.
       //
       // Left as it is deliberately: v9 replaces this path with the operation
       // registry, which is where the recovery belongs. Uninstalling and

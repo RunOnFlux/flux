@@ -64,6 +64,7 @@ module.exports = {
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
         upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
         syncthingDroppedDevices: 'syncthingdroppeddevices', // each device this node took out of an app folder and has not added back
+        unannouncedRemovals: 'unannouncedremovals', // removals this node could not announce when it made them, until their location row would have expired
       },
     },
     daemon: {

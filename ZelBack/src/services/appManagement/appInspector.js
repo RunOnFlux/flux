@@ -1268,7 +1268,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
             log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Removing...`);
             log.warn(`REMOVAL REASON: Storage violation - ${app.name} using ${totalSize} bytes (max: ${maxAllowedSize}) - ${occurancies} violations (storage monitoring)`);
             // eslint-disable-next-line no-await-in-loop
-            await removeAppLocally(app.name).catch((error) => {
+            await removeAppLocally(app.name, null, false, true, true).catch((error) => {
               log.error(error);
             });
             const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
@@ -1298,7 +1298,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
               log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Removing...`);
               log.warn(`REMOVAL REASON: Container storage violation - ${app.name} container using ${contExists.SizeRootFs} bytes (max: ${allowedMaximum}) - ${occurancies} violations (storage monitoring)`);
               // eslint-disable-next-line no-await-in-loop
-              await removeAppLocally(app.name).catch((error) => {
+              await removeAppLocally(app.name, null, false, true, true).catch((error) => {
                 log.error(error);
               });
               const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);

@@ -11,6 +11,7 @@ const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
 const appReconciler = require('../appMonitoring/appReconciler');
+const appUninstaller = require('../appLifecycle/appUninstaller');
 
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
@@ -211,6 +212,14 @@ async function checkAndNotifyPeersOfRunningApps() {
       throw new Error('Failed to get installed Apps');
     }
     const appsInstalled = installedAppsRes.data;
+
+    // Removals this node could not announce when it made them, sent from where it
+    // is now. After a move, not before its peers have had time to list it there,
+    // or they refuse them.
+    if (!listUpdatesDue) {
+      await appUninstaller.announceKeptRemovals(new Set(appsInstalled.map((application) => application.name)), localSocketAddr)
+        .catch((error) => log.error(`checkAndNotifyPeersOfRunningApps - kept removals not announced: ${error.message}`));
+    }
 
     // hourly resync trigger: let the reconciler bring any drifted containers
     // (crashed, orphaned, missed events) back to their desired state - a local

@@ -27,6 +27,7 @@ describe('peerNotification tests', () => {
   let capabilityChanged;
   let listUpdated;
   let ownMoveChanged;
+  let announceKeptRemovalsStub;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -89,6 +90,7 @@ describe('peerNotification tests', () => {
     },
     '../appLifecycle/appUninstaller': {
       removeAppLocally: sinon.stub().resolves(),
+      announceKeptRemovals: announceKeptRemovalsStub,
     },
     '../appLifecycle/appInstaller': {
       installApplicationHard: sinon.stub().resolves(),
@@ -146,6 +148,7 @@ describe('peerNotification tests', () => {
     getKnownLocalSocketAddressStub = sinon.stub().returns('192.168.1.1:16127');
     storeAppRunningMessageStub = sinon.stub().resolves();
     storeAppStateEventStub = sinon.stub().resolves();
+    announceKeptRemovalsStub = sinon.stub().resolves();
     broadcastMessageToAllStub = sinon.stub().resolves('signed');
     nodeSignerStub = sinon.stub().resolves({ pubKey: '04', sign: () => 'sig' });
     installedAppsStub = sinon.stub().resolves({
@@ -171,6 +174,12 @@ describe('peerNotification tests', () => {
   });
 
   describe('checkAndNotifyPeersOfRunningApps', () => {
+    it('sends the removals it kept, given the apps installed here and its address now', async () => {
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      sinon.assert.calledOnceWithExactly(announceKeptRemovalsStub, new Set(['app1']), getKnownLocalSocketAddressStub());
+    });
+
     it('should be exported as a function', () => {
       expect(peerNotification.checkAndNotifyPeersOfRunningApps).to.be.a('function');
     });
@@ -817,6 +826,25 @@ describe('peerNotification tests', () => {
       listUpdated();
       await settle();
       sinon.assert.calledOnce(broadcastMessageToAllStub);
+    });
+
+    it('sends kept removals once its peers have had time to list it where it moved, not before', async () => {
+      await started();
+      announceKeptRemovalsStub.resetHistory();
+      ownMoveChanged(true);
+      capabilityChanged(true);
+      // a timed cycle inside the wait announces what it runs, and sends no kept removal
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+      sinon.assert.notCalled(announceKeptRemovalsStub);
+
+      ownMoveChanged(true);
+      capabilityChanged(false);
+      capabilityChanged(true);
+      listUpdated();
+      listUpdated();
+      listUpdated();
+      await settle();
+      sinon.assert.calledOnce(announceKeptRemovalsStub);
     });
 
     it('needs no further announcement for a move a timed cycle has announced', async () => {
