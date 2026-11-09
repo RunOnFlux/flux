@@ -47,10 +47,14 @@ describe('a delivered app survives a registry rebuild', function () {
     const rebuild = node().getAuthed('/apps/reindexglobalappsinformation', auth.zelidauth);
     await node().waitForEvent('checkpoint:held', (d) => d.name === BEFORE_SWAP, 120000, { afterId: from });
 
-    const delivery = deliverApp(env, app, [NODE]);
+    let failed = null;
+    const delivery = deliverApp(env, app, [NODE]).catch((error) => { failed = error; });
     // The message is stored just before the specification, so the specification's
     // write is waiting on the rebuild from here.
-    await waitFor(async () => (await db.permanentMessages({ hash: app.hash })).length === 1, {
+    await waitFor(async () => {
+      if (failed) throw failed;
+      return (await db.permanentMessages({ hash: app.hash })).length === 1;
+    }, {
       timeout: 60000, interval: 1000, label: 'the node stored the delivered message during the rebuild',
     });
     expect((await db.globalAppSpec(app.spec.name))?.hash ?? null, 'the specification is written once the rebuild ends').to.equal(null);
@@ -58,6 +62,7 @@ describe('a delivered app survives a registry rebuild', function () {
     await node().releaseCheckpoint(BEFORE_SWAP);
     expect((await rebuild)?.status, 'the rebuild ran').to.equal('success');
     await delivery;
+    if (failed) throw failed;
     expect((await db.globalAppSpec(app.spec.name))?.hash, 'the registry holds the delivered app').to.equal(app.hash);
   });
 });
