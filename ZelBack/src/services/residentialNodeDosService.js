@@ -23,6 +23,7 @@ const config = require('config');
 const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const nodeDosState = require('./nodeDosState');
 const geolocationService = require('./geolocationService');
 const benchmarkService = require('./benchmarkService');
 const { CLASSIFICATION } = require('./utils/networkClassifier');
@@ -84,7 +85,7 @@ let started = false;
 let stopping = false;
 let inconclusiveStreak = 0;
 // Whether the settling window has elapsed and departures may begin.
-const OWNER = fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS;
+const OWNER = nodeDosState.StickyDosOwner.RESIDENTIAL_DOS;
 
 let evacuating = false;
 // What /flux/info reports, and DELIBERATELY not derived from `evacuating`.
@@ -160,7 +161,7 @@ function monotonicMs() {
  * @returns {boolean}
  */
 function isOurDosHeld() {
-  return fluxNetworkHelper.isStickyDosHeldBy(OWNER);
+  return nodeDosState.isStickyDosHeldBy(OWNER);
 }
 
 /**
@@ -529,7 +530,7 @@ async function persistLastEvacuationAt(now) {
 function releaseOurDos(reason) {
   if (!isOurDosHeld()) return;
   log.info(`residentialNodeDos - clearing sticky DOS (${reason})`);
-  fluxNetworkHelper.clearStickyDos(OWNER);
+  nodeDosState.clearStickyDos(OWNER);
 }
 
 /**
@@ -538,7 +539,7 @@ function releaseOurDos(reason) {
 function applyDos() {
   if (isOurDosHeld()) return;
   const message = `${DOS_MESSAGE_PREFIX}. Migrate this node to ArcaneOS or move it to a data center connection.`;
-  fluxNetworkHelper.setStickyDos(OWNER, message);
+  nodeDosState.setStickyDos(OWNER, message);
 }
 
 /**

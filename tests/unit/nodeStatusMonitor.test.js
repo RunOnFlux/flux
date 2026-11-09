@@ -46,7 +46,7 @@ describe('nodeStatusMonitor tests', () => {
       '../generalService': {
         isNodeStatusConfirmed: sinon.stub().resolves(true),
       },
-      '../fluxNetworkHelper': {
+      '../nodeDosState': {
         getDosStateValue: sinon.stub().returns(0),
       },
       '../fluxCommunicationUtils': {
@@ -76,7 +76,7 @@ describe('nodeStatusMonitor tests', () => {
       const isNodeDos = sinon.stub().returns(false);
       const monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
         '../serviceHelper': { delay: () => new Promise(() => {}) },
-        '../fluxNetworkHelper': { isNodeDos },
+        '../nodeDosState': { isNodeDos },
         '../nodeConfirmationService': { isDaemonStale: () => false, isConfirmed: () => false },
         '../utils/globalState': { waitForBootContainerStateSettled: () => settled },
         '../../lib/log': logStub,
@@ -102,7 +102,7 @@ describe('nodeStatusMonitor tests', () => {
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
         '../dbHelper': {},
         '../serviceHelper': { delay: sinon.stub().resolves() },
-        '../fluxNetworkHelper': { onStickyDos: (cb) => { listeners.hold = cb; }, StickyDosOwner: { HOST_STALL: 'hostStall' } },
+        '../nodeDosState': { onStickyDos: (cb) => { listeners.hold = cb; }, StickyDosOwner: { HOST_STALL: 'hostStall' } },
         '../fluxCommunicationUtils': {},
         '../appMessaging/messageStore': {},
         '../networkStateService': {},
@@ -197,7 +197,7 @@ describe('nodeStatusMonitor tests', () => {
         '../dbHelper': {},
         // the spacing between removals runs on the clock, and the wait before the next pass never ends
         '../serviceHelper': { delay: sinon.stub().callsFake((ms) => (ms === SPACING ? new Promise((resolve) => { setTimeout(resolve, ms); }) : never())) },
-        '../fluxNetworkHelper': { isNodeDos: () => dos, onStickyDos: (listener) => { onHold = listener; }, StickyDosOwner: { HOST_STALL: 'hostStall' } },
+        '../nodeDosState': { isNodeDos: () => dos, onStickyDos: (listener) => { onHold = listener; }, StickyDosOwner: { HOST_STALL: 'hostStall' } },
         '../fluxCommunicationUtils': {},
         '../appMessaging/messageStore': {},
         '../networkStateService': {},

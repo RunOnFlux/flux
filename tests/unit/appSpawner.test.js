@@ -153,9 +153,11 @@ describe('appSpawner tests', () => {
       '../fluxNetworkHelper': {
         getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
         isPortOpen: sinon.stub().resolves(true),
-        isNodeDos: sinon.stub().returns(false),
         isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
         getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
+      },
+      '../nodeDosState': {
+        isNodeDos: sinon.stub().returns(false),
       },
       '../daemonService/daemonServiceMiscRpcs': {
         isDaemonSynced: daemonSyncStub,

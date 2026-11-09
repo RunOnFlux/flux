@@ -5,6 +5,7 @@ const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const nodeDosState = require('../nodeDosState');
 const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
@@ -197,7 +198,7 @@ async function trySpawningGlobalApplication() {
       return installDelay;
     }
 
-    if (fluxNetworkHelper.isNodeDos()) {
+    if (nodeDosState.isNodeDos()) {
       log.info('Node is in DOS state. Global applications will not be installed');
       fluxEventBus.publish('spawner:blocked', { reason: 'dos' });
       return installDelay;

@@ -11,6 +11,7 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const nodeDosState = require('./nodeDosState');
 const databaseHealthService = require('./databaseHealthService');
 const hostStallService = require('./hostStallService');
 const appKill = require('./appLifecycle/appKill');
@@ -100,10 +101,10 @@ const {
 
 // State objects for monitoring services
 const dosState = {
-  get dosMessage() { return fluxNetworkHelper.getDosMessage(); },
-  set dosMessage(value) { fluxNetworkHelper.setDosMessage(value); },
-  get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
-  set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
+  get dosMessage() { return nodeDosState.getDosMessage(); },
+  set dosMessage(value) { nodeDosState.setDosMessage(value); },
+  get dosStateValue() { return nodeDosState.getDosStateValue(); },
+  set dosStateValue(value) { nodeDosState.setDosStateValue(value); },
   testingPort: null,
   nextTestingPort: null,
   originalPortFailed: null,

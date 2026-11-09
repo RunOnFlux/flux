@@ -2,7 +2,7 @@ const config = require('config');
 const log = require('../lib/log');
 const policyStore = require('./policyStore');
 const dbHelper = require('./dbHelper');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
+const nodeDosState = require('./nodeDosState');
 const generalService = require('./generalService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const benchmarkService = require('./benchmarkService');
@@ -11,7 +11,7 @@ const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const SYNC_POLL_MS = 60 * 1000; // 60s while waiting for daemon sync
 const TAMPER_SCORE_THRESHOLD = 10;
 const DOS_MESSAGE_PREFIX = 'Node flagged via tampering blocklist';
-const OWNER = fluxNetworkHelper.StickyDosOwner.APP_TAMPERING;
+const OWNER = nodeDosState.StickyDosOwner.APP_TAMPERING;
 
 const tamperingEventsCollection = config.database.local.collections.appTamperingEvents;
 
@@ -25,7 +25,7 @@ let syncWaitResolver = null;
  * @returns {boolean}
  */
 function isOurDosHeld() {
-  return fluxNetworkHelper.isStickyDosHeldBy(OWNER);
+  return nodeDosState.isStickyDosHeldBy(OWNER);
 }
 
 /**
@@ -35,7 +35,7 @@ function isOurDosHeld() {
 function releaseOurDos(reason) {
   if (!isOurDosHeld()) return;
   log.info(`appTamperingBlocklist - clearing sticky DOS (${reason})`);
-  fluxNetworkHelper.clearStickyDos(OWNER);
+  nodeDosState.clearStickyDos(OWNER);
 }
 
 /**
@@ -203,7 +203,7 @@ async function enforceBlocklist() {
 
   if (shouldDos) {
     const message = `${DOS_MESSAGE_PREFIX}: tamper score ${tamperScore}, txhash ${myTxhash}`;
-    fluxNetworkHelper.setStickyDos(OWNER, message);
+    nodeDosState.setStickyDos(OWNER, message);
     return;
   }
 

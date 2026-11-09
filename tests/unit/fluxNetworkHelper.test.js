@@ -35,6 +35,7 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const daemonServiceNetworkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceNetworkRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const nodeDosState = require('../../ZelBack/src/services/nodeDosState');
 const { sameKey } = require('./data/wifFixtures');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -1170,7 +1171,7 @@ describe('fluxNetworkHelper tests', () => {
   describe('checkNodeJsVersionAllowed tests', () => {
     // minimumNodeJsAllowedVersion = '20.8.0'
     const realNodeJsVersion = process.versions.node;
-    const { NODEJS_FLOOR, RESIDENTIAL_DOS } = fluxNetworkHelper.StickyDosOwner;
+    const { NODEJS_FLOOR, RESIDENTIAL_DOS } = nodeDosState.StickyDosOwner;
 
     function runningOn(version) {
       Object.defineProperty(process.versions, 'node', { value: version, configurable: true });
@@ -1188,24 +1189,24 @@ describe('fluxNetworkHelper tests', () => {
 
     afterEach(() => {
       runningOn(realNodeJsVersion);
-      fluxNetworkHelper.clearStickyDos(NODEJS_FLOOR);
-      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
-      fluxNetworkHelper.setDosStateValue(0);
-      fluxNetworkHelper.setDosMessage(null);
+      nodeDosState.clearStickyDos(NODEJS_FLOOR);
+      nodeDosState.clearStickyDos(RESIDENTIAL_DOS);
+      nodeDosState.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
     });
 
     it('allows the runtime the fleet already runs', () => {
       runningOn('24.14.1');
 
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('allows the floor itself', () => {
       runningOn('20.8.0');
 
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('takes a node below the floor out of service, and says which version it found', () => {
@@ -1229,7 +1230,7 @@ describe('fluxNetworkHelper tests', () => {
     it('refuses a pre-release of the floor, and allows a nightly of a later major', () => {
       runningOn('20.8.0-pre');
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
-      fluxNetworkHelper.clearStickyDos(NODEJS_FLOOR);
+      nodeDosState.clearStickyDos(NODEJS_FLOOR);
 
       runningOn('25.0.0-nightly20261001abcdef');
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
@@ -1251,8 +1252,8 @@ describe('fluxNetworkHelper tests', () => {
       runningOn('16.20.2');
       fluxNetworkHelper.checkNodeJsVersionAllowed();
 
-      fluxNetworkHelper.setDosStateValue(0);
-      fluxNetworkHelper.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
 
       const reported = fluxNetworkHelper.getDOSState().data;
       expect(reported.dosMessage).to.include('16.20.2');
@@ -1268,7 +1269,7 @@ describe('fluxNetworkHelper tests', () => {
       runningOn('16.20.2');
 
       expect(helper.checkNodeJsVersionAllowed()).to.equal(true);
-      expect(helper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
       expect(helper.getDOSState().data.dosState).to.equal(0);
     });
 
@@ -1277,7 +1278,7 @@ describe('fluxNetworkHelper tests', () => {
       runningOn('16.20.2');
 
       expect(helper.checkNodeJsVersionAllowed()).to.equal(true);
-      expect(helper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('refuses on the loaded floor, so the instance is reading the one it was given', () => {
@@ -1289,7 +1290,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(helper.checkNodeJsVersionAllowed()).to.equal(false);
       expect(helper.getDOSState().data.dosState).to.equal(100);
-      helper.clearStickyDos(NODEJS_FLOOR);
+      nodeDosState.clearStickyDos(NODEJS_FLOOR);
     });
 
     it("records its verdict beside another owner's, and outlives that owner's release", () => {
@@ -1297,13 +1298,13 @@ describe('fluxNetworkHelper tests', () => {
       // identity - or not recorded at all - it leaves with that owner's release,
       // and the node returns to service on a runtime that cannot run the code.
       const theirs = 'Residential node not running ArcaneOS. Migrate this node to ArcaneOS or move it to a data center connection.';
-      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, theirs);
+      nodeDosState.setStickyDos(RESIDENTIAL_DOS, theirs);
       runningOn('16.20.2');
 
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
-      expect(fluxNetworkHelper.getStickyDosMessage(), 'overwrote a verdict it does not own').to.include(theirs);
+      expect(nodeDosState.getStickyDosMessage(), 'overwrote a verdict it does not own').to.include(theirs);
 
-      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
+      nodeDosState.clearStickyDos(RESIDENTIAL_DOS);
 
       const reported = fluxNetworkHelper.getDOSState().data;
       expect(reported.dosState, 'returned to service on the other owner\'s release').to.equal(100);
@@ -1335,19 +1336,19 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('checkMongoDbVersionAllowed tests', () => {
     // minimumMongoDbAllowedVersion = '6.0.27'
-    const { MONGODB_FLOOR } = fluxNetworkHelper.StickyDosOwner;
+    const { MONGODB_FLOOR } = nodeDosState.StickyDosOwner;
 
     afterEach(() => {
-      fluxNetworkHelper.clearStickyDos(MONGODB_FLOOR);
-      fluxNetworkHelper.setDosStateValue(0);
-      fluxNetworkHelper.setDosMessage(null);
+      nodeDosState.clearStickyDos(MONGODB_FLOOR);
+      nodeDosState.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
     });
 
     it('allows the MongoDB the fleet runs, and the floor itself', () => {
       ['8.0.20', '7.0.31', '6.0.27'].forEach((version) => {
         expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), version).to.equal(true);
       });
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('takes a node below the floor out of service, and says which version it found and what to do', () => {
@@ -1361,7 +1362,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('refuses every release below the floor the fleet still runs, and a pre-release of the floor', () => {
       ['4.4.29', '4.4.18', '6.0.26', '6.0.27-rc0'].forEach((version) => {
-        fluxNetworkHelper.clearStickyDos(MONGODB_FLOOR);
+        nodeDosState.clearStickyDos(MONGODB_FLOOR);
         expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), version).to.equal(false);
       });
     });
@@ -1370,13 +1371,13 @@ describe('fluxNetworkHelper tests', () => {
       [null, undefined, '', '6.0', 'dev'].forEach((version) => {
         expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), String(version)).to.equal(true);
       });
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
       expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
     });
   });
 
   describe('checkCgroupsAllowed tests', () => {
-    const { CGROUP_FLOOR } = fluxNetworkHelper.StickyDosOwner;
+    const { CGROUP_FLOOR } = nodeDosState.StickyDosOwner;
     let root;
 
     // A cgroup filesystem holding the given files, with FluxOS in
@@ -1395,15 +1396,15 @@ describe('fluxNetworkHelper tests', () => {
     const everything = ['cgroup.controllers', 'system.slice/fluxos.service/cgroup.kill'];
 
     afterEach(async () => {
-      fluxNetworkHelper.clearStickyDos(CGROUP_FLOOR);
-      fluxNetworkHelper.setDosStateValue(0);
-      fluxNetworkHelper.setDosMessage(null);
+      nodeDosState.clearStickyDos(CGROUP_FLOOR);
+      nodeDosState.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
       await fs.rm(root, { recursive: true, force: true });
     });
 
     it('allows cgroup v2 with cgroup.kill under Docker\'s systemd driver', async () => {
       expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', await cgroupRoot(everything))).to.equal(true);
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('takes a node without cgroup v2 out of service, and says so', async () => {
@@ -1432,7 +1433,7 @@ describe('fluxNetworkHelper tests', () => {
 
     it('gives no verdict on a driver Docker did not report', async () => {
       expect(await fluxNetworkHelper.checkCgroupsAllowed(null, await cgroupRoot(everything))).to.equal(true);
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('still refuses the kernel when Docker did not report its driver', async () => {
@@ -1443,7 +1444,7 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('checkDockerVersionAllowed tests', () => {
     // minimumDockerAllowedVersion = '28.1.1'
-    const { DOCKER_FLOOR, RESIDENTIAL_DOS } = fluxNetworkHelper.StickyDosOwner;
+    const { DOCKER_FLOOR, RESIDENTIAL_DOS } = nodeDosState.StickyDosOwner;
 
     function helperWithFloor(floor) {
       return proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
@@ -1452,20 +1453,20 @@ describe('fluxNetworkHelper tests', () => {
     }
 
     afterEach(() => {
-      fluxNetworkHelper.clearStickyDos(DOCKER_FLOOR);
-      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
-      fluxNetworkHelper.setDosStateValue(0);
-      fluxNetworkHelper.setDosMessage(null);
+      nodeDosState.clearStickyDos(DOCKER_FLOOR);
+      nodeDosState.clearStickyDos(RESIDENTIAL_DOS);
+      nodeDosState.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
     });
 
     it('allows the Docker the fleet runs', () => {
       expect(fluxNetworkHelper.checkDockerVersionAllowed('29.3.1')).to.equal(true);
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('allows the floor itself', () => {
       expect(fluxNetworkHelper.checkDockerVersionAllowed('28.1.1')).to.equal(true);
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('takes a node below the floor out of service, and says which version it found and what to do', () => {
@@ -1479,14 +1480,14 @@ describe('fluxNetworkHelper tests', () => {
 
     it('refuses every release below the floor the fleet still runs', () => {
       ['26.1.3', '26.1.4', '27.3.1', '27.5.1', '28.0.0', '28.0.4', '28.1.0'].forEach((version) => {
-        fluxNetworkHelper.clearStickyDos(DOCKER_FLOOR);
+        nodeDosState.clearStickyDos(DOCKER_FLOOR);
         expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(false);
       });
     });
 
     it('refuses a pre-release of the floor, and a packaged build of the release before it', () => {
       ['28.1.1-rc.1', '28.1.1-beta.2', '28.1.0-1', '28.1.0+dfsg1'].forEach((version) => {
-        fluxNetworkHelper.clearStickyDos(DOCKER_FLOOR);
+        nodeDosState.clearStickyDos(DOCKER_FLOOR);
         expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(false);
       });
     });
@@ -1495,14 +1496,14 @@ describe('fluxNetworkHelper tests', () => {
       ['28.1.1+dfsg1', 'v28.1.1', '28.1.2', '28.2.0', '29.0.0-rc.1', '100.0.0'].forEach((version) => {
         expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(true);
       });
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('gives no verdict when Docker reports a version that is not SemVer', () => {
       ['28.1', 'dev', '28.1.1.1', '5:28.1.1-1~ubuntu.22.04~jammy', 'master-dockerproject-2026-10-01'].forEach((version) => {
         expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(true);
       });
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
       expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
     });
 
@@ -1510,15 +1511,15 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.checkDockerVersionAllowed(null)).to.equal(true);
       expect(fluxNetworkHelper.checkDockerVersionAllowed(undefined)).to.equal(true);
       expect(fluxNetworkHelper.checkDockerVersionAllowed('')).to.equal(true);
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(nodeDosState.getStickyDosMessage()).to.equal(null);
       expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
     });
 
     it('survives the clear a successful availability pass performs', () => {
       fluxNetworkHelper.checkDockerVersionAllowed('27.5.1');
 
-      fluxNetworkHelper.setDosStateValue(0);
-      fluxNetworkHelper.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
 
       const reported = fluxNetworkHelper.getDOSState().data;
       expect(reported.dosMessage).to.include('27.5.1');
@@ -1535,15 +1536,15 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(helper.checkDockerVersionAllowed('26.1.3')).to.equal(false);
       expect(helper.getDOSState().data.dosState).to.equal(100);
-      helper.clearStickyDos(DOCKER_FLOOR);
+      nodeDosState.clearStickyDos(DOCKER_FLOOR);
     });
 
     it("records its verdict beside another owner's, and outlives that owner's release", () => {
       const theirs = 'Residential node not running ArcaneOS. Migrate this node to ArcaneOS or move it to a data center connection.';
-      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, theirs);
+      nodeDosState.setStickyDos(RESIDENTIAL_DOS, theirs);
       fluxNetworkHelper.checkDockerVersionAllowed('27.5.1');
 
-      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
+      nodeDosState.clearStickyDos(RESIDENTIAL_DOS);
 
       const reported = fluxNetworkHelper.getDOSState().data;
       expect(reported.dosMessage).to.include('27.5.1');
@@ -1649,35 +1650,35 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('ends its own DOS once the version is read and allowed', async () => {
-      fluxNetworkHelper.setDosMessage('Fluxbench Version Error. Error obtaining FluxBench Version.');
-      fluxNetworkHelper.setDosStateValue(11);
+      nodeDosState.setDosMessage('Fluxbench Version Error. Error obtaining FluxBench Version.');
+      nodeDosState.setDosStateValue(11);
       benchmarkInfoResponseStub.returns({ status: 'success', data: { version: '6.3.0' } });
 
       expect(await fluxNetworkHelper.checkFluxbenchVersionAllowed()).to.equal(true);
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+      expect(nodeDosState.getDosMessage()).to.equal(null);
+      expect(nodeDosState.getDosStateValue()).to.equal(0);
     });
 
     it('ends its own DOS on an allowed version it already holds', async () => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.3.0');
-      fluxNetworkHelper.setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
-      fluxNetworkHelper.setDosStateValue(11);
+      nodeDosState.setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
+      nodeDosState.setDosStateValue(11);
 
       expect(await fluxNetworkHelper.checkFluxbenchVersionAllowed()).to.equal(true);
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(nodeDosState.getDosMessage()).to.equal(null);
     });
 
     it('leaves another check\'s DOS standing once the version is allowed', async () => {
-      fluxNetworkHelper.setDosMessage('Flux is not available for outside communication');
-      fluxNetworkHelper.setDosStateValue(11);
+      nodeDosState.setDosMessage('Flux is not available for outside communication');
+      nodeDosState.setDosStateValue(11);
       benchmarkInfoResponseStub.returns({ status: 'success', data: { version: '6.3.0' } });
 
       await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(11);
+      expect(nodeDosState.getDosMessage()).to.equal('Flux is not available for outside communication');
+      expect(nodeDosState.getDosStateValue()).to.equal(11);
     });
 
     it('should return false if the version is unattainable from benchmarkInfo', async () => {
@@ -1788,8 +1789,8 @@ describe('fluxNetworkHelper tests', () => {
 
     it('concludes nothing from observers that do not list this node, asking each in turn', async () => {
       fluxNetworkHelper.resetAvailabilityDos();
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
       getRandomExternalObserver.resolves('1.2.3.4:16127');
       const axiosGet = sinon.stub(serviceHelper, 'axiosGet')
         .resolves({ data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } });
@@ -1798,8 +1799,8 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(result).to.be.false;
       expect(axiosGet.callCount, 'the observers asked').to.equal(8);
-      expect(fluxNetworkHelper.isNodeDos()).to.be.false;
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(nodeDosState.isNodeDos()).to.be.false;
+      expect(nodeDosState.getDosMessage()).to.equal(null);
     });
 
     // Five observers that do not list this node after one that cannot reach it:
@@ -1807,8 +1808,8 @@ describe('fluxNetworkHelper tests', () => {
     // seventh is asked.
     it('adds nothing for observers that do not list this node, and the next that does decides', async () => {
       fluxNetworkHelper.resetAvailabilityDos();
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
       getRandomExternalObserver.resolves('1.2.3.4:16127');
       sinon.stub(benchmarkService, 'getPublicIp').resolves({ status: 'success', data: '129.3.3.3' });
       const notListed = { data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } };
@@ -1820,7 +1821,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(axiosGet.callCount, 'the observers asked').to.equal(7);
       expect(result, 'the observer that reached this node decides').to.be.true;
-      expect(fluxNetworkHelper.isNodeDos(), 'in DOS').to.be.false;
+      expect(nodeDosState.isNodeDos(), 'in DOS').to.be.false;
       expect(fluxNetworkHelper.getDOSState().data.dosState, 'the points of the observer that could not reach it, released').to.equal(0);
     });
 
@@ -1846,8 +1847,8 @@ describe('fluxNetworkHelper tests', () => {
 
       beforeEach(() => {
         fluxNetworkHelper.resetAvailabilityDos();
-        fluxNetworkHelper.setDosMessage(null);
-        fluxNetworkHelper.setDosStateValue(0);
+        nodeDosState.setDosMessage(null);
+        nodeDosState.setDosStateValue(0);
         observers = OBSERVERS;
         drawFrom(observers);
       });
@@ -1868,7 +1869,7 @@ describe('fluxNetworkHelper tests', () => {
         expect(asked()).to.deep.equal(OBSERVERS.slice(0, 3));
         expect(result).to.be.true;
         expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
-        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+        expect(nodeDosState.getDosMessage()).to.equal(null);
       });
 
       it('counts from the third on, and holds the node unreachable once enough have not answered', async () => {
@@ -1879,7 +1880,7 @@ describe('fluxNetworkHelper tests', () => {
         expect(result).to.be.false;
         expect(asked(), 'the observers asked').to.deep.equal(OBSERVERS.slice(0, 8));
         expect(fluxNetworkHelper.getDOSState().data.dosState, 'two points for each from the third').to.equal(12);
-        expect(fluxNetworkHelper.getDosMessage()).to.equal(UNREACHABLE);
+        expect(nodeDosState.getDosMessage()).to.equal(UNREACHABLE);
       });
 
       it('does not keep an observer that answers from being asked again', async () => {
@@ -1892,7 +1893,7 @@ describe('fluxNetworkHelper tests', () => {
 
         expect(result).to.be.false;
         expect(asked(), 'the one observer, asked each time').to.deep.equal(Array(6).fill(OBSERVERS[0]));
-        expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
+        expect(nodeDosState.getDosMessage()).to.equal('Flux is not available for outside communication');
       });
 
       // Six observers that do not list this node, each drawn once, leave the last
@@ -1908,7 +1909,7 @@ describe('fluxNetworkHelper tests', () => {
         expect(result).to.be.false;
         expect(asked(), 'the observers asked').to.deep.equal(OBSERVERS.slice(0, 8));
         expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
-        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+        expect(nodeDosState.getDosMessage()).to.equal(null);
       });
 
       it('concludes nothing once every observer there is has not answered', async () => {
@@ -1921,7 +1922,7 @@ describe('fluxNetworkHelper tests', () => {
         expect(result).to.be.false;
         expect(asked()).to.deep.equal(observers);
         expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
-        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+        expect(nodeDosState.getDosMessage()).to.equal(null);
       });
     });
 
@@ -2009,11 +2010,11 @@ describe('fluxNetworkHelper tests', () => {
       try {
         await fluxNetworkHelper.checkMyFluxAvailability();
         sinon.assert.calledWith(infoSpy, 'No public IP to compare: fluxd has no address for this node yet');
-        expect(fluxNetworkHelper.getDosMessage()).to.not.equal('Error getting publicIp from FluxBench');
+        expect(nodeDosState.getDosMessage()).to.not.equal('Error getting publicIp from FluxBench');
       } finally {
         fluxNetworkHelper.resetAvailabilityDos();
-        fluxNetworkHelper.setDosMessage(null);
-        fluxNetworkHelper.setDosStateValue(0);
+        nodeDosState.setDosMessage(null);
+        nodeDosState.setDosStateValue(0);
       }
     });
 
@@ -2028,11 +2029,11 @@ describe('fluxNetworkHelper tests', () => {
       try {
         expect(result).to.be.false;
         sinon.assert.called(benchPublicIp);
-        expect(fluxNetworkHelper.getDosMessage()).to.equal('Error getting publicIp from FluxBench');
+        expect(nodeDosState.getDosMessage()).to.equal('Error getting publicIp from FluxBench');
       } finally {
         fluxNetworkHelper.resetAvailabilityDos();
-        fluxNetworkHelper.setDosMessage(null);
-        fluxNetworkHelper.setDosStateValue(0);
+        nodeDosState.setDosMessage(null);
+        nodeDosState.setDosStateValue(0);
       }
     });
 
@@ -2047,12 +2048,12 @@ describe('fluxNetworkHelper tests', () => {
       try {
         expect(result).to.be.false;
         sinon.assert.called(benchPublicIp);
-        expect(fluxNetworkHelper.getDosMessage()).to.not.equal('Error getting publicIp from FluxBench');
+        expect(nodeDosState.getDosMessage()).to.not.equal('Error getting publicIp from FluxBench');
       } finally {
         // The points this check counted stay with the module.
         fluxNetworkHelper.resetAvailabilityDos();
-        fluxNetworkHelper.setDosMessage(null);
-        fluxNetworkHelper.setDosStateValue(0);
+        nodeDosState.setDosMessage(null);
+        nodeDosState.setDosStateValue(0);
       }
     });
 
@@ -2633,7 +2634,7 @@ describe('fluxNetworkHelper tests', () => {
       await dbHelper.databaseConnection().db(config.database.local.database)
         .collection(config.database.local.collections.ownAddress).deleteMany({});
       fluxNetworkHelper.setIpChangeHold(null);
-      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.IP_CHANGES);
+      nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.IP_CHANGES);
     });
 
     beforeEach(() => {
@@ -2679,8 +2680,8 @@ describe('fluxNetworkHelper tests', () => {
       isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
       getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
 
     afterEach(() => {
@@ -2708,8 +2709,8 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+      expect(nodeDosState.getDosMessage()).to.be.null;
+      expect(nodeDosState.getDosStateValue()).to.equal(0);
     });
 
     it('does not read the node list while the list is unknown', async () => {
@@ -2727,7 +2728,7 @@ describe('fluxNetworkHelper tests', () => {
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       sinon.assert.notCalled(deterministicFluxListStub);
-      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
+      expect(nodeDosState.getDosMessage()).to.be.null;
     });
 
     it('should find the same node instances and warn about earlier collision detection', async () => {
@@ -2771,8 +2772,8 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux earlier collision detection on ip:127.0.0.1:5050');
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      expect(nodeDosState.getDosMessage()).to.equal('Flux earlier collision detection on ip:127.0.0.1:5050');
+      expect(nodeDosState.getDosStateValue()).to.equal(100);
     });
 
     it('should trigger collision detection if the collateral is not matching', async () => {
@@ -2795,8 +2796,8 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      expect(nodeDosState.getDosMessage()).to.equal('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
+      expect(nodeDosState.getDosStateValue()).to.equal(100);
     });
 
     describe('a pass that finds this node listed only at its own address', () => {
@@ -2817,24 +2818,24 @@ describe('fluxNetworkHelper tests', () => {
         'Flux earlier collision detection on ip:127.0.0.1:5050',
       ].forEach((message) => {
         it(`ends its own DOS: ${message}`, async () => {
-          fluxNetworkHelper.setDosMessage(message);
-          fluxNetworkHelper.setDosStateValue(100);
+          nodeDosState.setDosMessage(message);
+          nodeDosState.setDosStateValue(100);
 
           await cleanPass();
 
-          expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
-          expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+          expect(nodeDosState.getDosMessage()).to.equal(null);
+          expect(nodeDosState.getDosStateValue()).to.equal(0);
         });
       });
 
       it('leaves another check\'s DOS standing', async () => {
-        fluxNetworkHelper.setDosMessage('Flux is not available for outside communication');
-        fluxNetworkHelper.setDosStateValue(11);
+        nodeDosState.setDosMessage('Flux is not available for outside communication');
+        nodeDosState.setDosStateValue(11);
 
         await cleanPass();
 
-        expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
-        expect(fluxNetworkHelper.getDosStateValue()).to.equal(11);
+        expect(nodeDosState.getDosMessage()).to.equal('Flux is not available for outside communication');
+        expect(nodeDosState.getDosStateValue()).to.equal(11);
       });
     });
 
@@ -2902,8 +2903,8 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(axiosGetStub.calledOnce).to.be.true;
       expect(axiosGetStub.firstCall.args[0]).to.include('192.168.1.200:16127');
-      expect(fluxNetworkHelper.getDosMessage()).to.include('Node at 192.168.1.200:16127 is confirmed and reachable');
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      expect(nodeDosState.getDosMessage()).to.include('Node at 192.168.1.200:16127 is confirmed and reachable');
+      expect(nodeDosState.getDosStateValue()).to.equal(100);
     });
 
     it('should take over collateral when same collateral exists on different IP and other node is unreachable after grace period', async () => {
@@ -2972,7 +2973,7 @@ describe('fluxNetworkHelper tests', () => {
       expect(versionAsks(axiosGetStub)).to.have.lengthOf(2);
       sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
       // DOS state should remain clear since we successfully took over
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+      expect(nodeDosState.getDosStateValue()).to.equal(0);
     });
 
     it('handles its collateral listed at its own former address, with nothing answering there, as this node\'s move', async () => {
@@ -3096,9 +3097,9 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(axiosGetStub.calledTwice).to.be.true;
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      expect(nodeDosState.getDosStateValue()).to.equal(100);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
 
     it('holds itself out of service when it cannot reach the other node but a peer can', async () => {
@@ -3117,9 +3118,9 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(versionAsks(axiosGetStub), 'fixture: it could not reach the other node itself').to.have.lengthOf(2);
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      expect(nodeDosState.getDosStateValue()).to.equal(100);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
 
     it('takes nothing over once one peer reaches the other node, whatever the peers asked after it would say', async () => {
@@ -3137,9 +3138,9 @@ describe('fluxNetworkHelper tests', () => {
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      expect(nodeDosState.getDosStateValue()).to.equal(100);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
 
     it('takes nothing over while too few peers answer whether the other node is there', async () => {
@@ -3156,9 +3157,9 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(axiosGetStub.getCalls().filter((call) => String(call.args[0]).includes('checkfluxavailability')), 'every peer drawn was asked').to.have.lengthOf(COLLISION_PEERS.length);
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
-      expect(fluxNetworkHelper.getDosStateValue(), 'no collision is claimed on too few answers').to.equal(0);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      expect(nodeDosState.getDosStateValue(), 'no collision is claimed on too few answers').to.equal(0);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
 
     it('takes nothing over while the peers asked do not list the other node', async () => {
@@ -3175,9 +3176,9 @@ describe('fluxNetworkHelper tests', () => {
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
-      expect(fluxNetworkHelper.getDosStateValue(), 'a peer that has not looked finds nothing either way').to.equal(0);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      expect(nodeDosState.getDosStateValue(), 'a peer that has not looked finds nothing either way').to.equal(0);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
   });
 
@@ -3190,8 +3191,8 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     beforeEach(() => {
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(null);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(null);
     });
 
     afterEach(() => {
@@ -3231,8 +3232,8 @@ describe('fluxNetworkHelper tests', () => {
     it('should return a proper message if no response was passed', async () => {
       const newDosState = 150;
       const newDosMessage = 'Hi! this is the new massage';
-      fluxNetworkHelper.setDosMessage(newDosMessage);
-      fluxNetworkHelper.setDosStateValue(newDosState);
+      nodeDosState.setDosMessage(newDosMessage);
+      nodeDosState.setDosStateValue(newDosState);
       const expectedResult = {
         status: 'success',
         data: {
@@ -3250,8 +3251,8 @@ describe('fluxNetworkHelper tests', () => {
       const res = generateResponse();
       const newDosState = 150;
       const newDosMessage = 'Hi! this is the new massage';
-      fluxNetworkHelper.setDosMessage(newDosMessage);
-      fluxNetworkHelper.setDosStateValue(newDosState);
+      nodeDosState.setDosMessage(newDosMessage);
+      nodeDosState.setDosStateValue(newDosState);
       const expectedResult = {
         status: 'success',
         data: {
@@ -3268,17 +3269,17 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('sticky DOS tests', () => {
-    const { RESIDENTIAL_DOS, APP_TAMPERING } = fluxNetworkHelper.StickyDosOwner;
+    const { RESIDENTIAL_DOS, APP_TAMPERING } = nodeDosState.StickyDosOwner;
 
     beforeEach(() => {
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
 
     afterEach(() => {
-      Object.values(fluxNetworkHelper.StickyDosOwner).forEach(fluxNetworkHelper.clearStickyDos);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      Object.values(nodeDosState.StickyDosOwner).forEach(nodeDosState.clearStickyDos);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
 
     describe('the hold signal', () => {
@@ -3295,57 +3296,57 @@ describe('fluxNetworkHelper tests', () => {
       });
 
       it('tells a listener each owner that newly holds the node, with its reason', () => {
-        stopListening = fluxNetworkHelper.onStickyDos(listener);
+        stopListening = nodeDosState.onStickyDos(listener);
 
-        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
-        fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
+        nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
+        nodeDosState.setStickyDos(RESIDENTIAL_DOS, 'residential');
 
         expect(listener.args).to.deep.equal([[APP_TAMPERING, 'tampering flag'], [RESIDENTIAL_DOS, 'residential']]);
       });
 
       it('tells a listener once per hold, however often or with whatever reason the owner sets it again', () => {
-        stopListening = fluxNetworkHelper.onStickyDos(listener);
+        stopListening = nodeDosState.onStickyDos(listener);
 
-        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
-        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
-        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering, again');
+        nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
+        nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
+        nodeDosState.setStickyDos(APP_TAMPERING, 'tampering, again');
 
         sinon.assert.calledOnce(listener);
       });
 
       it('tells a listener again of an owner that holds the node after releasing it', () => {
-        stopListening = fluxNetworkHelper.onStickyDos(listener);
+        stopListening = nodeDosState.onStickyDos(listener);
 
-        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
-        fluxNetworkHelper.clearStickyDos(APP_TAMPERING);
-        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
+        nodeDosState.clearStickyDos(APP_TAMPERING);
+        nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
 
         sinon.assert.calledTwice(listener);
       });
 
       it('tells a listener at once of every owner already holding the node', () => {
-        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
 
-        stopListening = fluxNetworkHelper.onStickyDos(listener);
+        stopListening = nodeDosState.onStickyDos(listener);
 
         sinon.assert.calledOnceWithExactly(listener, APP_TAMPERING, 'tampering flag');
       });
 
       it('tells a listener nothing once it stops listening', () => {
-        fluxNetworkHelper.onStickyDos(listener)();
+        nodeDosState.onStickyDos(listener)();
 
-        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
 
         sinon.assert.notCalled(listener);
       });
     });
 
     describe('checkInsightExplorerAllowed', () => {
-      const { INSIGHT_EXPLORER } = fluxNetworkHelper.StickyDosOwner;
+      const { INSIGHT_EXPLORER } = nodeDosState.StickyDosOwner;
 
       it('allows a fluxd that keeps the address index', () => {
         expect(fluxNetworkHelper.checkInsightExplorerAllowed(true)).to.equal(true);
-        expect(fluxNetworkHelper.isStickyDosHeldBy(INSIGHT_EXPLORER)).to.equal(false);
+        expect(nodeDosState.isStickyDosHeldBy(INSIGHT_EXPLORER)).to.equal(false);
       });
 
       it('takes a node whose fluxd does not keep the address index out of service, and says so', () => {
@@ -3354,46 +3355,46 @@ describe('fluxNetworkHelper tests', () => {
         const reported = fluxNetworkHelper.getDOSState().data;
         expect(reported.dosMessage).to.equal('fluxd is running without insightexplorer=1');
         expect(reported.dosState).to.equal(100);
-        expect(fluxNetworkHelper.isStickyDosHeldBy(INSIGHT_EXPLORER)).to.equal(true);
+        expect(nodeDosState.isStickyDosHeldBy(INSIGHT_EXPLORER)).to.equal(true);
       });
     });
 
     it('reports no reason while no owner holds the node', () => {
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.be.null;
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(nodeDosState.getStickyDosMessage()).to.be.null;
+      expect(nodeDosState.isNodeDos()).to.equal(false);
     });
 
     it('reports the reason the owner gave', () => {
-      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+      nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
 
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('tampering flag');
+      expect(nodeDosState.getStickyDosMessage()).to.equal('tampering flag');
     });
 
     it('takes the node out of service on a hold alone, whatever the counted state is', () => {
       // DOS >= 100 is what makes nodeStatusMonitor and appStartupManager remove
       // every app on the box, so a hold that did not reach it would be a note.
-      fluxNetworkHelper.setDosStateValue(0);
+      nodeDosState.setDosStateValue(0);
 
-      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+      nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
 
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+      expect(nodeDosState.isNodeDos()).to.equal(true);
       expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
     });
 
     it('releases the owner that let go', () => {
-      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+      nodeDosState.setStickyDos(APP_TAMPERING, 'tampering flag');
 
-      fluxNetworkHelper.clearStickyDos(APP_TAMPERING);
+      nodeDosState.clearStickyDos(APP_TAMPERING);
 
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.be.null;
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(nodeDosState.getStickyDosMessage()).to.be.null;
+      expect(nodeDosState.isNodeDos()).to.equal(false);
     });
 
     it('names every reason, because an operator has to lift all of them', () => {
-      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
-      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering');
+      nodeDosState.setStickyDos(RESIDENTIAL_DOS, 'residential');
+      nodeDosState.setStickyDos(APP_TAMPERING, 'tampering');
 
-      const message = fluxNetworkHelper.getStickyDosMessage();
+      const message = nodeDosState.getStickyDosMessage();
 
       expect(message).to.contain('residential');
       expect(message).to.contain('tampering');
@@ -3405,60 +3406,60 @@ describe('fluxNetworkHelper tests', () => {
     // release - its own verdict, or was dropped, and the node returned to
     // service on the first owner's release for a condition that never lifted.
     it('keeps the node out of service while any other owner still holds it', () => {
-      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
-      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering');
+      nodeDosState.setStickyDos(RESIDENTIAL_DOS, 'residential');
+      nodeDosState.setStickyDos(APP_TAMPERING, 'tampering');
 
-      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
+      nodeDosState.clearStickyDos(RESIDENTIAL_DOS);
 
-      expect(fluxNetworkHelper.isNodeDos(), 'one owner released the node for both').to.equal(true);
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('tampering');
+      expect(nodeDosState.isNodeDos(), 'one owner released the node for both').to.equal(true);
+      expect(nodeDosState.getStickyDosMessage()).to.equal('tampering');
     });
 
     it('does not release a verdict it does not own', () => {
-      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
+      nodeDosState.setStickyDos(RESIDENTIAL_DOS, 'residential');
 
-      fluxNetworkHelper.clearStickyDos(APP_TAMPERING);
+      nodeDosState.clearStickyDos(APP_TAMPERING);
 
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('residential');
+      expect(nodeDosState.getStickyDosMessage()).to.equal('residential');
     });
 
     it('refuses an owner it does not know, rather than minting one', () => {
       // An unknown owner is a caller that was never given an identity. Accepted,
       // it would hold the node under a name no release path knows about.
-      expect(() => fluxNetworkHelper.setStickyDos('someFeature', 'a reason')).to.throw('unknown owner');
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(() => nodeDosState.setStickyDos('someFeature', 'a reason')).to.throw('unknown owner');
+      expect(nodeDosState.isNodeDos()).to.equal(false);
     });
 
     it('getDosMessage returns regular when no owner holds the node', () => {
-      fluxNetworkHelper.setDosMessage('regular reason');
+      nodeDosState.setDosMessage('regular reason');
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('regular reason');
+      expect(nodeDosState.getDosMessage()).to.equal('regular reason');
     });
 
     it('getDosMessage prefers a held verdict over the regular one', () => {
-      fluxNetworkHelper.setDosMessage('regular reason');
-      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'sticky reason');
+      nodeDosState.setDosMessage('regular reason');
+      nodeDosState.setStickyDos(APP_TAMPERING, 'sticky reason');
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('sticky reason');
+      expect(nodeDosState.getDosMessage()).to.equal('sticky reason');
     });
 
     it('setDosMessage(null) does NOT release a held verdict', () => {
       // checkMyFluxAvailability ends a good pass this way. A verdict that went
       // with it would let the node walk back into service with its condition
       // still in place.
-      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'sticky reason');
-      fluxNetworkHelper.setDosMessage('regular reason');
+      nodeDosState.setStickyDos(APP_TAMPERING, 'sticky reason');
+      nodeDosState.setDosMessage('regular reason');
 
-      fluxNetworkHelper.setDosMessage(null);
+      nodeDosState.setDosMessage(null);
 
-      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('sticky reason');
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('sticky reason');
+      expect(nodeDosState.getStickyDosMessage()).to.equal('sticky reason');
+      expect(nodeDosState.getDosMessage()).to.equal('sticky reason');
     });
 
     it('getDOSState reports the held verdict over the counted one', () => {
-      fluxNetworkHelper.setDosMessage('regular reason');
-      fluxNetworkHelper.setDosStateValue(50);
-      fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'sticky reason');
+      nodeDosState.setDosMessage('regular reason');
+      nodeDosState.setDosStateValue(50);
+      nodeDosState.setStickyDos(APP_TAMPERING, 'sticky reason');
 
       const result = fluxNetworkHelper.getDOSState();
 
@@ -3469,8 +3470,8 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('getDOSState reports the counted pair when no owner holds the node', () => {
-      fluxNetworkHelper.setDosMessage('regular reason');
-      fluxNetworkHelper.setDosStateValue(50);
+      nodeDosState.setDosMessage('regular reason');
+      nodeDosState.setDosStateValue(50);
 
       const result = fluxNetworkHelper.getDOSState();
 
@@ -4628,7 +4629,7 @@ describe('fluxNetworkHelper tests', () => {
 
     afterEach(() => {
       fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
-      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
+      nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.RESIDENTIAL_DOS);
     });
 
     it('is not held by default', () => {
@@ -4700,18 +4701,18 @@ describe('fluxNetworkHelper tests', () => {
       // growing but keep its volumes must not cross that line.
       fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
 
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(nodeDosState.isNodeDos()).to.equal(false);
     });
 
     it('is independent of a sticky DOS in both directions', () => {
-      fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS, 'someone else holds this');
+      nodeDosState.setStickyDos(nodeDosState.StickyDosOwner.RESIDENTIAL_DOS, 'someone else holds this');
 
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
 
-      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.RESIDENTIAL_DOS);
+      nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.RESIDENTIAL_DOS);
       fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
 
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(nodeDosState.isNodeDos()).to.equal(false);
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
     });
   });

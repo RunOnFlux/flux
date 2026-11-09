@@ -9,7 +9,7 @@ const { prepareDatabaseSchema, dosState, startRouterAddressUpkeep } = require('.
 const { untilSucceeds } = require('../../ZelBack/src/services/utils/untilSucceeds');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const nodeDosState = require('../../ZelBack/src/services/nodeDosState');
 const appTamperingDetectionService = require('../../ZelBack/src/services/appTamperingDetectionService');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
@@ -123,18 +123,18 @@ describe('serviceManager prepareDatabaseSchema, temp messages and install errors
 
 describe('serviceManager apps availability DOS state', () => {
   afterEach(() => {
-    fluxNetworkHelper.setDosMessage(null);
-    fluxNetworkHelper.setDosStateValue(0);
+    nodeDosState.setDosMessage(null);
+    nodeDosState.setDosStateValue(0);
   });
 
   it('writes its message as the node\'s own', () => {
     dosState.dosMessage = 'Ports tested not reachable from outside';
 
-    chai.expect(fluxNetworkHelper.getDosMessage()).to.equal('Ports tested not reachable from outside');
+    chai.expect(nodeDosState.getDosMessage()).to.equal('Ports tested not reachable from outside');
   });
 
   it('reads the node\'s own message, whoever set it', () => {
-    fluxNetworkHelper.setDosMessage('Flux IP detection failed');
+    nodeDosState.setDosMessage('Flux IP detection failed');
 
     chai.expect(dosState.dosMessage).to.equal('Flux IP detection failed');
   });

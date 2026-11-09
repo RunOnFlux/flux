@@ -12,6 +12,7 @@ const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
 const serviceHelper = require('../serviceHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const nodeDosState = require('../nodeDosState');
 const registryManager = require('../appDatabase/registryManager');
 const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
@@ -38,8 +39,8 @@ const BOOT_APPS_RECONCILE_TIMEOUT_MS = config.system.bootAppsReconcileTimeoutMs 
 
 // The router taking this node's ports ends the hold boot put on it for not taking them.
 routerEvents.on('upnpReady', () => {
-  if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER)) {
-    fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER);
+  if (nodeDosState.isStickyDosHeldBy(nodeDosState.StickyDosOwner.UPNP_ROUTER)) {
+    nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.UPNP_ROUTER);
   }
 });
 
@@ -460,9 +461,9 @@ const OUT_OF_SERVICE = Symbol('outOfService');
 async function manageAppsOnBoot(bootContext) {
   let stopWatching = () => {};
   const takenOut = new Promise((resolve) => {
-    stopWatching = fluxNetworkHelper.onStickyDos(() => resolve(OUT_OF_SERVICE));
+    stopWatching = nodeDosState.onStickyDos(() => resolve(OUT_OF_SERVICE));
   });
-  const isOutOfService = () => fluxNetworkHelper.getStickyDosMessage() !== null;
+  const isOutOfService = () => nodeDosState.getStickyDosMessage() !== null;
   // OUT_OF_SERVICE when the node is held out of service by the time the wait
   // ends, however it ends. A hold released while it waits leaves it waiting.
   const unlessTakenOut = async (work) => {
@@ -472,7 +473,7 @@ async function manageAppsOnBoot(bootContext) {
     const done = await work;
     return isOutOfService() ? OUT_OF_SERVICE : done;
   };
-  const leaveToItsRemoval = () => log.error(`appStartupManager - Node is out of service (${fluxNetworkHelper.getStickyDosMessage()}); its removal unloads the apps, and boot starts none`);
+  const leaveToItsRemoval = () => log.error(`appStartupManager - Node is out of service (${nodeDosState.getStickyDosMessage()}); its removal unloads the apps, and boot starts none`);
   try {
     await tidyPlacementsOnBoot();
     // ahead of every container start, so no slice in use can be empty here
@@ -522,7 +523,7 @@ async function manageAppsOnBoot(bootContext) {
       return;
     }
 
-    if (fluxNetworkHelper.isNodeDos()) {
+    if (nodeDosState.isNodeDos()) {
       log.error('appStartupManager - Node is in DOS state, removing all apps');
       await removeAllApps('Node DOS');
       return;
@@ -541,7 +542,7 @@ async function manageAppsOnBoot(bootContext) {
       if (error.message === 'sync_timeout') {
         if (upnpNode && !upnpService.isUPNPReady()) {
           const reason = `UPnP: the router has not taken this node's ports within ${SYNC_TIMEOUT_MS / 1000}s of its start`;
-          fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER, reason);
+          nodeDosState.setStickyDos(nodeDosState.StickyDosOwner.UPNP_ROUTER, reason);
           leaveToItsRemoval();
           return;
         }

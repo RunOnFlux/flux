@@ -13,6 +13,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const nodeDosState = require('../../ZelBack/src/services/nodeDosState');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -50,8 +51,8 @@ describe('fluxNetworkHelper own standing tests', () => {
     clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
     fluxNetworkHelper.setIpChangeHold(null);
-    fluxNetworkHelper.setDosMessage(null);
-    fluxNetworkHelper.setDosStateValue(0);
+    nodeDosState.setDosMessage(null);
+    nodeDosState.setDosStateValue(0);
     fluxNetworkHelper.resetAvailabilityDos();
     fluxNetworkHelper.setSyncthingListenerKnown(false);
     sinon.stub(geolocationService, 'setNodeGeolocation');
@@ -76,8 +77,8 @@ describe('fluxNetworkHelper own standing tests', () => {
     sinon.restore();
     fluxNetworkHelper.stopOwnStandingWatch();
     fluxNetworkHelper.setSyncthingListenerKnown(false);
-    fluxNetworkHelper.setDosMessage(null);
-    fluxNetworkHelper.setDosStateValue(0);
+    nodeDosState.setDosMessage(null);
+    nodeDosState.setDosStateValue(0);
     fluxNetworkHelper.resetAvailabilityDos();
   });
 
@@ -97,7 +98,7 @@ describe('fluxNetworkHelper own standing tests', () => {
       await fluxNetworkHelper.requestAvailabilityCheck();
 
       expect(availabilityAsks()).to.equal(0);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(nodeDosState.getDosMessage()).to.equal(null);
     });
 
     it('does not ask while this node is not confirmed', async () => {
@@ -294,22 +295,22 @@ describe('fluxNetworkHelper own standing tests', () => {
       try {
         await fluxNetworkHelper.enforceIpChangeHold();
         expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
-        expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
+        expect(nodeDosState.getDosMessage()).to.equal(IP_CHANGES);
 
         // as the hold's watch does at each new height
         chainAt(3400);
         await fluxNetworkHelper.enforceIpChangeHold();
         expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
-        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+        expect(nodeDosState.getDosMessage()).to.equal(null);
       } finally {
-        fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.IP_CHANGES);
+        nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.IP_CHANGES);
         await records.deleteMany({});
       }
     });
 
     it('ends no DOS of another check\'s once reachable', async () => {
-      fluxNetworkHelper.setDosMessage('Ports tested not reachable from outside');
-      fluxNetworkHelper.setDosStateValue(100);
+      nodeDosState.setDosMessage('Ports tested not reachable from outside');
+      nodeDosState.setDosStateValue(100);
       fluxCommunicationUtils.getNodeCount.resolves(1);
 
       expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
@@ -318,11 +319,11 @@ describe('fluxNetworkHelper own standing tests', () => {
     });
 
     it('leaves another check\'s DOS standing, with the score that check counted', async () => {
-      fluxNetworkHelper.setDosMessage(IP_DETECTION_FAILED);
-      fluxNetworkHelper.setDosStateValue(11);
+      nodeDosState.setDosMessage(IP_DETECTION_FAILED);
+      nodeDosState.setDosStateValue(11);
       await unreachableEverywhere();
       expect(dos().dosMessage, 'fixture: the message standing is the other check\'s').to.equal(BENCH_PUBLIC_IP);
-      fluxNetworkHelper.setDosMessage(IP_DETECTION_FAILED);
+      nodeDosState.setDosMessage(IP_DETECTION_FAILED);
       enoughPeers();
 
       await fluxNetworkHelper.checkMyFluxAvailability();
@@ -334,7 +335,7 @@ describe('fluxNetworkHelper own standing tests', () => {
       await unreachableEverywhere();
       const counted = dos().dosState;
 
-      fluxNetworkHelper.setDosStateValue(0);
+      nodeDosState.setDosStateValue(0);
 
       expect(dos().dosState).to.equal(counted);
     });
@@ -375,23 +376,23 @@ describe('fluxNetworkHelper own standing tests', () => {
 
     it('is out of service once the configured number of asks found none, and not one ask sooner', async () => {
       await clock.tickAsync(config.fluxapps.publicIpAskIntervalMs * (config.fluxapps.publicIpAsksBeforeDos - 1));
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(nodeDosState.getDosMessage()).to.equal(null);
 
       await clock.tickAsync(config.fluxapps.publicIpAskIntervalMs);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_DETECTION_FAILED);
-      expect(fluxNetworkHelper.getDosStateValue()).to.be.above(10);
+      expect(nodeDosState.getDosMessage()).to.equal(IP_DETECTION_FAILED);
+      expect(nodeDosState.getDosStateValue()).to.be.above(10);
     });
 
     it('stops asking, and ends that DOS, when an address arrives', async () => {
       await clock.tickAsync(config.fluxapps.publicIpAskIntervalMs * config.fluxapps.publicIpAsksBeforeDos);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_DETECTION_FAILED);
+      expect(nodeDosState.getDosMessage()).to.equal(IP_DETECTION_FAILED);
 
       benchmarkService.getBenchmarks.resolves({ status: 'success', data: { ipaddress: OWN } });
       await clock.tickAsync(config.fluxapps.publicIpAskIntervalMs);
       const asks = benchmarkService.getPublicIp.callCount;
       await clock.tickAsync(config.fluxapps.publicIpAskIntervalMs * 3);
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(nodeDosState.getDosMessage()).to.equal(null);
       expect(benchmarkService.getPublicIp.callCount).to.equal(asks);
     });
   });

@@ -5,7 +5,7 @@ const { EventEmitter } = require('node:events');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { makeStickyDosDouble } = require('./stickyDosTestDouble');
-const { StickyDosOwner } = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { StickyDosOwner } = require('../../ZelBack/src/services/nodeDosState');
 
 const { EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
@@ -49,6 +49,7 @@ describe('residentialNodeDosService tests', () => {
       },
       './dbHelper': dbHelperStub,
       './fluxNetworkHelper': fluxNetworkHelperStub,
+      './nodeDosState': fluxNetworkHelperStub,
       './geolocationService': geolocationServiceStub,
       './benchmarkService': benchmarkServiceStub,
       './utils/globalState': globalStateStub,

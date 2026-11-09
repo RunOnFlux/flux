@@ -144,6 +144,7 @@ describe('appStartupManager tests', () => {
       '../upnpService': upnpServiceStub,
       '../upnpRouter': { routerEvents: routerEventsStub },
       '../fluxNetworkHelper': fluxNetworkHelperStub,
+      '../nodeDosState': fluxNetworkHelperStub,
       '../appDatabase/registryManager': registryManagerStub,
       './advancedWorkflows': advancedWorkflowsStub,
       '../appMonitoring/appReconciler': appReconcilerStub,

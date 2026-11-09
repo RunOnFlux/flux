@@ -4,7 +4,7 @@ const { EventEmitter } = require('events');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { makeStickyDosDouble } = require('./stickyDosTestDouble');
-const { StickyDosOwner } = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { StickyDosOwner } = require('../../ZelBack/src/services/nodeDosState');
 
 describe('peerSetStabilityService', () => {
   const OWNER = StickyDosOwner.PEER_SET_STABILITY;
@@ -12,22 +12,22 @@ describe('peerSetStabilityService', () => {
   let clock;
   let peerEmitter;
   let logStub;
-  let fluxNetworkHelperStub;
+  let nodeDosStateStub;
 
-  function makeNetworkHelper() {
+  function makeDosState() {
     return makeStickyDosDouble();
   }
 
   // Why the node is out of service, as a reader of /flux/info sees it.
-  const stickyMessage = () => fluxNetworkHelperStub.getStickyDosMessage();
-  const heldByUs = () => fluxNetworkHelperStub.isStickyDosHeldBy(OWNER);
+  const stickyMessage = () => nodeDosStateStub.getStickyDosMessage();
+  const heldByUs = () => nodeDosStateStub.isStickyDosHeldBy(OWNER);
 
   function load(fluxappsOverrides) {
     const realConfig = require('config');
     return proxyquire('../../ZelBack/src/services/peerSetStabilityService', {
       config: { ...realConfig, fluxapps: { ...realConfig.fluxapps, ...fluxappsOverrides } },
       '../lib/log': logStub,
-      './fluxNetworkHelper': fluxNetworkHelperStub,
+      './nodeDosState': nodeDosStateStub,
       './utils/fluxEventBus': { publish: sinon.stub() },
     });
   }
@@ -50,7 +50,7 @@ describe('peerSetStabilityService', () => {
     clock = sinon.useFakeTimers({ now: 1_600_000_000_000, shouldAdvanceTime: false });
     peerEmitter = new EventEmitter();
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
-    fluxNetworkHelperStub = makeNetworkHelper();
+    nodeDosStateStub = makeDosState();
     service = load({ peerSetDipDosThreshold: 5, peerSetDipWindowMinutes: 120 });
   });
 
@@ -213,7 +213,7 @@ describe('peerSetStabilityService', () => {
     const OTHER_REASON = 'Residential node not running ArcaneOS. Migrate this node.';
 
     it('records its own verdict beside another owner\'s', () => {
-      fluxNetworkHelperStub.holds.set(OTHER, OTHER_REASON);
+      nodeDosStateStub.holds.set(OTHER, OTHER_REASON);
       startService(service, { alreadyUp: true });
 
       for (let i = 0; i < 5; i += 1) dipAndRecover(service);
@@ -226,7 +226,7 @@ describe('peerSetStabilityService', () => {
     it('releases its own verdict and leaves another owner\'s standing', () => {
       startService(service, { alreadyUp: true });
       for (let i = 0; i < 5; i += 1) dipAndRecover(service);
-      fluxNetworkHelperStub.holds.set(OTHER, OTHER_REASON);
+      nodeDosStateStub.holds.set(OTHER, OTHER_REASON);
 
       clock.tick(service.WINDOW_MS + service.EVALUATE_INTERVAL_MS);
 
