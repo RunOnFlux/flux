@@ -25,18 +25,21 @@ const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const { Privilege, authOf } = require('./utils/privileges');
 const { BlockCadence } = require('./utils/blockCadence');
+const { FluxController } = require('./utils/fluxController');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
 
-let blockProccessingCanContinue = true;
-let someBlockIsProcessing = false;
-let isInInitiationOfBP = false;
+// The block processor runs one step at a time. Each step says which step runs
+// next and how long to wait first; the controller's loop does every wait, so a
+// stop cancels the wait and, once the step in flight has finished, runs nothing
+// more. One loop at a time: a start while one runs or stops is refused.
+const processor = new FluxController();
+let nextStep = null;
 let zelAppSpecsMigrationDone = false;
 let explorerReadyEmitted = false;
 let operationBlocked = false;
-let pollTimeout = null;
 let appsTransactions = [];
 let isSynced = false;
 let cachedDaemonVersion = null;
@@ -115,6 +118,22 @@ const DAEMON_ATTEMPTS = 5;
 const DAEMON_RETRY_MS = 2_000;
 // How long after a bootstrap fails it runs again.
 const BOOTSTRAP_RETRY_MS = 60_000;
+// How long after a recovery fails it runs again.
+const RECOVERY_RETRY_MS = 15 * 60 * 1000;
+// How long a block waits for fluxd to sync before it is asked for again.
+const BLOCK_SYNC_RETRY_MS = 2 * 60 * 1000;
+
+/**
+ * The block processor's steps. Each step function answers `{ next, waitMs }`:
+ * the step that runs next, and how long the processor waits before it.
+ */
+const Step = {
+  init: (restoreDatabase, deepRestore) => ({ run: 'init', restoreDatabase, deepRestore }),
+  block: (height) => ({ run: 'block', height }),
+  poll: () => ({ run: 'poll' }),
+  recover: (restoreDatabase, deepRestore) => ({ run: 'recover', restoreDatabase, deepRestore }),
+};
+const after = (next, waitMs = 0) => ({ next, waitMs });
 
 /**
  * What a call to fluxd answers, asked again while it fails.
@@ -490,16 +509,16 @@ async function scheduleUpnpBench(tipBlock, period) {
   }
 }
 
+/**
+ * The block processor's step for one block.
+ * @param {number} blockHeight
+ * @returns {Promise<{next: object, waitMs: number}>} The next block while fluxd
+ *   holds one, the poll at the tip, the recovery when this block fails.
+ */
 async function processBlock(blockHeight) {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      setTimeout(() => {
-        processBlock(blockHeight);
-      }, 2 * 60 * 1000);
-      return;
-    }
-    someBlockIsProcessing = true;
+    if (!syncStatus.data.synced) return after(Step.block(blockHeight), BLOCK_SYNC_RETRY_MS);
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.EXPLORER_BEFORE_BLOCK);
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
@@ -512,8 +531,7 @@ async function processBlock(blockHeight) {
     }
     if (blockDataVerbose.height > 699420 && blockDataVerbose.height < 862002) {
       // speed up sync as there were no app messages between these two blocks
-      processBlock(862002);
-      return;
+      return after(Step.block(862002));
     }
     await processInsight(blockDataVerbose, database);
     await fluxnodeAddressRecord.recordBlock(blockDataVerbose);
@@ -580,33 +598,18 @@ async function processBlock(blockHeight) {
       fluxEventBus.publish('block:processed', { height: scannedHeight });
       blockEmitter.emit('syncProgress', scannedHeight);
     }
-    someBlockIsProcessing = false;
-    if (blockProccessingCanContinue) {
-      if (blockDataVerbose.confirmations > 1) {
-        processBlock(blockDataVerbose.height + 1);
-      } else {
-        const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
-        if (daemonBlockCount.status !== 'success') {
-          throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
-        }
-        const daemonHeight = daemonBlockCount.data;
-        if (daemonHeight > blockDataVerbose.height) {
-          processBlock(blockDataVerbose.height + 1);
-        } else {
-          // eslint-disable-next-line no-use-before-define
-          pollForNewBlocks();
-        }
-      }
+    if (blockDataVerbose.confirmations > 1) return after(Step.block(blockDataVerbose.height + 1));
+    const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
+    if (daemonBlockCount.status !== 'success') {
+      throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
     }
+    if (daemonBlockCount.data > blockDataVerbose.height) return after(Step.block(blockDataVerbose.height + 1));
+    return after(Step.poll());
   } catch (error) {
-    someBlockIsProcessing = false;
     log.error('Block processor encountered an error.');
     log.error(error);
-    if (blockProccessingCanContinue) {
-      const deep = error.message && error.message.includes('duplicate key');
-      // eslint-disable-next-line no-use-before-define
-      recoverAndRestart(true, deep);
-    }
+    const deep = Boolean(error.message && error.message.includes('duplicate key'));
+    return after(Step.recover(true, deep));
   }
 }
 
@@ -978,12 +981,15 @@ async function bootstrapAppHashes(currentDaemonHeight) {
   log.info(`Bootstrap complete: ${totalHashes} app hashes, scanned to height ${currentDaemonHeight}`);
 }
 
-async function waitForDaemonSync() {
+/**
+ * How long a step that needs fluxd synced waits before it runs again.
+ * @returns {number} 0 when fluxd is synced.
+ */
+function untilDaemonSyncedMs() {
+  if (daemonServiceMiscRpcs.isDaemonSynced().data.synced) return 0;
   const retryMs = config.fluxapps.explorerSyncRetryMs ?? 120000;
-  while (!daemonServiceMiscRpcs.isDaemonSynced().data.synced) {
-    log.info(`Explorer - Daemon not synced, retrying in ${retryMs / 1000}s`);
-    await serviceHelper.delay(retryMs);
-  }
+  log.info(`Explorer - Daemon not synced, retrying in ${retryMs / 1000}s`);
+  return retryMs;
 }
 
 async function getScannedBlockHeightFromDb(database) {
@@ -1060,52 +1066,51 @@ async function checkAndHandleReorgs(database, scannedBlockHeight) {
 // say so.
 const POLL_INTERVAL_MS = config.fluxapps.explorerPollIntervalMs ?? 5000;
 
+/**
+ * The block processor's step at the tip: whether fluxd holds a block the
+ * explorer has not processed, or a reorganisation moved the explorer back.
+ * @returns {Promise<{next: object, waitMs: number}>}
+ */
 async function pollForNewBlocks() {
-  if (!blockProccessingCanContinue) return;
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
-      return;
-    }
+    if (!syncStatus.data.synced) return after(Step.poll(), POLL_INTERVAL_MS);
 
     const daemonHeight = syncStatus.data.height;
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     const scannedBlockHeight = await getScannedBlockHeightFromDb(database);
 
-    if (daemonHeight > scannedBlockHeight) {
-      processBlock(scannedBlockHeight + 1);
-      return;
-    }
+    if (daemonHeight > scannedBlockHeight) return after(Step.block(scannedBlockHeight + 1));
 
     const restoredHeight = await checkAndHandleReorgs(database, scannedBlockHeight);
-    if (restoredHeight < scannedBlockHeight) {
-      processBlock(restoredHeight + 1);
-      return;
-    }
+    if (restoredHeight < scannedBlockHeight) return after(Step.block(restoredHeight + 1));
 
-    pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
+    return after(Step.poll(), POLL_INTERVAL_MS);
   } catch (error) {
     log.error(`Explorer poll error: ${error.message}`);
-    pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
+    return after(Step.poll(), POLL_INTERVAL_MS);
   }
 }
 
+/**
+ * The block processor's step after a failure: the database put back to a
+ * height it holds, then the block after it.
+ * @param {boolean} restoreDatabase
+ * @param {boolean} deepRestore Restore explorerDeepRestoreBlocks below the scanned height.
+ * @returns {Promise<{next: object, waitMs: number}>} The setup again, after
+ *   BOOTSTRAP_RETRY_MS, when nothing is scanned.
+ */
 async function recoverAndRestart(restoreDatabase, deepRestore) {
-  if (!blockProccessingCanContinue) return;
+  const syncWaitMs = untilDaemonSyncedMs();
+  if (syncWaitMs) return after(Step.recover(restoreDatabase, deepRestore), syncWaitMs);
   try {
-    await waitForDaemonSync();
-
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     let scannedBlockHeight = await getScannedBlockHeightFromDb(database);
     if (scannedBlockHeight === 0) {
       log.info(`Explorer has scanned nothing, bootstrapping again in ${BOOTSTRAP_RETRY_MS / 1000}s`);
-      await serviceHelper.delay(BOOTSTRAP_RETRY_MS);
-      // eslint-disable-next-line no-use-before-define
-      initiateBlockProcessor(false, false);
-      return;
+      return after(Step.init(false, false), BOOTSTRAP_RETRY_MS);
     }
 
     if (restoreDatabase) {
@@ -1128,21 +1133,24 @@ async function recoverAndRestart(restoreDatabase, deepRestore) {
     if (scannedBlockHeight < config.fluxapps.epochstart - 1) {
       scannedBlockHeight = config.fluxapps.epochstart - 1;
     }
-    processBlock(scannedBlockHeight + 1);
+    return after(Step.block(scannedBlockHeight + 1));
   } catch (error) {
     log.error(`Recovery failed: ${error.message}`);
-    setTimeout(() => recoverAndRestart(true, true), 15 * 60 * 1000);
+    return after(Step.recover(true, true), RECOVERY_RETRY_MS);
   }
 }
 
-// do a deepRestore of 100 blocks if daemon if enouncters an error (mostly flux daemon was down) or if its initial start of flux
-async function initiateBlockProcessor(restoreDatabase, deepRestore) {
+/**
+ * The block processor's first step: the collections and records the scan needs,
+ * then the bootstrap from the address index when nothing is scanned.
+ * @param {boolean} restoreDatabase
+ * @param {boolean} deepRestore Restore explorerDeepRestoreBlocks below the scanned height.
+ * @returns {Promise<{next: object, waitMs: number}>}
+ */
+async function initialiseBlockProcessor(restoreDatabase, deepRestore) {
+  const syncWaitMs = untilDaemonSyncedMs();
+  if (syncWaitMs) return after(Step.init(restoreDatabase, deepRestore), syncWaitMs);
   try {
-    await waitForDaemonSync();
-
-    if (isInInitiationOfBP) return;
-    isInInitiationOfBP = true;
-
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
 
@@ -1204,8 +1212,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       }
     }
 
-    isInInitiationOfBP = false;
-
     if (!explorerReadyEmitted) {
       explorerReadyEmitted = true;
       fluxEventBus.publish('explorer:ready', { height: scannedBlockHeight });
@@ -1215,8 +1221,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       if (lastchainTipCheck === 0) {
         lastchainTipCheck = scannedBlockHeight - 1;
       }
-      pollForNewBlocks();
-      return;
+      return after(Step.poll());
     }
 
     // The bootstrap stops the record's blocks short of the tip: processing them
@@ -1227,18 +1232,67 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       log.info('Bootstrap: Using address-index fast path');
       await bootstrapAppHashes(bootstrapHeight);
       log.info(`Bootstrap complete, processing the blocks from ${bootstrapHeight + 1}`);
-      processBlock(bootstrapHeight + 1);
-    } else {
-      if (scannedBlockHeight < config.fluxapps.epochstart - 1) {
-        scannedBlockHeight = config.fluxapps.epochstart - 1;
-      }
-      processBlock(scannedBlockHeight + 1);
+      return after(Step.block(bootstrapHeight + 1));
     }
+    if (scannedBlockHeight < config.fluxapps.epochstart - 1) {
+      scannedBlockHeight = config.fluxapps.epochstart - 1;
+    }
+    return after(Step.block(scannedBlockHeight + 1));
   } catch (error) {
     log.error(error);
-    isInInitiationOfBP = false;
-    recoverAndRestart(true, true);
+    return after(Step.recover(true, true));
   }
+}
+
+const STEPS = {
+  init: ({ restoreDatabase, deepRestore }) => initialiseBlockProcessor(restoreDatabase, deepRestore),
+  block: ({ height }) => processBlock(height),
+  poll: () => pollForNewBlocks(),
+  recover: ({ restoreDatabase, deepRestore }) => recoverAndRestart(restoreDatabase, deepRestore),
+};
+
+/**
+ * One step of the block processor, under the controller's lock so a stop waits
+ * for it. Answers how long the loop waits before the next.
+ * @returns {Promise<number>}
+ */
+async function runBlockProcessorStep() {
+  await processor.lock.enable();
+  try {
+    const { next, waitMs } = await STEPS[nextStep.run](nextStep);
+    nextStep = next;
+    return waitMs;
+  } finally {
+    processor.lock.disable();
+  }
+}
+
+/**
+ * Start the block processor at its setup step.
+ * @param {boolean} restoreDatabase
+ * @param {boolean} deepRestore Restore explorerDeepRestoreBlocks below the scanned height.
+ * @returns {boolean} False when it is already running or stopping.
+ */
+function initiateBlockProcessor(restoreDatabase, deepRestore) {
+  if (processor.running) return false;
+  nextStep = Step.init(restoreDatabase, deepRestore);
+  return processor.startLoop(runBlockProcessorStep);
+}
+
+/**
+ * Stop the block processor: no wait is left pending, and nothing runs after the
+ * step in flight, which this waits for.
+ * @returns {Promise<void>}
+ */
+function stopBlockProcessor() {
+  return processor.abort();
+}
+
+/**
+ * @returns {boolean} Whether the block processor is running or stopping.
+ */
+function isBlockProcessorRunning() {
+  return processor.running;
 }
 
 // The answer of an endpoint whose data the daemon's address index does not hold.
@@ -1397,70 +1451,53 @@ async function getScannedHeight(req, res) {
 }
 
 /**
- * To check if block processing has stopped.
- * @param {number} i Value.
- * @param {callback} callback Callback function.
- */
-async function checkBlockProcessingStopped(i, callback) {
-  blockProccessingCanContinue = false;
-  clearTimeout(pollTimeout);
-  pollTimeout = null;
-  if (someBlockIsProcessing === false && isInInitiationOfBP === false) {
-    const succMessage = messageHelper.createSuccessMessage('Block processing is stopped');
-    blockProccessingCanContinue = true;
-    callback(succMessage);
-  } else {
-    setTimeout(() => {
-      const j = i + 1;
-      if (j < 12) {
-        checkBlockProcessingStopped(j, callback);
-      } else {
-        // Not stopped: the block in flight keeps chaining to the next one.
-        blockProccessingCanContinue = true;
-        const errMessage = messageHelper.createErrorMessage('Unknown error occured. Try again later.');
-        callback(errMessage);
-      }
-    }, 1000);
-  }
-}
-
-/**
- * To stop block processing. Only accessible by admins and Flux team members.
+ * To stop block processing. Flux team only. Answers once the step in flight has
+ * finished; nothing runs after it until a start or a restart.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function stopBlockProcessing(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  if (authorized === true) {
-    const i = 0;
-    checkBlockProcessingStopped(i, async (response) => {
-      // put blockProccessingCanContinue status to true.
-      res.json(response);
-    });
-  } else {
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    res.json(errMessage);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+  if (authorized !== true) {
+    res.json(messageHelper.errUnauthorizedMessage());
+    return;
   }
+  await stopBlockProcessor();
+  res.json(messageHelper.createSuccessMessage('Block processing is stopped'));
 }
 
 /**
- * To restart block processing. Only accessible by admins and Flux team members.
+ * To start block processing when it is stopped. Flux team only.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function startBlockProcessing(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+  if (authorized !== true) {
+    res.json(messageHelper.errUnauthorizedMessage());
+    return;
+  }
+  if (!initiateBlockProcessor(true, false)) {
+    res.json(messageHelper.createErrorMessage('Block processing is already running'));
+    return;
+  }
+  res.json(messageHelper.createSuccessMessage('Block processing initiated'));
+}
+
+/**
+ * To stop block processing and start it again. Flux team only.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function restartBlockProcessing(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
-  if (authorized === true) {
-    const i = 0;
-    checkBlockProcessingStopped(i, async () => {
-      initiateBlockProcessor(true, false);
-      const message = messageHelper.createSuccessMessage('Block processing initiated');
-      res.json(message);
-    });
-  } else {
-    const errMessage = messageHelper.errUnauthorizedMessage();
-    res.json(errMessage);
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+  if (authorized !== true) {
+    res.json(messageHelper.errUnauthorizedMessage());
+    return;
   }
+  await stopBlockProcessor();
+  initiateBlockProcessor(true, false);
+  res.json(messageHelper.createSuccessMessage('Block processing initiated'));
 }
 
 /**
@@ -1495,35 +1532,28 @@ async function reindexExplorer(req, res) {
       refuseAppsFlag(res);
       return;
     }
-    // stop block processing
-    const i = 0;
-    checkBlockProcessingStopped(i, async (response) => {
-      if (response.status === 'error') {
-        res.json(response);
-      } else if (operationBlocked) {
-        const errMessage = messageHelper.createErrorMessage('Operation blocked');
-        res.json(errMessage);
-      } else {
-        operationBlocked = true;
-        try {
-          const dbopen = dbHelper.databaseConnection();
-          const database = dbopen.db(config.database.daemon.database);
-          await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
-            // A collection that is already gone is the reindex's starting point.
-            if (error.message !== 'ns not found') throw error;
-          });
-        } catch (error) {
-          operationBlocked = false;
-          log.error(error);
-          res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
-          return;
-        }
-        operationBlocked = false;
-        initiateBlockProcessor(true, false);
-        const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
-        res.json(message);
-      }
-    });
+    if (operationBlocked) {
+      res.json(messageHelper.createErrorMessage('Operation blocked'));
+      return;
+    }
+    operationBlocked = true;
+    await stopBlockProcessor();
+    try {
+      const dbopen = dbHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+        // A collection that is already gone is the reindex's starting point.
+        if (error.message !== 'ns not found') throw error;
+      });
+    } catch (error) {
+      log.error(error);
+      res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+      return;
+    } finally {
+      operationBlocked = false;
+      initiateBlockProcessor(true, false);
+    }
+    res.json(messageHelper.createSuccessMessage('Explorer database reindex initiated'));
   } else {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
@@ -1574,34 +1604,24 @@ async function rescanExplorer(req, res) {
       if (blockheight < 0) {
         throw new Error('BlockHeight lower than 0');
       }
-      // stop block processing
-      const i = 0;
-      checkBlockProcessingStopped(i, async (response) => {
-        if (response.status === 'error') {
-          res.json(response);
-        } else if (operationBlocked) {
-          res.json(messageHelper.createErrorMessage('Operation blocked'));
-        } else {
-          operationBlocked = true;
-          const update = { $set: { generalScannedHeight: blockheight } };
-          const options = {
-            upsert: true,
-          };
-          try {
-            // update scanned Height in scannedBlockHeightCollection
-            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-          } catch (error) {
-            operationBlocked = false;
-            log.error(error);
-            res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
-            return;
-          }
-          operationBlocked = false;
-          initiateBlockProcessor(true, false);
-          const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
-          res.json(message);
-        }
-      });
+      if (operationBlocked) {
+        res.json(messageHelper.createErrorMessage('Operation blocked'));
+        return;
+      }
+      operationBlocked = true;
+      await stopBlockProcessor();
+      try {
+        // update scanned Height in scannedBlockHeightCollection
+        await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, { $set: { generalScannedHeight: blockheight } }, { upsert: true });
+      } catch (error) {
+        log.error(error);
+        res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+        return;
+      } finally {
+        operationBlocked = false;
+        initiateBlockProcessor(true, false);
+      }
+      res.json(messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`));
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1653,19 +1673,9 @@ async function isExplorerSynced(req, res) {
   res.json(resMessage);
 }
 
-// testing purposes
-function setBlockProccessingCanContinue(value) {
-  blockProccessingCanContinue = value;
-}
-
-// testing purposes
-function getBlockProccessingCanContinue() {
-  return blockProccessingCanContinue;
-}
-
-// testing purposes
-function setIsInInitiationOfBP(value) {
-  isInInitiationOfBP = value;
+// testing purposes: one step, outside the processor's loop
+function runStep(step) {
+  return STEPS[step.run](step);
 }
 
 // testing purposes
@@ -1685,7 +1695,12 @@ module.exports = {
   reindexExplorer,
   rescanExplorer,
   stopBlockProcessing,
+  startBlockProcessing,
   restartBlockProcessing,
+  stopBlockProcessor,
+  isBlockProcessorRunning,
+  Step,
+  runStep,
   getAllUtxos,
   getAllAddressesWithTransactions,
   getAllAddresses,
@@ -1705,10 +1720,7 @@ module.exports = {
   getVerboseBlock,
   decodeMessage,
   processInsight,
-  setBlockProccessingCanContinue,
-  getBlockProccessingCanContinue,
   insertTransactions,
-  setIsInInitiationOfBP,
   setZelAppSpecsMigrationDone,
   restoreDatabaseToBlockheightState,
 

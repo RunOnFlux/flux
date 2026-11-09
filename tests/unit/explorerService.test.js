@@ -11,6 +11,7 @@ const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const { MongoNetworkTimeoutError } = require('mongodb');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
@@ -328,10 +329,6 @@ describe('explorerService tests', () => {
     let daemonServiceMiscRpcsStub;
 
     beforeEach(async () => {
-      // An unsynced daemon makes processBlock retry itself in two minutes. Left
-      // real, that timer outlives this file and re-enters block processing
-      // against restored stubs.
-      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       sinon.stub(dbHelper, 'findOneInDatabase');
       sinon.stub(dbHelper, 'insertManyToDatabase');
       dbStubUpdate = sinon.stub(dbHelper, 'updateOneInDatabase');
@@ -351,7 +348,7 @@ describe('explorerService tests', () => {
       sinon.restore();
     });
 
-    it('should return and retry function if daemon is not synced', async () => {
+    it('asks for the same block again in two minutes when fluxd is not synced', async () => {
       const blockHeight = 100000;
       daemonServiceMiscRpcsStub.returns({
         data:
@@ -362,15 +359,13 @@ describe('explorerService tests', () => {
 
       const result = await explorerService.processBlock(blockHeight);
 
-      expect(result).to.be.undefined;
+      expect(result).to.deep.equal({ next: explorerService.Step.block(blockHeight), waitMs: 2 * 60 * 1000 });
     });
 
     it('should update db if all parameters are passed correctly, block height == 695000', async () => {
       const blockHeight = 695000;
       dbStubUpdate.returns(true);
       expireGlobalApplicationsStub.returns(true);
-      // prevent infinite func loop while testing
-      explorerService.setBlockProccessingCanContinue(false);
       daemonServiceMiscRpcsStub.returns({
         data:
         {
@@ -426,7 +421,6 @@ describe('explorerService tests', () => {
     // A payment record carries its transaction's position in the block, on both
     // scan paths: here the app payment is the block's second transaction.
     it('records an app payment\'s position in its block', async () => {
-      explorerService.setBlockProccessingCanContinue(false);
       daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
       daemonServiceBlockchainRpcsStub.returns({
         status: 'success',
@@ -468,8 +462,6 @@ describe('explorerService tests', () => {
       const blockHeight = 900009;
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
-      // prevent infinite func loop while testing
-      explorerService.setBlockProccessingCanContinue(false);
       daemonServiceMiscRpcsStub.returns({
         data:
         {
@@ -528,8 +520,6 @@ describe('explorerService tests', () => {
       const blockHeight = 900025;
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
-      // prevent infinite func loop while testing
-      explorerService.setBlockProccessingCanContinue(false);
       daemonServiceMiscRpcsStub.returns({
         data:
         {
@@ -581,7 +571,6 @@ describe('explorerService tests', () => {
     it('runs the work whose period a burst of blocks passed once, on the block that reaches the tip', async () => {
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
-      explorerService.setBlockProccessingCanContinue(false);
       daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
       async function processAt(height, confirmations) {
         daemonServiceBlockchainRpcsStub.returns({ status: 'success', data: { tx: [], height, confirmations } });
@@ -606,7 +595,6 @@ describe('explorerService tests', () => {
     });
 
     it('judges a give-up pass run late at the times of the blocks it and the pass before fell due on', async () => {
-      explorerService.setBlockProccessingCanContinue(false);
       daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
       const period = config.fluxapps.removeFluxAppsPeriod;
       const multiple = Math.ceil(900100 / period) * period;
@@ -631,14 +619,12 @@ describe('explorerService tests', () => {
 
   describe('the fluxnode address record', () => {
     beforeEach(async () => {
-      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       await dbHelper.initiateDB();
       globalState.dbReady = true;
     });
 
     afterEach(() => {
       globalState.dbReady = false;
-      explorerService.setBlockProccessingCanContinue(true);
       sinon.restore();
     });
 
@@ -659,7 +645,6 @@ describe('explorerService tests', () => {
       const recorded = sinon.stub(fluxnodeAddressRecord, 'recordBlock').callsFake(async () => { order.push('recorded'); });
       const announced = () => order.push('announced');
       explorerService.getBlockEmitter().once('blocksProcessed', announced);
-      explorerService.setBlockProccessingCanContinue(false);
 
       try {
         await explorerService.processBlock(block.height);
@@ -1054,25 +1039,61 @@ describe('explorerService tests', () => {
       });
     });
 
-    afterEach(() => {
-      explorerService.setIsInInitiationOfBP(false);
+    afterEach(async () => {
+      await explorerService.stopBlockProcessor();
       explorerService.setZelAppSpecsMigrationDone(false);
       sinon.restore();
     });
 
-    it('should return right away if isInInitiationOfBP is true', async () => {
-      explorerService.setIsInInitiationOfBP(true);
+    const { Step } = explorerService;
+    const runStep = (step) => explorerService.runStep(step);
 
-      const result = await explorerService.initiateBlockProcessor(true, true);
+    it('refuses a second start while one runs, and starts again once stopped', async () => {
+      // fluxd not synced: the first step only waits
+      daemonServiceMiscRpcs.isDaemonSynced.returns({ data: { synced: false } });
 
-      expect(result).to.be.undefined;
+      expect(explorerService.initiateBlockProcessor(true, true)).to.equal(true);
+      expect(explorerService.initiateBlockProcessor(true, true)).to.equal(false);
+      await explorerService.stopBlockProcessor();
+      expect(explorerService.isBlockProcessorRunning()).to.equal(false);
+      expect(explorerService.initiateBlockProcessor(true, true)).to.equal(true);
+
       sinon.assert.notCalled(findInDatabaseStub);
+    });
+
+    it('a refused start leaves the running processor on the step it was on', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+        sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+        sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+        sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+        findInDatabaseStub.returns({ generalScannedHeight: 1000 });
+        fakeDatabase(sinon.fake.returns({
+          collection: sinon.fake.returns({
+            createIndex: sinon.fake.resolves(true), updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+            find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+          }),
+        }));
+        getBlockCountStub.returns({ status: 'success', data: 200000 });
+        daemonServiceMiscRpcs.isDaemonSynced.returns({ data: { synced: false } });
+
+        explorerService.initiateBlockProcessor(true, true);
+        await clock.tickAsync(1);
+        expect(explorerService.initiateBlockProcessor(false, false)).to.equal(false);
+        daemonServiceMiscRpcs.isDaemonSynced.returns({ data: { synced: true } });
+        await clock.tickAsync(config.fluxapps.explorerSyncRetryMs ?? 120000);
+
+        sinon.assert.calledWithMatch(logInfoSpy, 'Deep restoring of database...');
+      } finally {
+        await explorerService.stopBlockProcessor();
+        clock.restore();
+      }
     });
 
     it('should throw and log error if getBlockCount does not return success', async () => {
       explorerService.setZelAppSpecsMigrationDone(true);
       sinon.stub(dbHelper, 'countInDatabase').resolves(1);
-      explorerService.setBlockProccessingCanContinue(false);
       getBlockCountStub.returns({
         status: 'error',
         data: {
@@ -1080,11 +1101,11 @@ describe('explorerService tests', () => {
         },
       });
 
-      await explorerService.initiateBlockProcessor(false, false);
-      await serviceHelper.delay(200);
+      const step = await runStep(Step.init(false, false));
 
       sinon.assert.calledOnce(logErrorSpy);
       sinon.assert.calledWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+      expect(step).to.deep.equal({ next: Step.recover(true, true), waitMs: 0 });
     });
 
     it('should run the block processor, all params false', async () => {
@@ -1105,10 +1126,8 @@ describe('explorerService tests', () => {
       });
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
       sinon.stub(daemonServiceUtils, 'executeBatchCall').resolves({ status: 'success', data: [] });
-      explorerService.setBlockProccessingCanContinue(false);
 
-      await explorerService.initiateBlockProcessor(false, false, false);
-      await serviceHelper.delay(200);
+      const step = await runStep(Step.init(false, false));
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
@@ -1116,7 +1135,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
       sinon.assert.called(createIndexFake);
       sinon.assert.calledWithMatch(dbHelper.updateOneInDatabase, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 2000000 - fluxnodeAddressRecord.RECORD_BLOCKS } });
-      sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: 2000000 - fluxnodeAddressRecord.RECORD_BLOCKS + 1 } });
+      expect(step).to.deep.equal({ next: Step.block(2000000 - fluxnodeAddressRecord.RECORD_BLOCKS + 1), waitMs: 0 });
       sinon.assert.notCalled(rebuildStub);
     });
 
@@ -1132,13 +1151,11 @@ describe('explorerService tests', () => {
       fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
       getBlockCountStub.returns({ status: 'success', data: config.fluxapps.epochstart + fluxnodeAddressRecord.RECORD_BLOCKS - 1 });
       const executeCallStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
-      explorerService.setBlockProccessingCanContinue(false);
 
-      await explorerService.initiateBlockProcessor(false, false, false);
-      await serviceHelper.delay(200);
+      const step = await runStep(Step.init(false, false));
 
       sinon.assert.notCalled(executeCallStub);
-      sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: config.fluxapps.epochstart } });
+      expect(step.next).to.deep.equal(Step.block(config.fluxapps.epochstart));
     });
 
     describe('the fluxnode address record', () => {
@@ -1152,15 +1169,13 @@ describe('explorerService tests', () => {
         });
         fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
         getBlockCountStub.returns({ status: 'success', data: 200000 });
-        explorerService.setBlockProccessingCanContinue(false);
       };
 
       it('is built from the blocks up to the scanned height when it holds nothing and the explorer is near the tip', async () => {
         atHeight(199500);
         isBuiltStub.resolves(false);
 
-        await explorerService.initiateBlockProcessor(false, false, false);
-        await serviceHelper.delay(200);
+        await runStep(Step.init(false, false));
 
         sinon.assert.calledOnceWithMatch(rebuildStub, 199500, sinon.match.func);
       });
@@ -1169,8 +1184,7 @@ describe('explorerService tests', () => {
         atHeight(199000);
         isBuiltStub.resolves(false);
 
-        await explorerService.initiateBlockProcessor(false, false, false);
-        await serviceHelper.delay(200);
+        await runStep(Step.init(false, false));
 
         sinon.assert.notCalled(rebuildStub);
       });
@@ -1178,8 +1192,7 @@ describe('explorerService tests', () => {
       it('is not built again once it holds the blocks', async () => {
         atHeight(199500);
 
-        await explorerService.initiateBlockProcessor(false, false, false);
-        await serviceHelper.delay(200);
+        await runStep(Step.init(false, false));
 
         sinon.assert.notCalled(rebuildStub);
       });
@@ -1188,8 +1201,7 @@ describe('explorerService tests', () => {
         const resumeAtStub = sinon.stub(fluxnodeAddressRecord, 'resumeAt');
         atHeight(199500);
 
-        await explorerService.initiateBlockProcessor(false, false, false);
-        await serviceHelper.delay(200);
+        await runStep(Step.init(false, false));
 
         sinon.assert.calledOnceWithExactly(resumeAtStub, 199500);
       });
@@ -1200,12 +1212,10 @@ describe('explorerService tests', () => {
         isBuiltStub.resolves(false);
         rebuildStub.rejects(new Error('daemon gone'));
 
-        await explorerService.initiateBlockProcessor(false, false, false);
-        await serviceHelper.delay(200);
+        const step = await runStep(Step.init(false, false));
 
         sinon.assert.calledWithMatch(logErrorSpy, 'The fluxnode address record was not built: daemon gone');
-        sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: 1999501 } });
-        sinon.assert.neverCalledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: config.fluxapps.epochstart } });
+        expect(step.next).to.deep.equal(Step.block(1999501));
       });
 
       it('is built from blocks asked for again while fluxd refuses them, up to five times', async () => {
@@ -1213,7 +1223,7 @@ describe('explorerService tests', () => {
         isBuiltStub.resolves(false);
         const delayStub = sinon.stub(serviceHelper, 'delay').resolves();
 
-        await explorerService.initiateBlockProcessor(false, false, false);
+        await runStep(Step.init(false, false));
         const fetchBlock = rebuildStub.firstCall.args[1];
         const getBlockStub = daemonServiceBlockchainRpcs.getBlock;
         const asked = () => getBlockStub.getCalls().filter((call) => call.args[0].params.hashheight === 199000).length;
@@ -1241,8 +1251,7 @@ describe('explorerService tests', () => {
         atHeight(199000);
         isBuiltStub.resolves(false);
 
-        await explorerService.initiateBlockProcessor(false, false, false);
-        await serviceHelper.delay(200);
+        await runStep(Step.init(false, false));
 
         sinon.assert.notCalled(resumeAtStub);
       });
@@ -1260,51 +1269,28 @@ describe('explorerService tests', () => {
       fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
       getBlockCountStub.returns({ status: 'success', data: 2000000 });
       const executeCallStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'error', data: { message: 'RPC unavailable' } });
-      // The retries between calls pass at once. The first wait before the next
-      // bootstrap passes, and the second holds it.
-      let bootstrapWaits = 0;
-      const delayStub = sinon.stub(serviceHelper, 'delay').callsFake((ms) => {
-        if (ms !== 60000) return Promise.resolve();
-        bootstrapWaits += 1;
-        return bootstrapWaits === 1 ? Promise.resolve() : new Promise(() => {});
-      });
-      // A scan that starts stops at its first block, so it is seen rather than run.
-      daemonServiceBlockchainRpcs.getBlock.callsFake(() => {
-        explorerService.setBlockProccessingCanContinue(false);
-        return { status: 'error', data: { message: 'no scan expected' } };
-      });
-      explorerService.setBlockProccessingCanContinue(true);
+      // the retries between calls pass at once
+      sinon.stub(serviceHelper, 'delay').resolves();
 
-      await explorerService.initiateBlockProcessor(false, false);
-      await new Promise((resolve) => { setTimeout(resolve, 200); });
-      explorerService.setBlockProccessingCanContinue(false);
+      const failed = await runStep(Step.init(false, false));
+      expect(failed).to.deep.equal({ next: Step.recover(true, true), waitMs: 0 });
+      const recovery = await runStep(failed.next);
+      expect(recovery).to.deep.equal({ next: Step.init(false, false), waitMs: 60000 });
+      const again = await runStep(recovery.next);
+      expect(again.next).to.deep.equal(Step.recover(true, true));
 
-      // Five asks of the address index per bootstrap: the first, and the one the wait started.
+      // Five asks of the address index per bootstrap, and two bootstraps.
       sinon.assert.callCount(executeCallStub.withArgs('getaddressdeltas'), 10);
       sinon.assert.calledWithMatch(logInfoSpy, 'Explorer has scanned nothing, bootstrapping again in 60s');
-      sinon.assert.callCount(delayStub.withArgs(60000), 2);
       sinon.assert.notCalled(daemonServiceBlockchainRpcs.getBlock);
     });
 
     describe('the recovery when fluxd fails', () => {
       let restoreToHeightStub;
-      let blocksAsked;
 
       const scannedHeightWrites = () => dbHelper.updateOneInDatabase.args
         .filter(([, , , update]) => update?.$set?.generalScannedHeight !== undefined)
         .map(([, , , update]) => update.$set.generalScannedHeight);
-
-      // Every block asked for ends the scan, so the height the recovery resumes
-      // at is seen rather than processed. With failFirst, the first block asked
-      // for fails instead, as a refused fluxd call does.
-      const askingBlocks = ({ failFirst = false } = {}) => {
-        daemonServiceBlockchainRpcs.getBlock.callsFake(async ({ params }) => {
-          blocksAsked.push(params.hashheight);
-          if (failFirst && blocksAsked.length === 1) return { status: 'error', data: { message: 'fluxd refused the call' } };
-          explorerService.setBlockProccessingCanContinue(false);
-          return { status: 'error', data: { message: 'scan stopped' } };
-        });
-      };
 
       beforeEach(() => {
         sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
@@ -1317,38 +1303,35 @@ describe('explorerService tests', () => {
           find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
         });
         fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
-        blocksAsked = [];
-        explorerService.setBlockProccessingCanContinue(true);
-      });
-
-      afterEach(() => {
-        explorerService.setBlockProccessingCanContinue(false);
       });
 
       it('restores the 100 blocks below the scanned height, records it, and resumes at the block after it', async () => {
         findInDatabaseStub.returns({ generalScannedHeight: 1000000 });
         getBlockCountStub.returns({ status: 'error', data: { message: 'fluxd is down' } });
-        askingBlocks();
 
-        await explorerService.initiateBlockProcessor(false, false);
-        await new Promise((resolve) => { setTimeout(resolve, 200); });
+        const failed = await runStep(Step.init(false, false));
+        expect(failed.next).to.deep.equal(Step.recover(true, true));
+        const recovery = await runStep(failed.next);
 
         sinon.assert.calledOnceWithMatch(restoreToHeightStub, 999900);
         expect(scannedHeightWrites(), 'the scanned height written').to.deep.equal([999900]);
-        expect(blocksAsked).to.deep.equal([999901]);
+        expect(recovery).to.deep.equal({ next: Step.block(999901), waitMs: 0 });
       });
 
       it('restores to the scanned height when a block fails, and asks for that block again', async () => {
         findInDatabaseStub.returns({ generalScannedHeight: 1000000 });
         getBlockCountStub.returns({ status: 'success', data: 1000010 });
-        askingBlocks({ failFirst: true });
+        daemonServiceBlockchainRpcs.getBlock.returns({ status: 'error', data: { message: 'fluxd refused the call' } });
 
-        await explorerService.initiateBlockProcessor(false, false);
-        await new Promise((resolve) => { setTimeout(resolve, 200); });
+        const init = await runStep(Step.init(false, false));
+        expect(init.next).to.deep.equal(Step.block(1000001));
+        const failed = await runStep(init.next);
+        expect(failed.next).to.deep.equal(Step.recover(true, false));
+        const recovery = await runStep(failed.next);
 
         sinon.assert.calledOnceWithMatch(restoreToHeightStub, 1000000);
         expect(scannedHeightWrites(), 'the scanned height written').to.deep.equal([]);
-        expect(blocksAsked).to.deep.equal([1000001, 1000001]);
+        expect(recovery.next).to.deep.equal(Step.block(1000001));
       });
 
       // An explorer on a chain too short to bootstrap scans from epochstart, and
@@ -1357,13 +1340,12 @@ describe('explorerService tests', () => {
         const { epochstart } = config.fluxapps;
         findInDatabaseStub.returns({ generalScannedHeight: epochstart + 50 });
         getBlockCountStub.returns({ status: 'error', data: { message: 'fluxd is down' } });
-        askingBlocks();
 
-        await explorerService.initiateBlockProcessor(false, false);
-        await new Promise((resolve) => { setTimeout(resolve, 200); });
+        const failed = await runStep(Step.init(false, false));
+        const recovery = await runStep(failed.next);
 
         sinon.assert.calledOnceWithMatch(restoreToHeightStub, epochstart - 50);
-        expect(blocksAsked).to.deep.equal([epochstart]);
+        expect(recovery.next).to.deep.equal(Step.block(epochstart));
       });
     });
 
@@ -1385,10 +1367,8 @@ describe('explorerService tests', () => {
         status: 'success',
         data: 200000,
       });
-      explorerService.setBlockProccessingCanContinue(false);
-
-      await explorerService.initiateBlockProcessor(true, false, false);
-      await serviceHelper.delay(200);
+      const init = await runStep(Step.init(true, false));
+      await runStep(init.next);
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
@@ -1416,10 +1396,8 @@ describe('explorerService tests', () => {
         status: 'success',
         data: 200000,
       });
-      explorerService.setBlockProccessingCanContinue(false);
-
-      await explorerService.initiateBlockProcessor(true, true, false);
-      await serviceHelper.delay(200);
+      const init = await runStep(Step.init(true, true));
+      await runStep(init.next);
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
@@ -1449,10 +1427,7 @@ describe('explorerService tests', () => {
       });
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
       sinon.stub(daemonServiceUtils, 'executeBatchCall').resolves({ status: 'success', data: [] });
-      explorerService.setBlockProccessingCanContinue(false);
-
-      await explorerService.initiateBlockProcessor(false, false);
-      await serviceHelper.delay(200);
+      await runStep(Step.init(false, false));
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
@@ -1580,25 +1555,16 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount').returns({ status: 'success', data: 200000 });
-      // a scan that starts stops the processor, so the assertion below reads it
-      const scan = sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').callsFake(async () => {
-        explorerService.setBlockProccessingCanContinue(false);
-        return { status: 'error', data: {} };
-      });
+      const scan = sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').resolves({ status: 'error', data: {} });
       sinon.stub(dbHelper, 'ensureIndexes').rejects(new MongoNetworkTimeoutError('timed out'));
-      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       explorerService.setZelAppSpecsMigrationDone(true);
-      explorerService.setBlockProccessingCanContinue(true);
       try {
-        await explorerService.initiateBlockProcessor(false, false);
-        await clock.tickAsync(1000);
+        const step = await explorerService.runStep(explorerService.Step.init(false, false));
 
+        expect(step.next).to.deep.equal(explorerService.Step.recover(true, true));
         sinon.assert.notCalled(scan);
       } finally {
-        explorerService.setBlockProccessingCanContinue(false);
-        explorerService.setIsInInitiationOfBP(false);
         explorerService.setZelAppSpecsMigrationDone(false);
-        clock.restore();
       }
     });
   });
@@ -2205,15 +2171,12 @@ describe('explorerService tests', () => {
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: sinon.fake.returns({}) });
       sinon.stub(log, 'error');
-      explorerService.setIsInInitiationOfBP(false);
-      explorerService.setBlockProccessingCanContinue(true);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      await explorerService.stopBlockProcessor();
       clock?.restore();
       clock = undefined;
-      explorerService.setIsInInitiationOfBP(false);
-      explorerService.setBlockProccessingCanContinue(true);
       sinon.restore();
     });
 
@@ -2267,15 +2230,54 @@ describe('explorerService tests', () => {
       sinon.assert.notCalled(findOne);
     });
 
-    it('a stop that does not take leaves block processing allowed to continue', async () => {
+    ['stopBlockProcessing', 'startBlockProcessing', 'restartBlockProcessing'].forEach((handler) => {
+      it(`${handler} asks for the Flux team and nothing wider, and refuses anyone else`, async () => {
+        const asked = [];
+        verificationHelper.verifyPrivilege.callsFake(async (privilege) => {
+          asked.push(privilege);
+          return false;
+        });
+
+        await explorerService[handler]({ headers: { zelidauth: 'operator' } }, res);
+
+        expect(asked).to.deep.equal([Privilege.FLUX_TEAM]);
+        sinon.assert.calledOnceWithMatch(res.json, { status: 'error' });
+        expect(explorerService.isBlockProcessorRunning()).to.equal(false);
+      });
+    });
+
+    it('start answers that block processing is already running while it runs', async () => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: false } });
+
+      await explorerService.startBlockProcessing({}, res);
+      await explorerService.startBlockProcessing({}, res);
+
+      sinon.assert.calledWithMatch(res.json.firstCall, { status: 'success', data: { message: 'Block processing initiated' } });
+      sinon.assert.calledWithMatch(res.json.secondCall, { status: 'error', data: { message: 'Block processing is already running' } });
+    });
+
+    // The recovery waits BOOTSTRAP_RETRY_MS before the next bootstrap when the
+    // explorer has scanned nothing.
+    it('a stop during the wait before the next bootstrap leaves nothing to run after it', async () => {
       clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      explorerService.setIsInInitiationOfBP(true);
+      const synced = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ generalScannedHeight: 0 });
+      const waiting = sinon.spy(log, 'info').withArgs(sinon.match('bootstrapping again in 60s'));
+
+      explorerService.initiateBlockProcessor(false, false);
+      for (let tick = 0; tick < 20 && !waiting.called; tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(1);
+      }
+      expect(waiting.called, 'the recovery reached its wait').to.equal(true);
 
       await explorerService.stopBlockProcessing({}, res);
-      await clock.tickAsync(13000);
+      const stepsBeforeStop = synced.callCount;
+      await clock.tickAsync(120000);
 
-      sinon.assert.calledWithMatch(res.json, { status: 'error' });
-      expect(explorerService.getBlockProccessingCanContinue()).to.equal(true);
+      sinon.assert.calledOnceWithMatch(res.json, { status: 'success', data: { message: 'Block processing is stopped' } });
+      expect(synced.callCount, 'a step ran after the stop').to.equal(stepsBeforeStop);
+      expect(explorerService.isBlockProcessorRunning()).to.equal(false);
     });
   });
 });
