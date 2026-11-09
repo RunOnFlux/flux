@@ -65,6 +65,9 @@ const Checkpoint = Object.freeze({
   // The explorer is about to process a block, and has not fetched it yet. Keyed
   // by the block's height.
   EXPLORER_BEFORE_BLOCK: 'explorer:beforeBlock',
+  // A rebuild of the app registry has built its new copy from the message log and
+  // holds the registry lock; the copy has not yet replaced the registry.
+  REGISTRY_BEFORE_SWAP: 'registry:beforeSwap',
   // A give-up pass holds the pass lock and has not yet read anything.
   GIVEUP_BEFORE_PASS: 'giveUp:beforePass',
   // A give-up pass has decided to hand an app back and has not yet checked the

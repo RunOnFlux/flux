@@ -175,7 +175,7 @@ describe('appHashSyncService tests', () => {
       syncEvents.removeListener(SYNC_EVENTS.HASH_CHECK_REQUESTED, onRequested);
     });
 
-    it('should queue the check when authorized, running nothing itself', async () => {
+    it('should queue the check for the Flux team, running nothing itself', async () => {
       const req = {};
       const res = { json: sinon.stub() };
 
@@ -185,7 +185,7 @@ describe('appHashSyncService tests', () => {
       await appHashSyncService.triggerAppHashesCheckAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req))).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledOnceWithExactly(Privilege.FLUX_TEAM, authOf(req))).to.be.true;
       expect(requested, 'the check was not queued').to.equal(1);
       sinon.assert.notCalled(dbHelperStub.findInDatabase);
     });
