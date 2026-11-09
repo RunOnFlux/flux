@@ -50,19 +50,6 @@ export async function askToBeDialed(asker, dialer, port = 16127) {
   }
 }
 
-/**
- * Whether a node holds a connection to an address, in either direction. Both
- * routes are cached for 30 seconds, so each read names a fresh URL.
- * @param {object} client A node client.
- * @param {string} ip The other end's address.
- * @returns {Promise<boolean>}
- */
-export async function isPeeredWith(client, ip) {
-  const lists = await Promise.all(['/flux/connectedpeers', '/flux/incomingconnections']
-    .map((route) => client.request('GET', `${route}?_=${Date.now()}`)));
-  return lists.some(({ data }) => Array.isArray(data?.data) && data.data.includes(ip));
-}
-
 // A stub holds an index in the sorted node list, so the ring routes through it,
 // but it never dials and never answers addoutgoingpeer. A node's own dial reaches
 // it; nothing else connects them.
