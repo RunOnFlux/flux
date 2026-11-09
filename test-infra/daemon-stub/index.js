@@ -525,7 +525,11 @@ const rpcHandlers = {
     const node = nodeBySourceIp(sourceIp);
     if (node) {
       const o = overrideFor(node);
-      pendingConfirmations.set(node.ip.split(':')[0], aliasedOwnAddress(sourceIp, node) ?? (o ? o.reported : node.ip));
+      const realIp = node.ip.split(':')[0];
+      const aliased = aliasedOwnAddress(sourceIp, node);
+      pendingConfirmations.set(realIp, aliased ?? (o ? o.reported : node.ip));
+      if (aliased) confirmationsFromAliases.add(realIp);
+      else confirmationsFromAliases.delete(realIp);
     }
     return { hex: 'stub-confirmation-tx-hex' };
   },
@@ -753,6 +757,9 @@ benchd.listen(BENCHD_PORT, () => console.log(`Fluxbenchd stub listening on port 
 
 // Confirmations sent since the last block: real ip -> the address each carries.
 const pendingConfirmations = new Map();
+// Real ips of listed nodes whose pending confirmation another machine on the same
+// collateral sent.
+const confirmationsFromAliases = new Set();
 // The fluxnode confirmations each built block carries, by height, and the block
 // each node last confirmed in (real ip -> height).
 const fluxnodeTxsByHeight = new Map();
@@ -823,6 +830,12 @@ function mineConfirmations() {
     const benchmarkElsewhere = current && current.scope !== 'all' && current.reported !== address;
     if (!node) {
       // not listed: nothing to move
+    } else if (confirmationsFromAliases.has(realIp) && address !== node.ip) {
+      // Another machine on the collateral confirmed from where it is: the chain lists
+      // the collateral there, and the listed node's own machine still measures its
+      // own address.
+      const own = current && current.scope !== 'all' ? current.reported : node.ip;
+      reportedAddresses.set(realIp, { reported: own, scope: 'benchmark', listed: address });
     } else if (address !== node.ip) {
       if (benchmarkElsewhere) reportedAddresses.set(realIp, { ...current, listed: address });
       else reportAddress(realIp, { reported: address, scope: 'all' });
@@ -837,6 +850,7 @@ function mineConfirmations() {
   const confirming = deterministicNodeList.filter((node) => pendingConfirmations.has(realIpOf(node))
     || currentHeight >= (confirmationDue.get(realIpOf(node)) ?? scheduledFrom(node, currentHeight)));
   pendingConfirmations.clear();
+  confirmationsFromAliases.clear();
   fluxnodeTxsByHeight.set(currentHeight, confirming.map((node) => {
     lastConfirmedHeights.set(realIpOf(node), currentHeight);
     confirmationDue.set(realIpOf(node), currentHeight + intervalOf(node));
@@ -1436,6 +1450,7 @@ control.post('/reset', (req, res) => {
   reportedAddresses.clear();
   formerReportedAddresses.clear();
   pendingConfirmations.clear();
+  confirmationsFromAliases.clear();
   confirmationIntervals.clear();
   confirmationDue.clear();
   hiddenFromPeers.clear();
