@@ -278,7 +278,7 @@ describe('fluxNetworkHelper own address tests', () => {
     const stop = fluxNetworkHelper.startOwnAddressWatch();
     expect(fluxNetworkHelper.startOwnAddressWatch(), 'a second start returns the same watch').to.be.a('function');
     await fluxNetworkHelper.handleOwnAddress('198.51.100.7:16157');
-    stop();
+    await stop();
     fluxNetworkHelper.setLocalSocketAddress(null);
 
     sinon.assert.calledOnceWithExactly(moved, '198.51.100.7:16127', '198.51.100.7:16157', sinon.match.number);
@@ -292,12 +292,39 @@ describe('fluxNetworkHelper own address tests', () => {
     const stop = fluxNetworkHelper.startOwnAddressWatch();
     fluxNetworkHelper.setLocalSocketAddress('198.51.100.10:16157');
     await fluxNetworkHelper.handleOwnAddress('198.51.100.10:16157');
-    stop();
+    await stop();
     fluxNetworkHelper.setLocalSocketAddress('198.51.100.10:16167');
     await fluxNetworkHelper.handleOwnAddress('198.51.100.10:16157');
     fluxNetworkHelper.setLocalSocketAddress(null);
 
     sinon.assert.calledOnceWithExactly(moved, '198.51.100.10:16127', '198.51.100.10:16157', sinon.match.number);
+  });
+
+  it('settles a stop of the watch only once the work the watch queued has finished', async () => {
+    configure('198.51.100.11');
+    await adopt('198.51.100.11:16127');
+    let told;
+    moved.onFirstCall().callsFake(() => new Promise((resolve) => { told = resolve; }));
+
+    const stop = fluxNetworkHelper.startOwnAddressWatch();
+    try {
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.11:16157');
+      const giveUpAt = Date.now() + 10000;
+      // eslint-disable-next-line no-await-in-loop
+      while (!told && Date.now() < giveUpAt) await new Promise((resolve) => { setImmediate(resolve); });
+      expect(told, 'fixture: the watch\'s pass is telling the move').to.be.a('function');
+      let stopped = false;
+      const stopping = stop().then(() => { stopped = true; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(stopped, 'settled while the pass it queued was running').to.equal(false);
+      told();
+      await stopping;
+    } finally {
+      told?.();
+      await stop();
+      fluxNetworkHelper.setLocalSocketAddress(null);
+    }
   });
 
   describe('this node\'s address through its own move', () => {
@@ -373,7 +400,7 @@ describe('fluxNetworkHelper own address tests', () => {
         expect(fluxNetworkHelper.pendingOwnMove()).to.equal(null);
       } finally {
         if (!switched) release?.();
-        stop();
+        await stop();
       }
     });
 
@@ -399,7 +426,7 @@ describe('fluxNetworkHelper own address tests', () => {
         expect(changes).to.deep.equal([true, false]);
       } finally {
         told?.();
-        stop();
+        await stop();
       }
     });
 
@@ -423,7 +450,7 @@ describe('fluxNetworkHelper own address tests', () => {
         expect(changes, 'one end, after the second move').to.deep.equal([false]);
       } finally {
         told?.();
-        stop();
+        await stop();
       }
     });
 

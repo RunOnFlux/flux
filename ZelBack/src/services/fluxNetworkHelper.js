@@ -2659,7 +2659,8 @@ let ownAddressListener = null;
  * Acts on every change of this node's own address from here on, and on the one
  * it already knows. Watches once however often it is called: a boot that is run
  * again does not add a second watcher.
- * @returns {function(): void} Stops the watch.
+ * @returns {function(): Promise<void>} Stops the watch, and settles once the
+ *   work it queued has finished.
  */
 function startOwnAddressWatch() {
   if (!ownAddressListener) {
@@ -2677,6 +2678,7 @@ function startOwnAddressWatch() {
     ownAddressListener = null;
     clearTimeout(ownAddressRetry);
     ownAddressRetry = null;
+    return ownAddressWork;
   };
 }
 
