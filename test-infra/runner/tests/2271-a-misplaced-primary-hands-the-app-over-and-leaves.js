@@ -27,7 +27,9 @@ import { getFolderConfig, isDaemonUp, readPath } from '../framework/syncthing-re
 import { allowFromNow } from '../framework/time-budget.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING } from '../framework/residential-fleet.js';
-import { keysOf, nextOwnedTurn, turnOwner } from '../framework/handback-turns.js';
+import {
+  keysOf, nextOwnedTurn, turnOf, turnOwner,
+} from '../framework/handback-turns.js';
 
 const subnet = getSubnetConfig();
 const NODES = 4;
@@ -37,12 +39,13 @@ const FINAL_SAVE = 'final.sav';
 const TICKING_NODE = 0;
 const TURN_MS = RESIDENTIAL_PACING.handbackTurnMs;
 
-// To the end of the `nth` turn `node` owns from now.
+// To the end of the `nth` turn `node` owns from the next turn on. A holder acts on
+// the second pass of a turn it owns, and the turn under way may have room for one.
 function ownedTurnEndsInMs(node, holders, nth) {
   const [own] = keysOf([node]);
   const keys = keysOf(holders);
   let { turn } = nextOwnedTurn({
-    holders: keys, owners: [own], turnMs: TURN_MS, fromMs: Date.now(),
+    holders: keys, owners: [own], turnMs: TURN_MS, fromMs: (turnOf(Date.now(), TURN_MS) + 1) * TURN_MS,
   });
   for (let owned = 1; owned < nth; turn += 1) {
     if (turnOwner(keys, turn + 1) === own) owned += 1;
