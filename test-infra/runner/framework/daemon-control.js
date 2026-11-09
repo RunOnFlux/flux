@@ -170,8 +170,8 @@ export async function setHeight(height) {
   return post('/set-height', { height });
 }
 
-export async function queueAppTx(appHash) {
-  return post('/queue-app-tx', { appHash });
+export async function queueAppTx(appHash, { valueSat } = {}) {
+  return post('/queue-app-tx', { appHash, ...(valueSat === undefined ? {} : { valueSat }) });
 }
 
 // -- A node's daemon behind the chain's tip --

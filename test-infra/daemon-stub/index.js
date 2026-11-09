@@ -855,6 +855,7 @@ function withLastConfirmed(node) {
 // -- Block ticker --
 const BLOCK_INTERVAL_MS = Number(process.env.BLOCK_INTERVAL_MS) || 5000;
 const TICKER_AUTOSTART = process.env.TICKER_AUTOSTART !== 'false';
+// { appHash, valueSat } of each app payment the next block carries
 const pendingAppTxQueue = [];
 let tickerHandle = null;
 
@@ -864,8 +865,8 @@ function tickBlock() {
   mineConfirmations();
   const txs = [];
   while (pendingAppTxQueue.length > 0) {
-    const appHash = pendingAppTxQueue.shift();
-    txs.push(buildAppRegistrationTx(appHash, currentHeight));
+    const { appHash, valueSat } = pendingAppTxQueue.shift();
+    txs.push(buildAppRegistrationTx(appHash, currentHeight, valueSat));
   }
   if (txs.length > 0) {
     pendingBlocks.push({
@@ -933,7 +934,10 @@ control.post('/ticker/stop', (req, res) => {
   res.json({ tickerRunning: false, stopped });
 });
 
-function buildAppRegistrationTx(appHash, height) {
+// What an app payment pays when its queue entry names no amount.
+const APP_PAYMENT_SAT = 200000000;
+
+function buildAppRegistrationTx(appHash, height, valueSat = APP_PAYMENT_SAT) {
   const opReturnHex = Buffer.from(appHash, 'utf-8').toString('hex');
   return {
     txid: `apptx-${appHash.substring(0, 16)}-${height}`,
@@ -941,7 +945,7 @@ function buildAppRegistrationTx(appHash, height) {
     vin: [{ txid: 'prev-tx-stub', vout: 0, address: 'stub-sender-address' }],
     vout: [
       {
-        valueSat: 200000000,
+        valueSat,
         scriptPubKey: {
           addresses: ['t3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX'],
           asm: '',
@@ -968,7 +972,8 @@ control.post('/advance-block', (req, res) => {
     txs.push(buildAppRegistrationTx(appHash, currentHeight));
   }
   while (pendingAppTxQueue.length > 0) {
-    txs.push(buildAppRegistrationTx(pendingAppTxQueue.shift(), currentHeight));
+    const { appHash: queued, valueSat } = pendingAppTxQueue.shift();
+    txs.push(buildAppRegistrationTx(queued, currentHeight, valueSat));
   }
   if (block) {
     block.height = block.height || currentHeight;
@@ -1099,9 +1104,10 @@ control.post('/node-address/:ip', (req, res) => {
 });
 
 control.post('/queue-app-tx', (req, res) => {
-  const { appHash } = req.body;
+  const { appHash, valueSat = APP_PAYMENT_SAT } = req.body;
   if (!appHash) return res.status(400).json({ error: 'appHash required' });
-  pendingAppTxQueue.push(appHash);
+  if (!Number.isSafeInteger(valueSat) || valueSat <= 0) return res.status(400).json({ error: 'valueSat must be a positive integer' });
+  pendingAppTxQueue.push({ appHash, valueSat });
   return res.json({ queued: true, queueLength: pendingAppTxQueue.length, nextBlockHeight: currentHeight + 1 });
 });
 

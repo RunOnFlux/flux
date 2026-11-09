@@ -9,10 +9,14 @@
 // The payment is what an owner's wallet pays: the node's own quote
 // (POST /apps/calculateprice), or the network's minimum for an update the quote
 // calls free.
+//
+// deliverAppByBlock puts the payment in the chain's next block instead, which
+// every node scans whatever state it is in, and the app's height is that block's.
 import { createRequire } from 'node:module';
 import { authenticate } from '../auth.js';
 import { dbClient } from './db-client.js';
 import { fluxTeamKey } from './keys.js';
+import { getState, queueAppTx } from './daemon-control.js';
 import { waitForBootSettled } from './wait.js';
 
 const require = createRequire(import.meta.url);
@@ -51,6 +55,25 @@ async function quote(client, specification) {
     throw new Error(`node ${client.url} quoted no price for ${specification.name}: ${JSON.stringify(answer)}`);
   }
   return answer.data.flux;
+}
+
+/**
+ * A message as a node holds one it received and has not seen paid for.
+ * @param {object} message the app's permanent message
+ * @param {number} now epoch ms
+ * @returns {object}
+ */
+function pendingMessage(message, now) {
+  return {
+    type: message.type,
+    version: message.version,
+    appSpecifications: message.appSpecifications,
+    hash: message.hash,
+    timestamp: message.timestamp,
+    signature: message.signature,
+    receivedAt: new Date(now),
+    expireAt: new Date(now + PENDING_MESSAGE_LIFE_MS),
+  };
 }
 
 /**
@@ -95,16 +118,7 @@ export async function deliverApp(env, app, indices) {
 
     const paid = Math.max(await quote(client, message.appSpecifications), minimumPaymentAt(message.height));
     const now = Date.now();
-    await dc.seedTemporaryMessage({
-      type: message.type,
-      version: message.version,
-      appSpecifications: message.appSpecifications,
-      hash: message.hash,
-      timestamp: message.timestamp,
-      signature: message.signature,
-      receivedAt: new Date(now),
-      expireAt: new Date(now + PENDING_MESSAGE_LIFE_MS),
-    });
+    await dc.seedTemporaryMessage(pendingMessage(message, now));
     await dc.seedAppHashes([{
       hash: message.hash,
       txid: message.txid,
@@ -127,4 +141,38 @@ export async function deliverApp(env, app, indices) {
       throw new Error(`node ${i} did not store ${name} (${app.hash}) from its payment of ${paid} FLUX: ${error.message}`);
     }
   }));
+}
+
+/**
+ * Puts a registration or an update in front of every node and its payment in the
+ * chain's next block, at the quote of the first node that gives one. Each node
+ * stores the specification when its own scan reaches that block; the caller
+ * stops the block ticker first, and mines it.
+ * @param {object} env
+ * @param {object} app what buildSeedableApp or buildSeedableUpdate returned
+ * @returns {Promise<{nextBlockHeight: number}>} the block the payment is in
+ */
+export async function deliverAppByBlock(env, app) {
+  const message = app.permanentMessage;
+  const now = Date.now();
+  await Promise.all(env.clients.map((_unused, i) => dbClient(i + 1).seedTemporaryMessage(pendingMessage(message, now))));
+  let quoted = null;
+  const refusals = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const client of env.clients) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      quoted = await quote(client, message.appSpecifications);
+      break;
+    } catch (error) {
+      refusals.push(error.message);
+    }
+  }
+  if (quoted === null) throw new Error(`no node quoted ${message.appSpecifications.name}: ${refusals.join('; ')}`);
+  // The ticker is stopped, so the block the payment lands in is the next one.
+  const landsAt = (await getState()).currentHeight + 1;
+  const { nextBlockHeight } = await queueAppTx(message.hash, {
+    valueSat: Math.round(Math.max(quoted, minimumPaymentAt(landsAt)) * 1e8),
+  });
+  return { nextBlockHeight };
 }

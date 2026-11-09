@@ -10,7 +10,7 @@ import {
   startTicker, stopTicker, advanceBlock, driveUntil,
 } from './daemon-control.js';
 import { dbClient } from './db-client.js';
-import { deliverApp } from './app-delivery.js';
+import { deliverApp, deliverAppByBlock } from './app-delivery.js';
 import {
   buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp, buildSeedableUpdate,
 } from './seed-helper.js';
@@ -70,17 +70,16 @@ export async function seedSyncScopedData(env, name, index) {
 // expireGlobalApplications runs every 2 blocks x the post-PON speed multiplier
 // (explorerService).
 const EXPIRY_PERIOD_BLOCKS = 2 * 4;
-// How far past the tip a retiring app's term ends: the update must still be alive
-// when each node verifies it, with the ticker running meanwhile.
-const RETIRE_MARGIN_BLOCKS = 4 * EXPIRY_PERIOD_BLOCKS;
+// The term a retiring app's last update gives it, from the block it lands in.
+const RETIRE_TERM_BLOCKS = 4 * EXPIRY_PERIOD_BLOCKS;
 
 /**
  * Take an app off the whole fleet the way an app leaves the network: its
- * owner's specification runs out. Every node is given an update whose term ends
- * a few expiry passes from the chain's tip, then the chain is driven until each
- * node's expiry job has deleted the specification and uninstalled the app, and
- * nothing places it again. Drives the chain with the ticker stopped, and leaves
- * the ticker running.
+ * owner's specification runs out. An update with a term of a few expiry passes
+ * is paid for in the next block, which every node scans whatever its state, then
+ * the chain is driven until each node's expiry job has deleted the specification
+ * and uninstalled the app, and nothing places it again. Drives the chain with the
+ * ticker stopped, and leaves the ticker running.
  * @param {object} env
  * @param {object} app The app as seeded (buildSeedableApp or buildSeedableUpdate).
  * @param {object} [opts]
@@ -90,18 +89,14 @@ const RETIRE_MARGIN_BLOCKS = 4 * EXPIRY_PERIOD_BLOCKS;
  */
 export async function retireApp(env, app, { timeout = 120000 } = {}) {
   const { name } = app.spec;
-  const updateHeight = app.spec.height + 1;
-  const tip = await dbClient(1).explorerHeight();
-  const ending = await buildSeedableUpdate(app, (spec) => {
-    spec.expire = tip + RETIRE_MARGIN_BLOCKS - updateHeight;
-  }, { height: updateHeight });
-  await deliverApp(env, ending, env.clients.map((_unused, i) => i));
+  const ending = await buildSeedableUpdate(app, (spec) => { spec.expire = RETIRE_TERM_BLOCKS; });
   await stopTicker();
   try {
+    await deliverAppByBlock(env, ending);
     await driveUntil(env.clients[1], async () => (await Promise.all(env.clients
       .map((_unused, i) => dbClient(i + 1).globalAppSpec(name)))).every((row) => row === null), {
-      // to the term's end from the tip it was set against, then two expiry passes
-      blocks: RETIRE_MARGIN_BLOCKS + (2 * EXPIRY_PERIOD_BLOCKS), label: `every node expires ${name}`,
+      // the block the update lands in, its term, then two expiry passes
+      blocks: 1 + RETIRE_TERM_BLOCKS + (2 * EXPIRY_PERIOD_BLOCKS), label: `every node expires ${name}`,
     });
   } finally {
     await startTicker();
