@@ -28,7 +28,6 @@ import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { buildSeedableApp, buildSeedableEnterpriseApp } from '../framework/seed-helper.js';
 import { buildEnterpriseBlob } from '../framework/enterprise-helper.js';
 import { assignPorts } from '../framework/port-allocator.js';
-import { setSystemSecure } from '../framework/daemon-control.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { pendingMessage, pendingMessageOn, pendingVerdict } from '../framework/unpaid-messages.js';
 import { waitFor, waitForFirstEvent, assertNoEvent } from '../framework/wait.js';
@@ -92,8 +91,6 @@ describe('a peer sending what no node takes is refused at every node and relayed
       stubPeeredWith: { [STUB]: REACHED },
     });
     await bootAndPeer(env);
-    // A legacy node's fluxbench reports the system not secure, so it never decrypts.
-    await setSystemSecure(getSubnetConfig().nodeIp(LEGACY + 1), false);
     stub = env.stubPeerClients.get(STUB);
     await waitFor(async () => {
       const stats = await stub.getStats();
