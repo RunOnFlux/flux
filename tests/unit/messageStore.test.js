@@ -806,9 +806,8 @@ describe('messageStore tests', () => {
     it('should return false for expired message', async () => {
       const message = {
         type: 'fluxapprunning',
-        version: 1,
-        name: 'testapp',
-        hash: 'hash123',
+        version: 2,
+        apps: [{ name: 'testapp', hash: 'hash123' }],
         broadcastedAt: Date.now() - (200 * 60 * 1000), // 200 minutes ago
         ip: '192.168.1.1',
       };
@@ -821,7 +820,7 @@ describe('messageStore tests', () => {
       expect(logStub.warn.called).to.be.true;
     });
 
-    it('should store valid version 1 running message', async () => {
+    it('refuses a version 1 running message, storing nothing', async () => {
       const message = {
         type: 'fluxapprunning',
         version: 1,
@@ -831,17 +830,11 @@ describe('messageStore tests', () => {
         ip: '192.168.1.1',
       };
 
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.updateOneInDatabase.resolves({ modifiedCount: 0, upsertedCount: 1 });
-      dbHelperStub.removeDocumentsFromCollection.resolves();
-
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({
-        stored: true, rebroadcast: true, written: [{ name: 'testapp', hash: 'hash123' }], refused: [], cleared: false,
-      });
-      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
+      expect(result).to.be.instanceOf(Error);
+      expect(result.message).to.include('version 1 not supported');
+      sinon.assert.notCalled(dbHelperStub.updateOneInDatabase);
     });
 
     it('should store valid version 2 running message with multiple apps', async () => {
@@ -1341,7 +1334,9 @@ describe('messageStore tests', () => {
       const payload = {
         signedBroadcast: {
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
-          data: { ip: '1.2.3.4', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: 'h' }] },
+          data: {
+            ip: '1.2.3.4', version: 2, broadcastedAt: Date.now(), apps: [{ name: 'A', hash: 'h' }, { name: 'nohash' }],
+          },
         },
       };
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
@@ -1352,17 +1347,17 @@ describe('messageStore tests', () => {
       expect(filter.dedupKey).to.equal('v2');
     });
 
-    it('should store apprunning v1 event with name in dedupKey', async () => {
+    it('stores no version 1 apprunning event', async () => {
       const payload = {
         signedBroadcast: {
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
-          data: { ip: '1.2.3.4', broadcastedAt: Date.now(), name: 'myapp', hash: 'h' },
+          data: {
+            ip: '1.2.3.4', version: 1, broadcastedAt: Date.now(), name: 'myapp', hash: 'h',
+          },
         },
       };
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
-      expect(collectionStub.updateOne.calledOnce).to.be.true;
-      const filter = collectionStub.updateOne.firstCall.args[0];
-      expect(filter.dedupKey).to.equal('v1:myapp');
+      sinon.assert.notCalled(collectionStub.updateOne);
     });
 
     it('should store sigterm event', async () => {

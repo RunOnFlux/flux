@@ -405,15 +405,13 @@ function logRefusedEntries(caller, refusals) {
 async function storeAppRunningMessage(message) {
   /* message object
   * @param type string
-  * @param version number
-  * @param hash string
+  * @param version number, 2
   * @param broadcastedAt number
-  * @param name string
   * @param ip string
   * @param osUptime number (optional)
   * @param staticIp string (optional)
   * @param runningSince number (optional)
-  * @param apps array (for version 2)
+  * @param apps array
   */
   const appsMessages = [];
   // What this message did here, for the caller to report: the entries written,
@@ -424,40 +422,27 @@ async function storeAppRunningMessage(message) {
     return new Error('Invalid Flux App Running message for storing');
   }
 
-  if (message.version !== 1 && message.version !== 2) {
+  if (message.version !== 2) {
     return new Error(`Invalid Flux App Running message for storing version ${message.version} not supported`);
   }
 
-  if (message.version === 1) {
-    if (typeof message.hash !== 'string' || typeof message.name !== 'string') {
-      return new Error('Invalid Flux App Running message for storing');
-    }
-    const app = {
-      name: message.name,
-      hash: message.hash,
+  if (!message.apps || !Array.isArray(message.apps)) {
+    return new Error('Invalid Flux App Running message for storing');
+  }
+  if (message.apps.length > config.fluxapps.maxAppsPerNode) {
+    return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
+  }
+  const { stored, refused } = appRunningEntries(message.apps);
+  refusedNames = refused.map((app) => app?.name ?? null);
+  if (refused.length) {
+    logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
+  }
+  if (message.apps.length && !stored.length) {
+    return {
+      stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
     };
-    appsMessages.push(app);
   }
-
-  if (message.version === 2) {
-    if (!message.apps || !Array.isArray(message.apps)) {
-      return new Error('Invalid Flux App Running message for storing');
-    }
-    if (message.apps.length > config.fluxapps.maxAppsPerNode) {
-      return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
-    }
-    const { stored, refused } = appRunningEntries(message.apps);
-    refusedNames = refused.map((app) => app?.name ?? null);
-    if (refused.length) {
-      logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
-    }
-    if (message.apps.length && !stored.length) {
-      return {
-        stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
-      };
-    }
-    appsMessages.push(...stored);
-  }
+  appsMessages.push(...stored);
 
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
@@ -506,7 +491,7 @@ async function storeAppRunningMessage(message) {
     }
   }
 
-  if (message.version === 2 && appsMessages.length === 0) {
+  if (appsMessages.length === 0) {
     const result = await dbHelper.findInDatabase(database, globalAppsLocations, { ip }, { projection: { _id: 0, runningSince: 1 } });
     if (result.length > 0) {
       const broadcastDate = new Date(message.broadcastedAt);
@@ -535,7 +520,7 @@ async function storeAppRunningMessage(message) {
     rebroadcast: anyStored,
     written,
     refused: refusedNames,
-    cleared: message.version === 2 && appsMessages.length === 0 && anyStored,
+    cleared: appsMessages.length === 0 && anyStored,
   };
 }
 
@@ -931,7 +916,8 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     if (validTill < Date.now()) continue;
     const ip = addresses[index];
 
-    const { stored: apps, refused } = appRunningEntries(data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }]);
+    if (data.version !== 2 || !Array.isArray(data.apps)) continue;
+    const { stored: apps, refused } = appRunningEntries(data.apps);
     if (refused.length) refusals.push({ ip: data.ip, broadcastedAt: data.broadcastedAt, refused });
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
@@ -1046,12 +1032,13 @@ async function handleAppRunningEvent({ signedBroadcast }) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  if (data.version === 2 && (!data.apps || data.apps.length === 0)) {
+  if (data.version !== 2 || !Array.isArray(data.apps)) return;
+  if (data.apps.length === 0) {
     const existing = await database.collection(globalAppStateEvents).findOne({ ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING });
     if (!existing) return;
   }
 
-  const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
+  const dedupKey = 'v2';
   const envelope = { version: signedBroadcast.version, timestamp: signedBroadcast.timestamp, pubKey: signedBroadcast.pubKey, signature: signedBroadcast.signature };
 
   await database.collection(globalAppStateEvents).updateOne(
@@ -1258,8 +1245,9 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
     const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
     if (namesOnlyRefusedApps(data)) continue;
+    if (data.version !== 2 || !Array.isArray(data.apps)) continue;
 
-    const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
+    const dedupKey = 'v2';
     const envelope = { version: broadcast.version, timestamp: broadcast.timestamp, pubKey: broadcast.pubKey, signature: broadcast.signature };
 
     ops.push({

@@ -9,9 +9,6 @@ describe('broadcastShape', () => {
   };
   const shapes = {
     running,
-    'running, version 1': {
-      type: 'fluxapprunning', version: 1, ip, broadcastedAt, name: 'a', hash: 'h',
-    },
     installing: {
       type: 'fluxappinstalling', version: 1, ip, broadcastedAt, name: 'a',
     },
@@ -28,6 +25,12 @@ describe('broadcastShape', () => {
       type: 'fluxipchanged', version: 1, oldIP: ip, newIP: '1.2.3.5:16127', broadcastedAt,
     },
   };
+
+  it('refuses a version 1 running message, which names one app', () => {
+    expect(wellFormed({
+      type: 'fluxapprunning', version: 1, ip, broadcastedAt, name: 'a', hash: 'h',
+    })).to.equal(false);
+  });
 
   Object.entries(shapes).forEach(([name, data]) => {
     it(`takes a ${name} message`, () => {

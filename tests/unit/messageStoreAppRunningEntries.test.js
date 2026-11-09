@@ -161,9 +161,9 @@ describe('apprunning entries are stored one at a time', () => {
         expect((await rowsAt(otherIp)).map((r) => r.name)).to.deep.equal(['web']);
       });
 
-      it('still refuses a version 1 message without a hash', async () => {
+      it('refuses a version 1 message', async () => {
         const result = await messageStore.storeAppRunningMessage({
-          type: 'fluxapprunning', version: 1, name: 'probe', ip, broadcastedAt: Date.now(),
+          type: 'fluxapprunning', version: 1, name: 'probe', hash: 'probehash', ip, broadcastedAt: Date.now(),
         });
 
         expect(result).to.be.instanceOf(Error);

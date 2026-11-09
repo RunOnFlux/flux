@@ -15,10 +15,9 @@ const isDate = (value) => isAbsentOr(value, 'number') || typeof value === 'strin
 function appRunningShape(data) {
   if (!isText(data.ip) || !isAbsentOr(data.osUptime, 'number') || !isAbsentOr(data.staticIp, 'boolean')) return false;
   if (!isDate(data.runningSince)) return false;
-  if (data.version === 2) {
-    return Array.isArray(data.apps) && appRunningEntries(data.apps).stored.every((app) => isDate(app.runningSince));
-  }
-  return data.version === 1 && isText(data.name) && typeof data.hash === 'string';
+  // Version 2, naming every app its node runs: no release on the network sends
+  // version 1, which named one.
+  return data.version === 2 && Array.isArray(data.apps) && appRunningEntries(data.apps).stored.every((app) => isDate(app.runningSince));
 }
 
 // An app message carries a signed specification and no time of its own, so its
