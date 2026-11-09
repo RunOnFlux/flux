@@ -92,7 +92,7 @@ export async function retireApp(env, app, { timeout = 120000 } = {}) {
   const ending = await buildSeedableUpdate(app, (spec) => { spec.expire = RETIRE_TERM_BLOCKS; });
   await stopTicker();
   try {
-    await deliverAppByBlock(env, ending);
+    await deliverAppByBlock(env, ending, env.clients.map((_unused, i) => i));
     await driveUntil(env.clients[1], async () => (await Promise.all(env.clients
       .map((_unused, i) => dbClient(i + 1).globalAppSpec(name)))).every((row) => row === null), {
       // the block the update lands in, its term, then two expiry passes

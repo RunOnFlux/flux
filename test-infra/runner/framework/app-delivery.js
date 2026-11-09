@@ -144,22 +144,25 @@ export async function deliverApp(env, app, indices) {
 }
 
 /**
- * Puts a registration or an update in front of every node and its payment in the
- * chain's next block, at the quote of the first node that gives one. Each node
- * stores the specification when its own scan reaches that block; the caller
- * stops the block ticker first, and mines it.
+ * Puts a registration or an update in front of the given nodes, as an owner's
+ * broadcast reaches the nodes online, and its payment in the chain's next block,
+ * at the quote of the first of them that gives one. Each node stores the
+ * specification when its own scan reaches that block; a node not given the message
+ * fetches it from its peers, as one that was offline does. The caller stops the
+ * block ticker first, and mines the block.
  * @param {object} env
  * @param {object} app what buildSeedableApp or buildSeedableUpdate returned
+ * @param {number[]} indices zero-based indices of the nodes online
  * @returns {Promise<{nextBlockHeight: number}>} the block the payment is in
  */
-export async function deliverAppByBlock(env, app) {
+export async function deliverAppByBlock(env, app, indices) {
   const message = app.permanentMessage;
   const now = Date.now();
-  await Promise.all(env.clients.map((_unused, i) => dbClient(i + 1).seedTemporaryMessage(pendingMessage(message, now))));
+  await Promise.all(indices.map((i) => dbClient(i + 1).seedTemporaryMessage(pendingMessage(message, now))));
   let quoted = null;
   const refusals = [];
   // eslint-disable-next-line no-restricted-syntax
-  for (const client of env.clients) {
+  for (const client of indices.map((i) => env.clients[i])) {
     try {
       // eslint-disable-next-line no-await-in-loop
       quoted = await quote(client, message.appSpecifications);

@@ -9,8 +9,9 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { crashFluxos, getAppContainerStatus, stopAppContainer } from '../framework/container.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
-import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { deliverApp } from '../framework/app-delivery.js';
+import { bootAndPeer, installSeededOnNodes } from '../framework/reconciler-suite.js';
+import { deliverAppByBlock } from '../framework/app-delivery.js';
+import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -81,11 +82,22 @@ describe('a second machine on the collateral of a node running an app', function
         repoauth: '',
       }],
     });
-    await installOnNodes(env, app, [LISTED]);
+    // Registered on chain, so every node holds the app's specification as on the
+    // network: the three online from the owner's broadcast, the second machine from
+    // its own scan of the chain and its peers.
+    const online = [LISTED, BYSTANDER, OTHER];
+    await stopTicker();
+    await deliverAppByBlock(env, app, online);
+    await advanceBlock();
+    await startTicker();
+    await waitFor(async () => (await Promise.all(online.map((i) => dbClient(i + 1).globalAppSpec(appName))))
+      .every((row) => row?.hash === app.hash), { timeout: 120000, interval: 2000, label: 'every node online holds the app' });
+    await installSeededOnNodes(env, app, [LISTED]);
     await waitFor(() => isUp(LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
     await env.startNode(COPY);
-    // Every node holds every app's specification, as on the network.
-    await deliverApp(env, app, [BYSTANDER, OTHER, COPY]);
+    await waitFor(async () => (await dbClient(COPY + 1).globalAppSpec(appName))?.hash === app.hash, {
+      timeout: 180000, interval: 3000, label: 'the second machine holds the app from the chain',
+    });
   });
 
   after(async function () {
