@@ -569,7 +569,7 @@ class FluxPeerSocket {
    * Whether this peer may send a frame over peerFrameMaxBytes: a release that
    * batches sync answers by count alone, while it owes this node one. A peer
    * claiming arcaneLink batches by bytes. Once minimumFluxOSAllowedVersion is at
-   * least 8.23.0 every release does, and this goes.
+   * least 8.24.0 every release does, and this goes.
    * @returns {boolean}
    */
   #owesCountBatchedSyncAnswer() {

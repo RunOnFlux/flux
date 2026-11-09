@@ -65,7 +65,7 @@ describe('unpaidAdmission tests', () => {
       config: {
         database: { appsglobal: { database: 'appsglobal' }, daemon: { database: 'daemon' } },
         minimumFluxOSAllowedVersion: floor,
-        fluxapps: { untaggedRefusedFrom: '8.23.0' },
+        fluxapps: { untaggedRefusedFrom: '8.24.0' },
       },
       '../utils/unpaidAllowances': { allowances: () => allowed, submitterCap },
       '../dbHelper': dbHelper,
@@ -390,8 +390,21 @@ describe('unpaidAdmission tests', () => {
       expect(admission).to.deep.equal({ fields: {} });
     });
 
+    describe('while the version floor is the last release that does not tag', () => {
+      before(() => { floor = '8.23.1'; });
+      after(() => { floor = '8.22.0'; });
+
+      it('takes it', async () => {
+        const data = message();
+
+        const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+        expect(admission).to.deep.equal({ fields: {} });
+      });
+    });
+
     describe('once the version floor is the first release that tags', () => {
-      before(() => { floor = '8.23.0'; });
+      before(() => { floor = '8.24.0'; });
       after(() => { floor = '8.22.0'; });
 
       it('refuses it', async () => {
