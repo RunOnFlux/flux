@@ -51,6 +51,12 @@ describe('an update applied in place leaves a standby\'s g: component stopped', 
   };
   const redeployed = (i, from) => client(i).getEventBuffer().some((e) => e.id > from
     && e.event === 'app:componentRedeployed' && e.data?.name === appName && e.data?.component === 'web');
+  // Whether node i has restarted each named component on request since event `from`.
+  const restartedSince = (i, names, from) => names.every((name) => client(i).getEventBuffer().some((e) => e.id > from
+    && e.event === 'reconciler:actuated' && e.data?.identifier === `${name}_${appName}`
+    && e.data?.action === 'restarted' && e.data?.reason === 'operatorRequested'));
+  // What each holder runs, and so restarts when the update ends.
+  const RUNS = { [PRIMARY]: ['db', 'web'], [STANDBY]: ['web'] };
 
   before(async function () {
     this.timeout(900000);
@@ -105,16 +111,16 @@ describe('an update applied in place leaves a standby\'s g: component stopped', 
       try {
         await oneHolderAtMost();
         const hashes = await Promise.all(HOLDERS.map(installedHash));
-        return hashes.every((hash) => hash === updated.hash) && HOLDERS.every((i) => redeployed(i, from[i]));
+        return hashes.every((hash) => hash === updated.hash) && HOLDERS.every((i) => redeployed(i, from[i]))
+          && HOLDERS.every((i) => restartedSince(i, RUNS[i], from[i]));
       } catch (error) {
         if (error?.name !== 'AssertionError') throw error;
         breach = error;
         return true;
       }
-    }, { blocks: 216, label: 'both holders redeployed the sibling in place at the new specification' });
+    }, { blocks: 216, label: 'both holders redeployed the sibling in place at the new specification and restarted what they run' });
     if (breach) throw breach;
 
-    // The restart each holder asked for, carried out.
     await holdsFor(60000, { [PRIMARY]: ['db'], [STANDBY]: [] });
     expect((await getFolderConfig(client(STANDBY), folderOf('db')))?.type, 'the standby\'s db folder').to.equal('receiveonly');
     expect((await getFolderConfig(client(PRIMARY), folderOf('db')))?.type, 'the primary\'s db folder').to.equal('sendreceive');

@@ -46,9 +46,18 @@ describe('an update that moves the first g: component runs the app on one node',
     return (res.data ?? []).find((a) => a.name === appName)?.hash ?? null;
   };
 
+  // Whether node i has restarted each named component on request since event `from`.
+  const restartedSince = (i, names, from) => names.every((name) => client(i).getEventBuffer().some((e) => e.id > from
+    && e.event === 'reconciler:actuated' && e.data?.identifier === `${name}_${appName}`
+    && e.data?.action === 'restarted' && e.data?.reason === 'operatorRequested'));
+
   // Seeds the update and drives blocks until both holders are at it and one runs
-  // exactly `expected`, then holds that. Returns the node that runs it.
-  const settlesOnOneNode = async (updated, expected) => {
+  // exactly `expected`, then holds that. Returns the node that runs it. An update
+  // applied in place ends in a restart of the app, which the reconciler carries
+  // out once the update has finished; with `inPlace` the hold starts after the
+  // node that runs the app has restarted what it runs.
+  const settlesOnOneNode = async (updated, expected, { inPlace }) => {
+    const from = Object.fromEntries(HOLDERS.map((i) => [i, client(i).getLastEventId()]));
     await seedSpecUpdate(env, updated, HOLDERS);
     await stopTicker();
 
@@ -60,7 +69,8 @@ describe('an update that moves the first g: component runs the app on one node',
         settled = HOLDERS.find((i) => running[i].length) ?? null;
         const hashes = await Promise.all(HOLDERS.map(installedHash));
         return settled !== null && JSON.stringify(running[settled]) === JSON.stringify(expected)
-          && hashes.every((hash) => hash === updated.hash);
+          && hashes.every((hash) => hash === updated.hash)
+          && (!inPlace || restartedSince(settled, expected, from[settled]));
       } catch (error) {
         if (error?.name !== 'AssertionError') throw error;
         breach = error;
@@ -117,13 +127,15 @@ describe('an update that moves the first g: component runs the app on one node',
     // Each component keeps the port it was registered with.
     app = await buildSeedableUpdate(app, (spec) => { spec.compose.reverse(); });
     expect(app.spec.compose.map((c) => c.name), 'fixture: the update\'s components').to.deep.equal(['web', 'db']);
-    await settlesOnOneNode(app, COMPONENTS);
+    // The same components in another order: applied in place.
+    await settlesOnOneNode(app, COMPONENTS, { inPlace: true });
   });
 
   it('runs the app on one node once an update removes the g: component that is first', async function () {
     this.timeout(1800000);
     app = await buildSeedableUpdate(app, (spec) => { spec.compose = spec.compose.filter((c) => c.name !== 'web'); });
     expect(app.spec.compose.map((c) => c.name), 'fixture: the update\'s components').to.deep.equal(['db']);
-    await settlesOnOneNode(app, ['db']);
+    // A component removed: the app is rebuilt, not restarted.
+    await settlesOnOneNode(app, ['db'], { inPlace: false });
   });
 });
