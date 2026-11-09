@@ -18,15 +18,21 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const subnet = getSubnetConfig();
 
 // A second machine starts on the collateral of a node running a single-instance
-// app. While the listed node answers, the second machine holds itself out of
-// service and runs nothing, and the app stays where it is. When the listed node's
-// machine dies, the collateral goes to the second machine, the app comes back on
-// exactly one node, and no move is announced: a second machine taking a
-// collateral over is not the listed node moving.
+// app.
+//
+// A machine installed afresh on the collateral finds the listed node answering,
+// holds itself out of service and runs nothing, and the app stays where it is.
+// When the listed node's machine dies, the collateral goes to the second machine,
+// the app comes back on exactly one node, and no move is announced: a second
+// machine taking a collateral over is not the listed node moving.
+//
+// A machine started from a clone of the listed node's disk holds the app and reads
+// its new address as the node having moved: it confirms there, the chain lists the
+// collateral there, and the listed node holds itself out of service. The app never
+// runs on both machines, and runs on one.
 
 // Three nodes start together, so the fleet peers past the threshold and holds
-// policy, which an install needs; the second machine, a clone of the listed node's
-// disk, starts after them.
+// policy, which an install needs; the second machine starts after them.
 const LISTED = 0;
 const BYSTANDER = 1;
 const OTHER = 2;
@@ -35,70 +41,90 @@ const COPY = 3;
 const COLLATERAL_MS = 6 * 60 * 1000;
 // The dead node's location lifetime (63s in this fleet), then a spawn and a start.
 const RESPAWN_MS = 6 * 60 * 1000;
+const OUT_OF_SERVICE = 100;
 
-describe('a second machine on the collateral of a node running an app', function () {
+const listedAt = (i) => `${subnet.nodeIp(i + 1)}:16127`;
+const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:16127`);
+
+/**
+ * Three nodes, the app registered on chain and running on the listed node, and
+ * the second machine not yet started.
+ * @param {object} hookCtx
+ * @param {string} appName
+ * @returns {Promise<{env: object, app: object}>}
+ */
+async function fleetRunningTheApp(hookCtx, appName) {
+  const env = await createTestEnv({
+    hookCtx,
+    nodes: 4,
+    deferredNodes: 1,
+    collateralOf: { [COPY + 1]: LISTED + 1 },
+    tickerAutostart: false,
+    configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
+  });
+  await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  await pushImage(appName, 'v1');
+  const app = await buildSeedableApp({
+    name: appName,
+    instances: 1,
+    compose: [{
+      name: 'alpha',
+      description: 'an app on a collateral two machines run on',
+      repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
+      ports: [],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts: [80],
+      containerData: '/tmp',
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    }],
+  });
+  // Registered on chain, as on the network: the three online hold the app from the
+  // owner's broadcast and the payment.
+  const online = [LISTED, BYSTANDER, OTHER];
+  await stopTicker();
+  await deliverAppByBlock(env, app, online);
+  await advanceBlock();
+  await startTicker();
+  await waitFor(async () => (await Promise.all(online.map((i) => dbClient(i + 1).globalAppSpec(appName))))
+    .every((row) => row?.hash === app.hash), { timeout: 120000, interval: 2000, label: 'every node online holds the app' });
+  await installSeededOnNodes(env, app, [LISTED]);
+  return { env, app };
+}
+
+/**
+ * Where the chain lists the collateral, seen from a node that answers.
+ * @param {object} env
+ * @returns {Promise<string|null>}
+ */
+async function collateralAt(env) {
+  const list = await env.clients[BYSTANDER].get(`/daemon/viewdeterministiczelnodelist?_=${Date.now()}`);
+  return (list.data || []).map((node) => socketOf(node.ip)).find((ip) => ip === listedAt(LISTED) || ip === listedAt(COPY)) ?? null;
+}
+
+async function isUp(env, appName, i) {
+  const status = await getAppContainerStatus(env.clients[i].container, appName);
+  return Boolean(status && status.status.startsWith('Up'));
+}
+
+async function dosStateOf(env, i) {
+  return (await env.clients[i].getDOSState()).data?.dosState;
+}
+
+describe('a second machine installed afresh on the collateral of a node running an app', function () {
   let env;
   dumpLogsOnFailure(() => env);
   const appName = `e2ecopyapp${Date.now()}`;
-  const client = (i) => env.clients[i];
-  const listedAt = (i) => `${subnet.nodeIp(i + 1)}:16127`;
-  const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:16127`);
-  const collateralAt = async () => {
-    const list = await client(BYSTANDER).get(`/daemon/viewdeterministiczelnodelist?_=${Date.now()}`);
-    return (list.data || []).map((node) => socketOf(node.ip)).find((ip) => ip === listedAt(LISTED) || ip === listedAt(COPY)) ?? null;
-  };
-  const isUp = async (i) => {
-    const status = await getAppContainerStatus(client(i).container, appName);
-    return Boolean(status && status.status.startsWith('Up'));
-  };
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({
-      hookCtx: this,
-      nodes: 4,
-      deferredNodes: 1,
-      collateralOf: { [COPY + 1]: LISTED + 1 },
-      tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
-    });
-    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
-    await pushImage(appName, 'v1');
-    const app = await buildSeedableApp({
-      name: appName,
-      instances: 1,
-      compose: [{
-        name: 'alpha',
-        description: 'an app on a collateral two machines run on',
-        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [],
-        domains: [''],
-        environmentParameters: [],
-        commands: [],
-        containerPorts: [80],
-        containerData: '/tmp',
-        cpu: 0.1,
-        ram: 100,
-        hdd: 1,
-        repoauth: '',
-      }],
-    });
-    // Registered on chain, as on the network: the three online hold the app from the
-    // owner's broadcast and the payment.
-    const online = [LISTED, BYSTANDER, OTHER];
-    await stopTicker();
-    await deliverAppByBlock(env, app, online);
-    await advanceBlock();
-    await startTicker();
-    await waitFor(async () => (await Promise.all(online.map((i) => dbClient(i + 1).globalAppSpec(appName))))
-      .every((row) => row?.hash === app.hash), { timeout: 120000, interval: 2000, label: 'every node online holds the app' });
-    await installSeededOnNodes(env, app, [LISTED]);
-    await waitFor(() => isUp(LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
-    // The second machine starts from a clone of the listed node's disk, so it holds
-    // the app the listed node runs.
-    await dbClient(COPY + 1).cloneFrom(LISTED + 1);
+    ({ env } = await fleetRunningTheApp(this, appName));
+    await waitFor(() => isUp(env, appName, LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
     await env.startNode(COPY);
-    expect((await dbClient(COPY + 1).globalAppSpec(appName))?.hash, 'fixture: the second machine holds the app').to.equal(app.hash);
   });
 
   after(async function () {
@@ -108,29 +134,29 @@ describe('a second machine on the collateral of a node running an app', function
 
   it('holds itself out of service while the listed node answers, and leaves the app where it is', async function () {
     this.timeout(420000);
-    await waitFor(async () => (await client(COPY).getDOSState()).data?.dosState >= 100, {
+    await waitFor(async () => (await dosStateOf(env, COPY)) >= OUT_OF_SERVICE, {
       timeout: 360000, interval: 5000, label: 'the second machine holds itself out of service',
     });
 
-    expect(await collateralAt(), 'the collateral is listed at the node that answers').to.equal(listedAt(LISTED));
-    expect(await isUp(LISTED), 'the app runs on the listed node').to.equal(true);
-    expect(await isUp(COPY), 'the app runs on the second machine').to.equal(false);
+    expect(await collateralAt(env), 'the collateral is listed at the node that answers').to.equal(listedAt(LISTED));
+    expect(await isUp(env, appName, LISTED), 'the app runs on the listed node').to.equal(true);
+    expect(await isUp(env, appName, COPY), 'the app runs on the second machine').to.equal(false);
   });
 
   it('when the listed node dies, takes the collateral, the app comes back once, and no move is announced', async function () {
     this.timeout(COLLATERAL_MS + RESPAWN_MS + 120000);
-    await crashFluxos(client(LISTED).container, { hold: true });
-    await stopAppContainer(client(LISTED).container, appName, 'alpha');
+    await crashFluxos(env.clients[LISTED].container, { hold: true });
+    await stopAppContainer(env.clients[LISTED].container, appName, 'alpha');
     await env.disconnectNode(LISTED);
 
-    await waitFor(async () => (await collateralAt()) === listedAt(COPY), {
+    await waitFor(async () => (await collateralAt(env)) === listedAt(COPY), {
       timeout: COLLATERAL_MS, interval: 5000, label: 'the collateral listed at the second machine',
     });
-    await waitFor(async () => (await client(COPY).getDOSState()).data?.dosState === 0, {
+    await waitFor(async () => (await dosStateOf(env, COPY)) === 0, {
       timeout: 180000, interval: 5000, label: 'the second machine back in service',
     });
     const alive = [BYSTANDER, OTHER, COPY];
-    const running = async () => (await Promise.all(alive.map(isUp))).filter(Boolean).length;
+    const running = async () => (await Promise.all(alive.map((i) => isUp(env, appName, i)))).filter(Boolean).length;
     await waitFor(async () => (await running()) > 0, {
       timeout: RESPAWN_MS, interval: 5000, label: 'the app running again',
     });
@@ -138,5 +164,46 @@ describe('a second machine on the collateral of a node running an app', function
     expect(await running(), 'the nodes running the app').to.equal(1);
     const moves = await dbClient(BYSTANDER + 1).getAppStateEvents({ ip: listedAt(LISTED), type: 'ipchanged' });
     expect(moves, 'moves of the listed node the bystander holds').to.deep.equal([]);
+  });
+});
+
+describe('a second machine started from a clone of the listed node\'s disk', function () {
+  let env;
+  let app;
+  dumpLogsOnFailure(() => env);
+  const appName = `e2ecloneapp${Date.now()}`;
+
+  before(async function () {
+    this.timeout(600000);
+    ({ env, app } = await fleetRunningTheApp(this, appName));
+    await waitFor(() => isUp(env, appName, LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('takes the collateral over, the listed node stands aside, and the app never runs on both', async function () {
+    this.timeout(COLLATERAL_MS + RESPAWN_MS + 120000);
+    await dbClient(COPY + 1).cloneFrom(LISTED + 1);
+    await env.startNode(COPY);
+    expect((await dbClient(COPY + 1).globalAppSpec(appName))?.hash, 'fixture: the clone holds the app').to.equal(app.hash);
+
+    // Watched from the clone's start: a moment both machines run the app fails the test.
+    const machines = [LISTED, COPY];
+    let both = null;
+    const runningOn = async () => {
+      const up = await Promise.all(machines.map((i) => isUp(env, appName, i)));
+      if (up.every(Boolean) && !both) both = new Date().toISOString();
+      return up;
+    };
+    await waitFor(async () => {
+      const up = await runningOn();
+      return (await collateralAt(env)) === listedAt(COPY)
+        && (await dosStateOf(env, LISTED)) >= OUT_OF_SERVICE
+        && up.filter(Boolean).length === 1;
+    }, { timeout: COLLATERAL_MS + RESPAWN_MS, interval: 3000, label: 'the collateral at the clone, the listed node out of service, the app on one machine' });
+    expect(both, 'the app ran on both machines at').to.equal(null);
   });
 });
