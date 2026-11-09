@@ -161,11 +161,8 @@ function devicesAdded(before, folders) {
 async function reconnectAddedDevices(added) {
   const back = await syncthingDroppedDevices.addedBack(added);
   if (!back.size) return;
-  try {
-    await reconnect(back);
-  } finally {
-    await syncthingDroppedDevices.cleared(back);
-  }
+  await reconnect(back);
+  await syncthingDroppedDevices.cleared(back);
 }
 
 /**
