@@ -597,6 +597,8 @@ describe('appInspector tests', () => {
 
       expect(dockerServiceStub.dockerContainerStats.callCount, 'one sample of the old monitor and one of the new').to.equal(2);
       expect(stored(), 'the old monitor stored into the new one').to.have.lengthOf(1);
+      appInspector.stopAppMonitoring('myapp', false);
+      expect(clock.countTimers(), 'the old monitor is still scheduling samples').to.equal(0);
     });
 
     it('drops samples older than seven days and keeps the rest', async () => {
@@ -2189,6 +2191,16 @@ describe('appInspector tests', () => {
 
       expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
       expect(globalStateStub.appsMonitored.myapp.nanoCpus).to.equal(1.7e9);
+    });
+
+    it('records the limit a component holds when it reads one', async () => {
+      const composed = { name: 'web', version: 8, compose: [{ name: 'api', cpu: 2 }] };
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 1.7e9 }, State: { Pid: 1234 } });
+      globalStateStub.appsMonitored = { api_web: { statsStore: [], nanoCpus: 2e9 } };
+
+      await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(composed));
+
+      expect(globalStateStub.appsMonitored.api_web.nanoCpus).to.equal(1.7e9);
     });
 
     it('records no limit the container does not report', async () => {
