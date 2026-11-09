@@ -32,7 +32,8 @@ const subnet = getSubnetConfig();
 //
 // A machine started from a clone of the listed node's disk holds the app and reads
 // its new address as the node having moved: it confirms there, the chain lists the
-// collateral there, and the listed node holds itself out of service.
+// collateral there, and the listed node holds itself out of service and gives the
+// app up, which the network places again.
 
 // Three nodes start together, so the fleet peers past the threshold and holds
 // policy, which an install needs; the second machine starts after them.
@@ -258,6 +259,10 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
       await waitFor(async () => (await collateralAt(env)) === listedAt(COPY)
         && (await dosStateOf(env, LISTED)) >= OUT_OF_SERVICE, {
         timeout: COLLATERAL_MS, interval: 5000, label: 'the collateral at the clone and the listed node out of service',
+      });
+      // A node out of service gives its apps up, so the app is placed again.
+      await waitFor(async () => (await watch.runningOn()).length === 1, {
+        timeout: RESPAWN_MS, interval: 5000, label: 'the app running on one node again',
       });
       await runsOnOneThroughout(watch, RESPAWN_MS);
     } finally {
