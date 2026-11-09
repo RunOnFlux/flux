@@ -491,6 +491,15 @@ async function storeAppRunningMessage(message) {
     }
   }
 
+  // A version 2 message names every app its node announces: a row of that node
+  // reported before it, for an app it does not name, is one the node no longer
+  // runs. The same rule a sync answer and the event-derived view apply.
+  if (appsMessages.length > 0) {
+    await pruneAppRunningLocations(new Map([[message.ip, {
+      names: appsMessages.map((app) => app.name), broadcastedAt: message.broadcastedAt,
+    }]]));
+  }
+
   if (appsMessages.length === 0) {
     const result = await dbHelper.findInDatabase(database, globalAppsLocations, { ip }, { projection: { _id: 0, runningSince: 1 } });
     if (result.length > 0) {
@@ -967,15 +976,16 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 }
 
 /**
- * Drop location rows a node no longer reports.
+ * Drop location rows a node no longer reports: each node's rows reported no
+ * later than its broadcast, for apps the broadcast does not name. A row reported
+ * after it stays, so an older broadcast arriving late removes nothing newer.
  *
- * Only the newest broadcast from a node says which apps it still runs, so this
- * cannot be done from part of a sync response - a slice holding an older
- * broadcast would prune against a stale app list, and one holding a newer
- * broadcast would leave rows an earlier slice had already written. The caller
- * passes the newest broadcast seen per node across the whole response.
+ * A sync response passes the newest broadcast it holds per node, across the
+ * whole response: a slice holding an older broadcast would prune against a stale
+ * app list, and one holding a newer broadcast would leave rows an earlier slice
+ * had already written. A gossiped broadcast passes itself.
  *
- * @param {Map<string, {names: Array<string>, broadcastedAt: number}>} newestByIp Newest broadcast per node.
+ * @param {Map<string, {names: Array<string>, broadcastedAt: number}>} newestByIp A broadcast per node.
  * @returns {Promise<void>}
  */
 async function pruneAppRunningLocations(newestByIp) {

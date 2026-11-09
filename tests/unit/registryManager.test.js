@@ -1901,6 +1901,8 @@ describe('registryManager tests', () => {
         dedupKey: 'v2',
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
+        // as a node stores it: its storable apps' names lowercased beside it
+        appNames: apps.filter((app) => typeof app?.name === 'string' && typeof app?.hash === 'string').map((app) => app.name.toLowerCase()),
         data: {
           ip, version: 2, apps, broadcastedAt, osUptime: 1000, staticIp: true,
         },
@@ -1930,6 +1932,7 @@ describe('registryManager tests', () => {
         dedupKey: `appremoved:${appName}`,
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
+        appNameLower: appName.toLowerCase(),
         data: { ip, appName, broadcastedAt },
         envelope: { version: 1, timestamp: broadcastedAt, pubKey: '04abc', signature: 'sig' },
       };
@@ -1979,39 +1982,6 @@ describe('registryManager tests', () => {
       const names = result.map((r) => r.name).sort();
       expect(names).to.deep.equal(['AppA', 'AppB']);
       expect(result[0].ip).to.equal('1.2.3.4');
-    });
-
-    it('should derive locations from v1 events', async () => {
-      await database.collection(eventsCollection).insertOne(
-        makeV1Event('5.6.7.8', 'AppC', 'h3', now),
-      );
-
-      const result = await registryManager.appLocationFromEvents();
-      expect(result).to.be.an('array').with.lengthOf(1);
-      expect(result[0].name).to.equal('AppC');
-    });
-
-    it('should include v1 newer than latest v2 for same IP', async () => {
-      await database.collection(eventsCollection).insertMany([
-        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 60000),
-        makeV1Event('1.2.3.4', 'AppB', 'h2', now),
-      ]);
-
-      const result = await registryManager.appLocationFromEvents();
-      expect(result).to.be.an('array').with.lengthOf(2);
-      const names = result.map((r) => r.name).sort();
-      expect(names).to.deep.equal(['AppA', 'AppB']);
-    });
-
-    it('should exclude v1 older than latest v2 for same IP', async () => {
-      await database.collection(eventsCollection).insertMany([
-        makeV1Event('1.2.3.4', 'OldApp', 'h0', now - 120000),
-        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
-      ]);
-
-      const result = await registryManager.appLocationFromEvents();
-      expect(result).to.be.an('array').with.lengthOf(1);
-      expect(result[0].name).to.equal('AppA');
     });
 
     it('should exclude apps with newer appremoved event', async () => {
@@ -2166,18 +2136,15 @@ describe('registryManager tests', () => {
       expect(result[0].name).to.equal('AppA');
     });
 
-    it('should dedup v1 overriding same app in v2 with newer timestamp', async () => {
+    it('reads no version 1 event, which no node sends', async () => {
       await database.collection(eventsCollection).insertMany([
-        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'old' }, { name: 'AppB', hash: 'h2' }], now - 60000),
-        makeV1Event('1.2.3.4', 'AppA', 'new', now),
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 60000),
+        makeV1Event('1.2.3.4', 'AppB', 'h2', now),
+        makeV1Event('5.6.7.8', 'AppC', 'h3', now),
       ]);
 
       const result = await registryManager.appLocationFromEvents();
-      expect(result).to.be.an('array').with.lengthOf(2);
-      const appA = result.find((r) => r.name === 'AppA');
-      expect(appA.hash).to.equal('new');
-      const appB = result.find((r) => r.name === 'AppB');
-      expect(appB.hash).to.equal('h2');
+      expect(result.map((r) => r.name)).to.deep.equal(['AppA']);
     });
 
     it('should handle multiple IPs independently', async () => {

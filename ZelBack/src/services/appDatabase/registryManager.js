@@ -420,65 +420,6 @@ async function movesForView(addresses) {
 }
 
 /**
- * An aggregation expression for where the node that held `address` at `at` is
- * now, following `moves` (from movesForView) the way followAddressMoves does:
- * each move followed is newer than the address it leaves was known to be the
- * node's. Stops at the first address with no such move.
- * @param {*} address Expression for the address.
- * @param {*} at Expression for when it was known to be the node's.
- * @param {Array<object>} moves
- * @param {number} [hop]
- * @returns {object}
- */
-function followMovesExpr(address, at, moves, hop = 0) {
-  if (hop === MAX_ADDRESS_MOVES_FOLLOWED) return address;
-  const move = `move${hop}`;
-  return {
-    $let: {
-      vars: {
-        [move]: {
-          $first: {
-            $filter: {
-              input: { $literal: moves },
-              as: 'c',
-              cond: { $and: [{ $eq: ['$$c._id', address] }, { $gt: ['$$c.changedAt', at] }] },
-            },
-          },
-        },
-      },
-      in: {
-        $cond: [
-          { $eq: [{ $ifNull: [`$$${move}`, null] }, null] },
-          address,
-          followMovesExpr(`$$${move}.newIP`, `$$${move}.changedAt`, moves, hop + 1),
-        ],
-      },
-    },
-  };
-}
-
-/**
- * An aggregation expression for the newest of the document's `shutdowns` at
- * `address`, or null. Shutdowns made at different addresses can resolve to one.
- * @param {*} address Expression for the address.
- * @returns {object}
- */
-function newestShutdownAt(address) {
-  return {
-    $let: {
-      vars: { address },
-      in: {
-        $reduce: {
-          input: { $filter: { input: '$shutdowns', as: 's', cond: { $eq: ['$$s._id', '$$address'] } } },
-          initialValue: null,
-          in: { $cond: [{ $or: [{ $eq: ['$$value', null] }, { $gt: ['$$this.eventAt', '$$value.eventAt'] }] }, '$$this', '$$value'] },
-        },
-      },
-    },
-  };
-}
-
-/**
  * The holders of an app by their own signed word: each signing key whose newest
  * standing announcement names the app, and which has signed no removal of the
  * app and no SIGTERM since. A record stands while its expireAt is after
@@ -548,285 +489,196 @@ async function signedHoldersOf(appName, atMs) {
   return holders;
 }
 
-// Derives running app locations from the event log. Will replace appLocation() once callers are switched.
-//
-// Performance: shutdown/v1 filtering happens at IP level BEFORE unwinding to individual apps.
-// Lookups use $filter + $first against small arrays (shutdowns ~10) which is
-// O(IPs * arraySize) — fast because the arrays are small. The v2Timestamps lookup for v1
-// filtering is O(v1Count * v2IPs) which dominates at ~2.4M comparisons at steady state.
-//
-// MongoDB 7.2+ optimization: $getField supports dynamic field references, enabling
-// $arrayToObject maps with O(1) key lookup via $getField({ field: '$$var.ip', input: '$map' }).
-// This would reduce all lookups to O(n) total. Blocked by MongoDB 7.0 on CI (SERVER-74371).
-//
-// Every report, removal and shutdown speaks for the node that held its address when it was
-// made; when that node has since moved, it holds at the address the node moved to. The moves
-// are read first, and each facet is split by whether an event was made at an address a move
-// leaves: only that part is resolved, against the moves as a literal. With no moves the
-// pipeline is the one without them.
+/**
+ * Where each app runs, by the event log: every node's newest report (version 2,
+ * naming every app it runs) at the address the node holds now, less each app the
+ * node removed after the report, and less the whole report when a shutdown or
+ * eviction of the address after it holds. What was said at an address a node
+ * moved from holds where the node is now, and of two reports that speak for one
+ * address the newer decides.
+ *
+ * Linear in the events read: each kind of event is read by its own query on the
+ * one index holding all its conditions, a move's end is worked out once per move,
+ * and every join is a group by address.
+ * @param {object} [options]
+ * @param {string} [options.appname] Only this app, its name compared without case.
+ * @param {string} [options.ip] Only this address, and what the addresses moved to it said.
+ * @returns {Promise<Array<object>>} One row per app per address.
+ */
 async function appLocationFromEvents(options = {}) {
   const { appname, ip } = options;
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
   const collection = database.collection(globalAppStateEvents);
 
-  const escapedName = appname ? appname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
-  const nameMatch = escapedName ? new RegExp(`^${escapedName}$`, 'i') : null;
+  // App names compare without case: each event carries its app names lowercased
+  // (appNames on a report, appNameLower on a removal), which a read for one app
+  // matches exactly.
+  const nameMatch = appname ? appname.toLowerCase() : null;
   const now = new Date();
 
-  const v1NameFilter = nameMatch ? [{ $match: { 'data.name': nameMatch } }] : [];
-  const removalNameFilter = nameMatch ? [{ $match: { 'data.appName': nameMatch } }] : [];
-
-  const initialMatch = {
-    $or: [
-      { type: { $in: ['apprunning', 'appremoved'] }, expireAt: { $gt: now } },
-      { type: { $in: ['sigterm', 'evicted'] } },
-    ],
-  };
   const scope = ip ? await addressesLeadingTo(ip) : null;
-  if (scope) initialMatch.ip = { $in: scope };
   const moves = await movesForView(scope);
-  const movedFrom = moves.map((move) => move._id);
-  // A facet's stages, and when there are moves a second facet `<name>Moved` for the
-  // events made at an address a move leaves, ending in `resolve`.
-  const splitByMove = (name, stages, resolve) => (moves.length ? {
-    [name]: [{ $match: { ip: { $nin: movedFrom } } }, ...stages],
-    [`${name}Moved`]: [{ $match: { ip: { $in: movedFrom } } }, ...stages, resolve],
-  } : { [name]: stages });
-  const resolveReport = { $addFields: { at: followMovesExpr('$ip', '$broadcastedAt', moves) } };
+  // For each address a move leaves, the move's time and where it leads in the
+  // end: an event made there before the move holds there, following each later
+  // move newer than the one before it (followAddressMoves).
+  const moveFrom = new Map(moves.map((move) => [move._id, move]));
+  const leadsTo = (address, since) => {
+    let at = address;
+    let known = since;
+    for (let hop = 0; hop < MAX_ADDRESS_MOVES_FOLLOWED; hop += 1) {
+      const next = moveFrom.get(at);
+      if (!next || !(next.changedAt > known)) break;
+      at = next.newIP;
+      known = next.changedAt;
+    }
+    return at;
+  };
+  const moveEnds = moves.map((move) => ({ _moveOf: move._id, at: move.changedAt, to: leadsTo(move.newIP, move.changedAt) }));
+  const live = { expireAt: { $gt: now } };
+  const atScope = scope ? { ip: { $in: scope } } : {};
+  // A read for one app reads the reports naming it, and where a move joins one of
+  // their addresses to another, every report along the move: of reports that
+  // speak for one address the newer decides, whether it names the app or not.
+  let joined = [];
+  if (nameMatch && moves.length) {
+    const neighbours = new Map();
+    const link = (a, b) => {
+      if (!neighbours.has(a)) neighbours.set(a, []);
+      neighbours.get(a).push(b);
+    };
+    moves.forEach((move) => { link(move._id, move.newIP); link(move.newIP, move._id); });
+    const naming = await collection.find({ type: 'apprunning', appNames: nameMatch, ...live, ...atScope }, { projection: { _id: 0, ip: 1 } }).toArray();
+    const reached = new Set();
+    const toVisit = naming.map((report) => report.ip).filter((address) => neighbours.has(address));
+    while (toVisit.length) {
+      const address = toVisit.pop();
+      if (!reached.has(address)) {
+        reached.add(address);
+        toVisit.push(...neighbours.get(address));
+      }
+    }
+    const inScope = scope ? new Set(scope) : null;
+    joined = [...reached].filter((address) => !inScope || inScope.has(address));
+  }
+  // The events read, each a simple query whose every condition one index holds:
+  // a node's running reports, its removals of apps, and the shutdowns and
+  // evictions of addresses.
+  const reads = [
+    ...(nameMatch
+      ? [{ type: 'apprunning', appNames: nameMatch, ...live, ...atScope }, ...(joined.length ? [{ type: 'apprunning', ip: { $in: joined }, ...live }] : [])]
+      : [{ type: 'apprunning', ...atScope, ...live }]),
+    nameMatch ? { type: 'appremoved', appNameLower: nameMatch, ...live, ...atScope } : { type: 'appremoved', ...atScope, ...live },
+    { type: { $in: ['sigterm', 'evicted'] }, ...atScope },
+  ];
+  const eventAt = { $ifNull: ['$broadcastedAt', '$createdAt'] };
 
   const pipeline = [
-    { $match: initialMatch },
-    { $sort: { broadcastedAt: -1 } },
+    { $match: reads[0] },
+    ...reads.slice(1).map((read) => ({ $unionWith: { coll: globalAppStateEvents, pipeline: [{ $match: read }] } })),
+    // a report naming its apps (v2), not one app (v1)
+    { $match: { $or: [{ type: { $ne: 'apprunning' } }, { 'data.apps': { $type: 'array' } }] } },
+    // only what the view reads of each event
     {
-      $facet: {
-        ...splitByMove('v2', [
-          { $match: { type: 'apprunning', 'data.apps': { $exists: true } } },
-          { $group: { _id: '$ip', doc: { $first: '$$ROOT' } } },
-          { $replaceRoot: { newRoot: '$doc' } },
-          {
-            $project: {
-              _id: 0,
-              ip: '$data.ip',
-              broadcastedAt: 1,
-              apps: '$data.apps',
-              osUptime: '$data.osUptime',
-              staticIp: '$data.staticIp',
-              runningSince: '$data.runningSince',
-            },
-          },
-        ], resolveReport),
-        ...splitByMove('v1', [
-          ...v1NameFilter,
-          { $match: { type: 'apprunning', 'data.name': { $exists: true } } },
-          {
-            $group: {
-              _id: { ip: '$ip', name: '$data.name' },
-              doc: { $first: '$$ROOT' },
-            },
-          },
-          { $replaceRoot: { newRoot: '$doc' } },
-          {
-            $project: {
-              _id: 0,
-              name: '$data.name',
-              hash: '$data.hash',
-              ip: '$data.ip',
-              broadcastedAt: 1,
-              runningSince: '$data.runningSince',
-              osUptime: '$data.osUptime',
-              staticIp: '$data.staticIp',
-            },
-          },
-        ], resolveReport),
-        v2Timestamps: [
-          { $match: { type: 'apprunning', 'data.apps': { $exists: true } } },
-          { $group: { _id: '$ip', latestV2: { $first: '$broadcastedAt' } } },
-        ],
-        ...splitByMove('removals', [
-          { $match: { type: 'appremoved' } },
-          ...removalNameFilter,
-          {
-            $group: {
-              _id: { ip: '$ip', name: '$data.appName' },
-              removedAt: { $first: '$broadcastedAt' },
-            },
-          },
-        ], { $addFields: { '_id.ip': followMovesExpr('$_id.ip', '$removedAt', moves) } }),
-        ...splitByMove('shutdowns', [
-          { $match: { type: { $in: ['sigterm', 'evicted'] } } },
-          { $addFields: { _eventAt: { $ifNull: ['$broadcastedAt', '$createdAt'] } } },
-          { $sort: { _eventAt: -1 } },
-          {
-            $group: {
-              _id: '$ip',
-              eventAt: { $first: '$_eventAt' },
-              expireAt: { $first: '$expireAt' },
-              type: { $first: '$type' },
-            },
-          },
-        ], { $addFields: { _id: followMovesExpr('$_id', '$eventAt', moves) } }),
+      $project: {
+        _id: 0,
+        type: 1,
+        ip: 1,
+        _t: eventAt,
+        apps: '$data.apps',
+        runningSince: '$data.runningSince',
+        osUptime: '$data.osUptime',
+        staticIp: '$data.staticIp',
+        removed: '$data.appName',
       },
     },
-    // A report keeps the address it was made at in `ip`; one made where a move leaves
-    // gains the address its node holds now in `at`.
-    ...(moves.length ? [{
-      $addFields: Object.fromEntries(['v2', 'v1', 'removals', 'shutdowns']
-        .map((name) => [name, { $concatArrays: [`$${name}`, `$${name}Moved`] }])),
-    }] : []),
-    // Filter v2 at IP level before unwinding — shutdown check against small array
-    {
-      $addFields: {
-        _v2Filtered: {
-          $filter: {
-            input: '$v2',
-            as: 'entry',
-            cond: {
-              $let: {
-                vars: { sd: newestShutdownAt({ $ifNull: ['$$entry.at', '$$entry.ip'] }) },
-                in: {
-                  $or: [
-                    { $eq: ['$$sd', null] },
-                    { $gte: ['$$entry.broadcastedAt', '$$sd.eventAt'] },
-                    { $and: [{ $eq: ['$$sd.type', 'sigterm'] }, { $gt: [{ $add: ['$$sd.eventAt', SIGTERM_EXPIRY_MS] }, now] }] },
-                  ],
-                },
-              },
-            },
-          },
+    // Every event with `addr`, the address its node holds now: its own, or for one
+    // made where a move leaves before the move, where the move leads. Each
+    // address's newest move is grouped with the events made there.
+    ...(moves.length ? [
+      { $unionWith: { pipeline: [{ $documents: moveEnds }] } },
+      {
+        $group: {
+          _id: { $ifNull: ['$_moveOf', '$ip'] },
+          events: { $push: { $cond: [{ $eq: [{ $type: '$_moveOf' }, 'missing'] }, '$$ROOT', '$$REMOVE'] } },
+          move: { $mergeObjects: { $cond: [{ $eq: [{ $type: '$_moveOf' }, 'missing'] }, {}, { at: '$at', to: '$to' }] } },
         },
       },
-    },
-    // Filter v1: newer than latest v2 for that IP and not shutdown
-    {
-      $addFields: {
-        _v1Filtered: {
-          $filter: {
-            input: '$v1',
-            as: 'entry',
-            cond: {
-              $and: [
-                {
-                  $let: {
-                    vars: { v2Ts: { $first: { $filter: { input: '$v2Timestamps', as: 't', cond: { $eq: ['$$t._id', '$$entry.ip'] } } } } },
-                    in: { $or: [{ $eq: ['$$v2Ts', null] }, { $gt: ['$$entry.broadcastedAt', '$$v2Ts.latestV2'] }] },
-                  },
-                },
-                {
-                  $let: {
-                    vars: { sd: newestShutdownAt({ $ifNull: ['$$entry.at', '$$entry.ip'] }) },
-                    in: {
-                      $or: [
-                        { $eq: ['$$sd', null] },
-                        { $gte: ['$$entry.broadcastedAt', '$$sd.eventAt'] },
-                        { $and: [{ $eq: ['$$sd.type', 'sigterm'] }, { $gt: [{ $add: ['$$sd.eventAt', SIGTERM_EXPIRY_MS] }, now] }] },
-                      ],
-                    },
-                  },
-                },
-              ],
-            },
-          },
+      { $unwind: '$events' },
+      {
+        $replaceRoot: {
+          newRoot: { $mergeObjects: ['$events', { addr: { $cond: [{ $gt: ['$move.at', '$events._t'] }, '$move.to', '$events.ip'] } }] },
         },
       },
-    },
-    // Unwind v2 apps and v1 into flat docs, apply per-app removal + IP change filters
-    {
-      $facet: {
-        fromV2: [
-          { $unwind: '$_v2Filtered' },
-          { $unwind: '$_v2Filtered.apps' },
-          ...(nameMatch ? [{ $match: { '_v2Filtered.apps.name': nameMatch } }] : []),
-          {
-            $project: {
-              _id: 0,
-              name: '$_v2Filtered.apps.name',
-              hash: '$_v2Filtered.apps.hash',
-              ip: { $ifNull: ['$_v2Filtered.at', '$_v2Filtered.ip'] },
-              broadcastedAt: '$_v2Filtered.broadcastedAt',
-              runningSince: { $ifNull: ['$_v2Filtered.apps.runningSince', '$_v2Filtered.runningSince'] },
-              osUptime: '$_v2Filtered.osUptime',
-              staticIp: '$_v2Filtered.staticIp',
-              removals: 1,
-            },
-          },
-          {
-            $addFields: {
-              // the newest: removals made at different addresses can resolve to one
-              _removedAt: {
-                $ifNull: [
-                  { $max: { $map: {
-                    input: { $filter: { input: '$removals', as: 'r', cond: { $and: [{ $eq: ['$$r._id.ip', '$ip'] }, { $eq: ['$$r._id.name', '$name'] }] } } },
-                    as: 'r',
-                    in: '$$r.removedAt',
-                  } } },
-                  new Date(0),
-                ],
-              },
-            },
-          },
-          { $match: { $expr: { $gt: ['$broadcastedAt', '$_removedAt'] } } },
-          { $project: { removals: 0, _removedAt: 0 } },
-        ],
-        fromV1: [
-          { $unwind: '$_v1Filtered' },
-          {
-            $project: {
-              _id: 0,
-              name: '$_v1Filtered.name',
-              hash: '$_v1Filtered.hash',
-              ip: { $ifNull: ['$_v1Filtered.at', '$_v1Filtered.ip'] },
-              broadcastedAt: '$_v1Filtered.broadcastedAt',
-              runningSince: '$_v1Filtered.runningSince',
-              osUptime: '$_v1Filtered.osUptime',
-              staticIp: '$_v1Filtered.staticIp',
-              removals: 1,
-            },
-          },
-          {
-            $addFields: {
-              // the newest: removals made at different addresses can resolve to one
-              _removedAt: {
-                $ifNull: [
-                  { $max: { $map: {
-                    input: { $filter: { input: '$removals', as: 'r', cond: { $and: [{ $eq: ['$$r._id.ip', '$ip'] }, { $eq: ['$$r._id.name', '$name'] }] } } },
-                    as: 'r',
-                    in: '$$r.removedAt',
-                  } } },
-                  new Date(0),
-                ],
-              },
-            },
-          },
-          { $match: { $expr: { $gt: ['$broadcastedAt', '$_removedAt'] } } },
-          { $project: { removals: 0, _removedAt: 0 } },
-        ],
-      },
-    },
-    // Combine and dedup by {name, ip}, taking latest broadcastedAt
-    { $project: { all: { $concatArrays: ['$fromV2', '$fromV1'] } } },
-    { $unwind: '$all' },
-    { $replaceRoot: { newRoot: '$all' } },
-    { $sort: { broadcastedAt: -1 } },
+    ] : [{ $addFields: { addr: '$ip' } }]),
+    // each address's newest report, newest shutdown, and its removals: the newest
+    // by $max over an object led by its time
     {
       $group: {
-        _id: { name: '$name', ip: '$ip' },
-        name: { $first: '$name' },
-        hash: { $first: '$hash' },
-        ip: { $first: '$ip' },
-        broadcastedAt: { $first: '$broadcastedAt' },
-        runningSince: { $first: '$runningSince' },
-        osUptime: { $first: '$osUptime' },
-        staticIp: { $first: '$staticIp' },
+        _id: '$addr',
+        report: {
+          $max: {
+            $cond: [{ $eq: ['$type', 'apprunning'] }, {
+              at: '$_t', apps: '$apps', runningSince: '$runningSince', osUptime: '$osUptime', staticIp: '$staticIp',
+            }, null],
+          },
+        },
+        shutdown: { $max: { $cond: [{ $in: ['$type', ['sigterm', 'evicted']] }, { at: '$_t', type: '$type' }, null] } },
+        removals: { $push: { $cond: [{ $eq: ['$type', 'appremoved'] }, { name: '$removed', at: '$_t' }, '$$REMOVE'] } },
       },
     },
-    { $project: { _id: 0 } },
+    // a report stands unless a shutdown of the address after it holds
+    {
+      $match: {
+        $expr: {
+          $and: [
+            { $ne: ['$report', null] },
+            {
+              $or: [
+                { $eq: ['$shutdown', null] },
+                { $gte: ['$report.at', '$shutdown.at'] },
+                { $and: [{ $eq: ['$shutdown.type', 'sigterm'] }, { $gt: [{ $add: ['$shutdown.at', SIGTERM_EXPIRY_MS] }, now] }] },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    { $unwind: '$report.apps' },
+    ...(nameMatch ? [{ $match: { $expr: { $eq: [{ $toLower: '$report.apps.name' }, nameMatch] } } }] : []),
+    // an app stands unless this address removed it after the report
+    {
+      $match: {
+        $expr: {
+          $gt: ['$report.at', {
+            $max: {
+              $map: {
+                input: { $filter: { input: '$removals', as: 'r', cond: { $eq: ['$$r.name', '$report.apps.name'] } } },
+                as: 'r',
+                in: '$$r.at',
+              },
+            },
+          }],
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        name: '$report.apps.name',
+        hash: '$report.apps.hash',
+        ip: '$_id',
+        broadcastedAt: '$report.at',
+        runningSince: { $ifNull: ['$report.apps.runningSince', '$report.runningSince'] },
+        osUptime: '$report.osUptime',
+        staticIp: '$report.staticIp',
+      },
+    },
   ];
   // the addresses that moved to `ip` are read too; what they said holds here only once resolved
   if (ip) pipeline.push({ $match: { ip } });
 
-  const results = await collection.aggregate(pipeline).toArray();
-  return results;
+  return collection.aggregate(pipeline, { allowDiskUse: true }).toArray();
 }
 
 /**

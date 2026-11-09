@@ -346,6 +346,52 @@ describe('the location table and the event-derived view agree', () => {
       expect((await registryManager.appLocation(appName)).map((row) => row.ip)).to.deep.equal([B]);
     });
 
+    describe('a report heard by gossip', () => {
+      // taken as each test starts: a report older than gossip's window is refused
+      let now;
+      beforeEach(() => { now = Date.now(); });
+      // as fluxCommunication takes one: the event, then the location rows
+      async function gossip(ip, apps, broadcastedAt) {
+        const data = {
+          type: 'fluxapprunning', version: 2, ip, broadcastedAt, osUptime: 1, staticIp: false,
+          apps: apps.map((name) => ({ name, hash: `hash-${name}`, runningSince: new Date(now - 300000).toISOString() })),
+        };
+        await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: { ...envelope, data } });
+        await messageStore.storeAppRunningMessage(data);
+      }
+      const inBothViews = async (name) => ({
+        table: (await registryManager.appLocation(name)).map((row) => row.ip),
+        events: (await registryManager.appLocationFromEvents({ appname: name })).map((row) => row.ip),
+      });
+
+      it('removes what its node stopped running', async () => {
+        ips.push(A);
+        await gossip(A, [appName, `${appName}gone`], now - 280000);
+        await gossip(A, [appName], now - 240000);
+
+        expect(await inBothViews(`${appName}gone`)).to.deep.equal({ table: [], events: [] });
+        expect(await inBothViews(appName)).to.deep.equal({ table: [A], events: [A] });
+      });
+
+      it('removes nothing reported after it, when it arrives late', async () => {
+        ips.push(A);
+        await gossip(A, [appName, `${appName}new`], now - 120000);
+        await gossip(A, [appName], now - 240000);
+
+        expect(await inBothViews(`${appName}new`)).to.deep.equal({ table: [A], events: [A] });
+      });
+
+      it('at its node\'s new address, removes what the move carried and the node no longer runs', async () => {
+        ips.push(A, B);
+        await gossip(A, [appName, `${appName}static`], now - 280000);
+        await move(A, B, now - 160000);
+        await gossip(B, [appName], now - 60000);
+
+        expect(await inBothViews(`${appName}static`)).to.deep.equal({ table: [], events: [] });
+        expect(await inBothViews(appName)).to.deep.equal({ table: [B], events: [B] });
+      });
+    });
+
     it('a move leaves what was reported at the old address after it', async () => {
       ips.push(A, B);
       const now = Date.now();

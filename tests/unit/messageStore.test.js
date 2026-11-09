@@ -849,7 +849,8 @@ describe('messageStore tests', () => {
         ip: '192.168.1.1',
       };
 
-      const mockDb = { db: sinon.stub().returns('database') };
+      const bulkWrite = sinon.stub().resolves();
+      const mockDb = { db: sinon.stub().returns({ collection: sinon.stub().returns({ bulkWrite }) }) };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.updateOneInDatabase.resolves({ modifiedCount: 0, upsertedCount: 1 });
       dbHelperStub.removeDocumentsFromCollection.resolves();
@@ -862,6 +863,10 @@ describe('messageStore tests', () => {
       expect(dbHelperStub.updateOneInDatabase.callCount).to.equal(2);
       // Should clean up installing records for each app (location + broadcast per app)
       expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(4);
+      // the node's rows for apps it no longer names, reported no later than this message
+      sinon.assert.calledOnceWithExactly(bulkWrite, [{
+        deleteMany: { filter: { ip: '192.168.1.1', name: { $nin: ['app1', 'app2'] }, broadcastedAt: { $lte: new Date(message.broadcastedAt) } } },
+      }], { ordered: false });
     });
 
     it('should handle version 2 message with empty apps array', async () => {
@@ -1345,14 +1350,14 @@ describe('messageStore tests', () => {
       expect(filter.ip).to.equal('1.2.3.4');
       expect(filter.type).to.equal('apprunning');
       expect(filter.dedupKey).to.equal('v2');
+      // its storable apps' names, lowercased, which a read for one app matches
+      const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
+      expect(JSON.stringify(written.appNames)).to.include('["a"]');
     });
 
     it('stores no version 1 apprunning event', async () => {
       const payload = {
         signedBroadcast: {
-      // its storable apps' names, lowercased, which a read for one app matches
-      const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
-      expect(JSON.stringify(written.appNames)).to.include('["a"]');
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
           data: {
             ip: '1.2.3.4', version: 1, broadcastedAt: Date.now(), name: 'myapp', hash: 'h',
@@ -1383,13 +1388,13 @@ describe('messageStore tests', () => {
       const filter = collectionStub.updateOne.firstCall.args[0];
       expect(filter.type).to.equal('appremoved');
       expect(filter.dedupKey).to.equal('appremoved:myapp');
+      const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
+      expect(JSON.stringify(written.appNameLower)).to.include('"myapp"');
     });
 
     it('should store evicted event with createdAt', async () => {
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.EVICTED, { ip: '1.2.3.4' });
       expect(collectionStub.updateOne.calledOnce).to.be.true;
-      const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
-      expect(JSON.stringify(written.appNameLower)).to.include('"myapp"');
       const filter = collectionStub.updateOne.firstCall.args[0];
       expect(filter.type).to.equal('evicted');
       expect(filter.dedupKey).to.equal('evicted');
