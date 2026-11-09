@@ -905,6 +905,26 @@ describe('availabilityChecker tests', () => {
           sinon.assert.calledOnce(portTestStub);
         });
 
+        it('ends a peer\'s answer that never completes at 10 s in all, and releases the port', async () => {
+          const deadline = new AbortController();
+          const timeoutStub = sinon.stub(AbortSignal, 'timeout').returns(deadline.signal);
+          let onAsked;
+          const askedPromise = new Promise((resolve) => { onAsked = resolve; });
+          portTestStub.callsFake((url, body, config) => new Promise((resolve, reject) => {
+            onAsked(config);
+            config.signal.addEventListener('abort', () => reject(new Error('canceled')));
+          }));
+
+          const passed = pass();
+          const asked = await askedPromise;
+          expect(portClaims.holderOf([PORT]), 'held while the peer answers').to.include({ kind: portClaims.ClaimKind.CHECK });
+          deadline.abort();
+          await passed;
+
+          sinon.assert.calledOnceWithExactly(timeoutStub, 10_000);
+          expect(asked.signal).to.equal(deadline.signal);
+        });
+
         it('releases the port after a pass that could not listen on it', async () => {
           fluxHttpTestServer.FluxHttpTestServer.prototype.listen.callsFake(function listen() {
             this.emit('error', new Error('listen EADDRINUSE'));

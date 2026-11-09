@@ -505,9 +505,13 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       }
     }
 
+    // The pass holds its port claim across this call, and an install of the
+    // port waits on that claim. `timeout` alone is an idle timeout in Node,
+    // restarted by every byte the peer sends; the signal ends the call outright.
     const timeout = 10_000;
     const axiosConfig = {
       timeout,
+      signal: AbortSignal.timeout(timeout),
       headers: { 'content-type': '' },
     };
 
