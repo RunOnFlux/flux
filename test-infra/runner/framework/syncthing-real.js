@@ -276,6 +276,15 @@ export async function setFolderPaused(client, folderId, paused) {
   if (r.exitCode !== 0) throw new Error(`syncthing-real: ${paused ? 'pause' : 'resume'} of ${folderId} failed: ${r.stderr || r.output}`);
 }
 
+// Changes the given fields of one folder's config on the node's daemon, the
+// rest as the daemon holds them.
+export async function patchFolderConfig(client, folderId, fields) {
+  const key = await apiKey(client);
+  const r = await execInContainer(client.container,
+    `curl -sS -f -X PATCH -H "X-API-Key: ${key}" -H "Content-Type: application/json" -d '${JSON.stringify(fields)}' "http://127.0.0.1:8384/rest/config/folders/${encodeURIComponent(folderId)}"`);
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: patch of ${folderId} with ${JSON.stringify(fields)} failed: ${r.stderr || r.output}`);
+}
+
 // The daemon's own event log since `since`, optionally of named types - e.g.
 // StateChanged (a folder starting a scan) and ConfigSaved (a folder's type
 // changed). Event ids are ordered, so two events can be put in order, and
