@@ -513,7 +513,9 @@ describe('fluxCommunication tests', () => {
     it('reports a held message that was refused', () => {
       const publish = sinon.stub(fluxEventBus, 'publish');
       fluxCommunication.settleHeldAppMessage({ message: { data: { hash: 'h5' } }, from: 'p' }, new Error('no'));
-      sinon.assert.calledOnceWithExactly(publish, 'appmessage:refused', { hash: 'h5', reason: 'no' });
+      sinon.assert.calledOnceWithExactly(publish, 'network:appmessageRefused', {
+        hash: 'h5', type: undefined, name: undefined, reason: 'no',
+      });
       sinon.assert.notCalled(broadcastHashSpy);
     });
 
