@@ -20,6 +20,7 @@ const messageVerifier = require('../../ZelBack/src/services/appMessaging/message
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -809,6 +810,23 @@ describe('explorerService tests', () => {
         sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
           { $set: { generalScannedHeight: base, generalScannedHash: 'a100' } });
         expect(step).to.deep.equal({ next: explorerService.Step.block(base + 1), waitMs: 0 });
+      });
+
+      it('publishes the reorganisation once the restored height is stored', async () => {
+        await processBranchA();
+        chain[base + 2] = blockAt(base + 2, 'b102', 'b101');
+        getBlockHashStub.callsFake(async ({ params }) => ({ status: 'success', data: { [base]: 'a100', [base + 1]: 'b101' }[params.index] }));
+        getBlockHeaderStub.callsFake(async ({ params }) => ({ status: 'success', data: { a101: { previousblockhash: 'a100' } }[params.hash] }));
+        const storedWhenPublished = [];
+        sinon.stub(fluxEventBus, 'publish').callsFake((event) => {
+          if (event !== 'explorer:reorganised') return;
+          storedWhenPublished.push(dbStubUpdate.calledWithMatch(sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } },
+            { $set: { generalScannedHeight: base, generalScannedHash: 'a100' } }));
+        });
+
+        await explorerService.processBlock(base + 2, true);
+
+        expect(storedWhenPublished).to.deep.equal([true]);
       });
 
       it('restores explorerDeepRestoreBlocks when fluxd does not know the branch the last block was on', async () => {

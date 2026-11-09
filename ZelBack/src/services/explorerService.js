@@ -1111,7 +1111,6 @@ async function rewindToFork(database, parent) {
     + `${fork ? `restoring to ${fork.height}` : `fork not found, restoring to ${height}`}`);
   await markReplacedPayments(database, height, parent.height);
   await restoreDatabaseToBlockheightState(height);
-  fluxEventBus.publish('explorer:reorganised', { parentHeight: parent.height, restoredTo: height, forkFound: Boolean(fork) });
   if (fork) {
     await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
       { generalScannedHeight: { $gte: 0 } },
@@ -1121,6 +1120,8 @@ async function rewindToFork(database, parent) {
   } else {
     await setScannedHeight(database, height);
   }
+  // Once the restored height is stored, so a reader of the event finds it.
+  fluxEventBus.publish('explorer:reorganised', { parentHeight: parent.height, restoredTo: height, forkFound: Boolean(fork) });
   log.info('Database restored OK');
   return height;
 }
