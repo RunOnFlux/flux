@@ -7,8 +7,9 @@
  * other - releases the app's ports, so its mapping is never asked for.
  *
  * The boot's mappings are held after its ports are wanted and before any is mapped
- * (boot:afterPortsDeclared) while the app is removed, once the boot has settled its apps and
- * takes a removal; the router then sees no mapping of the app's port. The node's database must be ready for the boot to reach its apps, so the node is
+ * (boot:afterPortsDeclared) while the app's term runs out, once the boot has settled its apps
+ * and takes a removal; the router then sees no mapping of the app's port. An app whose term has
+ * run out is placed nowhere again, so a mapping of its port can only be the boot's. The node's database must be ready for the boot to reach its apps, so the node is
  * one of a peered fleet: the middle of three.
  */
 import {
@@ -20,10 +21,8 @@ import { crashFluxos, releaseFluxos } from '../framework/container.js';
 import { giveNodeApiPort } from '../framework/node-address.js';
 import { pushBusybox } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
-import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
+import { bootAndPeer, retireApp, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-control.js';
-import { authenticate } from '../auth.js';
-import { fluxTeamKey } from '../framework/keys.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForAppInstalled, waitForAppRemoved } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -42,6 +41,7 @@ describe('a node maps no port of an app removed while its boot maps the installe
   let nodeIp;
   const appName = `e2eupnpbootgone${Date.now()}`;
   let appPort;
+  let app;
 
   before(async function () {
     this.timeout(600000);
@@ -55,7 +55,7 @@ describe('a node maps no port of an app removed while its boot maps the installe
     await pushBusybox('e2eupnpbootgone', 'v1', 'busybox', {
       entrypoint: ['/bin/busybox', 'nc', '-lk', '-p', String(LISTEN_PORT), '-e', '/bin/busybox', 'echo', 'ok'],
     });
-    const app = await buildSeedableApp({
+    app = await buildSeedableApp({
       name: appName,
       compose: [{
         name: appName,
@@ -89,8 +89,6 @@ describe('a node maps no port of an app removed while its boot maps the installe
 
   it('asks the router for no mapping of the port of an app removed while its boot is held', async function () {
     this.timeout(480000);
-    // a session opened now holds across the restart: a node just started is not yet available to log in to
-    const auth = await authenticate(client.url, fluxTeamKey());
     await crashFluxos(client.container, { hold: true });
     await enableUpnpGateway(nodeIp);
 
@@ -102,8 +100,7 @@ describe('a node maps no port of an app removed while its boot maps the installe
       await client.waitForEvent('checkpoint:held', (d) => d.name === DECLARED, 240000, { afterId: mark });
       // a removal is taken once the boot has settled its apps; the mappings wait on the hold
       await client.waitForEvent('boot:settled', () => true, 240000, { afterId: mark });
-      const res = await fetch(`${client.url}/apps/appremove/${appName}`, { headers: { zelidauth: auth.zelidauth } });
-      expect(res.status, `the removal answered: ${await res.text()}`).to.equal(200);
+      await retireApp(env, app);
       await waitForAppRemoved(client, appName, 240000, { afterId: mark });
     } finally {
       await client.releaseCheckpoint(DECLARED, 'boot');
