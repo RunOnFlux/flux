@@ -1893,27 +1893,6 @@ function isCommunicationEstablished(req, res) {
 const IP_CHANGE_WINDOW_BLOCKS = 2400;
 const IP_CHANGES_ALLOWED = 1;
 
-// A chain fact since the PON fork.
-const BLOCK_MS = 30 * 1000;
-
-/**
- * The chain's height now, from this node's daemon: while the daemon is synced to
- * the chain's tip, the height it last reported and a block for every BLOCK_MS
- * since it reported it; 0 - unknown - otherwise. The daemon is still taken as
- * synced for a while after its last answer, and the chain moves on meanwhile. A
- * daemon behind the tip, catching up or re-syncing, reports a height below the
- * heights this node's IP changes were recorded at, and would read every one of
- * them as recent.
- * @returns {number}
- */
-function chainHeight() {
-  const { synced, height } = daemonServiceMiscRpcs.isDaemonSynced().data;
-  if (!synced || !(height > 0)) return 0;
-  const reportedAt = daemonServiceMiscRpcs.getLastSuccessfulRpcCall();
-  if (!reportedAt) return height;
-  return height + Math.max(0, Math.floor((Date.now() - reportedAt) / BLOCK_MS));
-}
-
 /**
  * The IP changes of `ipChangeHeights` inside the window at `height`, each the
  * height it was made at. A change recorded as null was made while this node
@@ -2188,7 +2167,7 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
   const ipChanged = !ipsMatch(previousSocket, currentSocket);
   // A change made while no chain height is known is recorded without one, and
   // nothing is pruned: the window is judged once the height is known.
-  const height = chainHeight();
+  const height = daemonServiceMiscRpcs.chainHeight();
   const recorded = record?.ipChangeHeights ?? [];
   const ipChangeHeights = height ? ipChangesInWindow(recorded, height) : [...recorded];
   if (ipChanged) ipChangeHeights.push(height || null);
@@ -2637,7 +2616,7 @@ let ipChangeHold = null;
  * @returns {boolean} Whether the node is held.
  */
 function applyIpChangeHold() {
-  const height = chainHeight();
+  const height = daemonServiceMiscRpcs.chainHeight();
   const fromHeight = ipChangeHold?.fromHeight ?? null;
   if (ipChangeHold && (!height || fromHeight === null || height - fromHeight < IP_CHANGE_WINDOW_BLOCKS)) {
     nodeDosState.setStickyDos(StickyDosOwner.IP_CHANGES, IP_CHANGES_MESSAGE);
@@ -2658,7 +2637,7 @@ function applyIpChangeHold() {
  */
 async function enforceIpChangeHoldOnce() {
   const record = await ownAddressRecord();
-  const height = chainHeight();
+  const height = daemonServiceMiscRpcs.chainHeight();
   let hold = record?.ipChangeHold ?? null;
   if (record && height) {
     const records = ownAddressCollection();
@@ -4085,7 +4064,6 @@ module.exports = {
   setStoredFluxBenchAllowed,
   getStoredFluxBenchAllowed,
   setLocalSocketAddress,
-  chainHeight,
   getUdpReachability,
   setUdpReachability,
   PlacementHoldOwner,

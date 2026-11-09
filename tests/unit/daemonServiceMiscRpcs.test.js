@@ -138,6 +138,46 @@ describe('daemonServiceMiscRpcs tests', () => {
     });
   });
 
+  describe('chainHeight', () => {
+    const NOW = 1_800_000_000_000;
+
+    beforeEach(() => {
+      sinon.useFakeTimers({ now: NOW, toFake: ['Date'] });
+      daemonServiceMiscRpcs.setCurrentDaemonHeader(50000);
+      daemonServiceMiscRpcs.setCurrentDaemonHeight(50000);
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(NOW);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('is the height a synced daemon has just reported', () => {
+      expect(daemonServiceMiscRpcs.chainHeight()).to.equal(50000);
+    });
+
+    // The daemon is still taken as synced for a while after its last answer,
+    // and the chain moves on meanwhile: eight blocks in four minutes.
+    it('counts a block for every 30 s since the daemon last answered', () => {
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(NOW - 4 * 60 * 1000);
+      expect(daemonServiceMiscRpcs.chainHeight()).to.equal(50008);
+    });
+
+    // A daemon behind the tip reports a height below the chain's, which would
+    // read heights recorded while it was synced as recent.
+    it('is 0 while the daemon is behind the tip, whatever height it reports', () => {
+      daemonServiceMiscRpcs.setCurrentDaemonHeight(100);
+      expect(daemonServiceMiscRpcs.chainHeight()).to.equal(0);
+      daemonServiceMiscRpcs.setCurrentDaemonHeight(49900);
+      expect(daemonServiceMiscRpcs.chainHeight()).to.equal(0);
+    });
+
+    it('is 0 once the daemon has not answered for longer than it is taken as synced', () => {
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(NOW - 6 * 60 * 1000);
+      expect(daemonServiceMiscRpcs.chainHeight()).to.equal(0);
+    });
+  });
+
   describe('fluxDaemonBlockchainInfo tests', () => {
     let daemonServiceBlockchainRpcsStub;
     let logInfoSpy;

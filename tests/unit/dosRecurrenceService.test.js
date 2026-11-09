@@ -25,11 +25,11 @@ describe('dosRecurrenceService tests', () => {
       './nodeDosState': nodeDosState,
       './fluxNetworkHelper': {
         PlacementHoldOwner: { DOS_RECURRENCE: 'dosRecurrence' },
-        chainHeight: () => height,
         setPlacementHold: (owner, reason) => { placementHolds.set(owner, reason); },
         clearPlacementHold: (owner) => { placementHolds.delete(owner); },
       },
       './daemonService/daemonServiceMiscRpcs': {
+        chainHeight: () => height,
         onDaemonHeight: (listener) => { heightListener = listener; return () => { heightListener = null; }; },
       },
     });

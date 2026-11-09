@@ -106,7 +106,7 @@ async function save() {
  */
 function update(change) {
   writing = writing.then(async () => {
-    change(fluxNetworkHelper.chainHeight());
+    change(daemonServiceMiscRpcs.chainHeight());
     apply();
     await save();
   }).catch((error) => log.error(`dosRecurrence - ${error.message}`));
@@ -154,7 +154,7 @@ function onCleared() {
  * @returns {Promise<void>|undefined}
  */
 function onHeight() {
-  const height = fluxNetworkHelper.chainHeight();
+  const height = daemonServiceMiscRpcs.chainHeight();
   if (!height) return undefined;
   const { dosHold, placementHold, episodeHeights } = record;
   const unfixed = episodeHeights.includes(null) || dosHold?.fromHeight === null || placementHold?.fromHeight === null;
