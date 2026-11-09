@@ -261,6 +261,9 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
         timeout: COLLATERAL_MS, interval: 5000, label: 'the collateral at the clone and the listed node out of service',
       });
       // A node out of service gives its apps up, so the app is placed again.
+      await waitFor(async () => !(await isUp(env, appName, LISTED)), {
+        timeout: 120000, interval: 3000, label: 'the listed node gave the app up',
+      });
       await waitFor(async () => (await watch.runningOn()).length === 1, {
         timeout: RESPAWN_MS, interval: 5000, label: 'the app running on one node again',
       });
