@@ -131,16 +131,6 @@ function networkState(options = {}) {
 }
 
 /**
- * Whether the node list has been fetched and indexed.
- *
- * The bulk accessors - networkState(), nodeCount() - answer an unknown state
- * and a genuinely empty one with the same value, so a caller that would read
- * those differently asks this first rather than guessing. The lookups that
- * answer a question about one node do not: they wait for the list rather than
- * report it absent from a state that has never held it.
- * @returns {boolean}
- */
-/**
  * The highest block any listed node last confirmed at: how far the chain has
  * reached in what this node's list holds.
  * @returns {number}
@@ -150,6 +140,16 @@ function highestConfirmedHeight() {
   return stateManager.state().reduce((highest, node) => Math.max(highest, Number(node.last_confirmed_height) || 0), 0);
 }
 
+/**
+ * Whether the node list has been fetched and indexed.
+ *
+ * The bulk accessors - networkState(), nodeCount() - answer an unknown state
+ * and a genuinely empty one with the same value, so a caller that would read
+ * those differently asks this first rather than guessing. The lookups that
+ * answer a question about one node do not: they wait for the list rather than
+ * report it absent from a state that has never held it.
+ * @returns {boolean}
+ */
 function isReady() {
   return Boolean(stateManager && stateManager.started);
 }
