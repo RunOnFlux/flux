@@ -35,6 +35,7 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 // eslint-disable-next-line no-unused-vars
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
+const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -4003,6 +4004,61 @@ describe('fluxService tests', () => {
         await fluxService[endpoint]({}, res);
         sinon.assert.calledOnce(runCommandStub);
       });
+    });
+  });
+
+  describe('chain streaming on ArcaneOS', () => {
+    let runCommandStub;
+    let clock;
+    // A request every check of the preparation passes: a private caller, a synced
+    // fluxd and a node outside its confirmation window.
+    const preparationRequest = () => ({ socket: { remoteAddress: '10.20.30.40' } });
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ now: 1_800_000_000_000, toFake: ['setTimeout', 'Date'] });
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlockchainInfo').resolves({ status: 'success', data: { bestblockhash: 'aa', blocks: 1000 } });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').resolves({ status: 'success', data: { time: 1_800_000_000 - 60 } });
+      sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'success', data: { status: 'CONFIRMED', last_confirmed_height: 990 } });
+      sinon.stub(daemonServiceUtils, 'buildFluxdClient');
+    });
+
+    afterEach(async () => {
+      // the preparation's timer starts the legacy services again and frees the next preparation
+      await clock.tickAsync(30_000);
+      clock.restore();
+      sinon.restore();
+    });
+
+    it('the preparation is refused, and neither stops nor starts a service', async () => {
+      const res = generateResponse();
+      await fluxServiceOnArcane.streamChainPreparation(preparationRequest(), res);
+      await clock.tickAsync(30_000);
+
+      sinon.assert.calledWithExactly(res.status, 404);
+      expect(res.statusMessage).to.include('flux-chain-stream');
+      sinon.assert.notCalled(runCommandStub);
+      sinon.assert.notCalled(daemonServiceBlockchainRpcs.getBlockchainInfo);
+    });
+
+    it('the stream is refused, and neither reads the chain nor starts a service', async () => {
+      const res = generateResponse();
+      await fluxServiceOnArcane.streamChain({ socket: { remoteAddress: '10.20.30.40' }, body: {} }, res);
+
+      sinon.assert.calledWithExactly(res.status, 404);
+      expect(res.statusMessage).to.include('flux-chain-stream');
+      sinon.assert.notCalled(runCommandStub);
+      sinon.assert.notCalled(daemonServiceUtils.buildFluxdClient);
+      expect(fluxServiceOnArcane.getStreamLock()).to.equal(false);
+    });
+
+    it('off ArcaneOS the preparation stops the pm2 watchdog and zelcash', async () => {
+      const res = generateResponse();
+      await fluxService.streamChainPreparation(preparationRequest(), res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      sinon.assert.calledWith(runCommandStub, 'pm2', sinon.match({ params: ['stop', 'watchdog'] }));
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ runAsRoot: true, params: ['stop', 'zelcash.service'] }));
     });
   });
 });
