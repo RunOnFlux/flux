@@ -1,6 +1,6 @@
-// What each kind of signed state broadcast carries. A signature says who sent a
-// broadcast, not that it is well formed, so a node checks this before it acts on
-// one, whether it arrived alone or in a sync answer.
+// What each kind of signed state broadcast and app message carries. A signature
+// says who sent a broadcast, not that it is well formed, so a node checks this
+// before it acts on one, whether it arrived alone or in a sync answer.
 
 const { appRunningEntries } = require('./appRunningEntries');
 
@@ -21,6 +21,16 @@ function appRunningShape(data) {
   return data.version === 1 && isText(data.name) && typeof data.hash === 'string';
 }
 
+// An app message carries a signed specification and no time of its own, so its
+// shape is the fields the temporary store takes it by (messageStore).
+const APP_MESSAGE_TYPES = new Set(['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate']);
+
+function appMessageShape(data) {
+  return typeof data.hash === 'string' && typeof data.signature === 'string'
+    && typeof data.version === 'number' && typeof data.timestamp === 'number'
+    && data.appSpecifications !== null && typeof data.appSpecifications === 'object';
+}
+
 function fixedSize(check) {
   return (data) => check(data) && JSON.stringify(data).length <= FIXED_SIZE_MAX_BYTES;
 }
@@ -37,11 +47,12 @@ const SHAPES = Object.freeze({
 
 /**
  * Whether a broadcast carries what its type says it carries. A type with no shape
- * here passes: this reads state broadcasts only.
+ * here passes: this reads state broadcasts and app messages only.
  * @param {object} data A verified broadcast's data.
  * @returns {boolean}
  */
 function wellFormed(data) {
+  if (APP_MESSAGE_TYPES.has(data?.type)) return appMessageShape(data);
   const shape = Object.hasOwn(SHAPES, data?.type) ? SHAPES[data.type] : null;
   if (!shape) return true;
   return Number.isFinite(data.broadcastedAt) && shape(data);

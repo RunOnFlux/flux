@@ -67,6 +67,30 @@ describe('broadcastShape', () => {
     });
   });
 
+  describe('an app message', () => {
+    const appMessage = {
+      type: 'fluxappregister', version: 1, appSpecifications: { name: 'a' }, hash: 'a'.repeat(64), timestamp: broadcastedAt, signature: 'sig',
+    };
+
+    it('takes one, which carries no time of its own', () => {
+      expect(wellFormed(appMessage)).to.equal(true);
+      ['zelappregister', 'zelappupdate', 'fluxappupdate'].forEach((type) => expect(wellFormed({ ...appMessage, type }), type).to.equal(true));
+    });
+
+    [
+      ['a hash that is a query', { hash: { $regex: '(a+)+$' } }],
+      ['no hash', { hash: undefined }],
+      ['a signature that is not text', { signature: { $ne: null } }],
+      ['a version that is not a number', { version: '1' }],
+      ['a time that is not a number', { timestamp: { $add: [1, 2] } }],
+      ['no specification', { appSpecifications: null }],
+    ].forEach(([name, change]) => {
+      it(`refuses one with ${name}`, () => {
+        expect(wellFormed({ ...appMessage, ...change })).to.equal(false);
+      });
+    });
+  });
+
   it('holds no opinion of a type it does not know', () => {
     expect(wellFormed({ type: 'fluxapprequest', version: 1, hash: 'h' })).to.equal(true);
     expect(wellFormed({ type: 'constructor' })).to.equal(true);

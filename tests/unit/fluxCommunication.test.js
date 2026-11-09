@@ -2627,7 +2627,7 @@ describe('fluxCommunication tests', () => {
           signature: 'blabla',
           version: 1,
           data: {
-            type: `${command}`,
+            type: `${command}`, version: 1, appSpecifications: { name: 'app' }, hash: 'a'.repeat(64), timestamp: Date.now(), signature: 'ownersig',
           },
         });
         const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
@@ -3214,6 +3214,20 @@ describe('fluxCommunication tests', () => {
         }), socket);
 
         expect(dropped()).to.have.length(0);
+      });
+
+      it('drops an app message whose hash is a query before anything reads it', async () => {
+        const paid = sinon.stub(tempMessageHold, 'isPaidAndMissing').resolves(false);
+        const held = sinon.stub(tempMessageHold, 'hold').resolves(0);
+
+        await peerManager.messageDispatcher(frame({
+          type: 'fluxappregister', version: 1, appSpecifications: { name: 'app' }, hash: { $regex: '(a+)+$' }, timestamp: Date.now(), signature: 'sig',
+        }), socket);
+        await new Promise((resolve) => { setImmediate(resolve); });
+
+        expect(dropped()).to.have.length(1);
+        sinon.assert.notCalled(paid);
+        sinon.assert.notCalled(held);
       });
     });
 
