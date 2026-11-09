@@ -19,11 +19,34 @@ const configFolders = () => (syncthingService.getConfigFolders.restore
   ? syncthingService.getConfigFolders
   : sinon.stub(syncthingService, 'getConfigFolders'));
 
-// Every app directory here has its volume mounted, and syncthing holds no folder,
-// unless a test says otherwise.
+// The local database's record of devices taken out of folders, kept in memory.
+let records;
+let asked;
+const recordCollection = {
+  updateOne: async (filter, update) => { records.set(filter._id, { _id: filter._id, ...update.$set }); },
+  find: (filter) => ({ toArray: async () => [...records.values()].filter((doc) => filter._id.$in.includes(doc._id)) }),
+  deleteMany: async (filter) => {
+    [...records.values()]
+      .filter((doc) => (filter._id ? filter._id.$in.includes(doc._id) : doc.folder === filter.folder))
+      .forEach((doc) => records.delete(doc._id));
+  },
+};
+
+// Every app directory here has its volume mounted, syncthing holds no folder, and
+// no device has been taken out of a folder, unless a test says otherwise.
 const mountEveryVolume = () => {
   sinon.stub(volumeService, 'isPathMounted').resolves(true);
   configFolders().resolves([]);
+  records = new Map();
+  asked = [];
+  sinon.stub(dbHelper, 'databaseConnection').returns({
+    db: (name) => ({
+      collection: (collectionName) => {
+        asked.push(`${name}.${collectionName}`);
+        return recordCollection;
+      },
+    }),
+  });
 };
 
 describe('refetchDeviceIndex', () => {
@@ -863,32 +886,10 @@ describe('a device added back to a folder', () => {
   let pause;
   let resume;
   let publish;
-  // the local database's record of devices taken out of folders, kept in memory
-  let records;
-  let asked;
-  const recordCollection = {
-    updateOne: async (filter, update) => { records.set(filter._id, { _id: filter._id, ...update.$set }); },
-    find: (filter) => ({ toArray: async () => [...records.values()].filter((doc) => filter._id.$in.includes(doc._id)) }),
-    deleteMany: async (filter) => {
-      [...records.values()]
-        .filter((doc) => (filter._id ? filter._id.$in.includes(doc._id) : doc.folder === filter.folder))
-        .forEach((doc) => records.delete(doc._id));
-    },
-  };
   const takenOut = (device, folder = folderId) => records.set(`${folder}|${device}`, { _id: `${folder}|${device}`, folder, device });
 
   beforeEach(() => {
     mountEveryVolume();
-    records = new Map();
-    asked = [];
-    sinon.stub(dbHelper, 'databaseConnection').returns({
-      db: (name) => ({
-        collection: (collectionName) => {
-          asked.push(`${name}.${collectionName}`);
-          return recordCollection;
-        },
-      }),
-    });
     pause = sinon.stub(syncthingService, 'systemPause').resolves({});
     resume = sinon.stub(syncthingService, 'systemResume').resolves({});
     publish = sinon.stub(fluxEventBus, 'publish');
