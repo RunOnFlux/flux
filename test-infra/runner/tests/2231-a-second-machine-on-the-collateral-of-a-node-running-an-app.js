@@ -82,9 +82,9 @@ describe('a second machine on the collateral of a node running an app', function
         repoauth: '',
       }],
     });
-    // Registered on chain, so every node holds the app's specification as on the
-    // network: the three online from the owner's broadcast, the second machine from
-    // its own scan of the chain and its peers.
+    // Registered on chain, as on the network: the three online hold the app from the
+    // owner's broadcast and the payment. The second machine scans the payment, and
+    // holds itself out of service with no peers to fetch the message from.
     const online = [LISTED, BYSTANDER, OTHER];
     await stopTicker();
     await deliverAppByBlock(env, app, online);
@@ -95,8 +95,8 @@ describe('a second machine on the collateral of a node running an app', function
     await installSeededOnNodes(env, app, [LISTED]);
     await waitFor(() => isUp(LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
     await env.startNode(COPY);
-    await waitFor(async () => (await dbClient(COPY + 1).globalAppSpec(appName))?.hash === app.hash, {
-      timeout: 180000, interval: 3000, label: 'the second machine holds the app from the chain',
+    await waitFor(async () => (await dbClient(COPY + 1).appHashRecord(app.hash)) !== null, {
+      timeout: 180000, interval: 3000, label: 'the second machine scanned the app\'s payment',
     });
   });
 
