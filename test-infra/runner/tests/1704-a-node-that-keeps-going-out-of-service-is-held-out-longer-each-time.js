@@ -51,6 +51,11 @@ const APPS_PORT_CHECK = {
 const PASSES_TO_DOS = DOS_THRESHOLD / 4;
 const OUT_WITHIN_MS = PASSED_WAIT_MS + 2 * PASSES_TO_DOS * ERROR_WAIT_MS + 30000;
 const BACK_WITHIN_MS = DOS_WAIT_MS + 60000;
+// The node's short-lived mappings (upnpRouter's test mapping names): each comes
+// and goes within a pass, so a table capped while one is on it has a slot again
+// once it goes.
+const isTestMapping = (m) => ['Flux_UPNP_Mapping_Test', 'Flux_Test_App'].includes(m.description)
+  || String(m.description ?? '').startsWith('Flux_Prelaunch_App_');
 const UPNP_DOS = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
 const OWNER = 'dosRecurrence';
 
@@ -75,12 +80,13 @@ describe('a node that keeps going out of service is held out longer each time', 
   const testMappingsSince = (requests, sinceMs) => requests.filter((r) => r.action === 'AddPortMapping'
     && r.description === 'Flux_Test_App' && Date.parse(r.at) >= sinceMs);
 
-  // The router's table is made full until the node is out of service for it;
-  // resolves with the record the episode left, once saved.
+  // The router's table is made full of the node's lasting mappings until the
+  // node is out of service for it; resolves with the record the episode left,
+  // once saved.
   async function routerRefusesUntilOutOfService() {
     const mark = node().getLastEventId();
     const { mappings } = await upnpGatewayState(nodeIp);
-    await setUpnpCapacity(nodeIp, mappings.length);
+    await setUpnpCapacity(nodeIp, mappings.filter((m) => !isTestMapping(m)).length);
     await node().waitForEvent('dos:changed', (d) => d.dosState >= DOS_THRESHOLD && d.dosMessage === UPNP_DOS, OUT_WITHIN_MS, { afterId: mark });
     const { data } = await node().waitForEvent('dosRecurrence:changed', () => true, 30000, { afterId: mark });
     return data;
