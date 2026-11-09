@@ -444,7 +444,6 @@ const state = {
   // nothing at all.
   moduleMinimumVersions: { syncthing: imageSyncthingVersion(), docker: '26.1.2' },
   marketplaceApps: [],
-  appSpecsUsdPrice: [],
   // Fixed rates, so a price assertion is arithmetic rather than a bet on the market.
   // usdPerBtc * btcPerFlux is what the caller multiplies out, and it must equal usdPerFlux
   // so the coingecko fallback cannot change an answer.
@@ -995,9 +994,11 @@ app.get('/marketplace/listdevapps', (req, res) => {
   res.json({ status: 'success', data: state.marketplaceApps });
 });
 
-// Stats: per-spec USD pricing.
+// Stats: per-spec USD pricing. Unavailable, so a node prices by the USD table it
+// ships with (config fluxapps.usdprice), as it does whenever the stats service
+// does not answer.
 app.get('/apps/getappspecsusdprice', (req, res) => {
-  res.json({ status: 'success', data: state.appSpecsUsdPrice });
+  res.status(503).json({ status: 'error', data: { message: 'stats pricing unavailable' } });
 });
 
 // Pricing: viprates.runonflux.io/rates. The real service answers a two-element array -
