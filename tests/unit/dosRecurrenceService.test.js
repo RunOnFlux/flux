@@ -28,6 +28,7 @@ describe('dosRecurrenceService tests', () => {
         setPlacementHold: (owner, reason) => { placementHolds.set(owner, reason); },
         clearPlacementHold: (owner) => { placementHolds.delete(owner); },
       },
+      './utils/fluxEventBus': { publish: () => {}, snapshot: () => {} },
       './daemonService/daemonServiceMiscRpcs': {
         chainHeight: () => height,
         onDaemonHeight: (listener) => { heightListener = listener; return () => { heightListener = null; }; },

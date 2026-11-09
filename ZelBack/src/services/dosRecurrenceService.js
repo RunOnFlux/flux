@@ -4,6 +4,7 @@ const dbHelper = require('./dbHelper');
 const nodeDosState = require('./nodeDosState');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 // A node that keeps going out of service is held out longer each time, so it
 // stops taking apps on between failures only to drop them again.
@@ -35,6 +36,9 @@ const PLACEMENT_OWNER = fluxNetworkHelper.PlacementHoldOwner.DOS_RECURRENCE;
 // was taken while this node knew no chain height and is fixed at the first one
 // it learns.
 let record = null;
+// The last chain height this service has judged the holds at, once whatever
+// that height changed is saved; 0 until it has judged one.
+let judgedHeight = 0;
 // Writes to the record run one after another, in the order the events came.
 let writing = Promise.resolve();
 let stopListening = [];
@@ -109,6 +113,7 @@ function update(change) {
     change(daemonServiceMiscRpcs.chainHeight());
     apply();
     await save();
+    fluxEventBus.publish('dosRecurrence:changed', { ...record });
   }).catch((error) => log.error(`dosRecurrence - ${error.message}`));
   return writing;
 }
@@ -158,15 +163,20 @@ function onHeight() {
   if (!height) return undefined;
   const { dosHold, placementHold, episodeHeights } = record;
   const unfixed = episodeHeights.includes(null) || dosHold?.fromHeight === null || placementHold?.fromHeight === null;
-  if (!unfixed && !holdEnded(dosHold, height) && !holdEnded(placementHold, height)) return undefined;
+  if (!unfixed && !holdEnded(dosHold, height) && !holdEnded(placementHold, height)) {
+    judgedHeight = height;
+    return undefined;
+  }
   return update((now) => {
     record.episodeHeights = inWindow(record.episodeHeights, now);
     ['dosHold', 'placementHold'].forEach((key) => {
       if (record[key]?.fromHeight === null) record[key] = { ...record[key], fromHeight: now };
       if (holdEnded(record[key], now)) record[key] = null;
     });
-  });
+  }).then(() => { judgedHeight = height; });
 }
+
+fluxEventBus.snapshot('dosRecurrence', () => ({ judgedHeight, record }));
 
 /**
  * Restores the record and the holds it states, then follows the node's DOS
