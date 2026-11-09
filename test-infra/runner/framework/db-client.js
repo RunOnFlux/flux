@@ -393,11 +393,6 @@ export function dbClient(nodeNum) {
     // caller's app fixture is reused - seeded on several nodes, and read again to
     // build the app's next specification. An _id carried into that lands in the
     // hashed payload and in a later replaceOne, where mongo refuses it outright.
-    async seedGlobalAppSpec(spec) {
-      const globalDb = await db('appsGlobal');
-      await globalDb.collection('zelappsinformation').insertOne({ ...spec });
-    },
-
     // The specification row this node holds for one app. What a replayed
     // message has to produce on a node that was never given the message.
     async globalAppSpec(name) {
@@ -414,14 +409,20 @@ export function dbClient(nodeNum) {
       }).toArray();
     },
 
-    // zelappsinformation holds one row per app - the CURRENT specification. An
-    // update replaces it, the way hash sync does when the chain carries a newer
-    // message; inserting a second row leaves the node reading whichever it finds
-    // first.
-    async replaceGlobalAppSpec(spec) {
+    // Puts a registry row back to an older specification behind the node's back: a
+    // registry out of step with its message log, which only a rebuild repairs. For a
+    // suite whose subject is that repair; a specification reaches a node through
+    // app-delivery.js.
+    async writeStaleGlobalAppSpec(spec) {
       const globalDb = await db('appsGlobal');
       const { _id: _ignored, ...replacement } = spec;
       await globalDb.collection('zelappsinformation').replaceOne({ name: spec.name }, replacement, { upsert: true });
+    },
+
+    // A message as the node holds one it received and has not yet seen paid for.
+    async seedTemporaryMessage(msg) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappstemporarymessages').insertOne({ ...msg });
     },
 
     async seedPermanentMessage(msg) {

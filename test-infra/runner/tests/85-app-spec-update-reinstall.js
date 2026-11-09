@@ -36,7 +36,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { getAppContainerId } from '../framework/container.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
@@ -119,7 +120,7 @@ describe('an app whose specification changed is reinstalled at the new specifica
     expect(updated.hash, 'an update that hashes the same is not an update').to.not.equal(app.hash);
 
     const beforeUpdate = holder.getLastEventId();
-    await seedSpecUpdate(env, updated, [0]);
+    await deliverApp(env, updated, [0]);
 
     // driveUntil is the only thing that may advance the chain here. Only a
     // block still at the tip when it is fetched reaches the periodic passes,

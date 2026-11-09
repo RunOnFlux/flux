@@ -5,7 +5,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { buildSeedableApp, buildSeedableUpdate, nodeOutpoint } from '../framework/seed-helper.js';
-import { dbClient } from '../framework/db-client.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { waitFor, waitForBootSettled, waitForAppRemoved } from '../framework/wait.js';
@@ -93,7 +93,7 @@ describe('a pinned app runs where its spec says', function () {
         instances: 1,
         nodes: [`${subnet.nodeIp(PINNED_INDEX + 1)}:16127`],
       });
-      await seedToFleet(env, app);
+      await deliverApp(env, app, env.clients.map((_, i) => i));
 
       const [named, other] = await Promise.all([
         candidacy(env.clients[PINNED_INDEX], app.spec.name),
@@ -116,7 +116,7 @@ describe('a pinned app runs where its spec says', function () {
         instances: 1,
         nodes: [nodeOutpoint(PINNED_INDEX)],
       });
-      await seedToFleet(env, app);
+      await deliverApp(env, app, env.clients.map((_, i) => i));
 
       const [named, other] = await Promise.all([
         candidacy(env.clients[PINNED_INDEX], app.spec.name),
@@ -145,7 +145,7 @@ describe('a pinned app runs where its spec says', function () {
         instances: env.clients.length,
         nodes: [],
       });
-      await seedToFleet(env, app);
+      await deliverApp(env, app, env.clients.map((_, i) => i));
 
       const verdicts = await Promise.all(
         [PINNED_INDEX, UNNAMED_INDEX].map((i) => candidacy(env.clients[i], app.spec.name)),
@@ -170,7 +170,7 @@ describe('a pinned app runs where its spec says', function () {
         instances: 1,
         nodes: [nodeOutpoint(PINNED_INDEX)],
       });
-      await seedToFleet(env, app);
+      await deliverApp(env, app, env.clients.map((_, i) => i));
 
       await waitFor(
         async () => {
@@ -218,7 +218,7 @@ describe('a pinned app runs where its spec says', function () {
         instances: 1,
         nodes: [`${subnet.nodeIp(PINNED_INDEX + 1)}:16127`],
       });
-      await seedToFleet(env, app);
+      await deliverApp(env, app, env.clients.map((_, i) => i));
 
       const body = await installLocally(UNNAMED_INDEX, app.spec.name);
       expect(body).to.include('not allowed to run on this node');
@@ -232,7 +232,7 @@ describe('a pinned app runs where its spec says', function () {
         instances: 1,
         nodes: [nodeOutpoint(PINNED_INDEX)],
       });
-      await seedToFleet(env, app);
+      await deliverApp(env, app, env.clients.map((_, i) => i));
 
       const body = await installLocally(UNNAMED_INDEX, app.spec.name);
       expect(body).to.include('not allowed to run on this node');
@@ -246,7 +246,7 @@ describe('a pinned app runs where its spec says', function () {
         instances: 1,
         nodes: [nodeOutpoint(PINNED_INDEX)],
       });
-      await seedToFleet(env, app);
+      await deliverApp(env, app, env.clients.map((_, i) => i));
 
       // The install itself may still fail for reasons this suite is not about (an image
       // pull, a port); what must NOT appear is the pin's refusal.
@@ -273,7 +273,7 @@ describe('a pinned app runs where its spec says', function () {
         instances: env.clients.length,
         nodes: [],
       });
-      await seedToFleet(env, app);
+      await deliverApp(env, app, env.clients.map((_, i) => i));
 
       const holder = env.clients[UNNAMED_INDEX];
       await waitForBootSettled(holder);
@@ -308,12 +308,7 @@ describe('a pinned app runs where its spec says', function () {
         spec.nodes = [nodeOutpoint(PINNED_INDEX)];
       });
       expect(repinned.hash, 'a re-pin that hashes the same is not a change').to.not.equal(app.hash);
-      await Promise.all(env.clients.map(async (_, i) => {
-        const dc = dbClient(i + 1);
-        await dc.replaceGlobalAppSpec(repinned.spec);
-        await dc.seedPermanentMessage(repinned.permanentMessage);
-        await dc.seedAppHash(repinned.hash, repinned.permanentMessage.height, true);
-      }));
+      await deliverApp(env, repinned, env.clients.map((_, i) => i));
 
       // READ AS AN EVENT, NOT FROM /apps/installedapps - that endpoint is served through
       // apicache for 30 seconds, and the wait above populated it with a list containing this
@@ -340,24 +335,3 @@ describe('a pinned app runs where its spec says', function () {
     });
   });
 });
-
-/**
- * Put a built app on every node's global tables.
- *
- * seedGlobalSpec is not exported by reconciler-suite, and installOnNodes - which is -
- * installs as well as seeds, which is the opposite of what the candidacy tests want: they
- * need the fleet to KNOW about an app it has not been told to install.
- */
-async function seedToFleet(env, app) {
-  const indices = env.clients.map((_, i) => i);
-  await Promise.all(indices.map(async (i) => {
-    const dc = dbClient(i + 1);
-    await dc.seedGlobalAppSpec(app.spec);
-    await dc.seedPermanentMessage(app.permanentMessage);
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }));
-  // No wait: the three writes above are awaited, so the rows are durable by the time this
-  // returns, and the spawner reads the global table on its next pass. A poll for "some app
-  // exists" would be satisfied by an app a previous test seeded, which is worse than no
-  // poll at all.
-}

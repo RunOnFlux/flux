@@ -16,7 +16,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { getAppContainerId } from '../framework/container.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
@@ -83,7 +84,7 @@ describe('a redeploy whose record write fails keeps the app', function () {
       spec.compose[0].description = 'redeploy row test container, second specification';
     });
     beforeUpdate = holder.getLastEventId();
-    await seedSpecUpdate(env, updated, [HOLDER]);
+    await deliverApp(env, updated, [HOLDER]);
     // the only thing advancing the chain from here is the drive below
     await stopTicker();
     release = await failWrites(HOLDER + 1, 'localzelapps', 'zelappsinformation', { times: 1 });

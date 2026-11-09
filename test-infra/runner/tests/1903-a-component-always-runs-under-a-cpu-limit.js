@@ -21,6 +21,7 @@ import { buildAppSpec, registerApp, registerAndConfirm } from '../framework/app-
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { execInContainer } from '../framework/container.js';
 import { dbClient } from '../framework/db-client.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { installingErrorsByNode } from '../framework/reconciler-suite.js';
@@ -147,10 +148,7 @@ describe('1903 a component always runs under a CPU limit', function suite() {
         instances: 1,
         compose: composeWith(appName, 0),
       });
-      const holder = dbClient(1);
-      await holder.seedGlobalAppSpec(app.spec);
-      await holder.seedPermanentMessage(app.permanentMessage);
-      await holder.seedAppHash(app.hash, app.permanentMessage.height, true);
+      await deliverApp(env, app, [0]);
 
       // Every other node learns the hash from the chain and has to go and get
       // the message, which is the path that validates it as a replay.

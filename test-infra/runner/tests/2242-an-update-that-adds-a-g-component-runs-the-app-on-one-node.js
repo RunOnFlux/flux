@@ -5,7 +5,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { allocatePortFor } from '../framework/port-allocator.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { isDaemonUp, isFolderSynced, getFolderConfig } from '../framework/syncthing-real.js';
@@ -88,7 +89,7 @@ describe('an update that adds a g: component runs the app on one node', function
       // The new component's port, allocated as registration allocates db's.
       spec.compose.push({ ...gComponent(appName, 'web'), ports: [allocatePortFor(appName, 1)] });
     });
-    await seedSpecUpdate(env, updated, HOLDERS);
+    await deliverApp(env, updated, HOLDERS);
     await stopTicker();
 
     let breach = null;

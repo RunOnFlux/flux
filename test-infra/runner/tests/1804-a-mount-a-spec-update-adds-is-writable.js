@@ -36,7 +36,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { execInContainer, getAppContainerId } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
@@ -114,7 +115,7 @@ describe('a mount directory a specification update adds is writable by the app\'
       spec.compose[0].environmentParameters = [`WRITE_PROBE=/tmp,${ADDED.map((d) => d.mount).join(',')}`];
     });
     expect(updated.hash, 'an update that hashes the same is not an update').to.not.equal(app.hash);
-    await seedSpecUpdate(env, updated, [0]);
+    await deliverApp(env, updated, [0]);
     // The only advancer from here: see suite 85 on why a second one settles the
     // node's tip on one parity and the reinstall pass never fires.
     await stopTicker();

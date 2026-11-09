@@ -4,7 +4,8 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { isDaemonUp, isFolderSynced, getFolderConfig } from '../framework/syncthing-real.js';
@@ -103,7 +104,7 @@ describe('an update applied in place leaves a standby\'s g: component stopped', 
       spec.compose[1].environmentParameters = web('second').environmentParameters;
     });
     const from = Object.fromEntries(HOLDERS.map((i) => [i, client(i).getLastEventId()]));
-    await seedSpecUpdate(env, updated, HOLDERS);
+    await deliverApp(env, updated, HOLDERS);
     await stopTicker();
 
     let breach = null;
