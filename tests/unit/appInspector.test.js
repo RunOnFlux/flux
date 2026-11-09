@@ -497,15 +497,106 @@ describe('appInspector tests', () => {
       expect(logStub.error.calledWithMatch(/already stopped/)).to.be.true;
     });
 
-    it('re-reads the cpu allocation every third tick and carries it in between', async () => {
-      // The allocation only moves when the throttler moves it, so it is read on the
-      // same cadence as before the store was narrowed - and carried onto the samples
-      // in between rather than left null on two samples out of three.
+    it('reads the cpu allocation from the container once, and carries it on every sample', async () => {
       arm();
       await ticks(4);
 
-      expect(dockerServiceStub.dockerContainerInspect.callCount, 'inspected on ticks 1 and 4 only').to.equal(2);
+      expect(dockerServiceStub.dockerContainerInspect.callCount).to.equal(1);
       expect(stored().map((sample) => sample.nanoCpus)).to.deep.equal([2e9, 2e9, 2e9, 2e9]);
+    });
+
+    it('reads the cpu allocation again on the next sample while it is unknown', async () => {
+      arm();
+      dockerServiceStub.dockerContainerInspect.onFirstCall().resolves({});
+      await ticks(3);
+
+      expect(dockerServiceStub.dockerContainerInspect.callCount).to.equal(2);
+      expect(stored().map((sample) => sample.nanoCpus)).to.deep.equal([null, 2e9, 2e9]);
+    });
+
+    it('carries a cpu limit the throttler records from then on', async () => {
+      arm();
+      await ticks(1);
+      globalStateStub.appsMonitored.myapp.nanoCpus = 1.6e9;
+      await ticks(1);
+
+      expect(stored().map((sample) => sample.nanoCpus)).to.deep.equal([2e9, 1.6e9]);
+      expect(dockerServiceStub.dockerContainerInspect.callCount).to.equal(1);
+    });
+
+    it('starts no sample while the one before it is still running', async () => {
+      arm();
+      let finish;
+      dockerServiceStub.dockerContainerStats.onFirstCall().returns(new Promise((resolve) => { finish = resolve; }));
+
+      await clock.tickAsync(60000 + 90000);
+      expect(dockerServiceStub.dockerContainerStats.callCount, 'a second sample ran beside the first').to.equal(1);
+
+      finish(healthyReading());
+      await clock.tickAsync(0);
+      expect(stored().map((sample) => sample.nanoCpus), 'the allocation was read before the sample was stored').to.deep.equal([2e9]);
+    });
+
+    it('takes the sample after an overrun at the next due time, not late', async () => {
+      arm();
+      let finish;
+      dockerServiceStub.dockerContainerStats.onFirstCall().returns(new Promise((resolve) => { finish = resolve; }));
+      const startedAt = Date.now();
+      const sampledAt = [];
+      dockerServiceStub.dockerContainerStats.callsFake(async () => {
+        sampledAt.push(Date.now() - startedAt);
+        return healthyReading();
+      });
+
+      // the first sample is due at 60s and ends at 150s, past the slot due at 120s
+      await clock.tickAsync(150000);
+      finish(healthyReading());
+      await clock.tickAsync(60000);
+
+      expect(sampledAt).to.deep.equal([180000]);
+    });
+
+    it('keeps its cadence when each sample takes time', async () => {
+      arm();
+      const startedAt = Date.now();
+      const sampledAt = [];
+      dockerServiceStub.dockerContainerStats.callsFake(async () => {
+        sampledAt.push(Date.now() - startedAt);
+        await new Promise((resolve) => { setTimeout(resolve, 5000); });
+        return healthyReading();
+      });
+
+      await clock.tickAsync(3 * 60000 + 1000);
+
+      expect(sampledAt).to.deep.equal([60000, 120000, 180000]);
+    });
+
+    it('schedules no sample after it is stopped while one is running', async () => {
+      arm();
+      let finish;
+      dockerServiceStub.dockerContainerStats.onFirstCall().returns(new Promise((resolve) => { finish = resolve; }));
+
+      await clock.tickAsync(60000);
+      appInspector.stopAppMonitoring('myapp', false);
+      finish(healthyReading());
+      await clock.tickAsync(5 * 60000);
+
+      expect(dockerServiceStub.dockerContainerStats.callCount).to.equal(1);
+      expect(globalStateStub.appsMonitored.myapp.oneMinuteInterval).to.equal(null);
+    });
+
+    it('leaves a monitor started over a running sample to the new monitor alone', async () => {
+      arm();
+      let finish;
+      dockerServiceStub.dockerContainerStats.onFirstCall().returns(new Promise((resolve) => { finish = resolve; }));
+
+      await clock.tickAsync(60000);
+      appInspector.startAppMonitoring('myapp');
+      finish(healthyReading());
+      await clock.tickAsync(60000);
+
+      expect(dockerServiceStub.dockerContainerStats.callCount, 'one sample of the old monitor and one of the new').to.equal(2);
+      expect(stored(), 'the old monitor stored into the new one').to.have.lengthOf(1);
     });
 
     it('drops samples older than seven days and keeps the rest', async () => {
@@ -2071,6 +2162,53 @@ describe('appInspector tests', () => {
       });
     });
 
+    it('records the limit it sets for the container\'s samples', async () => {
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1, 1]), nanoCpus: 2e9 } };
+
+      await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(simpleApp));
+
+      expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('myapp', 1.8e9)).to.be.true;
+      expect(globalStateStub.appsMonitored.myapp.nanoCpus).to.equal(1.8e9);
+    });
+
+    it('records the limit a component carries when it sets one', async () => {
+      const composed = { name: 'web', version: 8, compose: [{ name: 'api', cpu: 2 }] };
+      globalStateStub.appsMonitored = { api_web: { statsStore: window([1, 1, 1, 1, 1]), nanoCpus: 2e9 } };
+
+      await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(composed));
+
+      expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('api_web', 1.8e9)).to.be.true;
+      expect(globalStateStub.appsMonitored.api_web.nanoCpus).to.equal(1.8e9);
+    });
+
+    it('records the limit the container holds when it reads one', async () => {
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 1.7e9 }, State: { Pid: 1234 } });
+      globalStateStub.appsMonitored = { myapp: { statsStore: [], nanoCpus: 2e9 } };
+
+      await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(simpleApp));
+
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      expect(globalStateStub.appsMonitored.myapp.nanoCpus).to.equal(1.7e9);
+    });
+
+    it('records no limit the container does not report', async () => {
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: {}, State: { Pid: 1234 } });
+      globalStateStub.appsMonitored = { myapp: { statsStore: [], nanoCpus: 2e9 } };
+
+      await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(simpleApp));
+
+      expect(globalStateStub.appsMonitored.myapp.nanoCpus).to.equal(2e9);
+    });
+
+    it('records nothing when setting the limit fails', async () => {
+      dockerServiceStub.appDockerUpdateCpu.rejects(new Error('docker refused'));
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1, 1]), nanoCpus: 2e9 } };
+
+      await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(simpleApp));
+
+      expect(globalStateStub.appsMonitored.myapp.nanoCpus).to.equal(2e9);
+    });
+
     it('lowers cpu when load was high on at least 80% of the window', async () => {
       globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1, 1]) } };
 
@@ -2385,6 +2523,15 @@ describe('appInspector tests', () => {
         await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(gameApp));
 
         expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly(gameApp.name, 3e9)).to.be.true;
+      });
+
+      it('records the limit it restores for the container\'s samples', async () => {
+        dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2.4e9 }, State: { Pid: 1234 } });
+        globalStateStub.appsMonitored = { [gameApp.name]: { statsStore: [], nanoCpus: 2.4e9 } };
+
+        await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(gameApp));
+
+        expect(globalStateStub.appsMonitored[gameApp.name].nanoCpus).to.equal(3e9);
       });
 
       it('restores without waiting for a full window of samples', async () => {
