@@ -19,9 +19,10 @@
  * that never wrote one - decides app by app, which is the path tested here.
  *
  * The mixed app pairs an active-standby component, which only the election starts,
- * with a plain one boot starts. Its decision is held at a checkpoint once the
- * database answers, after the plain app's: boot is watched not settling while one
- * app is still undecided.
+ * with a plain one boot starts. Boot holds the first of the two it reads and reads
+ * the other only once that one is decided, so one app is held, whichever boot
+ * reaches first. Its decision is held at a checkpoint once the database answers:
+ * boot is watched not settling while an app is still undecided.
  *
  * Every app asks for as many instances as the fleet has nodes and is installed on
  * every node, the holder first so it is the mixed app's primary, before the holder
@@ -208,10 +209,9 @@ describe('boot holds an app whose location it cannot read', function () {
     let anchors;
     let release;
     let failedReads;
-    let heldAtBoot;
+    let held;
     let whileUnreadable;
     let parkedAtDecision;
-    let plainDecided;
     let whileHeld;
     let settled;
     let announcement;
@@ -230,29 +230,27 @@ describe('boot holds an app whose location it cannot read', function () {
       step('taking the node down, its containers stopped and its location reads refused');
       ({ anchors, release } = await rebootUnreadable([db, web, plain], { keep: [mixedApp, plainApp] }));
       // Held before boot's first read, which fails: the decision it holds comes at
-      // least one retry interval after that.
-      const holdable = await holder.holdCheckpoint(BEFORE_DECISION, mixedApp).then(() => true, () => false);
-      heldAtBoot = (await Promise.all([mixedApp, plainApp].map((appName) => heard(
-        'boot:appUnconfirmed', (d) => d.name === appName, 120000, anchors[HOLDER],
-      )))).every(Boolean);
+      // least one retry interval after that. Only the app boot holds reaches it.
+      const holdable = (await Promise.all([mixedApp, plainApp].map((appName) => holder.holdCheckpoint(BEFORE_DECISION, appName)
+        .then(() => true, () => false)))).every(Boolean);
+      held = (await heard('boot:appUnconfirmed', (d) => [mixedApp, plainApp].includes(d.name), 120000, anchors[HOLDER]))?.data?.name ?? null;
       // two read retries go by, refused
       await sleepUnlessInfraDead(35000);
       whileUnreadable = await undecided(anchors[HOLDER]);
 
-      step('the database answers: the plain app is decided, the mixed app held at its decision');
+      step('the database answers: the held app\'s decision held at its checkpoint');
       const answeredFrom = holder.getLastEventId();
       failedReads = await release();
       release = null;
-      plainDecided = Boolean(await heard('boot:appConfirmed', (d) => d.name === plainApp && d.valid === true, 120000, answeredFrom));
-      parkedAtDecision = holdable && Boolean(await heard(
-        'checkpoint:held', (d) => d.name === BEFORE_DECISION && d.key === mixedApp, 120000, answeredFrom,
+      parkedAtDecision = holdable && held !== null && Boolean(await heard(
+        'checkpoint:held', (d) => d.name === BEFORE_DECISION && d.key === held, 120000, answeredFrom,
       ));
       await sleepUnlessInfraDead(15000);
       whileHeld = await undecided(anchors[HOLDER]);
 
-      step('the mixed app\'s decision released');
+      step('the held app\'s decision released');
       const releasedFrom = holder.getLastEventId();
-      if (holdable) await holder.releaseCheckpoint(BEFORE_DECISION, mixedApp);
+      await holder.releaseAllCheckpoints().catch(() => {});
       settled = Boolean(await heard('boot:settled', () => true, 120000, releasedFrom));
       announcement = (await heard('app:running', () => true, 180000, releasedFrom))?.data ?? null;
     });
@@ -267,19 +265,18 @@ describe('boot holds an app whose location it cannot read', function () {
       expect(failedReads, 'the database refused none of the node\'s location reads, so nothing below was tested').to.be.at.least(1);
     });
 
-    it('holds the apps it cannot confirm, installed and stopped, and does not settle', function () {
-      expect(heldAtBoot, 'boot did not hold the apps whose location it could not read').to.equal(true);
+    it('holds the app it cannot confirm, installed and stopped, and does not settle', function () {
+      expect(held, 'boot held neither app whose location it could not read').to.not.equal(null);
       expect(whileUnreadable.installed, 'boot removed an app whose location it could not read').to.include.members([mixedApp, plainApp]);
       expect(whileUnreadable.running, 'a component of an app boot could not confirm is running').to.equal(false);
       expect(whileUnreadable.settled, 'boot settled with apps it could not confirm').to.equal(false);
       expect(whileUnreadable.announced, 'the node announced while boot could not confirm its apps').to.equal(false);
     });
 
-    it('does not settle while one app is still undecided once the database answers', function () {
-      expect(plainDecided, 'the plain app was not decided once the database answered').to.equal(true);
-      expect(parkedAtDecision, 'the mixed app\'s decision was not held, so boot was not watched with one app undecided').to.equal(true);
-      expect(whileHeld.settled, 'boot settled with the mixed app undecided').to.equal(false);
-      expect(whileHeld.announced, 'the node announced with the mixed app undecided').to.equal(false);
+    it('does not settle while the held app is still undecided once the database answers', function () {
+      expect(parkedAtDecision, 'the held app\'s decision was not held, so boot was not watched with an app undecided').to.equal(true);
+      expect(whileHeld.settled, 'boot settled with an app undecided').to.equal(false);
+      expect(whileHeld.announced, 'the node announced with an app undecided').to.equal(false);
       expect(whileHeld.running, 'a component ran before boot had decided every app').to.equal(false);
     });
 
