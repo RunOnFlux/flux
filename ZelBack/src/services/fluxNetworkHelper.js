@@ -107,6 +107,7 @@ const PlacementHoldOwner = Object.freeze({
   RESIDENTIAL_DOS: 'residentialDos',
   DATABASE_SUSPECT: 'databaseSuspect',
   HOST_STALL: 'hostStall',
+  DOS_RECURRENCE: 'dosRecurrence',
 });
 
 // Stops the node taking on NEW apps without declaring it unfit for the ones it
@@ -4084,6 +4085,7 @@ module.exports = {
   setStoredFluxBenchAllowed,
   getStoredFluxBenchAllowed,
   setLocalSocketAddress,
+  chainHeight,
   getUdpReachability,
   setUdpReachability,
   PlacementHoldOwner,

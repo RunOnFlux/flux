@@ -74,6 +74,7 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
 const peerSetStabilityService = require('./peerSetStabilityService');
+const dosRecurrenceService = require('./dosRecurrenceService');
 const outboundPathService = require('./outboundPathService');
 const uplinkService = require('./uplinkService');
 const nodeConfirmationService = require('./nodeConfirmationService');
@@ -336,6 +337,9 @@ async function startFluxFunctions() {
     // moment with a database, before anything can ask whether it is fit, until
     // the chain has passed its hold.
     fluxNetworkHelper.startIpChangeHoldWatch();
+    // A node that keeps going out of service is held out longer each time:
+    // restored before anything can ask whether it is fit.
+    await dosRecurrenceService.start().catch((err) => log.error(`dosRecurrence start error: ${err.message}`));
     await dockerService.waitForDocker();
     const dockerInfo = await dockerService.dockerInfo().catch(() => null);
     // Where docker keeps its records, read while it answers, for a kill made

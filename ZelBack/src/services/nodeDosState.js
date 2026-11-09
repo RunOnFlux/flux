@@ -38,6 +38,7 @@ const StickyDosOwner = Object.freeze({
   HOST_STALL: 'hostStall',
   IP_CHANGES: 'ipChanges',
   UPNP_ROUTER: 'upnpRouter',
+  DOS_RECURRENCE: 'dosRecurrence',
 });
 
 // owner -> reason, rather than one slot. A single slot cannot express two
