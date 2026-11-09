@@ -3,7 +3,7 @@
 // with the pacing and helpers the suites that drain it share.
 import { createTestEnv } from './test-env.js';
 import { dbClient } from './db-client.js';
-import { deliverApp, onlineNodes } from './app-delivery.js';
+import { deliverToFleet } from './app-delivery.js';
 import { pushTestApp } from './registry-helper.js';
 import { buildSeedableApp } from './seed-helper.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from './subnet-config.js';
@@ -151,7 +151,7 @@ export async function seedApp(env, appName, { instances = 3, containerData = '/t
       repoauth: '',
     }],
   });
-  await deliverApp(env, app, onlineNodes(env));
+  await deliverToFleet(env, app);
   if (!seededApps.has(env)) seededApps.set(env, []);
   seededApps.get(env).push(app);
   return app;

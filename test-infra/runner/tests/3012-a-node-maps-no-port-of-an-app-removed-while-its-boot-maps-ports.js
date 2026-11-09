@@ -92,9 +92,9 @@ describe('a node maps no port of an app removed while its boot maps the installe
     await crashFluxos(client.container, { hold: true });
     await enableUpnpGateway(nodeIp);
 
-    const fromMs = Date.now();
     await releaseFluxos(client.container, { apiPort: API_PORT });
     const mark = client.getLastEventId();
+    let removedAt = null;
     await client.holdCheckpoint(DECLARED, 'boot');
     try {
       await client.waitForEvent('checkpoint:held', (d) => d.name === DECLARED, 240000, { afterId: mark });
@@ -102,6 +102,8 @@ describe('a node maps no port of an app removed while its boot maps the installe
       await client.waitForEvent('boot:settled', () => true, 240000, { afterId: mark });
       await retireApp(env, app);
       await waitForAppRemoved(client, appName, 240000, { afterId: mark });
+      // An installed app's port is mapped until it is removed; from here no mapping of it is wanted.
+      removedAt = Date.now();
     } finally {
       await client.releaseCheckpoint(DECLARED, 'boot');
     }
@@ -109,7 +111,7 @@ describe('a node maps no port of an app removed while its boot maps the installe
     // the boot's mappings, then a refresh cycle (30 s in the harness)
     await new Promise((resolve) => { setTimeout(resolve, 45000); });
     const state = await upnpGatewayState(nodeIp);
-    const since = state.requests.filter((r) => Date.parse(r.at) >= fromMs);
+    const since = state.requests.filter((r) => Date.parse(r.at) >= removedAt);
     expect(since.some((r) => r.action === 'AddPortMapping' && r.port === API_PORT), 'canary: the node mapped its own ports again').to.equal(true);
     expect(since.filter((r) => r.action === 'AddPortMapping' && r.port === appPort), 'a mapping of the removed app\'s port').to.deep.equal([]);
     expect(state.mappings.some((m) => m.externalPort === appPort), 'the removed app\'s port on the router').to.equal(false);

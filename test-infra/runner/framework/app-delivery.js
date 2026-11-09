@@ -16,8 +16,8 @@ import { createRequire } from 'node:module';
 import { authenticate } from '../auth.js';
 import { dbClient } from './db-client.js';
 import { fluxTeamKey } from './keys.js';
-import { getState, queueAppTx } from './daemon-control.js';
-import { waitForBootSettled } from './wait.js';
+import { advanceBlock, getState, queueAppTx } from './daemon-control.js';
+import { waitFor, waitForBootSettled } from './wait.js';
 
 const require = createRequire(import.meta.url);
 const productConfig = require('../../../ZelBack/config/default.js');
@@ -189,4 +189,29 @@ export async function deliverAppByBlock(env, app, indices) {
     valueSat: Math.round(Math.max(quoted, minimumPaymentAt(landsAt)) * 1e8),
   });
   return { nextBlockHeight };
+}
+
+/**
+ * Delivers a registration or an update to the whole running fleet the way the
+ * network learns of an app: the owner's message to every node running, and the
+ * payment in the next block, which each node scans whatever its state. Mines that
+ * block when the ticker is stopped, and returns once every running node holds
+ * the specification.
+ * @param {object} env
+ * @param {object} app what buildSeedableApp or buildSeedableUpdate returned
+ * @returns {Promise<void>}
+ */
+export async function deliverToFleet(env, app) {
+  assertAliveOnThisChain(env, app);
+  const online = onlineNodes(env);
+  await Promise.all(online.map((i) => waitForBootSettled(env.clients[i])));
+  await deliverAppByBlock(env, app, online);
+  if (!(await getState()).tickerRunning) await advanceBlock();
+  const name = app.permanentMessage.appSpecifications.name;
+  try {
+    await waitFor(async () => (await Promise.all(online.map((i) => dbClient(i + 1).globalAppSpec(name))))
+      .every((row) => row?.hash === app.hash), { timeout: STORED_WAIT_MS * 2, interval: 2000, label: `every running node holds ${name}` });
+  } catch (error) {
+    throw new Error(`${error.message}: the fleet did not store ${name} (${app.hash}) from its payment in a block`);
+  }
 }

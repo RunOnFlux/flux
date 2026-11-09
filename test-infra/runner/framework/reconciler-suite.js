@@ -10,7 +10,9 @@ import {
   startTicker, stopTicker, advanceBlock, driveUntil,
 } from './daemon-control.js';
 import { dbClient } from './db-client.js';
-import { deliverApp, deliverAppByBlock, onlineNodes } from './app-delivery.js';
+import {
+  deliverApp, deliverAppByBlock, deliverToFleet, onlineNodes,
+} from './app-delivery.js';
 import {
   buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp, buildSeedableUpdate,
 } from './seed-helper.js';
@@ -444,7 +446,7 @@ export async function waitForLocationTable(node, { domains, timeout = 90000 } = 
 // Seed a pre-built app (buildSeedableApp / buildSeedableSyncthingApp) into every
 // node's DB and wait until it installs on some node; resolves that node index.
 export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
-  await deliverApp(env, app, onlineNodes(env));
+  await deliverToFleet(env, app);
   return Promise.any(env.clients.map(async (c, i) => {
     await waitForAppInstalled(c, app.spec.name, timeout);
     return i;
@@ -455,7 +457,7 @@ export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
 // install it; resolves the sorted list of those node indices. Used by the
 // multi-node gates (g: election needs >= 2 holders).
 export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 } = {}) {
-  await deliverApp(env, app, onlineNodes(env));
+  await deliverToFleet(env, app);
   const installed = [];
   await Promise.all(env.clients.map(async (c, i) => {
     try {
@@ -470,16 +472,16 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
   return installed;
 }
 
-// SPAWNER path: seed an app's global spec into EVERY node's globalzelapps DB
-// (collection zelappsinformation — the one trySpawningGlobalApplication aggregates
-// over) so each node's spawner sees it as missing-instances and self-selects. No
-// running/installing locations are seeded, so `actual` starts at 0 and the spawner
-// drives real placement + collision-resolution. The app image must be pushed first.
+// SPAWNER path: deliver an app to every running node (deliverToFleet) so each node's
+// spawner sees it as missing instances and self-selects. No running or installing
+// location exists, so `actual` starts at 0 and the spawner drives real placement and
+// collision resolution. The app image must be pushed first.
 //
-// `indices` limits the seed to those nodes, which orders placement by construction:
+// `indices` limits delivery to those nodes, which orders placement by construction:
 // a node the spec has not reached cannot select the app.
-export async function seedSpawnerApp(env, app, indices = onlineNodes(env)) {
-  await deliverApp(env, app, indices);
+export async function seedSpawnerApp(env, app, indices = null) {
+  if (indices) await deliverApp(env, app, indices);
+  else await deliverToFleet(env, app);
 }
 
 // Ground-truth count of where an app is actually installed across the fleet
