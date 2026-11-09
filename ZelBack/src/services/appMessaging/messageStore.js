@@ -1018,6 +1018,37 @@ async function pruneAppRunningLocations(newestByIp) {
  * @param {object} data The message's data.
  * @returns {boolean}
  */
+/**
+ * The names a report's storable entries give, lowercased: what a read for one app
+ * matches, since app names compare without case.
+ * @param {Array<*>} apps A version 2 report's apps.
+ * @returns {string[]}
+ */
+function appNamesOf(apps) {
+  return appRunningEntries(apps).stored.map((app) => app.name.toLowerCase());
+}
+
+/**
+ * Gives every stored report and removal its app names lowercased (appNames,
+ * appNameLower), as the stores write them: the field a read for one app matches.
+ * Each event that lacks it takes it in one update on the server.
+ * @param {object} collection The app state events collection.
+ * @returns {Promise<void>}
+ */
+async function lowercaseStoredAppNames(collection) {
+  const storable = {
+    $and: [{ $eq: [{ $type: '$$app.name' }, 'string'] }, { $eq: [{ $type: '$$app.hash' }, 'string'] }],
+  };
+  await collection.updateMany(
+    { type: APP_STATE_EVENT_TYPES.APPRUNNING, appNames: { $exists: false }, 'data.apps': { $type: 'array' } },
+    [{ $set: { appNames: { $map: { input: { $filter: { input: '$data.apps', as: 'app', cond: storable } }, as: 'app', in: { $toLower: '$$app.name' } } } } }],
+  );
+  await collection.updateMany(
+    { type: APP_STATE_EVENT_TYPES.APPREMOVED, appNameLower: { $exists: false }, 'data.appName': { $type: 'string' } },
+    [{ $set: { appNameLower: { $toLower: '$data.appName' } } }],
+  );
+}
+
 function namesOnlyRefusedApps(data) {
   return data.version === 2 && Array.isArray(data.apps) && data.apps.length > 0
     && appRunningEntries(data.apps).stored.length === 0;
@@ -1047,6 +1078,7 @@ async function handleAppRunningEvent({ signedBroadcast }) {
       ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey,
       broadcastedAt: new Date(data.broadcastedAt),
       expireAt: new Date(data.broadcastedAt + RUNNING_EXPIRY_MS),
+      appNames: appNamesOf(data.apps),
       data, envelope,
     }, { alwaysSetFields: { receivedAt: new Date() } }),
     { upsert: true },
@@ -1071,7 +1103,7 @@ async function handleSigtermEvent({ message, envelope }) {
 }
 
 async function handleAppRemovedStateEvent({ message, envelope }) {
-  if (!message || !message.ip || !message.appName || !message.broadcastedAt) return;
+  if (!message || !message.ip || typeof message.appName !== 'string' || !message.appName || !message.broadcastedAt) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await database.collection(globalAppStateEvents).updateOne(
@@ -1080,6 +1112,7 @@ async function handleAppRemovedStateEvent({ message, envelope }) {
       ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}`,
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
+      appNameLower: message.appName.toLowerCase(),
       envelope, data: message,
     }, { alwaysSetFields: { receivedAt: new Date() } }),
     { upsert: true },
@@ -1257,6 +1290,7 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
           ip: data.ip, type: 'apprunning', dedupKey,
           broadcastedAt: new Date(data.broadcastedAt),
           expireAt: new Date(validTill),
+          appNames: appNamesOf(data.apps),
           data, envelope,
         }),
         upsert: true,
@@ -1505,6 +1539,7 @@ module.exports = {
   storeAppTemporaryMessage,
   storeAppPermanentMessage,
   storeAppRunningMessage,
+  lowercaseStoredAppNames,
   storeBatchAppRunningMessages,
   pruneAppRunningLocations,
   storeAppStateEvent,

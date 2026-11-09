@@ -97,6 +97,42 @@ describe('the location table and the event-derived view agree', () => {
     });
   });
 
+  describe('an app name compared without case', () => {
+    const ip = '203.0.113.160:16127';
+    let now;
+    beforeEach(() => { now = Date.now(); });
+
+    it('is stored lowercased on the report naming the app and on its removal, and read in any case', async () => {
+      ips.push(ip);
+      await reportRunning(ip, 'CaseApp', now - 120000);
+      await remove(ip, 'OtherApp', now - 60000);
+
+      expect((await events.findOne({ ip, type: 'apprunning' })).appNames).to.deep.equal(['caseapp']);
+      expect((await events.findOne({ ip, type: 'appremoved' })).appNameLower).to.equal('otherapp');
+      expect((await registryManager.appLocationFromEvents({ appname: 'caseAPP' })).map((row) => [row.name, row.ip])).to.deep.equal([['CaseApp', ip]]);
+    });
+
+    it('is given to an event stored before events carried it', async () => {
+      ips.push(ip);
+      await events.insertMany([
+        {
+          ip, type: 'apprunning', dedupKey: 'v2', broadcastedAt: new Date(now - 120000), expireAt: new Date(now + 3600000),
+          data: { type: 'fluxapprunning', version: 2, ip, broadcastedAt: now - 120000, apps: [{ name: 'OldApp', hash: 'h' }, { name: 'nohash' }] },
+        },
+        {
+          ip, type: 'appremoved', dedupKey: 'appremoved:Gone', broadcastedAt: new Date(now - 60000), expireAt: new Date(now + 3600000),
+          data: { type: 'fluxappremoved', version: 1, ip, appName: 'Gone', broadcastedAt: now - 60000 },
+        },
+      ]);
+
+      await messageStore.lowercaseStoredAppNames(events);
+
+      expect((await events.findOne({ ip, type: 'apprunning' })).appNames).to.deep.equal(['oldapp']);
+      expect((await events.findOne({ ip, type: 'appremoved' })).appNameLower).to.equal('gone');
+      expect((await registryManager.appLocationFromEvents({ appname: 'oldapp' })).map((row) => row.ip)).to.deep.equal([ip]);
+    });
+  });
+
   describe('when a node moves', () => {
     const A = '203.0.113.150:16127';
     const B = '203.0.113.151:16127';

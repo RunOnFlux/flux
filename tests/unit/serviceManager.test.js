@@ -15,6 +15,7 @@ const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsR
 const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
+const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 
@@ -84,9 +85,10 @@ describe('serviceManager prepareDatabaseSchema, temp messages and install errors
     sinon.stub(appPlacements, 'prepareCollection').resolves();
     sinon.stub(upnpMappingRecord, 'writeWaiting').resolves();
     sinon.stub(explorerService, 'prepareCollections').resolves();
+    const lowercased = sinon.stub(messageStore, 'lowercaseStoredAppNames').resolves();
     sinon.stub(dbHelper, 'repairNanInAppsMessagesDb').rejects(new Error('stop here'));
     await expect(prepareDatabaseSchema()).to.be.rejectedWith('stop here');
-    return { deletes, indexes };
+    return { deletes, indexes, lowercased };
   }
 
   const specsOf = (indexes, name) => indexes.getCalls().find((c) => c.args[0].collectionName === name).args[1];
@@ -104,6 +106,13 @@ describe('serviceManager prepareDatabaseSchema, temp messages and install errors
     const specs = specsOf(indexes, 'zelappsheldmessages');
     expect(specs.find((s) => s.key.key === 1).unique).to.equal(true);
     expect(specs.find((s) => s.key.expireAt === 1).expireAfterSeconds).to.equal(0);
+  });
+
+  it('gives the stored events their app names lowercased, once their indexes are in place', async () => {
+    const { indexes, lowercased } = await prepared();
+    sinon.assert.calledOnceWithMatch(lowercased, { collectionName: 'appstateevents' });
+    const eventIndexes = indexes.getCalls().find((c) => c.args[0].collectionName === 'appstateevents');
+    expect(eventIndexes.calledBefore(lowercased.firstCall), 'the names were lowercased before their indexes were in place').to.equal(true);
   });
 
   it('removes install error rows a ttl index cannot', async () => {

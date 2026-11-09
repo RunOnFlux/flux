@@ -1350,6 +1350,9 @@ describe('messageStore tests', () => {
     it('stores no version 1 apprunning event', async () => {
       const payload = {
         signedBroadcast: {
+      // its storable apps' names, lowercased, which a read for one app matches
+      const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
+      expect(JSON.stringify(written.appNames)).to.include('["a"]');
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
           data: {
             ip: '1.2.3.4', version: 1, broadcastedAt: Date.now(), name: 'myapp', hash: 'h',
@@ -1385,6 +1388,8 @@ describe('messageStore tests', () => {
     it('should store evicted event with createdAt', async () => {
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.EVICTED, { ip: '1.2.3.4' });
       expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
+      expect(JSON.stringify(written.appNameLower)).to.include('"myapp"');
       const filter = collectionStub.updateOne.firstCall.args[0];
       expect(filter.type).to.equal('evicted');
       expect(filter.dedupKey).to.equal('evicted');

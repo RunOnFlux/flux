@@ -35,6 +35,7 @@ const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
 const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const tempMessageHold = require('./appMessaging/tempMessageHold');
+const messageStore = require('./appMessaging/messageStore');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
@@ -240,7 +241,13 @@ async function prepareDatabaseSchema() {
     // an app's holders by their signed announcements, and each holder's own events
     { key: { 'data.apps.name': 1 }, name: 'announcements by the apps they name', partialFilterExpression: { type: 'apprunning' } },
     { key: { 'envelope.pubKey': 1, type: 1 }, name: 'events by signing key' },
+    // the events of a type at given addresses
+    { key: { type: 1, ip: 1, expireAt: 1 }, name: 'events of a type at addresses, by expiry' },
+    // the reports and removals of one app, by its name lowercased
+    { key: { appNames: 1, expireAt: 1 }, name: 'reports by the apps they name, lowercased', partialFilterExpression: { type: 'apprunning' } },
+    { key: { appNameLower: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
   ]);
+  await messageStore.lowercaseStoredAppNames(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   log.info('App state events collection prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
