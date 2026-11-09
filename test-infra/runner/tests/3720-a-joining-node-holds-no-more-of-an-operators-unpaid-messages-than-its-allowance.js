@@ -83,14 +83,8 @@ describe('a joining node holds no more of an operator\'s unpaid messages than it
     mark = joiner.getLastEventId();
     await waitForDaemonReady(joiner);
     await env.startDiscovery([JOINER]);
-    await waitFor(
-      async () => (await env.stubPeerClients.get(ANSWERING).getStats()).syncAnswersSent >= 4,
-      { timeout: 240000, interval: 2000, label: 'JOINER asked the stub for all four streams, and it answered' },
-    );
-    await waitFor(
-      async () => admissionsOf(joiner).filter((d) => [...fromA, fromB].some((app) => app.hash === d.hash)).length >= FROM_A + 1,
-      { timeout: 60000, interval: 1000, label: 'JOINER decided on every message in the answer' },
-    );
+    // The stub's temp stream counts once its answer is held.
+    await joiner.waitForEvent('ephemeralSync:peerComplete', (d) => d.syncType === 'apptemp', 240000, { afterId: mark });
   });
 
   after(async function () {
