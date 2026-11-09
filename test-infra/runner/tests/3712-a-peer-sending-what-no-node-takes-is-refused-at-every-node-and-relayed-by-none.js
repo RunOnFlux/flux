@@ -65,7 +65,7 @@ describe('a peer sending what no node takes is refused at every node and relayed
     { timeout: 120000, interval: 2000, label },
   );
   const refusedFor = (hash, reason) => ({
-    event: 'appmessage:refused', matches: (d) => d.hash === hash && (!reason || d.reason.includes(reason)),
+    event: 'network:appmessageRefused', matches: (d) => d.hash === hash && (!reason || d.reason.includes(reason)),
   });
   const component = (componentName) => ({
     name: componentName,

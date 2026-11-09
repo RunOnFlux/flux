@@ -82,7 +82,7 @@ describe('an event over the per-message limit in a sync answer is left out', fun
   it('stores the rest of the answer', async function () {
     this.timeout(120000);
     const verdict = await pendingVerdict(env.clients[JOINER], canary.hash, {
-      event: 'appmessage:refused', matches: (d) => d.hash === canary.hash,
+      event: 'network:appmessageRefused', matches: (d) => d.hash === canary.hash,
     }, { afterId: mark, label: 'JOINER\'s verdict on the message within the limit' });
     expect(verdict, JSON.stringify(verdict)).to.deep.equal({ stored: true });
   });
