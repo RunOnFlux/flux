@@ -12,6 +12,7 @@ const networkStateService = require('../networkStateService');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
 const portManager = require('../appNetwork/portManager');
+const portClaims = require('../appNetwork/portClaims');
 const registryManager = require('../appDatabase/registryManager');
 const policyStore = require('../policyStore');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -20,42 +21,58 @@ const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const { nodeSigner } = require('../utils/nodeSigner');
 
-// Helper function to handle test shutdown
+/**
+ * Ends a pass's port test: closes its test servers, removes its firewall rules
+ * and router mapping, and releases its claim on the port. The claim is released
+ * last and however the rest goes, so the port is free when it is released and
+ * never stays claimed.
+ * @param {number} testingPort
+ * @param {object} testHttpServer
+ * @param {boolean} isArcane
+ * @param {object} [options]
+ * @returns {Promise<void>}
+ */
 async function handleTestShutdown(testingPort, testHttpServer, isArcane, options = {}) {
   const skipFirewall = options.skipFirewall || false;
   const skipUpnp = options.skipUpnp || false;
   const skipHttpServer = options.skipHttpServer || false;
   const protocols = options.protocols || ['tcp', 'udp'];
 
-  if (options.udpTestServer) options.udpTestServer.close();
+  try {
+    if (options.udpTestServer) options.udpTestServer.close();
 
-  const updateFirewall = skipFirewall
-    ? false
-    : isArcane
-    || await fluxNetworkHelper.isFirewallActive().catch(() => true);
+    const updateFirewall = skipFirewall
+      ? false
+      : isArcane
+      || await fluxNetworkHelper.isFirewallActive().catch(() => true);
 
-  if (updateFirewall) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const protocol of protocols) {
-      // eslint-disable-next-line no-await-in-loop
-      await fluxNetworkHelper
-        .deleteTestPortRule(testingPort, protocol)
+    if (updateFirewall) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const protocol of protocols) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper
+          .deleteTestPortRule(testingPort, protocol)
+          .catch((e) => log.error(e));
+      }
+    }
+
+    if (!skipUpnp) {
+      await portReconciler
+        .release(testingPort, 'Flux_Test_App', { holder: options.holder })
         .catch((e) => log.error(e));
     }
-  }
 
-  if (!skipUpnp) {
-    await portReconciler
-      .release(testingPort, 'Flux_Test_App', { holder: options.holder })
-      .catch((e) => log.error(e));
-  }
-
-  if (!skipHttpServer) {
-    testHttpServer.close((err) => {
-      if (err) {
-        log.error(`testHttpServer shutdown failed: ${err.message}`);
-      }
-    });
+    // close() stops listening before it returns; the callback waits only for
+    // open connections.
+    if (!skipHttpServer) {
+      testHttpServer.close((err) => {
+        if (err) {
+          log.error(`testHttpServer shutdown failed: ${err.message}`);
+        }
+      });
+    }
+  } finally {
+    portClaims.release(options.portClaim ?? null);
   }
 }
 
@@ -240,6 +257,8 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
   const portTestToken = crypto.randomBytes(16).toString('hex');
   const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer(portTestToken);
   let udpTestServer = null;
+  // This pass's claim on the port it tests, released with its test servers.
+  let portClaim = null;
 
   const setNextPort = () => {
     if (dosState.originalPortFailed && dosState.testingPort > dosState.originalPortFailed) {
@@ -402,6 +421,15 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       return;
     }
 
+    portClaim = portClaims.claim([dosState.testingPort], portClaims.ClaimKind.CHECK, 'availabilityCheck');
+    if (!portClaim) {
+      log.info(`checkMyAppsAvailability - Skipped checking ${dosState.testingPort} - held by an installation of ${portClaims.holderOf([dosState.testingPort]).owner}`);
+      setNextPort();
+      await waitForNextPass(timeouts.failure);
+      setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
+      return;
+    }
+
     const firewallActive = isArcane ? true : await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
@@ -444,16 +472,17 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
         skipHttpServer: !httpListening,
         udpTestServer,
         protocols,
+        portClaim,
       });
       await waitForNextPass(timeouts.error);
       setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
       return;
     }
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.AVAILABILITY_LISTENING, dosState.testingPort);
 
     if (isUpnp) {
       // A router refusing either protocol's mapping for a reason of its own is
       // a router fault, counted as one.
-      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.AVAILABILITY_BEFORE_TEST_MAPPING, String(dosState.testingPort));
       const upnpMapResult = await portReconciler.want(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()), holder });
       fluxEventBus.publish('availability:testMapping', { port: dosState.testingPort, mapped: upnpMapResult.mapped, reason: upnpMapResult.reason });
       routerRefused = routerRefusedSinceLastPass(dosState);
@@ -467,6 +496,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
           udpTestServer,
           protocols,
           holder,
+          portClaim,
         });
         const upnpDelay = dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error;
         await waitForNextPass(upnpDelay);
@@ -475,9 +505,13 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       }
     }
 
+    // The pass holds its port claim across this call, and an install of the
+    // port waits on that claim. `timeout` alone is an idle timeout in Node,
+    // restarted by every byte the peer sends; the signal ends the call outright.
     const timeout = 10_000;
     const axiosConfig = {
       timeout,
+      signal: AbortSignal.timeout(timeout),
       headers: { 'content-type': '' },
     };
 
@@ -523,6 +557,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       udpTestServer,
       protocols,
       holder,
+      portClaim,
     });
 
     if (!resMyAppAvailability) {
@@ -683,7 +718,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
   } catch (error) {
     await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
-      skipUpnp: !isUpnp, udpTestServer, protocols: passProtocols(isUpnp, dosState), holder,
+      skipUpnp: !isUpnp, udpTestServer, protocols: passProtocols(isUpnp, dosState), holder, portClaim,
     });
     log.error(`checkMyAppsAvailability - Error: ${error}`);
     await waitForNextPass(timeouts.appError);

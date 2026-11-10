@@ -20,11 +20,17 @@ const portManager = require('../../ZelBack/src/services/appNetwork/portManager')
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const policyStore = require('../../ZelBack/src/services/policyStore');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
 
 const signer = { pubKey: 'pubkey', sign: () => 'signature' };
 // the check with a node that can sign its port test
 const signingAvailabilityChecker = proxyquire('../../ZelBack/src/services/appMonitoring/availabilityChecker', {
   '../utils/nodeSigner': { nodeSigner: async () => signer },
+});
+
+// the check with a node that cannot sign its port test: it throws once it is listening
+const unsignedAvailabilityChecker = proxyquire('../../ZelBack/src/services/appMonitoring/availabilityChecker', {
+  '../utils/nodeSigner': { nodeSigner: async () => null },
 });
 
 describe('availabilityChecker tests', () => {
@@ -846,6 +852,96 @@ describe('availabilityChecker tests', () => {
         await pass();
 
         sinon.assert.notCalled(portTestStub);
+      });
+
+      describe('its claim on the port', () => {
+        const PORT = 31555;
+
+        beforeEach(() => {
+          mockDosState.nextTestingPort = PORT;
+        });
+
+        afterEach(() => {
+          expect(portClaims.claimedPorts(), 'a claim outlived its pass').to.deep.equal([]);
+        });
+
+        it('skips a port an installation holds, listening on nothing and asking no peer', async () => {
+          const installing = portClaims.claim([PORT], portClaims.ClaimKind.INSTALL, 'installingapp');
+          try {
+            await pass();
+
+            sinon.assert.notCalled(fluxHttpTestServer.FluxHttpTestServer.prototype.listen);
+            sinon.assert.notCalled(portTestStub);
+            expect(udpServers).to.have.length(0);
+            expect(portClaims.holderOf([PORT]), 'the installation\'s claim').to.equal(installing);
+          } finally {
+            portClaims.release(installing);
+          }
+        });
+
+        it('holds the port while it listens, and releases it once its servers have closed', async () => {
+          let heldWhileAsking = null;
+          portTestStub.callsFake(async (url, body) => {
+            heldWhileAsking = portClaims.holderOf([PORT]);
+            return reading('ours', 'ours')(url, body);
+          });
+          let heldAtClose;
+          fluxHttpTestServer.FluxHttpTestServer.prototype.close.callsFake((callback) => {
+            heldAtClose = portClaims.holderOf([PORT]);
+            return callback && callback();
+          });
+
+          await pass();
+
+          expect(heldWhileAsking).to.include({ kind: portClaims.ClaimKind.CHECK });
+          expect(heldAtClose, 'released before the server closed').to.include({ kind: portClaims.ClaimKind.CHECK });
+        });
+
+        it('releases the port after a pass whose peer could not be reached', async () => {
+          portTestStub.rejects(new Error('connect ECONNREFUSED'));
+
+          await pass();
+
+          sinon.assert.calledOnce(portTestStub);
+        });
+
+        it('ends a peer\'s answer that never completes at 10 s in all, and releases the port', async () => {
+          const deadline = new AbortController();
+          const timeoutStub = sinon.stub(AbortSignal, 'timeout').returns(deadline.signal);
+          let onAsked;
+          const askedPromise = new Promise((resolve) => { onAsked = resolve; });
+          portTestStub.callsFake((url, body, config) => new Promise((resolve, reject) => {
+            onAsked(config);
+            config.signal.addEventListener('abort', () => reject(new Error('canceled')));
+          }));
+
+          const passed = pass();
+          const asked = await askedPromise;
+          expect(portClaims.holderOf([PORT]), 'held while the peer answers').to.include({ kind: portClaims.ClaimKind.CHECK });
+          deadline.abort();
+          await passed;
+
+          sinon.assert.calledOnceWithExactly(timeoutStub, 10_000);
+          expect(asked.signal).to.equal(deadline.signal);
+        });
+
+        it('releases the port after a pass that could not listen on it', async () => {
+          fluxHttpTestServer.FluxHttpTestServer.prototype.listen.callsFake(function listen() {
+            this.emit('error', new Error('listen EADDRINUSE'));
+            return this;
+          });
+
+          await pass();
+
+          sinon.assert.notCalled(portTestStub);
+        });
+
+        it('releases the port after a pass that failed part way', async () => {
+          await unsignedAvailabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
+
+          sinon.assert.calledOnce(fluxHttpTestServer.FluxHttpTestServer.prototype.listen);
+          sinon.assert.notCalled(portTestStub);
+        });
       });
 
       // UDP loses datagrams: one peer's silence is tested again by another.

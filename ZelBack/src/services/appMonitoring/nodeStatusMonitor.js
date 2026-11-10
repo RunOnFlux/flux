@@ -8,7 +8,6 @@ const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const networkStateService = require('../networkStateService');
-const hostStallService = require('../hostStallService');
 const appKill = require('../appLifecycle/appKill');
 const dockerService = require('../dockerService');
 const { RemovalOutcome } = require('../utils/removalOutcome');
@@ -283,18 +282,29 @@ async function unloadOnHostStall() {
   }
 }
 
+/**
+ * Subscribe the removals this node makes on a signal. Every app of a node an
+ * owner holds out of service is removed as soon as the hold is set, at boot or
+ * later: a host stall's by its unload, every other's by the normal removal.
+ * Boot removes nothing for a hold.
+ * @param {Function} installedAppsFn
+ * @param {Function} removeAppLocallyFn
+ */
 function initialize(installedAppsFn, removeAppLocallyFn) {
   deps = { installedAppsFn, removeAppLocallyFn };
-  hostStallService.onTrip(unloadOnHostStall);
+  fluxNetworkHelper.onStickyDos((owner, reason) => {
+    if (owner === fluxNetworkHelper.StickyDosOwner.HOST_STALL) {
+      unloadOnHostStall();
+      return;
+    }
+    log.info(`monitorNodeStatus - Out of service (${reason}), triggering app removal`);
+    removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, reason);
+  });
   nodeConfirmationService.onConfirmationChange((confirmed) => {
     if (!confirmed) {
       log.info('monitorNodeStatus - Confirmation lost, triggering immediate app removal');
       removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, 'node lost confirmation');
     }
-  });
-  fluxNetworkHelper.onIpChangeHold((ipChanges) => {
-    log.info(`monitorNodeStatus - ${ipChanges} IP changes over the limit, triggering app removal`);
-    removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, 'IP changes over the limit');
   });
   nodeConfirmationService.onDaemonStale(() => {
     log.info('monitorNodeStatus - Daemon stale, triggering app removal');
@@ -400,8 +410,9 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
 }
 
 /**
- * Start the monitor once boot has settled, whatever boot decided: boot removes
- * every app itself when the node may run none, and the two never remove at once.
+ * Start the monitor's pass once boot has settled, whatever boot decided: boot
+ * removes every app itself when it decides the node may run none, and the pass
+ * never removes beside it.
  * @param {Function} installedAppsFn
  * @param {Function} removeAppLocallyFn
  */

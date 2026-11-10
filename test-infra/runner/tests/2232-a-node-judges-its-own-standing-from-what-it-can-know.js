@@ -365,11 +365,11 @@ describe('a node judges its own standing from what it can know', function () {
   });
 
   describe('whether its peers can reach it while it has too few peer connections', function () {
-    // The subject is the only real node and the stub peer the only node it can
-    // ask, so every ask of a pass goes to that peer. It never holds enough
-    // distinct peers, so a check that finds it reachable finds it short.
+    // The subject is the only real node and the stub peers the only nodes it can
+    // ask. It never holds enough distinct peers, so a check that finds it
+    // reachable finds it short.
     const SUBJECT = 0;
-    const OBSERVER = 1;
+    const OBSERVERS = [1, 2, 3, 4];
     let env;
     dumpLogsOnFailure(() => env);
 
@@ -377,8 +377,8 @@ describe('a node judges its own standing from what it can know', function () {
       this.timeout(600000);
       env = await createTestEnv({
         hookCtx: this,
-        nodes: 2,
-        stubPeers: [OBSERVER],
+        nodes: 5,
+        stubPeers: OBSERVERS,
         configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 0 } },
         nodeConfigOverrides: { [SUBJECT]: { fluxapps: { minUniqueIpsOutgoing: 50 } } },
       });
@@ -390,25 +390,30 @@ describe('a node judges its own standing from what it can know', function () {
       await env?.teardown();
     });
 
-    // Four asks that go unanswered count 8. The ask that then reaches the node
-    // ends that count, so all that is left is its count for too few peers.
+    // Each observer drops the first ask it is given. A pass asks each once: the
+    // first two silent count nothing and the next two count 2 each, and then no
+    // observer is left. The next pass is answered, and that ends the count.
     it('ends what it counted for asks that went unanswered once one reaches it', async function () {
-      this.timeout(240000);
+      this.timeout(300000);
       const node = env.clients[SUBJECT];
-      const observer = env.stubPeerClients.get(OBSERVER);
-      const DROPPED = 4;
-      // Set between passes, so one pass meets every answer it is given.
+      const observers = OBSERVERS.map((i) => env.stubPeerClients.get(i));
+      const asks = async () => (await Promise.all(observers.map((o) => o.getStats()))).reduce((sum, { availabilityAsks }) => sum + availabilityAsks, 0);
+      // Set between passes, so one pass meets every dropped ask.
       await node.waitForEvent('availability:checked', (d) => d.available === true, 120000, { afterId: node.getLastEventId() });
+      const before = (await dosOf(node)).dosState;
       const afterId = node.getLastEventId();
-      const { availabilityAsks: asksBefore } = await observer.dropAvailabilityAsks(DROPPED);
+      const asksBefore = await asks();
+      await Promise.all(observers.map((o) => o.dropAvailabilityAsks(1)));
 
-      const checked = await node.waitForEvent('availability:checked', () => true, 120000, { afterId });
+      const unanswered = await node.waitForEvent('availability:checked', () => true, 120000, { afterId });
+      expect(await asks() - asksBefore, 'fixture: each observer asked once, and none answered').to.equal(OBSERVERS.length);
+      expect(unanswered.data.available, 'the pass no observer answered').to.equal(false);
+      expect(unanswered.data.dosState - before, 'counted for the silent observers after the first two').to.be.closeTo(4, 0.001);
 
-      const { availabilityAsks } = await observer.getStats();
-      expect(availabilityAsks - asksBefore, 'fixture: four asks dropped, then one answered truthfully').to.equal(DROPPED + 1);
-      expect(checked.data.available, 'the pass whose last ask reached it').to.equal(true);
+      const answered = await node.waitForEvent('availability:checked', () => true, 120000, { afterId: unanswered.id });
+      expect(answered.data.available, 'the pass an observer answered').to.equal(true);
       expect((await dosOf(node)).dosMessage).to.equal(null);
-      expect((await dosOf(node)).dosState, 'what is left once the dropped asks\' count ends').to.be.below(DROPPED * 2);
+      expect((await dosOf(node)).dosState, 'what is left once the silent observers\' count ends').to.be.below(unanswered.data.dosState - 3);
     });
   });
 

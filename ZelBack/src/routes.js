@@ -957,6 +957,9 @@ module.exports = (app) => {
   app.get('/explorer/reindex/:reindexapps?', asyncRoute((req, res) => {
     return explorerService.reindexExplorer(req, res);
   }));
+  app.get('/explorer/start', asyncRoute((req, res) => {
+    return explorerService.startBlockProcessing(req, res);
+  }));
   app.get('/explorer/restart', asyncRoute((req, res) => {
     return explorerService.restartBlockProcessing(req, res);
   }));

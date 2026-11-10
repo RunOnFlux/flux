@@ -1824,6 +1824,107 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDOSState().data.dosState, 'the points of the observer that could not reach it, released').to.equal(0);
     });
 
+    describe('an observer that does not answer', () => {
+      const OBSERVERS = ['1.2.3.1:16127', '1.2.3.2:16127', '1.2.3.3:16127', '1.2.3.4:16127', '1.2.3.5:16127',
+        '1.2.3.6:16127', '1.2.3.7:16127', '1.2.3.8:16127', '1.2.3.9:16127'];
+      const UNREACHABLE = 'Flux communication is limited, other nodes on the network cannot reach yours through API calls';
+      const reached = { data: { status: 'success', data: { message: 'Asking Flux is available' } } };
+      let observers;
+      let axiosGet;
+
+      // Draws as the node list does: any observer the pass has not asked, until none is left.
+      const drawFrom = (list) => getRandomExternalObserver.callsFake(async (local, { exclude = [] } = {}) => list.find((observer) => !exclude.includes(observer)) ?? null);
+      // Each observer answers as `answers` says, by address; one not named does not answer.
+      const answering = (answers) => {
+        axiosGet = sinon.stub(serviceHelper, 'axiosGet').callsFake(async (url) => {
+          const observer = OBSERVERS.find((o) => url.startsWith(`http://${o.split(':')[0]}:`));
+          if (!answers[observer]) throw new Error('connect ECONNREFUSED');
+          return answers[observer];
+        });
+      };
+      const asked = () => axiosGet.args.map(([url]) => url.split('/')[2]);
+
+      beforeEach(() => {
+        fluxNetworkHelper.resetAvailabilityDos();
+        fluxNetworkHelper.setDosMessage(null);
+        fluxNetworkHelper.setDosStateValue(0);
+        observers = OBSERVERS;
+        drawFrom(observers);
+      });
+
+      it('is not asked again in the same pass', async () => {
+        answering({});
+
+        await fluxNetworkHelper.checkMyFluxAvailability();
+
+        expect(new Set(asked()).size, `observers asked: ${asked()}`).to.equal(asked().length);
+      });
+
+      it('counts nothing for two that do not answer, and the next that answers decides', async () => {
+        answering({ [OBSERVERS[2]]: reached });
+
+        const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+        expect(asked()).to.deep.equal(OBSERVERS.slice(0, 3));
+        expect(result).to.be.true;
+        expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      });
+
+      it('counts from the third on, and holds the node unreachable once enough have not answered', async () => {
+        answering({});
+
+        const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+        expect(result).to.be.false;
+        expect(asked(), 'the observers asked').to.deep.equal(OBSERVERS.slice(0, 8));
+        expect(fluxNetworkHelper.getDOSState().data.dosState, 'two points for each from the third').to.equal(12);
+        expect(fluxNetworkHelper.getDosMessage()).to.equal(UNREACHABLE);
+      });
+
+      it('does not keep an observer that answers from being asked again', async () => {
+        observers = OBSERVERS.slice(0, 1);
+        drawFrom(observers);
+        sinon.stub(benchmarkService, 'getPublicIp').resolves({ status: 'success', data: '129.3.3.3' });
+        answering({ [OBSERVERS[0]]: { data: { status: 'error', data: { message: 'Asking Flux is not available' } } } });
+
+        const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+        expect(result).to.be.false;
+        expect(asked(), 'the one observer, asked each time').to.deep.equal(Array(6).fill(OBSERVERS[0]));
+        expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
+      });
+
+      // Six observers that do not list this node, each drawn once, leave the last
+      // two asks to observers that do not answer.
+      it('concludes nothing when the pass runs out of asks before silence counts', async () => {
+        let draws = 0;
+        getRandomExternalObserver.callsFake(async () => { draws += 1; return OBSERVERS[draws - 1]; });
+        const notListed = { data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } };
+        answering(Object.fromEntries(OBSERVERS.slice(0, 6).map((observer) => [observer, notListed])));
+
+        const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+        expect(result).to.be.false;
+        expect(asked(), 'the observers asked').to.deep.equal(OBSERVERS.slice(0, 8));
+        expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      });
+
+      it('concludes nothing once every observer there is has not answered', async () => {
+        observers = OBSERVERS.slice(0, 2);
+        drawFrom(observers);
+        answering({});
+
+        const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+        expect(result).to.be.false;
+        expect(asked()).to.deep.equal(observers);
+        expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      });
+    });
+
     it('should return true if axios status response is success', async () => {
       const axiosGetResponse = {
         data: {
@@ -3178,6 +3279,83 @@ describe('fluxNetworkHelper tests', () => {
       Object.values(fluxNetworkHelper.StickyDosOwner).forEach(fluxNetworkHelper.clearStickyDos);
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    describe('the hold signal', () => {
+      let stopListening;
+      let listener;
+
+      beforeEach(() => {
+        listener = sinon.stub();
+      });
+
+      afterEach(() => {
+        if (stopListening) stopListening();
+        stopListening = null;
+      });
+
+      it('tells a listener each owner that newly holds the node, with its reason', () => {
+        stopListening = fluxNetworkHelper.onStickyDos(listener);
+
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, 'residential');
+
+        expect(listener.args).to.deep.equal([[APP_TAMPERING, 'tampering flag'], [RESIDENTIAL_DOS, 'residential']]);
+      });
+
+      it('tells a listener once per hold, however often or with whatever reason the owner sets it again', () => {
+        stopListening = fluxNetworkHelper.onStickyDos(listener);
+
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering, again');
+
+        sinon.assert.calledOnce(listener);
+      });
+
+      it('tells a listener again of an owner that holds the node after releasing it', () => {
+        stopListening = fluxNetworkHelper.onStickyDos(listener);
+
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+        fluxNetworkHelper.clearStickyDos(APP_TAMPERING);
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+
+        sinon.assert.calledTwice(listener);
+      });
+
+      it('tells a listener at once of every owner already holding the node', () => {
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+
+        stopListening = fluxNetworkHelper.onStickyDos(listener);
+
+        sinon.assert.calledOnceWithExactly(listener, APP_TAMPERING, 'tampering flag');
+      });
+
+      it('tells a listener nothing once it stops listening', () => {
+        fluxNetworkHelper.onStickyDos(listener)();
+
+        fluxNetworkHelper.setStickyDos(APP_TAMPERING, 'tampering flag');
+
+        sinon.assert.notCalled(listener);
+      });
+    });
+
+    describe('checkInsightExplorerAllowed', () => {
+      const { INSIGHT_EXPLORER } = fluxNetworkHelper.StickyDosOwner;
+
+      it('allows a fluxd that keeps the address index', () => {
+        expect(fluxNetworkHelper.checkInsightExplorerAllowed(true)).to.equal(true);
+        expect(fluxNetworkHelper.isStickyDosHeldBy(INSIGHT_EXPLORER)).to.equal(false);
+      });
+
+      it('takes a node whose fluxd does not keep the address index out of service, and says so', () => {
+        expect(fluxNetworkHelper.checkInsightExplorerAllowed(false)).to.equal(false);
+
+        const reported = fluxNetworkHelper.getDOSState().data;
+        expect(reported.dosMessage).to.equal('fluxd is running without insightexplorer=1');
+        expect(reported.dosState).to.equal(100);
+        expect(fluxNetworkHelper.isStickyDosHeldBy(INSIGHT_EXPLORER)).to.equal(true);
+      });
     });
 
     it('reports no reason while no owner holds the node', () => {

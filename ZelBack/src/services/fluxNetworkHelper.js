@@ -102,6 +102,7 @@ const StickyDosOwner = Object.freeze({
   DOCKER_FLOOR: 'dockerFloor',
   MONGODB_FLOOR: 'mongodbFloor',
   CGROUP_FLOOR: 'cgroupFloor',
+  INSIGHT_EXPLORER: 'insightExplorer',
   HOST_STALL: 'hostStall',
   IP_CHANGES: 'ipChanges',
   UPNP_ROUTER: 'upnpRouter',
@@ -175,10 +176,9 @@ let lastKnownSocketAddress = null;
 // from lastKnownSocketAddress, and 'known' with it when the node has an address
 // after having none.
 const localSocketAddressEvents = new EventEmitter();
-// Emits 'held', with the IP changes the window holds, when this process finds
-// the node held by the IP change hold: the pass that starts it, or the first
-// after a restart that finds it standing.
-const ipChangeHoldEvents = new EventEmitter();
+// Emits 'held', with the owner and its reason, when an owner newly holds the
+// node out of service.
+const stickyDosEvents = new EventEmitter();
 // Open while localSocketAddress holds an address.
 const localSocketAddressGate = new AsyncGate();
 
@@ -1095,24 +1095,6 @@ function offLocalSocketAddressChange(listener) {
 }
 
 /**
- * @param {function(number): void} listener Called, with the IP changes the
- *   window holds, each time this process finds the node held by the IP change
- *   hold. Removing the apps of a held node is the listener's.
- * @returns {void}
- */
-function onIpChangeHold(listener) {
-  ipChangeHoldEvents.on('held', listener);
-}
-
-/**
- * @param {function(number): void} listener
- * @returns {void}
- */
-function offIpChangeHold(listener) {
-  ipChangeHoldEvents.off('held', listener);
-}
-
-/**
  * @param {function(string): void} listener Called with the address each time the
  *   node has one after having none.
  * @returns {void}
@@ -1173,9 +1155,24 @@ function setStickyDos(owner, reason) {
     throw new Error(`setStickyDos: unknown owner ${owner}`);
   }
   if (stickyDosHolds.get(owner) === reason) return;
+  const newlyHeld = !stickyDosHolds.has(owner);
   stickyDosHolds.set(owner, reason);
   log.error(`Sticky DOS set by ${owner}: ${reason}`);
   publishEffectiveDosState();
+  if (newlyHeld) stickyDosEvents.emit('held', owner, reason);
+}
+
+/**
+ * Call `listener` each time an owner newly holds this node out of service, and
+ * at once for every owner that already does.
+ * @param {function(string, string): void} listener Called with the owner and
+ *   its reason.
+ * @returns {function(): void} Stops the calls.
+ */
+function onStickyDos(listener) {
+  stickyDosEvents.on('held', listener);
+  [...stickyDosHolds].forEach(([owner, reason]) => listener(owner, reason));
+  return () => stickyDosEvents.off('held', listener);
 }
 
 /**
@@ -1671,6 +1668,21 @@ async function checkCgroupsAllowed(cgroupDriver, { cgroupRoot = '/sys/fs/cgroup'
     StickyDosOwner.CGROUP_FLOOR,
     `Cgroup Error. FluxOS requires cgroup v2, cgroup.kill and Docker's systemd cgroup driver; missing: ${unmet.join(', ')}. Fix the host and restart FluxOS`,
   );
+  return false;
+}
+
+/**
+ * Whether fluxd keeps the address index (insightexplorer=1), which FluxOS reads
+ * to order app payments and to bootstrap the explorer.
+ *
+ * Asked once, when fluxd first answers at startup, so the verdict stands until
+ * FluxOS next starts.
+ * @param {boolean} insightExplorer Whether fluxd keeps the index.
+ * @returns {boolean} True when it does.
+ */
+function checkInsightExplorerAllowed(insightExplorer) {
+  if (insightExplorer) return true;
+  setStickyDos(StickyDosOwner.INSIGHT_EXPLORER, 'fluxd is running without insightexplorer=1');
   return false;
 }
 
@@ -2678,9 +2690,8 @@ function applyIpChangeHold() {
  * the record holds inside the window: over the limit with no hold standing, it
  * starts one at the height of the newest change; over the limit with one
  * standing, a change after the hold's start moves the start to it, so a node
- * that keeps changing stays held. A node this process finds newly held is told
- * to the onIpChangeHold listeners. Passes run one at a time and a started hold
- * is in the record before the next pass reads it, so it is told once.
+ * that keeps changing stays held. Passes run one at a time and a started hold
+ * is in the record before the next pass reads it.
  * @returns {Promise<boolean>} Whether the node is held.
  */
 async function enforceIpChangeHoldOnce() {
@@ -2723,11 +2734,8 @@ async function enforceIpChangeHoldOnce() {
       hold = null;
     }
   }
-  const wasHeld = isStickyDosHeldBy(StickyDosOwner.IP_CHANGES);
   ipChangeHold = hold;
-  const held = applyIpChangeHold();
-  if (held && !wasHeld) ipChangeHoldEvents.emit('held', maxNumberOfIpChanges);
-  return held;
+  return applyIpChangeHold();
 }
 
 // The pass of enforceIpChangeHold running, and the one asked for while it runs.
@@ -2781,12 +2789,21 @@ function startIpChangeHoldWatch() {
   };
 }
 
+// Observers a pass may find silent before a silent one counts against this node.
+// An observer that does not answer says nothing about whether it can reach us:
+// it may be down itself, so the pass does not ask it again. Silence from several
+// distinct observers is this node's own network failing, and from the next one
+// on it counts.
+const SILENT_OBSERVERS_UNCOUNTED = 2;
+
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
+ * @param {string[]} silent The observers this pass asked that did not answer, none
+ *   of which it asks again.
  * @returns {Promise<boolean>} Return value is only for testing
  */
-async function checkMyFluxAvailability(retryNumber = 0) {
+async function checkMyFluxAvailability(retryNumber = 0, silent = []) {
   if (isStickyDosHeldBy(StickyDosOwner.IP_CHANGES)) return false;
 
   if (localSocketAddress === null) return false;
@@ -2803,11 +2820,12 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   // on exactly the shared-address topology this release is about.
   const randomSocketAddress = await networkStateService.getRandomExternalObserver(
     localSocketAddress,
+    { exclude: silent },
   );
 
-  // Nobody outside this address to ask, so nothing is learned and nothing is
-  // concluded - dosState is deliberately untouched here, unlike every failure
-  // path below it. The next cycle asks again.
+  // Nobody outside this address left to ask, so nothing more is learned and
+  // nothing is concluded - dosState is deliberately untouched here, unlike every
+  // failure path below it. The next cycle asks again.
   if (!randomSocketAddress) {
     log.warn('checkMyFluxAvailability - no Flux node outside this address could be asked; skipping this pass');
     return false;
@@ -2840,15 +2858,19 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   // untouched, and the next observer is asked.
   if (resMyAvailability && isNotListedAnswer(resMyAvailability.data)) {
     log.info(`checkMyFluxAvailability - ${remoteIp}:${remotePort} does not list ${localSocketAddress} yet; asking another`);
-    if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1);
+    if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1, silent);
     return false;
   }
 
-  // Known limitation, replaced in v9: a failed check retries at once against another
-  // random node, up to seven times, and each failure adds 2 to dosState, so one bad
-  // moment on the network can put the node in DOS within seconds. The re-check a
-  // failure schedules clears it.
+  // A failed check asks another observer at once, up to seven times, and each
+  // failure that counts adds 2 to dosState. The re-check a failure schedules
+  // clears it.
   if (!resMyAvailability) {
+    const silentObservers = [...silent, randomSocketAddress];
+    if (silentObservers.length <= SILENT_OBSERVERS_UNCOUNTED) {
+      if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1, silentObservers);
+      return false;
+    }
     unreachablePoints += 2;
     if (effectiveDosState() > 10) {
       holdAvailabilityDos(UNREACHABLE_MESSAGE);
@@ -2856,8 +2878,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       return false;
     }
     if (retryNumber <= 6) {
-      const newRetryIndex = retryNumber + 1;
-      return checkMyFluxAvailability(newRetryIndex);
+      return checkMyFluxAvailability(retryNumber + 1, silentObservers);
     }
     return false;
   }
@@ -2903,8 +2924,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       return false;
     }
     if (retryNumber <= 6) {
-      const newRetryIndex = retryNumber + 1;
-      return checkMyFluxAvailability(newRetryIndex);
+      return checkMyFluxAvailability(retryNumber + 1, silent);
     }
     return false;
   }
@@ -4045,8 +4065,6 @@ module.exports = {
   waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
-  onIpChangeHold,
-  offIpChangeHold,
   onLocalSocketAddressKnown,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
@@ -4082,6 +4100,7 @@ module.exports = {
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
   checkCgroupsAllowed,
+  checkInsightExplorerAllowed,
   checkMongoDbVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIp,
@@ -4120,6 +4139,7 @@ module.exports = {
   isPlacementHeld,
   StickyDosOwner,
   setStickyDos,
+  onStickyDos,
   clearStickyDos,
   isStickyDosHeldBy,
   getStickyDosMessage,
