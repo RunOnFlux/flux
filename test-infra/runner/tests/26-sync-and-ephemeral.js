@@ -161,23 +161,24 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
   });
 });
 
-// A node joining late asks, over temporary connections, nodes it holds no
-// connection to for a message it has never had, and between Arcane nodes they
-// answer. Every node here is Arcane and real: a stub offers no link, so the case
-// above passes whether or not an Arcane node takes a question on a temporary
-// connection.
+// A node cut off while an app registered asks, over temporary connections, nodes
+// it holds no connection to for the message, and between Arcane nodes they answer.
+// Every node here is Arcane and real: a stub offers no link, so the case above
+// passes whether or not an Arcane node takes a question on a temporary connection.
 //
-// Each node dials the four after it on the ring and is dialled by the four before
-// it, so of twelve nodes the joiner is connected to at most eight of the eleven
-// others and the round has nodes to open connections to. hashSyncMaxRounds 0
-// sends a missing message straight to that round. The fleet's unpromoted copies
-// are gone before the joiner starts, as they are once they expire, so the joiner
-// can take the message only from an answer.
-describe('a late joiner resolves a message over temporary connections to Arcane nodes', function () {
+// While SUBJECT is partitioned it sees the payment and has no peer to ask, so its
+// scan leaves the message to hash sync. The fleet's unpromoted copies are gone
+// before the partition heals, as they are once they expire, so its resync brings
+// none. hashSyncMaxRounds 0 leaves the hash sync it runs on rejoining one round:
+// temporary connections. Each node dials the four after it on the ring and is
+// dialled by the four before it, so of twelve nodes SUBJECT is connected to eight
+// and the round has three to ask.
+describe('a node cut off while an app registered resolves its message over temporary connections to Arcane nodes', function () {
   let env;
   dumpLogsOnFailure(() => env);
+  const SUBJECT = 5;
   const REGISTRAR = 2;
-  let joiner;
+  let rest;
   let appHash;
   let marks;
   let round;
@@ -187,36 +188,37 @@ describe('a late joiner resolves a message over temporary connections to Arcane 
     env = await createTestEnv({
       hookCtx: this,
       nodes: 12,
-      deferredNodes: 1,
       tickerAutostart: false,
       configOverrides: { fluxapps: { hashSyncMaxRounds: 0 } },
     });
-    joiner = env.lastNodeIndex;
     await bootAndPeerFleet(env);
-    const established = env.clients.map((c, i) => i).filter((i) => env.clients[i]);
+    rest = env.clients.map((c, i) => i).filter((i) => i !== SUBJECT);
+    await env.partitionGroups([SUBJECT], rest);
+
     const spec = buildAppSpec({ name: `e2eephemarc${Date.now()}`, instances: 3 });
     const registered = await registerAndConfirm(
-      env.clients[REGISTRAR].url, nodeKey(REGISTRAR + 1), spec, established.map((i) => env.clients[i]),
+      env.clients[REGISTRAR].url, nodeKey(REGISTRAR + 1), spec, rest.map((i) => env.clients[i]),
     );
     expect(registered.status, JSON.stringify(registered)).to.equal('success');
     ({ appHash } = registered);
 
-    await Promise.all(established.map((i) => waitFor(
+    const subjectDb = dbClient(SUBJECT + 1);
+    await waitFor(async () => (await subjectDb.appHashRecord(appHash))?.message === false,
+      { timeout: 120000, interval: 2000, label: `node ${SUBJECT} records the payment without its message` });
+    await Promise.all(rest.map((i) => waitFor(
       async () => (await dbClient(i + 1).permanentMessages({ hash: appHash })).length === 1,
       { timeout: 60000, interval: 2000, label: `node ${i} stores the message` },
     )));
-    await Promise.all(established.map(async (i) => {
+    await Promise.all(rest.map(async (i) => {
       await dbClient(i + 1).deleteTemporaryMessages(appHash);
       expect(await dbClient(i + 1).pendingMessage(appHash), `fixture: node ${i} holds no unpromoted copy`).to.equal(null);
     }));
+    expect(await subjectDb.pendingMessage(appHash), `fixture: node ${SUBJECT} holds no unpromoted copy`).to.equal(null);
 
-    marks = env.clients.map((c) => c?.getLastEventId() ?? 0);
-    await env.startNode(joiner);
-    const client = env.clients[joiner];
-    await waitForDaemonReady(client);
-    await waitForNodeStatus(client, (d) => d.confirmed === true, 30000);
-    await env.startDiscovery([joiner]);
-    round = (await client.waitForEvent('hashSync:ephemeralRound', () => true, 180000)).data;
+    marks = env.clients.map((c) => c.getLastEventId());
+    await env.healPartition([SUBJECT], rest);
+    round = (await env.clients[SUBJECT].waitForEvent('hashSync:ephemeralRound', () => true, 180000,
+      { afterId: marks[SUBJECT] })).data;
   });
 
   after(async function () {
@@ -229,16 +231,16 @@ describe('a late joiner resolves a message over temporary connections to Arcane 
   });
 
   it('is answered by a node it asked', () => {
-    const joinerIp = env.clients[joiner].ip;
+    const subjectIp = env.clients[SUBJECT].ip;
     const askedIps = round.asked.map((key) => key.split(':')[0]);
-    const answered = env.clients.filter((c, i) => i !== joiner && askedIps.includes(c.ip) && c.getEventBuffer()
+    const answered = env.clients.filter((c, i) => i !== SUBJECT && askedIps.includes(c.ip) && c.getEventBuffer()
       .some((e) => e.id > marks[i] && e.event === 'hashRequest:responded'
-        && e.data.peer.split(':')[0] === joinerIp && e.data.found === 1));
+        && e.data.peer.split(':')[0] === subjectIp && e.data.found === 1));
     expect(answered.map((c) => c.ip), `asked: ${round.asked.join(', ')}`).to.not.be.empty;
   });
 
   it('resolves the message in that round and holds it', async () => {
     expect(round).to.include({ requested: 1, unresolved: 0 });
-    expect((await dbClient(joiner + 1).permanentMessages({ hash: appHash })).map((m) => m.hash)).to.deep.equal([appHash]);
+    expect((await dbClient(SUBJECT + 1).permanentMessages({ hash: appHash })).map((m) => m.hash)).to.deep.equal([appHash]);
   });
 });
