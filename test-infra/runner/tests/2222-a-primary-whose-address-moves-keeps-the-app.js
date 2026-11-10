@@ -22,8 +22,8 @@ import { peerDeathMs } from '../framework/coupled-knobs.js';
 // has peers at the new address, and follow it there - so when it later gives
 // the app up, the standby asks it where it is now and takes over.
 //
-// The move is real (moveNodeAddress): the old address leaves the node's
-// interface, so every connection made to it goes dead, as it does when a
+// The move is real (moveNodeAddress): the old address is unreachable to every
+// peer, so every connection a peer made to it goes dead, as it does when a
 // router's public IP changes. It follows production's order: the node detects
 // the move (suite 56 measured 4m12s), benchmark then reports the new address as
 // its own while the network still lists the old one, and the list catches up

@@ -27,9 +27,9 @@ const subnet = getSubnetConfig();
 // Moving them together instead describes a change already settled everywhere, which
 // no node ever has to detect.
 //
-// And the node actually moves (moveNodeAddress): the new address goes on its
-// interface and the old one comes off. Its peers then find it unreachable at the
-// old address because it genuinely is not there, which is what the path requires -
+// And the node actually moves (moveNodeAddress): it opens every connection from
+// the new address, and the old one is unreachable to its peers. Its peers then
+// find it unreachable at the old address, which is what the path requires -
 // a node only asks benchmark whether its address moved after a peer has failed to
 // reach it, so a node that is still perfectly reachable never asks.
 //

@@ -7,36 +7,74 @@ export async function execInContainer(container, command) {
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, output: result.output };
 }
 
-// Move a node to a different address on the fleet network: the new one goes on,
-// the old one comes off.
+// Move a node to a different address on the fleet network, as a router's public
+// IP changing moves a real node: its public address changes, and what it reaches
+// on its own machine does not notice.
 //
-// This is what an address change IS, and doing it for real is what makes the rest
-// of the fixture honest. Its peers then find it unreachable at the old address
-// because it genuinely is not there - no packet filter simulating it, and nothing
-// hidden from the node list, so they still recognise it as the sender of the
-// fluxipchanged broadcast that follows.
+// The new address becomes the interface's primary, so every connection the node
+// opens from then on is made from it. The old address stays on the interface as
+// a /32, so a connection the node already holds to a harness service (its Mongo,
+// the daemon stub) carries on, as one to a service on its own machine would.
 //
-// The timing matters and is measured. A probe to an address that is gone fails
-// with EHOSTUNREACH at ~3.1s (ARP gives up), NOT a hang - so a peer's own probe
-// budget of 5s sees a failure rather than a timeout, and it answers the asking
-// node inside that node's 7s budget. Those margins are why this works where
-// dropping packets did not: a dropped probe burns the full 5s, and the answer
-// then arrives after the asker has already given up, which reads as "I could not
-// ask" rather than "you are unreachable" - a different branch entirely, and one
-// that never consults benchmark.
+// To every other address on the fleet network the old address is gone: what
+// arrives for it is answered host-unreachable, the error a sender gets from an
+// address no host holds. A new connection to it fails at once rather than
+// hanging, so a peer's availability probe reports a failure inside the asking
+// node's budget, not a timeout. A connection already open to it dies silently,
+// and stays counted until the peer's liveness gives up on it. The harness
+// services (the slot's first .0/29: the gateway and the services at .2-.7) still reach
+// it.
+//
+// Nothing is hidden from the node list, so peers still recognise the node as the
+// sender of the fluxipchanged broadcast that follows.
+//
+// Before it returns, the move checks its own premise: a keep-alive connection to
+// the daemon stub, opened before the move, answers on the same socket after it.
 //
 // @param {object} container The node's container.
 // @param {string} to Bare address to move to, inside the run's slot.
 // @param {string} from Bare address to give up.
 // Both carry the slot's prefix, which is the one the node's address has.
 export async function moveNodeAddress(container, to, from, { prefix = Number(getSubnetConfig().subnet.split('/')[1]), iface = 'eth0' } = {}) {
-  const add = await execInContainer(container, `ip addr add ${to}/${prefix} dev ${iface}`);
-  if (add.exitCode !== 0 && !/File exists/i.test(add.output || '')) {
-    throw new Error(`moveNodeAddress: could not add ${to}/${prefix} to ${iface}: ${add.output}`);
-  }
-  const del = await execInContainer(container, `ip addr del ${from}/${prefix} dev ${iface}`);
-  if (del.exitCode !== 0 && !/Cannot assign|not exist/i.test(del.output || '')) {
-    throw new Error(`moveNodeAddress: could not remove ${from}/${prefix} from ${iface}: ${del.output}`);
+  const { base } = getSubnetConfig();
+  const unreachable = (address) => `INPUT -d ${address} -j REJECT --reject-with icmp-host-unreachable`;
+  const fromServices = (address) => `INPUT -d ${address} -s ${base}.0/29 -j ACCEPT`;
+  const move = [
+    'set -e',
+    // an address the node gave up before is taken back whole
+    `while iptables -D ${fromServices(to)} 2>/dev/null; do :; done`,
+    `while iptables -D ${unreachable(to)} 2>/dev/null; do :; done`,
+    `ip addr del ${to}/32 dev ${iface} 2>/dev/null || true`,
+    `ip addr add ${to}/${prefix} dev ${iface}`,
+    // without it, removing the primary removes every secondary with it
+    `sysctl -qw net.ipv4.conf.${iface}.promote_secondaries=1`,
+    `ip addr del ${from}/${prefix} dev ${iface}`,
+    `ip addr add ${from}/32 dev ${iface}`,
+    `iptables -I ${unreachable(from)}`,
+    `iptables -I ${fromServices(from)}`,
+  ].join('\n');
+  const script = `
+const http = require('http');
+const { execFileSync } = require('child_process');
+const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+const ask = () => new Promise((resolve, reject) => {
+  const req = http.get({ host: process.env.DAEMON_HOST, port: 16124, path: '/', agent, timeout: 5000 }, (res) => {
+    res.resume();
+    res.on('end', () => resolve(req.reusedSocket));
+  });
+  req.on('timeout', () => req.destroy(new Error('the daemon stub did not answer within 5s')));
+  req.on('error', reject);
+});
+(async () => {
+  await ask();
+  execFileSync('sh', ['-c', process.env.MOVE], { stdio: 'inherit' });
+  if (!await ask()) throw new Error('the connection opened before the move is not the one that answered after it');
+  agent.destroy();
+})().catch((err) => { console.error(err.message); process.exit(1); });
+`;
+  const r = await execInContainer(container, ['env', `DAEMON_HOST=${base}.3`, `MOVE=${move}`, 'node', '-e', script]);
+  if (r.exitCode !== 0) {
+    throw new Error(`moveNodeAddress: moving ${from} to ${to} on ${iface}, with a connection held open across it, failed: ${r.output}`);
   }
   return to;
 }
