@@ -30,13 +30,13 @@ const portReconciler = require('../portReconciler');
 const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const mountParser = require('../utils/mountParser');
 const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
-const { localAppsInformation } = require('../utils/appConstants');
+const { localAppsInformation, INSTALL_ERROR_MAX_LENGTH } = require('../utils/appConstants');
 const appPlacements = require('../appManagement/appPlacements');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
@@ -618,7 +618,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
           version: 1,
           name: appSpecifications.name,
           hash: appSpecifications.hash, // hash of application specifics that are running
-          error: serviceHelper.ensureString(errorResponse),
+          error: serviceHelper.ensureString(errorResponse).slice(0, INSTALL_ERROR_MAX_LENGTH),
           ip: localSocketAddr,
           broadcastedAt,
         };
@@ -1244,7 +1244,7 @@ async function testAppInstall(req, res) {
           res.json(errMessage);
           return;
         }
-        verifyEnterpriseCarriesNoPlainSpec(tempMessage.appSpecifications);
+        verifyEncryptedSpec(tempMessage.appSpecifications);
         // The hash is the message's, not the specification's.
         appSpecifications = { ...tempMessage.appSpecifications, hash: tempMessage.hash };
       }
@@ -1278,7 +1278,7 @@ async function testAppInstall(req, res) {
       if (!appSpecifications) {
         const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
-          verifyEnterpriseCarriesNoPlainSpec(permMessage.appSpecifications);
+          verifyEncryptedSpec(permMessage.appSpecifications);
           appSpecifications = { ...permMessage.appSpecifications, hash: permMessage.hash, height: permMessage.height };
         }
       }

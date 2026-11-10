@@ -113,9 +113,21 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappsinformation').countDocuments({});
     },
 
+    // A pending app message as the node stores it, client tag included, or null.
+    async pendingMessage(hash) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappstemporarymessages').findOne({ hash }, { projection: { _id: 0 } });
+    },
+
     async tempMessageCount() {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappstemporarymessages').countDocuments({});
+    },
+
+    // How many pending app messages the node stores that match a query on their stored fields.
+    async pendingMessageCount(query) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappstemporarymessages').countDocuments(query);
     },
 
     async locationCount() {
@@ -352,6 +364,12 @@ export function dbClient(nodeNum) {
       const globalDb = await db('appsGlobal');
       const result = await globalDb.collection('zelappsmessages').deleteOne({ hash });
       if (result.deletedCount !== 1) throw new Error(`no permanent message for ${hash}`);
+    },
+
+    // Every unpromoted copy of a message this node holds; answers how many there were.
+    async deleteTemporaryMessages(hash) {
+      const globalDb = await db('appsGlobal');
+      return (await globalDb.collection('zelappstemporarymessages').deleteMany({ hash })).deletedCount;
     },
 
     async deleteAppHash(hash) {

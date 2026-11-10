@@ -208,10 +208,12 @@ export function nodeClient(nodeNum) {
         'explorer:ready',
         'firewall:adjusted',
         'firewall:locked',
+        'firewall:purged',
         'fluxadm:pass',
         'firewall:containerEgressApplied',
         'firewall:defaultsWritten',
         'fileops:recovered',
+        'locations:moved',
         'messageCapability:changed',
         'networkstate:updated',
         'orchestrator:started',
@@ -254,7 +256,12 @@ export function nodeClient(nodeNum) {
         'peers:accepting',
         'peers:belowThreshold',
         'peers:removed',
+        // a frame over gossipMessageMaxBytes, dropped before it is handled
+        'peers:frameDropped',
         'peers:thresholdReached',
+        // An Arcane link's handshake, by connection: authenticated, or failed and why
+        'peers:linkAuthenticated',
+        'peers:linkFailed',
         // A node taken out of service for losing its peer set, and given back.
         // dos:changed alone cannot carry this: it fires for every DOS owner, so
         // a suite asserting on it would pass on the tampering enforcer's verdict
@@ -339,9 +346,14 @@ export function nodeClient(nodeNum) {
         'network:apprunningRefused',
         'network:appinstalling',
         'network:appinstallingerror',
+        'network:appinstallingerrorRefused',
         'network:appremoved',
         'network:appmessage',
         'network:appmessageRefused',
+        // whether a node took an unpaid app message, and why not
+        'appmessage:admission',
+        // whether peers on the admission quorum held a message this node proposed
+        'appmessage:quorum',
         'network:ipchanged',
         'network:sigterm',
         'shutdown:started',
@@ -356,9 +368,12 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:peerDisconnected',
         'ephemeralSync:budgetSpent',
         'sync:chunkVerified',
+        // events of a sync answer over gossipMessageMaxBytes, left out
+        'sync:eventsDropped',
         'hashSync:complete',
         'hashSync:bulkFetched',
         'hashSync:failed',
+        'hashSync:ephemeralRound',
         'hashRequest:received',
         'hashRequest:responded',
         'message:dispatched',
@@ -560,6 +575,12 @@ export function nodeClient(nodeNum) {
     getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),
     getPeers: () => get('/flux/connectedpeers'),
+    // The paths of the messages this node received most recently.
+    getNetworkPaths: (zelidauth) => getAuthed('/flux/networkpaths', zelidauth),
+    // Has this node create a broadcast. The route reads the raw body, so the frame is text.
+    broadcastMessage: (data, zelidauth) => request('POST', '/flux/broadcastmessage', {
+      body: data, headers: { zelidauth, 'Content-Type': 'text/plain' },
+    }),
     getIncomingPeers: () => get('/flux/incomingconnections'),
     getNodeStatus: () => get('/daemon/getzelnodestatus'),
     getBlockchainInfo: () => get('/daemon/getblockchaininfo'),

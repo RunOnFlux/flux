@@ -57,6 +57,13 @@ class FluxPeerManager extends EventEmitter {
   #awaitingVerdict = new Map();
   /** @type {Set<string>} keys of outbound connections currently being established */
   #pendingConnections = new Set();
+  /**
+   * Connections whose Arcane link handshake has not settled, by key. Not peers
+   * yet: not counted, not broadcast to, no peerConnected. Each is still the
+   * connection to its key for every duplicate decision.
+   * @type {Map<string, FluxPeerSocket>}
+   */
+  #handshaking = new Map();
   /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
   #reconnectCounts = new Map();
   /** @type {number} peer count threshold for app sync readiness */
@@ -141,6 +148,25 @@ class FluxPeerManager extends EventEmitter {
     this.syncResponseDispatcher = null;
 
     /**
+     * Link message dispatch callback - set by fluxCommunication.js. Takes the
+     * admission protocol's messages, which arrive only in a frame carrying a
+     * valid link MAC.
+     * @type {function(object, FluxPeerSocket)|null}
+     */
+    this.linkMessageDispatcher = null;
+    // Whether a link handshake frame verifies, and who takes one that did.
+    this.handshakeFrameVerifier = null;
+    this.handshakeFrameDispatcher = null;
+
+    /**
+     * Starts a connection's Arcane link handshake - set by fluxCommunication.js.
+     * Answers a promise that settles when the link authenticates or fails, or
+     * null when no handshake applies and the connection joins at once.
+     * @type {function(FluxPeerSocket): (Promise<void>|null)|null}
+     */
+    this.linkHandshake = null;
+
+    /**
      * Number of flux nodes in the network — set by fluxDiscovery.
      * @type {number}
      */
@@ -192,7 +218,93 @@ class FluxPeerManager extends EventEmitter {
     if (typeof options.remoteFluxUptime === 'number' && !Number.isNaN(options.remoteFluxUptime)) {
       peer.remoteFluxUptime = options.remoteFluxUptime;
     }
-    if (existing || options.source === PEER_SOURCE.RECONNECT) {
+    const handshaking = this.#handshaking.get(key);
+    if (handshaking) this.#dropHandshaking(handshaking, CLOSE_CODES.DUPLICATE_PEER, 'replaced');
+
+    // Between two Arcane nodes a connection joins once its link handshake has
+    // settled, so nothing that acts on a peer joining sees a link whose trust is
+    // not yet known. A failed or timed-out handshake joins it unauthenticated.
+    const settled = this.linkHandshake?.(peer) ?? null;
+    if (!settled) return this.#register(peer, Boolean(existing), options.source);
+    peer.handshaking = true;
+    this.#handshaking.set(key, peer);
+    const deadline = setTimeout(() => this.#settleHandshake(peer, Boolean(existing), options.source), config.fluxapps.linkHandshakeDeadlineMs);
+    settled.catch((error) => log.error(error)).finally(() => {
+      clearTimeout(deadline);
+      this.#settleHandshake(peer, Boolean(existing), options.source);
+    });
+    return peer;
+  }
+
+  /**
+   * A handshaking connection's link has settled, or its deadline passed: it joins.
+   * @param {FluxPeerSocket} peer
+   * @param {boolean} replaced Whether it replaced a connection to its key.
+   * @param {string} [source]
+   * @private
+   */
+  #settleHandshake(peer, replaced, source) {
+    if (this.#handshaking.get(peer.key) !== peer) return;
+    this.#handshaking.delete(peer.key);
+    peer.handshaking = false;
+    this.#register(peer, replaced, source);
+    peer.flushQueuedFrames();
+  }
+
+  /**
+   * Close a handshaking connection that never joined: nothing to untrack, no
+   * event, no reconnect.
+   * @param {FluxPeerSocket} peer
+   * @param {number} code
+   * @param {string} reason
+   * @private
+   */
+  #dropHandshaking(peer, code, reason) {
+    this.#handshaking.delete(peer.key);
+    peer.detachHandlers();
+    try { peer.ws.close(code, reason); } catch (_e) { /* noop */ }
+  }
+
+  /**
+   * Inbound connections whose link handshake has not settled.
+   * @returns {number}
+   * @private
+   */
+  #handshakingInboundCount() {
+    let count = 0;
+    this.#handshaking.forEach((peer) => { if (peer.direction === DIRECTION.INBOUND) count += 1; });
+    return count;
+  }
+
+  /**
+   * A handshaking connection closed before it joined.
+   * @param {FluxPeerSocket} peer
+   */
+  removeHandshaking(peer) {
+    if (this.#handshaking.get(peer.key) === peer) this.#handshaking.delete(peer.key);
+  }
+
+  /**
+   * The connection held to a key, joined or still handshaking - what every
+   * duplicate decision weighs a new connection against.
+   * @param {string} key
+   * @returns {FluxPeerSocket|undefined}
+   */
+  connectionTo(key) {
+    return this.#peers.get(key) ?? this.#handshaking.get(key);
+  }
+
+  /**
+   * Join a connection to the peer set.
+   * @param {FluxPeerSocket} peer
+   * @param {boolean} replaced Whether it replaced a connection to its key.
+   * @param {string} [source]
+   * @returns {FluxPeerSocket}
+   * @private
+   */
+  #register(peer, replaced, source) {
+    const { key, ip, port } = peer;
+    if (replaced || source === PEER_SOURCE.RECONNECT) {
       this.#reconnectCounts.set(key, (this.#reconnectCounts.get(key) || 0) + 1);
     }
     const { direction } = peer;
@@ -220,9 +332,10 @@ class FluxPeerManager extends EventEmitter {
       source: peer.source,
     });
     // Peer exchange: send our full list to new peer, notify others about the addition.
-    // Sent at once, as the connection's first frame: a peer that dialed this one
-    // as a reconnect takes it as this node's word that it kept the dial
-    // (#awaitReconnectVerdict).
+    // A peer that dialed this one as a reconnect takes this node's first frame on
+    // the connection as its word that it kept the dial (#awaitReconnectVerdict):
+    // this one when the connection joins at once, the link nonce when it
+    // handshakes first.
     this.sendPeerExchange(peer);
     const dirSet = peer.direction === DIRECTION.OUTBOUND ? this.#pendingAdds.outbound : this.#pendingAdds.inbound;
     dirSet.add(peer.key);
@@ -275,9 +388,13 @@ class FluxPeerManager extends EventEmitter {
     this.#pendingAdds.inbound.delete(key);
     this.#schedulePeerUpdate();
 
-    // Track disconnect for unstable node detection and network health
-    this.trackDisconnect(peer.ip, peer.port);
-    if (this.networkHealthMonitor) this.networkHealthMonitor.recordDisconnect(peer.connectedAt, closeCode);
+    // Track disconnect for unstable node detection and network health. A link
+    // closed for not being an Arcane one says nothing about either.
+    if (closeCode !== CLOSE_CODES.NOT_ARCANE_LINK) {
+      this.trackDisconnect(peer.ip, peer.port);
+      if (this.networkHealthMonitor) this.networkHealthMonitor.recordDisconnect(peer.connectedAt, closeCode);
+    }
+    if (peer.link?.authenticated) this.noteAuthenticatedLinkLost(key);
 
     // Queue outbound peers for reconnection only on unexpected disconnections.
     // Whitelist: only reconnect for dead connections, capacity rejections,
@@ -561,6 +678,11 @@ class FluxPeerManager extends EventEmitter {
     }
   }
 
+  /** The connections whose link handshake has not settled. */
+  * handshakingValues() {
+    yield* this.#handshaking.values();
+  }
+
   * inboundValues() {
     for (const key of this.#inboundKeys) {
       const peer = this.#peers.get(key);
@@ -766,6 +888,56 @@ class FluxPeerManager extends EventEmitter {
   }
 
   /**
+   * The peers whose link has authenticated as Arcane (services/arcaneLink.js).
+   * @returns {FluxPeerSocket[]}
+   */
+  getAuthenticatedPeers() {
+    const authenticated = [];
+    for (const peer of this.#peers.values()) {
+      if (peer.link?.authenticated) authenticated.push(peer);
+    }
+    return authenticated;
+  }
+
+  /**
+   * The peers whose link has not authenticated.
+   * @returns {FluxPeerSocket[]}
+   */
+  getUnauthenticatedPeers() {
+    const unauthenticated = [];
+    for (const peer of this.#peers.values()) {
+      if (!peer.link?.authenticated) unauthenticated.push(peer);
+    }
+    return unauthenticated;
+  }
+
+  /**
+   * An authenticated link stopped being one: its connection closed, or its peer
+   * gave up on it. Listeners learn it through `authenticatedLinkLost`.
+   * @param {string} key
+   */
+  noteAuthenticatedLinkLost(key) {
+    this.emit('authenticatedLinkLost', key);
+  }
+
+  /**
+   * A joined connection's link authenticated. Listeners learn it through
+   * `authenticatedLinkGained`.
+   * @param {string} key
+   */
+  noteAuthenticatedLinkGained(key) {
+    this.emit('authenticatedLinkGained', key);
+  }
+
+  /**
+   * How many distinct IPs this node holds an authenticated link to.
+   * @returns {number}
+   */
+  authenticatedIpCount() {
+    return new Set(this.getAuthenticatedPeers().map((peer) => peer.ip)).size;
+  }
+
+  /**
    * Whether a sync response arriving on this connection is still wanted.
    *
    * Asked with the socket rather than the address because the two are not the
@@ -963,7 +1135,7 @@ class FluxPeerManager extends EventEmitter {
    * @param {string} key - ip:port
    * @returns {boolean}
    */
-  isPending(key) { return this.#pendingConnections.has(key); }
+  isPending(key) { return this.#pendingConnections.has(key) || this.#handshaking.has(key); }
 
   // --- Broadcast ---
 
@@ -1138,6 +1310,14 @@ class FluxPeerManager extends EventEmitter {
       ws.close(CLOSE_CODES.NODE_UNCONFIRMED, 'node not confirmed');
       return;
     }
+    // The path port is the caller's to choose, and a connection is one per
+    // ip:port: held to the ports a node can serve on, one address holds at most
+    // as many connections as there are of them.
+    if (typeof optionalPort === 'string'
+      && (!allowedPortsSet.has(Number(optionalPort)) || String(Number(optionalPort)) !== optionalPort)) {
+      ws.close(CLOSE_CODES.PORT_NOT_ALLOWED, 'port not allowed');
+      return;
+    }
     try {
       let port;
       let req;
@@ -1173,7 +1353,9 @@ class FluxPeerManager extends EventEmitter {
         ? this.numberOfFluxNodes / 160
         : 9 * config.fluxapps.minIncoming;
       const maxCon = Math.max(maxPeers, maxNumberOfConnections);
-      if (this.inboundCount > maxCon) {
+      // An inbound connection still in its link handshake holds a socket and
+      // its queued frames as surely as one that has joined.
+      if (this.inboundCount + this.#handshakingInboundCount() > maxCon) {
         setTimeout(() => {
           ws.close(CLOSE_CODES.MAX_CONNECTIONS, `Max number of incomming connections ${maxCon} reached`);
         }, 1000);
@@ -1201,8 +1383,8 @@ class FluxPeerManager extends EventEmitter {
       }
 
       const key = `${ipv4Peer}:${port}`;
-      if (this.has(key)) {
-        const existing = this.get(key);
+      const existing = this.connectionTo(key);
+      if (existing) {
         if (existing && !existing.isAlive) {
           log.info(`Replacing stale inbound connection ${key}`);
           this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
@@ -1646,11 +1828,12 @@ class FluxPeerManager extends EventEmitter {
    * @param {string} hexHash 40-char hex hash
    * @param {string} [excludeKey] Peer key to exclude
    */
-  broadcastHash(hexHash, excludeKey) {
+  broadcastHash(hexHash, excludeKey, skip) {
     const binBuf = peerCodec.encodeHashPresent(hexHash);
     const jsonStr = JSON.stringify({ messageHashPresent: hexHash });
     for (const peer of this.#peers.values()) {
       if (excludeKey && peer.key === excludeKey) continue;
+      if (skip?.has(peer.key)) continue;
       if (peer.remoteCapabilities.has('binaryMessages')) {
         peer.send(binBuf);
       } else {
@@ -1801,6 +1984,7 @@ class FluxPeerManager extends EventEmitter {
    * Clear all peers — for testing only.
    */
   reset() {
+    this.#handshaking.forEach((peer) => this.#dropHandshaking(peer, CLOSE_CODES.DUPLICATE_PEER, 'reset'));
     this.#peers.clear();
     this.#inboundKeys.clear();
     this.#outboundKeys.clear();
@@ -1832,13 +2016,26 @@ const peerManager = new FluxPeerManager();
 // knows itself by - harness-only, see fluxEventBus.js.
 fluxEventBus.snapshot('peers', () => {
   const describe = (peer) => ({
-    ip: peer.ip, port: String(peer.port), source: peer.source, alive: peer.isAlive, connectedAt: peer.connectedAt,
+    ip: peer.ip,
+    port: String(peer.port),
+    source: peer.source,
+    alive: peer.isAlive,
+    connectedAt: peer.connectedAt,
+    connectionId: peer.connectionId,
+    authenticated: Boolean(peer.link?.authenticated),
+    linkFailed: peer.link?.failed ?? null,
+    handshaking: peer.handshaking,
   });
+  // A connection whose link handshake has not settled is held, by direction,
+  // though it has not joined the peer set.
+  const handshaking = [...peerManager.handshakingValues()];
   return {
     self: peerManager.getOwnSocketAddress(),
-    outbound: [...peerManager.outboundValues()].map(describe),
-    inbound: [...peerManager.inboundValues()].map(describe),
+    outbound: [...peerManager.outboundValues(), ...handshaking.filter((p) => p.direction === DIRECTION.OUTBOUND)].map(describe),
+    inbound: [...peerManager.inboundValues(), ...handshaking.filter((p) => p.direction === DIRECTION.INBOUND)].map(describe),
   };
 });
 
-module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };
+module.exports = {
+  FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES, isValidPeerKey,
+};

@@ -3834,6 +3834,7 @@ async function purgeUFW() {
   } catch (error) {
     log.error(error);
   }
+  fluxEventBus.publish('firewall:purged', {});
 }
 
 // The bridges a container's traffic can come from: the default one and every

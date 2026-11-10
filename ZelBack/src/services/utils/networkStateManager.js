@@ -29,6 +29,9 @@ const log = require('../../lib/log');
 class NetworkStateManager extends EventEmitter {
   static #minFetchIntervalMs = 30_000;
 
+  // The reporter of a link this node authenticated itself.
+  static SELF_REPORTED = 'self';
+
   /**
    * @type {Array<Fluxnode>}
    */
@@ -37,6 +40,13 @@ class NetworkStateManager extends EventEmitter {
   #pubkeyIndex = new Map();
 
   #socketAddressIndex = new Map();
+
+  // Which nodes are known to be Arcane, held against the node entries
+  // themselves: by the key of the peer that reported the node as one of its
+  // authenticated links, or SELF_REPORTED for a link this node authenticated.
+  // A mark is bounded by the node list and leaves with its node; a rebuild
+  // carries each over by address.
+  #arcaneReporter = new WeakMap();
 
   #controller = new FluxController();
 
@@ -288,6 +298,8 @@ class NetworkStateManager extends EventEmitter {
 
     const pubkeyIndex = new Map();
     const socketAddressIndex = new Map();
+    const previousIndex = this.#socketAddressIndex;
+    const arcaneReporter = this.#arcaneReporter;
 
     function iterIndexes(startIndex, callback) {
       const endIndex = startIndex + 1000;
@@ -302,7 +314,11 @@ class NetworkStateManager extends EventEmitter {
         // default-port node as either "ip" or "ip:16127". normalizeSocketAddress
         // appends the default port only to a bare ip; explicit (UPnP) ports pass
         // through unchanged. Lookups normalize the same way, so both forms resolve.
-        socketAddressIndex.set(normalizeSocketAddress(node.ip), node);
+        const socketAddress = normalizeSocketAddress(node.ip);
+        socketAddressIndex.set(socketAddress, node);
+        const previous = previousIndex.get(socketAddress);
+        const reporter = previous && arcaneReporter.get(previous);
+        if (reporter) arcaneReporter.set(node, reporter);
       });
 
       if (endIndex >= nodeCount) {
@@ -343,7 +359,7 @@ class NetworkStateManager extends EventEmitter {
    * said absent - and absent is a case every caller already handles, because an
    * empty index has always returned it.
    *
-   * @param {(socketAddress: string) => boolean} acceptable
+   * @param {(socketAddress: string, node: object) => boolean} acceptable
    * @returns {Promise<string | null>} A random socketAddress from the map
    */
   async #randomSocketAddressWhere(acceptable) {
@@ -362,7 +378,7 @@ class NetworkStateManager extends EventEmitter {
     for (const node of this.#socketAddressIndex.values()) {
       const { ip: socketAddress } = node;
 
-      if (acceptable(socketAddress)) {
+      if (acceptable(socketAddress, node)) {
         if (position >= offset) return socketAddress;
         if (firstAcceptable === null) firstAcceptable = socketAddress;
       }
@@ -422,6 +438,63 @@ class NetworkStateManager extends EventEmitter {
         && !exclude.some((asked) => ipsMatch(socketAddress, asked))
         && (port === null || extractPort(socketAddress) === port),
     );
+  }
+
+  /**
+   * Mark a listed node as Arcane, as reported by `reporter`. A node already
+   * marked keeps its mark, except that this node's own authenticated link
+   * replaces another's report.
+   * @param {string} socketAddress
+   * @param {string} reporter The reporting peer's key, or SELF_REPORTED.
+   * @returns {boolean} Whether the node is listed.
+   */
+  markArcane(socketAddress, reporter) {
+    const node = this.#socketAddressIndex.get(normalizeSocketAddress(socketAddress));
+    if (!node) return false;
+    if (!this.#arcaneReporter.has(node) || reporter === NetworkStateManager.SELF_REPORTED) {
+      this.#arcaneReporter.set(node, reporter);
+    }
+    return true;
+  }
+
+  /**
+   * Take a listed node's Arcane mark away: its link did not authenticate.
+   * @param {string} socketAddress
+   */
+  unmarkArcane(socketAddress) {
+    const node = this.#socketAddressIndex.get(normalizeSocketAddress(socketAddress));
+    if (node) this.#arcaneReporter.delete(node);
+  }
+
+  /**
+   * A peer's report of its authenticated links replaces its previous one: its
+   * earlier marks go, and the listed nodes it names now are marked.
+   * @param {string} reporter
+   * @param {string[]} socketAddresses
+   * @returns {number} How many of them are listed and now carry a mark.
+   */
+  replaceArcaneReport(reporter, socketAddresses) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const node of this.#socketAddressIndex.values()) {
+      if (this.#arcaneReporter.get(node) === reporter) this.#arcaneReporter.delete(node);
+    }
+    return socketAddresses.filter((socketAddress) => this.markArcane(socketAddress, reporter)).length;
+  }
+
+  /**
+   * A random listed node marked Arcane, other than this one.
+   * @param {string} localSocketAddress
+   * @param {(socketAddress: string, reporter: string) => boolean} [avoid]
+   * @returns {Promise<{socketAddress: string, reporter: string}|null>}
+   */
+  async getRandomArcaneSocketAddress(localSocketAddress, avoid = () => false) {
+    const socketAddress = await this.#randomSocketAddressWhere((candidate, node) => {
+      const reporter = this.#arcaneReporter.get(node);
+      return Boolean(reporter) && candidate !== localSocketAddress && !avoid(candidate, reporter);
+    });
+    if (!socketAddress) return null;
+    const node = this.#socketAddressIndex.get(normalizeSocketAddress(socketAddress));
+    return { socketAddress, reporter: this.#arcaneReporter.get(node) };
   }
 
   /**

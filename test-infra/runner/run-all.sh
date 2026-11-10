@@ -74,16 +74,16 @@ export E2E_RUN_LABEL="$RUN_LABEL"
 # no concurrency race and benefit from its crash safety.
 export TESTCONTAINERS_RYUK_DISABLED=true
 
-# Pick the /24 subnet base (three octets) all suites in this run will use. Each suite
-# creates+tears down its own /24 network; a single run defaults to 31.200.0, and
-# parallel run-all.sh invocations auto-pick distinct free /24s so their fleets don't
-# collide. The pool is the 16 /24s of 31.200.0.0/20 (see subnet-config.js). Override
-# with TEST_SUBNET_BASE=a.b.c.
+# Pick the /14 slot (its base, three octets) all suites in this run will use. Each
+# suite creates+tears down its own network on the slot; a single run defaults to
+# 25.192.0, and parallel run-all.sh invocations auto-pick distinct free slots so their
+# fleets don't collide. The pool is the 16 /14s of 25.192.0.0/10 (see
+# subnet-config.js). Override with TEST_SUBNET_BASE=25.<192..252 by 4>.0.
 #
 # A base is claimed by creating a lock directory (mkdir is atomic), so two run-all
 # processes scanning at once can never grab the same /24 — closing the read-then-create
-# race the old picker had (it read the in-use set, then created the network later, with
-# a window where a sibling picked the same base). flock serialises the scan so a stale
+# race of reading the in-use set and creating the network later, with a window where a
+# sibling picks the same base. flock serialises the scan so a stale
 # lock (dead owner) can be reclaimed without two processes racing the reclaim.
 LOCK_ROOT="${E2E_BASE_LOCK_DIR:-/tmp/e2e-base-locks}"
 mkdir -p "$LOCK_ROOT" 2>/dev/null
@@ -91,9 +91,9 @@ CLAIMED_BASE=""
 _scan_and_claim() {            # sets CLAIMED_BASE ('' if the pool is exhausted)
   local used o3 b owner
   used="$(docker network ls -q | xargs -r docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)"
-  for o3 in $(seq 0 15); do
-    b="31.200.$o3"
-    case " $used " in *" $b.0/24 "*) continue;; esac   # a live network already owns it
+  for slot in $(seq 0 15); do
+    b="25.$((192 + 4 * slot)).0"
+    case " $used " in *" $b.0/14 "*) continue;; esac   # a live network already owns it
     if [ -d "$LOCK_ROOT/$b" ]; then
       owner="$(cat "$LOCK_ROOT/$b/pid" 2>/dev/null)"
       if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then continue; fi  # claimed by a live run
@@ -154,7 +154,7 @@ cleanup_on_exit() {
 trap cleanup_on_exit EXIT INT TERM
 if [ -z "${TEST_SUBNET_BASE:-}" ]; then
   pick_free_base
-  export TEST_SUBNET_BASE="${CLAIMED_BASE:-31.200.0}"   # 31.200.0 fallback if pool exhausted
+  export TEST_SUBNET_BASE="${CLAIMED_BASE:-25.192.0}"   # 25.192.0 fallback if pool exhausted
 fi
 echo "###SUBNET-BASE $TEST_SUBNET_BASE"
 

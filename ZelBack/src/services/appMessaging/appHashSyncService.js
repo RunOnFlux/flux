@@ -643,7 +643,13 @@ async function ephemeralHashRound(hashes, force, currentHeight) {
     }
 
     const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
-    const remaining = await waitForResolution(new Set(hashes), maxWait, force, currentHeight);
+    const requested = new Set(hashes);
+    const remaining = await waitForResolution(requested, maxWait, force, currentHeight);
+    fluxEventBus.publish('hashSync:ephemeralRound', {
+      asked: peers.map((p) => p.key),
+      requested: requested.size,
+      unresolved: remaining.filter((record) => requested.has(record.hash)).length,
+    });
 
     return remaining;
   } finally {

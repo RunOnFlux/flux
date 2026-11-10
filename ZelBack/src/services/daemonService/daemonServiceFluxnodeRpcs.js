@@ -263,7 +263,9 @@ async function fluxNodeCurrentWinner(req, res) {
 async function createConfirmationTransaction(req, res) {
   const rpccall = 'createconfirmationtransaction';
 
-  response = await daemonServiceUtils.executeCall(rpccall);
+  // Never answered from the cache: it takes no parameters, so a cached answer is
+  // the last confirmation's and this one is never sent.
+  response = await daemonServiceUtils.executeCall(rpccall, [], { useCache: false });
 
   return res ? res.json(response) : response;
 }

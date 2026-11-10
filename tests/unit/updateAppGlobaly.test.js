@@ -7,6 +7,10 @@ const appValidator = require('../../ZelBack/src/services/appRequirements/appVali
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
 const { requireMongo } = require('./dbTestHelper');
+const EventEmitter = require('node:events');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
+const unpaidAdmission = require('../../ZelBack/src/services/appMessaging/unpaidAdmission');
 
 // The submission path up to the owner's signature: which app an update is judged against, and
 // whose signature it needs.
@@ -109,9 +113,10 @@ describe('updateAppGlobaly tests', () => {
   });
 
   [
-    ['an invalid app name', { name: 'Submit-App!' }],
-    ['an invalid owner', { owner: 'my-owner' }],
-  ].forEach(([description, change]) => {
+    ['an invalid app name', { name: 'Submit-App!' }, 'Invalid app name or owner'],
+    ['an invalid owner', { owner: 'my-owner' }, 'Invalid app name or owner'],
+    ['a plain compose', { compose: [{ name: 'web' }] }, 'An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain'],
+  ].forEach(([description, change, refusal]) => {
     it(`should refuse an enterprise update with ${description} before reading the spec`, async () => {
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003100 } });
 
@@ -125,7 +130,7 @@ describe('updateAppGlobaly tests', () => {
         version: 1,
       }).then(
         () => expect.fail('should have refused'),
-        (error) => expect(error.message).to.equal('Invalid app name or owner'),
+        (error) => expect(error.message).to.equal(refusal),
       );
       sinon.assert.notCalled(appValidator.verifyAppSpecifications);
       expect(signatureCheck.called).to.equal(false);
@@ -172,5 +177,48 @@ describe('updateAppGlobaly tests', () => {
       () => expect.fail('should have refused'),
       (error) => expect(error.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.'),
     );
+  });
+});
+
+describe('updateAppGlobalyApi tests', () => {
+  let statusCode;
+  const update = () => new Promise((resolve) => {
+    const req = new EventEmitter();
+    statusCode = 200;
+    const res = {
+      json: resolve,
+      status(code) { statusCode = code; return this; },
+    };
+    advancedWorkflows.updateAppGlobalyApi(req, res);
+    req.emit('data', JSON.stringify({ type: 'fluxappupdate', version: 1 }));
+    req.emit('end');
+  });
+
+  beforeEach(() => {
+    sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+    sinon.stub(peerManager, 'outboundCount').get(() => 100);
+    sinon.stub(peerManager, 'inboundCount').get(() => 100);
+    process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    delete process.env.FLUXOS_PATH;
+  });
+
+  it('should refuse at the door with 503 below the quorum of authenticated links once the version floor is a release that tags', async () => {
+    sinon.stub(peerManager, 'authenticatedIpCount').returns(2);
+    sinon.stub(unpaidAdmission, 'untaggedRefused').returns(true);
+    const response = await update();
+    expect(response.data.name).to.equal('AdmissionUnavailable');
+    expect(statusCode).to.equal(503);
+  });
+
+  it('should refuse at the door with 501, whatever its links, on a node that is not ArcaneOS', async () => {
+    delete process.env.FLUXOS_PATH;
+    sinon.stub(peerManager, 'authenticatedIpCount').returns(3);
+    const response = await update();
+    expect(response.data.name).to.equal('AdmissionNotSupported');
+    expect(statusCode).to.equal(501);
   });
 });

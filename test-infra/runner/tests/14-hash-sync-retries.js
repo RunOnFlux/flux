@@ -233,8 +233,10 @@ describe('Hash sync: attempts reset after degrade/recover', function () {
     // degrade zeroes the block counter, so recovery needs a WHOLE fresh budget rather than
     // one more block, and nothing here is advancing blocks. Waiting for a state change from
     // RESYNCING is waiting for something the state machine will not do.
+    const beforeBlocks = env.clients[0].getLastEventId();
     await advanceBlocks(260);
-    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
+    const { state } = await env.clients[0].getTestState('orchestrator');
+    if (state !== 'READY') await waitForOrchestratorState(env.clients[0], 'READY', 120000, { afterId: beforeBlocks });
 
     const mark = env.clients[0].getLastEventId();
     const db = dbClient(1);

@@ -8,6 +8,9 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
   startTicker, advanceBlock, advanceBlocks, queueAppTx,
 } from '../framework/daemon-control.js';
+import { bootAndPeer as bootAndPeerFleet } from '../framework/reconciler-suite.js';
+import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
+import { nodeKey } from '../framework/keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForAppInstalled, waitForOrchestratorState, waitFor,
@@ -155,5 +158,91 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
       totalServed += stats.messagesServed;
     }
     expect(totalServed).to.be.greaterThan(0);
+  });
+});
+
+// A node cut off while an app registered asks, over temporary connections, nodes
+// it holds no connection to for the message, and between Arcane nodes they answer.
+// Every node here is Arcane and real: a stub offers no link, so the case above
+// passes whether or not an Arcane node takes a question on a temporary connection.
+//
+// While SUBJECT is partitioned it sees the payment and has no peer to ask, so its
+// scan leaves the message to hash sync. The fleet's unpromoted copies are gone
+// before the partition heals, as they are once they expire, so its resync brings
+// none. hashSyncMaxRounds 0 leaves the hash sync it runs on rejoining one round:
+// temporary connections. Each node dials the four after it on the ring and is
+// dialled by the four before it, so of twelve nodes SUBJECT is connected to eight
+// and the round has three to ask.
+describe('a node cut off while an app registered resolves its message over temporary connections to Arcane nodes', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+  const SUBJECT = 5;
+  // Dials the four after it, none of them SUBJECT, so the partition leaves its
+  // outbound floor whole and its door takes the registration.
+  const REGISTRAR = 8;
+  let rest;
+  let appHash;
+  let marks;
+  let round;
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 12,
+      tickerAutostart: false,
+      configOverrides: { fluxapps: { hashSyncMaxRounds: 0 } },
+    });
+    await bootAndPeerFleet(env);
+    rest = env.clients.map((c, i) => i).filter((i) => i !== SUBJECT);
+    await env.partitionGroups([SUBJECT], rest);
+
+    const spec = buildAppSpec({ name: `e2eephemarc${Date.now()}`, instances: 3 });
+    const registered = await registerAndConfirm(
+      env.clients[REGISTRAR].url, nodeKey(REGISTRAR + 1), spec, rest.map((i) => env.clients[i]),
+    );
+    expect(registered.status, JSON.stringify(registered)).to.equal('success');
+    ({ appHash } = registered);
+
+    const subjectDb = dbClient(SUBJECT + 1);
+    await waitFor(async () => (await subjectDb.appHashRecord(appHash))?.message === false,
+      { timeout: 120000, interval: 2000, label: `node ${SUBJECT} records the payment without its message` });
+    await Promise.all(rest.map((i) => waitFor(
+      async () => (await dbClient(i + 1).permanentMessages({ hash: appHash })).length === 1,
+      { timeout: 60000, interval: 2000, label: `node ${i} stores the message` },
+    )));
+    await Promise.all(rest.map(async (i) => {
+      await dbClient(i + 1).deleteTemporaryMessages(appHash);
+      expect(await dbClient(i + 1).pendingMessage(appHash), `fixture: node ${i} holds no unpromoted copy`).to.equal(null);
+    }));
+    expect(await subjectDb.pendingMessage(appHash), `fixture: node ${SUBJECT} holds no unpromoted copy`).to.equal(null);
+
+    marks = env.clients.map((c) => c.getLastEventId());
+    await env.healPartition([SUBJECT], rest);
+    round = (await env.clients[SUBJECT].waitForEvent('hashSync:ephemeralRound', () => true, 180000,
+      { afterId: marks[SUBJECT] })).data;
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('asks nodes it holds no connection to', () => {
+    expect(round.asked, 'the round opened no connection').to.not.be.empty;
+  });
+
+  it('is answered by a node it asked', () => {
+    const subjectIp = env.clients[SUBJECT].ip;
+    const askedIps = round.asked.map((key) => key.split(':')[0]);
+    const answered = env.clients.filter((c, i) => i !== SUBJECT && askedIps.includes(c.ip) && c.getEventBuffer()
+      .some((e) => e.id > marks[i] && e.event === 'hashRequest:responded'
+        && e.data.peer.split(':')[0] === subjectIp && e.data.found === 1));
+    expect(answered.map((c) => c.ip), `asked: ${round.asked.join(', ')}`).to.not.be.empty;
+  });
+
+  it('resolves the message in that round and holds it', async () => {
+    expect(round).to.include({ requested: 1, unresolved: 0 });
+    expect((await dbClient(SUBJECT + 1).permanentMessages({ hash: appHash })).map((m) => m.hash)).to.deep.equal([appHash]);
   });
 });

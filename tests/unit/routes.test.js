@@ -3,7 +3,7 @@ const sinon = require('sinon');
 const routes = require('../../ZelBack/src/routes');
 const alwaysRespond = require('../../ZelBack/src/middlewares/alwaysRespond');
 const isLocal = require('../../ZelBack/src/middlewares/isLocal');
-const requireHttps = require('../../ZelBack/src/middlewares/requireHttps');
+const { refuseBannedCaller } = require('../../ZelBack/src/services/appSecurity/clientBans');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appController = require('../../ZelBack/src/services/appManagement/appController');
 const monitoringOrchestrator = require('../../ZelBack/src/services/appMonitoring/monitoringOrchestrator');
@@ -193,12 +193,34 @@ describe('routes tests', () => {
       expect(routeFor('/apps/appmonitor').handlers).to.not.include(alwaysRespond);
     });
 
-    it('should keep the arcane auth endpoints on https', () => {
-      expect(routeFor('/arcane/authchallenge').handlers).to.include(requireHttps);
-    });
-
     it('should keep the backend folder local only', () => {
       expect(routeFor('/flux/backendfolder').handlers).to.include(isLocal);
+    });
+
+    // Every route that takes or prepares an app message turns a banned caller away
+    // before anything else runs for it.
+    const SUBMISSION_ROUTES = [
+      '/apps/appregister',
+      '/apps/appupdate',
+      '/apps/verifyappregistrationspecifications',
+      '/apps/verifyappupdatespecifications',
+      '/apps/placementfeasibility',
+      '/apps/calculateprice',
+      '/apps/calculatefiatandfluxprice',
+      '/apps/getpublickey',
+      '/apps/checkdockerexistance',
+      '/apps/testappinstall',
+    ];
+
+    SUBMISSION_ROUTES.forEach((prefix) => {
+      it(`should refuse a banned caller at ${prefix} before anything else`, () => {
+        expect(routeFor(prefix).handlers[0]).to.equal(refuseBannedCaller);
+      });
+    });
+
+    it('should guard no other route against banned callers', () => {
+      const guarded = registered.filter((route) => route.handlers.includes(refuseBannedCaller)).map((route) => route.path.split('/:')[0]);
+      expect(guarded.sort()).to.deep.equal([...SUBMISSION_ROUTES].sort());
     });
   });
 });

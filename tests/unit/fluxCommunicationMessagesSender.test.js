@@ -2,10 +2,15 @@
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
+const config = require('config');
 const WebSocket = require('ws');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
 const { PassThrough } = require('stream');
+const hash = require('object-hash');
+const cacheManager = require('../../ZelBack/src/services/utils/cacheManager').default;
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+// Registers the message types, whose intents decide what a broadcast keeps.
+require('../../ZelBack/src/services/fluxCommunication');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
@@ -58,6 +63,40 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       expect(answer).to.equal(null);
       sinon.assert.notCalled(ws1.send);
+    });
+
+    describe('a message this node created', () => {
+      const privateKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+      const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f1'.padEnd(130, '0');
+      const announcement = { type: 'fluxapprunning', version: 1, name: 'kept' };
+
+      beforeEach(() => {
+        cacheManager.announcementStore.clear();
+        sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves(pubKey);
+        sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').resolves(privateKey);
+      });
+
+      [
+        ['broadcastMessageToAll', 'outbound'],
+        ['broadcastMessageToRandomOutgoing', 'outbound'],
+        ['broadcastMessageToRandomIncoming', 'inbound'],
+      ].forEach(([sender, direction]) => {
+        it(`${sender} keeps an announcement for a peer to ask for`, async () => {
+          sinon.stub(peerManager, 'getRandomPeer').withArgs(direction).returns({ send: sinon.stub() });
+
+          await fluxCommunicationMessagesSender[sender](announcement);
+
+          expect(cacheManager.announcementStore.get(hash(announcement)).data).to.deep.equal(announcement);
+        });
+      });
+
+      it('keeps nothing of a type that is not an announcement', async () => {
+        const seq = { type: 'fluxpolicyseq', version: 1, seq: 5 };
+
+        await fluxCommunicationMessagesSender.broadcastMessageToAll(seq);
+
+        expect(cacheManager.announcementStore.has(hash(seq))).to.equal(false);
+      });
     });
 
     it('should send data to all peers (both directions)', async () => {
@@ -334,6 +373,83 @@ describe('fluxCommunicationMessagesSender tests', () => {
         });
         expect(messages[0]).to.not.have.property('refused');
       });
+
+      // Three events of 3 MiB: two fit in syncAnswerBatchBytes (8 MiB) and the
+      // third starts the next message, though all three are under the count.
+      it(`${fn} closes a message before its events would pass syncAnswerBatchBytes`, async () => {
+        globalState.appStateAuthoritative = true;
+        const stored = ['a', 'b', 'c'].map((hash) => ({
+          type: 'fluxappregister', version: 1, appSpecifications: { name: hash, description: 'x'.repeat(3 * 1024 * 1024) }, hash, timestamp: 1, signature: 's', arcaneSender: true,
+        }));
+        findStub.returns({ sort: () => stored });
+
+        await fluxCommunicationMessagesSender[fn](peer, 0);
+
+        expect(sent().map(({ messages, done }) => [messages.map((m) => m.hash), done])).to.deep.equal([
+          [['a', 'b'], false],
+          [['c'], true],
+        ]);
+      });
+
+      it(`${fn} does not send an event over gossipMessageMaxBytes, and sends the rest`, async () => {
+        globalState.appStateAuthoritative = true;
+        const event = (hash, description) => ({
+          type: 'fluxappregister', version: 1, appSpecifications: { name: hash, description }, hash, timestamp: 1, signature: 's', arcaneSender: true,
+        });
+        const exactly = (hash) => {
+          const shell = Buffer.byteLength(JSON.stringify(event(hash, '')));
+          return event(hash, 'x'.repeat(config.fluxapps.gossipMessageMaxBytes - shell));
+        };
+        const over = event('b', 'x'.repeat(config.fluxapps.gossipMessageMaxBytes));
+        findStub.returns({ sort: () => [exactly('a'), over, event('c', '')] });
+
+        await fluxCommunicationMessagesSender[fn](peer, 0);
+
+        expect(sent().flatMap(({ messages }) => messages.map((m) => m.hash))).to.deep.equal(['a', 'c']);
+      });
+    });
+  });
+
+  describe('a temp sync answer carries what each message\'s admitting node signed', () => {
+    let wasAuthoritative;
+    let peer;
+
+    const origin = {
+      version: 1, timestamp: 1793351627000, pubKey: '04aa', signature: 'sig',
+    };
+    const pending = (hash, fields) => ({
+      type: 'fluxappregister', version: 1, appSpecifications: { name: hash }, hash, timestamp: 1, signature: 's', arcaneSender: true, ...fields,
+    });
+
+    beforeEach(() => {
+      wasAuthoritative = globalState.appStateAuthoritative;
+      globalState.appStateAuthoritative = true;
+      peer = { key: '198.51.100.9:16127', sendAsync: sinon.stub().resolves(), send: sinon.stub(), remoteClockOffsetMs: 0 };
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const stored = [
+        pending('capped', { clientTag: 'a'.repeat(64), clientTagHeight: 3081600, clientTagCap: 100, origin, originKey: '04aa' }),
+        pending('nullcap', { clientTag: 'a'.repeat(64), clientTagHeight: 3081600, clientTagCap: null, origin, originKey: '04aa' }),
+        pending('uncapped', { clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin, originKey: '04aa' }),
+      ];
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => ({ find: () => ({ sort: () => stored }) }) }) });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      globalState.appStateAuthoritative = wasAuthoritative;
+    });
+
+    it('sends a stored client cap as it is, and none where none was stored', async () => {
+      await fluxCommunicationMessagesSender.respondWithTempMessages(peer, 0);
+
+      const [{ messages }] = peer.sendAsync.getCalls().map((c) => JSON.parse(c.args[0]).data);
+      const tagged = { clientTag: 'a'.repeat(64), clientTagHeight: 3081600 };
+      expect(messages).to.deep.equal([
+        pending('capped', { ...tagged, clientTagCap: 100, origin }),
+        pending('nullcap', { ...tagged, origin }),
+        pending('uncapped', { ...tagged, origin }),
+      ]);
     });
   });
 
@@ -688,6 +804,62 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, message);
       sinon.assert.calledOnceWithExactly(checkAppMessageExistenceStub, callMessage.data.hash);
       sinon.assert.calledOnceWithExactly(checkAppTemporaryMessageExistenceStub, callMessage.data.hash);
+    });
+
+    it('should send a pending message\'s client tag and its admitting node\'s signature, and none of the fields stored beside them', async () => {
+      const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+          hash: 'test1',
+          version: 1,
+        },
+      };
+      const origin = {
+        version: 1, timestamp: 1793351627000, pubKey: '04aa', signature: 'sig',
+      };
+      sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(undefined);
+      sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').returns({
+        ...message, origin, originKey: '04aa', clientTag: 'a'.repeat(64), clientTagHeight: 3081600, receivedAt: new Date(),
+      });
+      sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
+      const myMessageCacheSetStub = sinon.stub(FluxTTLCache.prototype, 'set').returns(undefined);
+
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, generateWebsocket());
+
+      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, {
+        ...message, clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin,
+      });
+    });
+
+    [[100, { clientTagCap: 100 }], [null, {}]].forEach(([stored, sentCap]) => {
+      it(`should send the client cap stored as ${stored} beside a pending message ${stored === null ? 'as no cap at all' : 'as it is'}`, async () => {
+        const callMessage = {
+          timestamp: Date.now(),
+          pubKey: '1234asd',
+          signature: 'blabla',
+          version: 1,
+          data: { type: 'fluxapprequest', hash: 'test1', version: 1 },
+        };
+        const origin = {
+          version: 1, timestamp: 1793351627000, pubKey: '04aa', signature: 'sig',
+        };
+        sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(undefined);
+        sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').returns({
+          ...message, origin, originKey: '04aa', clientTag: 'a'.repeat(64), clientTagHeight: 3081600, clientTagCap: stored, receivedAt: new Date(),
+        });
+        sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
+        const myMessageCacheSetStub = sinon.stub(FluxTTLCache.prototype, 'set').returns(undefined);
+
+        await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, generateWebsocket());
+
+        sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, {
+          ...message, clientTag: 'a'.repeat(64), clientTagHeight: 3081600, ...sentCap, origin,
+        });
+      });
     });
 
     it('should do nothing if the message does not exist', async () => {
@@ -1955,228 +2127,4 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
   });
 
-  describe('broadcastTemporaryAppMessage tests', () => {
-    const generateOutgoingWebsocket = (ip, port, readyState) => {
-      const ws = {};
-      ws.port = String(port);
-      ws.ip = ip;
-      ws.readyState = readyState;
-      ws.ping = sinon.stub().returns('pong');
-      ws.send = sinon.stub().returns('okay');
-      ws.on = sinon.stub();
-      ws.close = sinon.stub();
-      ws._socket = {
-        remoteAddress: ip,
-      };
-      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
-      ws.send.resetHistory();
-      return ws;
-    };
-    const generateIncomingWebsocket = (ip, port, readyState) => {
-      const ws = {};
-      ws.port = String(port);
-      ws.ip = ip;
-      ws.readyState = readyState;
-      ws.ping = sinon.stub().returns('pong');
-      ws.send = sinon.stub().returns('okay');
-      ws.on = sinon.stub();
-      ws.close = sinon.stub();
-      ws._socket = {
-        remoteAddress: ip,
-      };
-      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
-      ws.send.resetHistory();
-      return ws;
-    };
-
-    beforeEach(() => {
-      peerManager.reset();
-      sinon.stub(serviceHelper, 'delay').resolves();
-      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
-      sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should send a message to incoming and outgoing connections when app message is properly formatted', async () => {
-      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'fluxapp',
-        version: 3,
-        appSpecifications: {
-          specs: 'some specs',
-          specs2: 'some specs 2',
-        },
-        hash: '12346789asdfghj',
-        timestamp: 168732333,
-        signature: 'signature12345',
-      };
-      const websocketIn = generateIncomingWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-      const websocketOut = generateOutgoingWebsocket('127.0.0.3', 16127, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/type/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/fluxapp/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/appSpecifications/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/specs/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/specs 2/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/some specs/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/some specs 2/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/hash/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/12346789asdfghj/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/timestamp/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature/gm));
-      sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match(/signature12345/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match.string);
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/type/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/fluxapp/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/appSpecifications/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/specs/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/specs 2/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/some specs/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/some specs 2/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/hash/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/12346789asdfghj/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/timestamp/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/signature/gm));
-      sinon.assert.calledOnceWithExactly(websocketOut.send, sinon.match(/signature12345/gm));
-    });
-
-    it('should throw an error if the message is not an object', async () => {
-      const temporaryAppMessage = 'test';
-      const websocketIn = generateIncomingWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-      const websocketOut = generateOutgoingWebsocket('127.0.0.3', 16127, WebSocket.OPEN);
-
-      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
-
-      sinon.assert.notCalled(websocketIn.send);
-      sinon.assert.notCalled(websocketOut.send);
-    });
-
-    it('should throw an error if the message.type is not a string', async () => {
-      const temporaryAppMessage = {
-        type: 1,
-        version: 3,
-        appSpecifications: {
-          specs: 'some specs',
-          specs2: 'some specs 2',
-        },
-        hash: '12346789asdfghj',
-        timestamp: 168732333,
-        signature: 'signature12345',
-      };
-      const websocketIn = generateIncomingWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-      const websocketOut = generateOutgoingWebsocket('127.0.0.3', 16127, WebSocket.OPEN);
-
-      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
-
-      sinon.assert.notCalled(websocketIn.send);
-      sinon.assert.notCalled(websocketOut.send);
-    });
-
-    it('should throw an error if the message.version is not a number', async () => {
-      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'fluxapp',
-        version: '3',
-        appSpecifications: {
-          specs: 'some specs',
-          specs2: 'some specs 2',
-        },
-        hash: '12346789asdfghj',
-        timestamp: 168732333,
-        signature: 'signature12345',
-      };
-      const websocketIn = generateIncomingWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-      const websocketOut = generateOutgoingWebsocket('127.0.0.3', 16127, WebSocket.OPEN);
-
-      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
-
-      sinon.assert.notCalled(websocketIn.send);
-      sinon.assert.notCalled(websocketOut.send);
-    });
-
-    it('should throw an error if the message.appSpecifications is not an object', async () => {
-      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'fluxapp',
-        version: 3,
-        appSpecifications: 'test',
-        hash: '12346789asdfghj',
-        timestamp: 168732333,
-        signature: 'signature12345',
-      };
-      const websocketIn = generateIncomingWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-      const websocketOut = generateOutgoingWebsocket('127.0.0.3', 16127, WebSocket.OPEN);
-
-      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
-
-      sinon.assert.notCalled(websocketIn.send);
-      sinon.assert.notCalled(websocketOut.send);
-    });
-
-    it('should throw an error if the message.hash is not a string', async () => {
-      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'fluxapp',
-        version: 3,
-        appSpecifications: {
-          specs: 'some specs',
-          specs2: 'some specs 2',
-        },
-        hash: 2,
-        timestamp: 168732333,
-        signature: 'signature12345',
-      };
-      const websocketIn = generateIncomingWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-      const websocketOut = generateOutgoingWebsocket('127.0.0.3', 16127, WebSocket.OPEN);
-
-      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
-
-      sinon.assert.notCalled(websocketIn.send);
-      sinon.assert.notCalled(websocketOut.send);
-    });
-
-    it('should throw an error if the message.timestamp is not a number', async () => {
-      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'fluxapp',
-        version: 3,
-        appSpecifications: {
-          specs: 'some specs',
-          specs2: 'some specs 2',
-        },
-        hash: 'testestest',
-        timestamp: '168732333',
-        signature: 'signature12345',
-      };
-      const websocketIn = generateIncomingWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-      const websocketOut = generateOutgoingWebsocket('127.0.0.3', 16127, WebSocket.OPEN);
-
-      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
-
-      sinon.assert.notCalled(websocketIn.send);
-      sinon.assert.notCalled(websocketOut.send);
-    });
-
-    it('should throw an error if the message.singature is not a string', async () => {
-      const temporaryAppMessage = { // specification of temp message, these are not verified in this function
-        type: 'fluxapp',
-        version: 3,
-        appSpecifications: {
-          specs: 'some specs',
-          specs2: 'some specs 2',
-        },
-        hash: 2,
-        timestamp: 168732333,
-        signature: 2,
-      };
-      const websocketIn = generateIncomingWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-      const websocketOut = generateOutgoingWebsocket('127.0.0.3', 16127, WebSocket.OPEN);
-
-      await expect(fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage)).to.eventually.be.rejectedWith('Invalid Flux App message for storing');
-
-      sinon.assert.notCalled(websocketIn.send);
-      sinon.assert.notCalled(websocketOut.send);
-    });
-  });
 });

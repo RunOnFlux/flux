@@ -86,8 +86,9 @@ export function assignPorts(components, appName, { allowPortReuse = false } = {}
     // Checked before allowPortReuse, because that opt-out is about two apps
     // sharing a port on purpose - it says nothing about reaching into the
     // allocator's range, which is never right.
+    const allocated = allocatedByApp.get(appName) ?? [];
     for (const port of declared.map(Number)) {
-      if (port >= ALLOCATION_BASE) {
+      if (port >= ALLOCATION_BASE && !allocated.includes(port)) {
         throw new Error(
           `'${appName}' asks for port ${port}, which is inside the range the harness hands out `
           + `(${ALLOCATION_BASE} and up). Leave the port off and one will be allocated, or name a port below `

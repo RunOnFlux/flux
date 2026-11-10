@@ -1,15 +1,20 @@
 const chai = require('chai');
+const config = require('config');
 const sinon = require('sinon');
 const EventEmitter = require('events');
 const WebSocket = require('ws');
 
 const { expect } = chai;
 
-const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const {
+  FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, arrivedAuthenticated,
+} = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');
 const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const log = require('../../ZelBack/src/lib/log');
+const messageRoutes = require('../../ZelBack/src/services/utils/messageRoutes');
+const { INTENT } = require('../../ZelBack/src/services/utils/messageIntent');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
 // Loaded for its side effect: the transport declares the routing table as it loads, and the
@@ -569,6 +574,102 @@ describe('FluxPeerSocket tests', () => {
       sinon.assert.calledOnce(manager.messageDispatcher);
     });
 
+    describe('the per-message limit', () => {
+      const limit = config.fluxapps.gossipMessageMaxBytes;
+      // A frame of exactly `bytes` bytes.
+      const frameOf = (type, bytes) => {
+        const shell = JSON.stringify({ data: { type, messages: [], pad: '' } });
+        return JSON.stringify({ data: { type, messages: [], pad: 'x'.repeat(bytes - shell.length) } });
+      };
+      const open = () => {
+        const ws = createMockWs();
+        const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+        peer.source = PEER_SOURCE.RANDOM;
+        return ws;
+      };
+
+      beforeEach(() => {
+        sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      });
+
+      it('dispatches a broadcast of exactly the limit', async () => {
+        open().onmessage({ data: frameOf('fluxappregister', limit) });
+        await new Promise(setImmediate);
+        sinon.assert.calledOnce(manager.messageDispatcher);
+      });
+
+      it('drops a broadcast one byte over the limit', async () => {
+        open().onmessage({ data: frameOf('fluxappregister', limit + 1) });
+        await new Promise(setImmediate);
+        sinon.assert.notCalled(manager.messageDispatcher);
+      });
+
+      it('hands a wanted sync answer over the limit to the sync dispatcher', async () => {
+        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        open().onmessage({ data: frameOf('fluxapptempsync', limit + 1) });
+        await new Promise(setImmediate);
+        sinon.assert.calledOnce(manager.syncResponseDispatcher);
+        sinon.assert.notCalled(manager.messageDispatcher);
+      });
+    });
+
+    describe('the frame limit', () => {
+      const limit = config.fluxapps.peerFrameMaxBytes;
+      const open = (capabilities = []) => {
+        const ws = createMockWs();
+        const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+        peer.source = PEER_SOURCE.RANDOM;
+        capabilities.forEach((capability) => peer.remoteCapabilities.add(capability));
+        return ws;
+      };
+      const over = () => `{"data":{"type":"fluxapptempsync","pad":"${'x'.repeat(limit)}"}}`;
+
+      beforeEach(() => {
+        sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      });
+
+      it('closes on a frame over it from a peer that owes no sync answer, without parsing it', () => {
+        const ws = open();
+        const published = sinon.stub(fluxEventBus, 'publish');
+        const parsed = sinon.spy(JSON, 'parse');
+
+        ws.onmessage({ data: over() });
+
+        expect(parsed.called).to.equal(false);
+        sinon.assert.calledOnce(ws.close);
+        sinon.assert.calledWith(published, 'peers:frameDropped', sinon.match({ reason: 'frameLimit', type: null }));
+      });
+
+      it('takes a frame over it from a count-batching peer that owes a sync answer', async () => {
+        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        const ws = open();
+
+        ws.onmessage({ data: over() });
+        await new Promise(setImmediate);
+
+        sinon.assert.notCalled(ws.close);
+        sinon.assert.calledOnce(manager.syncResponseDispatcher);
+      });
+
+      it('holds a peer that batches by bytes to it, even while it owes a sync answer', () => {
+        sinon.stub(manager, 'isSyncResponseWanted').returns(true);
+        const ws = open(['arcaneLink']);
+
+        ws.onmessage({ data: over() });
+
+        sinon.assert.calledOnce(ws.close);
+      });
+
+      it('takes a frame of exactly the limit from any peer', () => {
+        const ws = open(['arcaneLink']);
+        const shell = over().length - limit;
+
+        ws.onmessage({ data: `{"data":{"type":"fluxapptempsync","pad":"${'x'.repeat(limit - shell)}"}}` });
+
+        sinon.assert.notCalled(ws.close);
+      });
+    });
+
     it('should route sync responses to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
@@ -674,6 +775,222 @@ describe('FluxPeerSocket tests', () => {
       await ws.onmessage(undefined);
 
       sinon.assert.notCalled(manager.messageDispatcher);
+    });
+  });
+
+  describe('link MAC', () => {
+    const keyAtoB = Buffer.alloc(32, 1);
+    const keyBtoA = Buffer.alloc(32, 2);
+
+    function linkedPair({ aAuthenticated = true, bAuthenticated = true } = {}) {
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      const a = new FluxPeerSocket(createMockWs('10.0.0.2'), '10.0.0.2', '16127', manager);
+      const b = new FluxPeerSocket(createMockWs('10.0.0.1'), '10.0.0.1', '16127', manager);
+      a.link = {
+        authenticated: aAuthenticated, failed: null, sendKey: keyAtoB, recvKey: keyBtoA, sendNumber: 0, recvNumber: -1,
+      };
+      b.link = {
+        authenticated: bAuthenticated, failed: null, sendKey: keyBtoA, recvKey: keyAtoB, sendNumber: 0, recvNumber: -1,
+      };
+      return { a, b };
+    }
+
+    async function deliver(socket, frame) {
+      socket.ws.onmessage({ data: frame });
+      await new Promise(setImmediate);
+      return manager.messageDispatcher.lastCall?.args[0];
+    }
+
+    const frame = JSON.stringify({ version: 1, data: { type: 'fluxappregister' } });
+
+    it('should MAC a text frame on an authenticated link and mark what arrives under it', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0];
+      expect(sent[0]).to.equal('M');
+
+      const msgObj = await deliver(b, sent);
+
+      expect(msgObj.data.type).to.equal('fluxappregister');
+      expect(arrivedAuthenticated(msgObj)).to.equal(true);
+    });
+
+    it('should MAC the transmission timestamp with the frame', async () => {
+      const { a, b } = linkedPair();
+      a.remoteCapabilities = new Set(['transmissionTimestamps']);
+      const sending = a.sendAsync(frame);
+      a.ws.send.firstCall.args[1]();
+      expect(await sending).to.equal(true);
+      const sent = a.ws.send.firstCall.args[0];
+      expect(sent.substring(66, 69)).to.equal('0|T');
+
+      const msgObj = await deliver(b, sent);
+
+      expect(arrivedAuthenticated(msgObj)).to.equal(true);
+      expect(b.lastTransmissionDelay).to.be.a('number');
+    });
+
+    it('should drop a frame whose content was changed after the MAC', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0].replace('fluxappregister', 'fluxappupdate');
+
+      await deliver(b, sent);
+
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should drop a frame it has already taken, and take the next', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      a.send(frame);
+      const [first, second] = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, first);
+      await deliver(b, first);
+      sinon.assert.calledOnce(manager.messageDispatcher);
+      await deliver(b, second);
+      sinon.assert.calledTwice(manager.messageDispatcher);
+    });
+
+    it('should drop a frame older than the last it took', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      a.send(frame);
+      const [first, second] = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, second);
+      await deliver(b, first);
+
+      sinon.assert.calledOnce(manager.messageDispatcher);
+    });
+
+    it('should take a frame numbered past a gap', async () => {
+      const { a, b } = linkedPair();
+      [0, 1, 2].forEach(() => a.send(frame));
+      const sent = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, sent[0]);
+      await deliver(b, sent[2]);
+
+      sinon.assert.calledTwice(manager.messageDispatcher);
+    });
+
+    it('should say why it dropped a frame', async () => {
+      const { a, b } = linkedPair();
+      const published = sinon.stub(fluxEventBus, 'publish');
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0];
+
+      await deliver(b, sent);
+      await deliver(b, sent);
+
+      sinon.assert.calledWith(published, 'peers:frameDropped', sinon.match({ ip: '10.0.0.1', reason: 'linkMac' }));
+    });
+
+    it('should check MAC\'d frames as they arrive during the handshake and take them in order at join', async () => {
+      const { a, b } = linkedPair({ bAuthenticated: false });
+      b.handshaking = true;
+      a.send(JSON.stringify({ version: 1, data: { type: 'fluxappregister' } }));
+      a.send(JSON.stringify({ version: 1, data: { type: 'fluxappupdate' } }));
+      const [first, second] = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, first);
+      await deliver(b, first);
+      await deliver(b, second);
+      sinon.assert.notCalled(manager.messageDispatcher);
+
+      b.handshaking = false;
+      b.flushQueuedFrames();
+      await new Promise(setImmediate);
+
+      const taken = manager.messageDispatcher.getCalls().map((call) => call.args[0]);
+      expect(taken.map((msgObj) => msgObj.data.type)).to.eql(['fluxappregister', 'fluxappupdate']);
+      taken.forEach((msgObj) => expect(arrivedAuthenticated(msgObj)).to.equal(true));
+    });
+
+    it('should take frames that waited on the handshake when a later frame is handled before them', async () => {
+      const { a, b } = linkedPair({ bAuthenticated: false });
+      b.handshaking = true;
+      [0, 1, 2].forEach(() => a.send(frame));
+      const sent = a.ws.send.getCalls().map((call) => call.args[0]);
+
+      await deliver(b, sent[0]);
+      await deliver(b, sent[1]);
+      b.handshaking = false;
+      await deliver(b, sent[2]);
+      b.flushQueuedFrames();
+      await new Promise(setImmediate);
+
+      sinon.assert.callCount(manager.messageDispatcher, 3);
+    });
+
+    it('should drop a frame sent back to the socket that made it', async () => {
+      const { a } = linkedPair();
+      a.send(frame);
+
+      await deliver(a, a.ws.send.firstCall.args[0]);
+
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should drop a MAC\'d frame on a link that has no keys, or whose handshake failed', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0];
+      const keyless = new FluxPeerSocket(createMockWs('10.0.0.1'), '10.0.0.1', '16127', manager);
+      b.link.failed = 'confirm';
+
+      await deliver(keyless, sent);
+      await deliver(b, sent);
+
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should take a valid MAC before this end has read the peer\'s confirm', async () => {
+      const { a, b } = linkedPair({ bAuthenticated: false });
+      a.send(frame);
+
+      const msgObj = await deliver(b, a.ws.send.firstCall.args[0]);
+
+      expect(arrivedAuthenticated(msgObj)).to.equal(true);
+    });
+
+    it('should send plain frames and leave them unmarked on a link that has not authenticated', async () => {
+      const { a, b } = linkedPair({ aAuthenticated: false });
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0];
+      expect(sent).to.equal(frame);
+
+      const msgObj = await deliver(b, sent);
+
+      expect(arrivedAuthenticated(msgObj)).to.equal(false);
+    });
+
+    it('should hand the admission messages over only from a MAC\'d frame', async () => {
+      const { a, b } = linkedPair({ aAuthenticated: false });
+      manager.linkMessageDispatcher = sinon.stub();
+      const receipt = JSON.stringify({ type: 'appreceipt', hash: 'h', state: 'held' });
+
+      a.send(receipt);
+      await deliver(b, a.ws.send.firstCall.args[0]);
+      sinon.assert.notCalled(manager.linkMessageDispatcher);
+
+      a.link.authenticated = true;
+      a.send(receipt);
+      await deliver(b, a.ws.send.secondCall.args[0]);
+      sinon.assert.calledOnce(manager.linkMessageDispatcher);
+      expect(manager.linkMessageDispatcher.firstCall.args[1]).to.equal(b);
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should send a binary frame as it is', () => {
+      const { a } = linkedPair();
+      const buf = Buffer.from([1, 2, 3]);
+
+      a.send(buf);
+
+      expect(a.ws.send.firstCall.args[0]).to.equal(buf);
     });
   });
 
@@ -958,6 +1275,277 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
+  describe('a connection whose link handshakes before it joins', () => {
+    const KEY = '10.0.0.1:16127';
+    let settle;
+
+    beforeEach(() => {
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      manager.linkHandshake = () => new Promise((resolve) => { settle = resolve; });
+      manager.handshakeFrameVerifier = sinon.stub().resolves(true);
+      manager.handshakeFrameDispatcher = sinon.stub();
+    });
+
+    before(() => {
+      messageRoutes.register(['fluxlinknonce', 'fluxlinkconfirm'], () => {}, messageRoutes.ROUTE.HANDSHAKE, INTENT.VARIES);
+    });
+
+    const addHandshaking = (ip = '10.0.0.1') => manager.add(createMockWs(ip), ip, '16127', { source: PEER_SOURCE.RANDOM });
+    const frame = (type) => JSON.stringify({ version: 1, data: { type } });
+    const linkFrame = (data, timestamp = 1) => peerCodec.encodeLinkFrame({
+      timestamp, pubKey: '02'.repeat(33), signature: Buffer.alloc(65, 1).toString('base64'), data,
+    });
+    const nonceFrame = (timestamp) => linkFrame({ type: 'fluxlinknonce', version: 1, nonce: 'ab'.repeat(32) }, timestamp);
+    const confirmFrame = () => linkFrame({ type: 'fluxlinkconfirm', version: 1, mac: 'cd'.repeat(32) });
+    const flush = async () => {
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(setImmediate);
+      }
+    };
+
+    it('should join at once when no handshake applies', () => {
+      manager.linkHandshake = () => null;
+      const connected = sinon.spy();
+      manager.on('peerConnected', connected);
+
+      addHandshaking();
+
+      expect(manager.has(KEY)).to.equal(true);
+      sinon.assert.calledOnce(connected);
+    });
+
+    it('should neither count nor announce a connection whose handshake has not settled, and hold it as the connection to its key', () => {
+      const connected = sinon.spy();
+      manager.on('peerConnected', connected);
+
+      const peer = addHandshaking();
+
+      expect(manager.has(KEY)).to.equal(false);
+      expect(manager.outboundCount).to.equal(0);
+      expect(manager.getNumberOfPeers()).to.equal(0);
+      expect(manager.connectionTo(KEY)).to.equal(peer);
+      expect(manager.isPending(KEY)).to.equal(true);
+      sinon.assert.notCalled(connected);
+    });
+
+    it('should join it, announced once, when its handshake settles', async () => {
+      const connected = sinon.spy();
+      manager.on('peerConnected', connected);
+      const peer = addHandshaking();
+
+      settle();
+      await flush();
+
+      expect(manager.get(KEY)).to.equal(peer);
+      expect(peer.handshaking).to.equal(false);
+      expect(manager.outboundCount).to.equal(1);
+      sinon.assert.calledOnceWithExactly(connected, KEY, peer.connectionId);
+    });
+
+    it('should join it unauthenticated at linkHandshakeDeadlineMs when the handshake never settles', () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const peer = addHandshaking();
+
+      clock.tick(config.fluxapps.linkHandshakeDeadlineMs - 1);
+      expect(manager.has(KEY)).to.equal(false);
+      clock.tick(1);
+
+      expect(manager.get(KEY)).to.equal(peer);
+      clock.restore();
+    });
+
+    it('should handle the handshake\'s own frames at once and hand the rest over, in order, once it joins', async () => {
+      const peer = addHandshaking();
+
+      peer.ws.onmessage({ data: frame('fluxapprunning') });
+      peer.ws.onmessage({ data: nonceFrame() });
+      peer.ws.onmessage({ data: confirmFrame() });
+      peer.ws.onmessage({ data: frame('fluxipchanged') });
+      await flush();
+      const handled = (stub) => stub.getCalls().map((c) => c.args[0].data.type);
+      expect(handled(manager.handshakeFrameDispatcher)).to.eql(['fluxlinknonce', 'fluxlinkconfirm']);
+      expect(handled(manager.messageDispatcher)).to.eql([]);
+
+      settle();
+      await flush();
+
+      expect(handled(manager.handshakeFrameDispatcher)).to.eql(['fluxlinknonce', 'fluxlinkconfirm']);
+      expect(handled(manager.messageDispatcher)).to.eql(['fluxapprunning', 'fluxipchanged']);
+    });
+
+    describe('its frames on a joined connection', () => {
+      const addJoined = (ip = '10.0.0.2') => {
+        const peer = addHandshaking(ip);
+        settle();
+        return peer;
+      };
+      const nonce = (id) => nonceFrame(id);
+      const handledIds = () => manager.handshakeFrameDispatcher.getCalls().map((c) => c.args[0].timestamp);
+
+      it('should handle them in arrival order whatever order their verifications finish in', async () => {
+        const answers = [];
+        manager.handshakeFrameVerifier = sinon.stub().callsFake(() => new Promise((resolve) => { answers.push(resolve); }));
+        const peer = addJoined();
+        await flush();
+        [1, 2, 3].forEach((id) => peer.ws.onmessage({ data: nonce(id) }));
+        await flush();
+        expect(manager.handshakeFrameVerifier.callCount, 'every verification started on arrival').to.equal(3);
+
+        answers[2](true);
+        answers[1](true);
+        await flush();
+        expect(handledIds(), 'nothing is handled ahead of the first').to.eql([]);
+
+        answers[0](true);
+        await flush();
+        expect(handledIds()).to.eql([1, 2, 3]);
+      });
+
+      it('should step over a frame that does not verify and handle the next', async () => {
+        manager.handshakeFrameVerifier = sinon.stub().callsFake((msg) => Promise.resolve(msg.timestamp !== 2));
+        const peer = addJoined();
+        await flush();
+        [1, 2, 3].forEach((id) => peer.ws.onmessage({ data: nonce(id) }));
+        await flush();
+
+        expect(handledIds()).to.eql([1, 3]);
+      });
+
+      it('should drop a frame past the most a connection holds, and take frames again once they are handled', async () => {
+        const answers = [];
+        manager.handshakeFrameVerifier = sinon.stub().callsFake(() => new Promise((resolve) => { answers.push(resolve); }));
+        const peer = addJoined();
+        await flush();
+        const dropped = sinon.stub(fluxEventBus, 'publish');
+        for (let id = 1; id <= 9; id += 1) peer.ws.onmessage({ data: nonce(id) });
+        await flush();
+
+        expect(manager.handshakeFrameVerifier.callCount).to.equal(8);
+        sinon.assert.calledWith(dropped, 'peers:frameDropped', sinon.match({ reason: 'handshakeHeld', type: 'fluxlinknonce' }));
+
+        answers.forEach((answer) => answer(true));
+        await flush();
+        expect(handledIds()).to.eql([1, 2, 3, 4, 5, 6, 7, 8]);
+
+        peer.ws.onmessage({ data: nonce(10) });
+        answers[8](true);
+        await flush();
+        expect(handledIds().at(-1)).to.equal(10);
+      });
+
+      it('should keep each connection\'s frames to itself', async () => {
+        const answers = [];
+        manager.handshakeFrameVerifier = sinon.stub().callsFake(() => new Promise((resolve) => { answers.push(resolve); }));
+        const held = addJoined('10.0.0.3');
+        const other = addJoined('10.0.0.4');
+        await flush();
+        held.ws.onmessage({ data: nonce(1) });
+        other.ws.onmessage({ data: nonce(2) });
+        answers[1](true);
+        await flush();
+
+        expect(handledIds(), 'another connection\'s held frame holds nothing back').to.eql([2]);
+      });
+
+      it('should close on one over the layout\'s size, unverified and unparsed', async () => {
+        const peer = addJoined();
+        await flush();
+        const parsed = sinon.spy(JSON, 'parse');
+        peer.ws.onmessage({ data: Buffer.alloc(peerCodec.LINK_FRAME_MAX_BYTES + 1, peerCodec.MSG_TYPE.LINK_NONCE) });
+        await flush();
+
+        expect(parsed.called).to.equal(false);
+        sinon.assert.notCalled(manager.handshakeFrameVerifier);
+        sinon.assert.calledOnce(peer.ws.close);
+      });
+
+      it('should take no part of the handshake from a text frame', async () => {
+        const peer = addHandshaking();
+        peer.ws.onmessage({ data: frame('fluxlinknonce') });
+        settle();
+        await flush();
+
+        sinon.assert.notCalled(manager.handshakeFrameVerifier);
+      });
+    });
+
+    it('should hold binary frames until it joins', async () => {
+      const handled = sinon.stub(manager, 'handleBinaryMessage');
+      const peer = addHandshaking();
+
+      peer.ws.onmessage({ data: Buffer.from([1, 2, 3]) });
+      expect(handled.called).to.equal(false);
+      settle();
+      await flush();
+
+      sinon.assert.calledOnce(handled);
+    });
+
+    it('should close a connection that sends more than it may before its handshake settles', () => {
+      const peer = addHandshaking();
+      for (let i = 0; i < 256; i += 1) peer.ws.onmessage({ data: frame('fluxapprunning') });
+      sinon.assert.notCalled(peer.ws.close);
+
+      peer.ws.onmessage({ data: frame('fluxapprunning') });
+
+      sinon.assert.calledOnce(peer.ws.close);
+    });
+
+    // Bytes, not only frames: four frames of a quarter MiB fill the queue, and one byte more closes it.
+    it('should close a connection whose queued frames pass 1 MiB before its handshake settles', () => {
+      const peer = addHandshaking();
+      const quarter = (n) => {
+        const shell = frame('fluxapprunning').length;
+        return JSON.stringify({ version: 1, data: { type: 'fluxapprunning', pad: 'x'.repeat(n - shell - 10) } });
+      };
+      const sized = quarter(256 * 1024);
+      const fill = sized + ' '.repeat(256 * 1024 - Buffer.byteLength(sized));
+      for (let i = 0; i < 4; i += 1) peer.ws.onmessage({ data: fill });
+      sinon.assert.notCalled(peer.ws.close);
+
+      peer.ws.onmessage({ data: ' ' });
+
+      sinon.assert.calledOnce(peer.ws.close);
+    });
+
+    it('should forget a connection that closes before its handshake settles, with no disconnect and no reconnect', async () => {
+      const disconnected = sinon.spy();
+      manager.on('peerDisconnected', disconnected);
+      const peer = addHandshaking();
+
+      peer.ws.onclose({ code: 1006 });
+      settle();
+      await flush();
+
+      expect(manager.connectionTo(KEY)).to.equal(undefined);
+      expect(manager.isPending(KEY)).to.equal(false);
+      expect(manager.getReconnectQueue().size).to.equal(0);
+      sinon.assert.notCalled(disconnected);
+    });
+
+    it('should close a handshaking connection that a new one to its key replaces', () => {
+      const first = addHandshaking();
+
+      const second = addHandshaking();
+
+      sinon.assert.calledOnce(first.ws.close);
+      expect(manager.connectionTo(KEY)).to.equal(second);
+    });
+
+    it('should refuse an inbound connection to a key whose handshake is still running', () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      manager.add(createMockWs('31.200.1.10'), '31.200.1.10', '16127', { source: PEER_SOURCE.INBOUND });
+      const ws = createMockWs('31.200.1.10');
+
+      manager.validateAndAddInbound(ws, '16127', createMockReq('31.200.1.10'));
+      clock.tick(1000);
+
+      sinon.assert.calledWith(ws.close, CLOSE_CODES.DUPLICATE_PEER);
+      clock.restore();
+    });
+  });
+
   describe('add', () => {
     it('should create FluxPeerSocket, insert into map and correct direction set', () => {
       const ws = createMockWs('10.0.0.1', '16127');
@@ -1161,7 +1749,50 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
+  describe('noteAuthenticatedLinkGained', () => {
+    it('announces the key whose joined link authenticated', () => {
+      const gained = [];
+      manager.on('authenticatedLinkGained', (key) => gained.push(key));
+
+      manager.noteAuthenticatedLinkGained('10.0.0.1:16127');
+
+      expect(gained).to.deep.equal(['10.0.0.1:16127']);
+    });
+  });
+
   describe('remove', () => {
+    it('announces a lost authenticated link, and nothing for a link that was not authenticated', () => {
+      const lost = [];
+      manager.on('authenticatedLinkLost', (key) => lost.push(key));
+      const authenticated = manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      authenticated.link = { authenticated: true };
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
+
+      manager.remove('10.0.0.1:16127', 1006);
+      manager.remove('10.0.0.2:16127', 1006);
+
+      expect(lost).to.deep.equal(['10.0.0.1:16127']);
+    });
+
+    it('neither counts toward instability nor redials a link closed for not being an Arcane one', () => {
+      for (let i = 0; i < 10; i += 1) {
+        manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.ARCANE });
+        manager.remove('10.0.0.1:16127', CLOSE_CODES.NOT_ARCANE_LINK);
+      }
+
+      expect(manager.isUnstable('10.0.0.1', '16127')).to.equal(false);
+      expect(manager.getReconnectCandidates().map((c) => c.key)).to.not.include('10.0.0.1:16127');
+    });
+
+    it('still counts another close toward instability', () => {
+      for (let i = 0; i < 10; i += 1) {
+        manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        manager.remove('10.0.0.1:16127', 1006);
+      }
+
+      expect(manager.isUnstable('10.0.0.1', '16127')).to.equal(true);
+    });
+
     it('should delete from map and correct direction set, return removed peer', () => {
       const ws = createMockWs('10.0.0.1', '16127');
       const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
@@ -1928,6 +2559,48 @@ describe('FluxPeerManager tests', () => {
         sinon.assert.calledWith(ws.close, 4000, sinon.match(/Max number/));
         done();
       }, 1100);
+    });
+
+    // Valter's case: a caller claiming arcaneLink holds a socket in the handshake,
+    // and the handshake never settles. Those sockets count toward maxCon.
+    it('should refuse an inbound connection beyond maxCon while the earlier ones are still handshaking', () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      manager.numberOfFluxNodes = 0;
+      manager.linkHandshake = () => new Promise(() => {});
+      const maxCon = 4 * config.fluxapps.minIncoming;
+      const arcane = (ip) => createMockReq(ip, { 'x-flux-capabilities': 'arcaneLink' });
+      const sockets = [];
+      for (let i = 0; i <= maxCon; i += 1) {
+        const ip = `8.8.${Math.floor(i / 250)}.${(i % 250) + 1}`;
+        const ws = createMockWs(ip);
+        sockets.push(ws);
+        manager.validateAndAddInbound(ws, '16127', arcane(ip));
+      }
+      expect(manager.inboundCount, 'none has joined').to.equal(0);
+      expect(manager.connectionTo('8.8.0.1:16127'), 'the first is held, handshaking').to.not.equal(undefined);
+
+      const extra = createMockWs('9.9.9.9');
+      manager.validateAndAddInbound(extra, '16127', arcane('9.9.9.9'));
+      clock.tick(1000);
+
+      sinon.assert.calledWith(extra.close, CLOSE_CODES.MAX_CONNECTIONS, sinon.match(/Max number/));
+      expect(manager.connectionTo('9.9.9.9:16127')).to.equal(undefined);
+      sockets.forEach((ws) => sinon.assert.notCalled(ws.close));
+      clock.restore();
+    });
+
+    it('should refuse a path port that is not one of allowedPorts, or not written as one', () => {
+      manager.numberOfFluxNodes = 10000;
+      ['16128', '016127', '16127 ', '+16127', '0'].forEach((port) => {
+        const ws = createMockWs('8.8.8.8');
+        manager.validateAndAddInbound(ws, port, createMockReq('8.8.8.8'));
+        sinon.assert.calledWith(ws.close, CLOSE_CODES.PORT_NOT_ALLOWED, 'port not allowed');
+      });
+      expect(manager.inboundCount).to.equal(0);
+
+      const allowed = createMockWs('8.8.8.8');
+      manager.validateAndAddInbound(allowed, '16197', createMockReq('8.8.8.8'));
+      expect(manager.has('8.8.8.8:16197')).to.equal(true);
     });
 
     it('should reject private IPs', (done) => {
@@ -3034,6 +3707,20 @@ describe('FluxPeerManager tests', () => {
     });
 
     describe('broadcastHash', () => {
+      it('should announce to nobody it is told to skip', () => {
+        const told = createMockWs('44.0.0.1');
+        manager.add(told, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        const skipped = createMockWs('45.0.0.1');
+        manager.add(skipped, '45.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        told.send.resetHistory();
+        skipped.send.resetHistory();
+
+        manager.broadcastHash('abcdef0123456789abcdef0123456789abcdef01', null, new Set(['45.0.0.1:16127']));
+
+        sinon.assert.calledOnce(told.send);
+        sinon.assert.notCalled(skipped.send);
+      });
+
       it('should send binary to capable peers and JSON to others', () => {
         const ws1 = createMockWs('44.0.0.1');
         manager.add(ws1, '44.0.0.1', '16127', {

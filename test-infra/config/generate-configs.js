@@ -7,7 +7,7 @@ const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'fixtures', 'node
 
 function databaseConfig(prefix) {
   return {
-    url: '31.200.0.2',
+    url: '25.192.0.2',
     port: 27017,
     local: {
       database: `${prefix}zelfluxlocal`,

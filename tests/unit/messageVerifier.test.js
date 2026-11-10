@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('messageVerifier tests', () => {
   let messageVerifier;
@@ -157,8 +158,10 @@ describe('messageVerifier tests', () => {
     let updateOneInDatabaseStub;
     let verifierWithStubs;
     let buildVerifier;
+    let storeAppTemporaryMessageStub;
 
     beforeEach(() => {
+      storeAppTemporaryMessageStub = sinon.stub().resolves();
       getPreviousAppSpecsStub = sinon.stub();
       signatureVerifierStub = { verifySignature: sinon.stub().returns(true) };
       storeAppPermanentMessageStub = sinon.stub().resolves();
@@ -234,7 +237,7 @@ describe('messageVerifier tests', () => {
         },
         './messageStore': {
           storeAppPermanentMessage: storeAppPermanentMessageStub,
-          storeAppTemporaryMessage: sinon.stub().resolves(),
+          storeAppTemporaryMessage: storeAppTemporaryMessageStub,
         },
         '../utils/appUtilities': {
           appPricePerMonth: sinon.stub().returns(1000),
@@ -329,6 +332,39 @@ describe('messageVerifier tests', () => {
         expect(result).to.equal(true);
         expect(markedResolved()).to.be.true;
         expect(storeAppSpecificationInForceStub.calledBefore(updateOneInDatabaseStub)).to.be.true;
+      });
+
+      describe('the updates queued behind it', () => {
+        const queuedUpdate = (hash) => ({
+          message: { type: 'fluxappupdate', hash, appSpecifications: { name: 'testapp' } }, height: 2000001, release: sinon.stub(),
+        });
+
+        it('replays each, and gives back each one\'s place in its sender\'s allowance once every replay has run', async () => {
+          const queued = [queuedUpdate('u1'), queuedUpdate('u2')];
+          sinon.stub(globalState, 'getPendingUpdates').returns(queued);
+          const verifier = buildVerifier({ tempMessage: registration, paymentRecord: paidInFull });
+
+          await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+          sinon.assert.calledTwice(storeAppTemporaryMessageStub);
+          sinon.assert.calledWithExactly(storeAppTemporaryMessageStub.firstCall, queued[0].message, { authenticated: true });
+          queued.forEach(({ release }) => {
+            sinon.assert.calledOnce(release);
+            expect(release.firstCall.callId, 'a place was given back before its replay took one').to.be.above(storeAppTemporaryMessageStub.secondCall.callId);
+          });
+        });
+
+        it('gives back the place of every queued update when one fails and the rest are dropped', async () => {
+          const queued = [queuedUpdate('u1'), queuedUpdate('u2'), queuedUpdate('u3')];
+          sinon.stub(globalState, 'getPendingUpdates').returns(queued);
+          storeAppTemporaryMessageStub.onSecondCall().rejects(new Error('not valid'));
+          const verifier = buildVerifier({ tempMessage: registration, paymentRecord: paidInFull });
+
+          await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+          sinon.assert.calledTwice(storeAppTemporaryMessageStub);
+          queued.forEach(({ release }) => sinon.assert.calledOnce(release));
+        });
       });
 
       it('writes the row of a stored message when its hash is resolved again', async () => {

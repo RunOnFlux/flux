@@ -18,6 +18,7 @@ const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/local
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { requireMongo } = require('./dbTestHelper');
+const unpaidAdmission = require('../../ZelBack/src/services/appMessaging/unpaidAdmission');
 
 describe('registryManager tests', () => {
   before(requireMongo);
@@ -2172,9 +2173,14 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     enterprise: 'blob',
   };
 
+  let statusCode;
   const register = (appSpecification) => new Promise((resolve) => {
     const req = new EventEmitter();
-    const res = { json: (response) => resolve(response) };
+    statusCode = 200;
+    const res = {
+      json: (response) => resolve(response),
+      status(code) { statusCode = code; return this; },
+    };
     registryManager.registerAppGlobalyApi(req, res);
     req.emit('data', JSON.stringify({
       appSpecification, timestamp: Date.now(), signature: 'sig', type: 'fluxappregister', version: 1,
@@ -2186,11 +2192,14 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
     sinon.stub(peerManager, 'outboundCount').get(() => 100);
     sinon.stub(peerManager, 'inboundCount').get(() => 100);
+    sinon.stub(peerManager, 'authenticatedIpCount').returns(3);
     sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 2500000 } });
+    process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
   });
 
   afterEach(() => {
     sinon.restore();
+    delete process.env.FLUXOS_PATH;
   });
 
   [
@@ -2219,5 +2228,28 @@ describe('registryManager registerAppGlobalyApi tests', () => {
       expect(response.status).to.equal('error');
       expect(response.data.message).to.equal('An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain');
     });
+  });
+
+  it('should refuse at the door, before any check, below the quorum of authenticated links once the version floor is a release that tags', async () => {
+    peerManager.authenticatedIpCount.returns(2);
+    sinon.stub(unpaidAdmission, 'untaggedRefused').returns(true);
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.status).to.equal('error');
+    expect(response.data.name).to.equal('AdmissionUnavailable');
+    expect(statusCode).to.equal(503);
+  });
+
+  it('should refuse at the door with 501, whatever its links, on a node that is not ArcaneOS', async () => {
+    delete process.env.FLUXOS_PATH;
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.status).to.equal('error');
+    expect(response.data.name).to.equal('AdmissionNotSupported');
+    expect(statusCode).to.equal(501);
+  });
+
+  it('should answer any other refusal with the v1 status', async () => {
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.data.message).to.equal('Invalid app name or owner');
+    expect(statusCode).to.equal(200);
   });
 });

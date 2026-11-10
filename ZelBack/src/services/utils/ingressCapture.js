@@ -22,6 +22,18 @@ function normalizeIp(raw) {
 }
 
 /**
+ * Whether an address is a load balancer this node believes about who called.
+ * @param {string|null} ip A normalized address
+ * @returns {boolean}
+ */
+function isTrustedBalancer(ip) {
+  // `has` first: config.get raises by name on a key a deployment does not ship,
+  // and this sits on a request path. No list is the same as an empty one.
+  const trusted = (config.has('fdmAddresses') && config.get('fdmAddresses')) || [];
+  return Boolean(ip) && trusted.includes(ip);
+}
+
+/**
  * Who called, as opposed to who connected.
  *
  * A node behind a balancer sees the balancer as its socket peer, so the caller's
@@ -50,11 +62,7 @@ function resolveClientIp(connectingIp, headers) {
 
   if (!peer) return socketAnswer;
 
-  // `has` first: config.get raises by name on a key a deployment does not ship,
-  // and this sits on a request path. No list is the same as an empty one - trust
-  // nothing, and answer with what the socket saw.
-  const trusted = (config.has('fdmAddresses') && config.get('fdmAddresses')) || [];
-  if (!trusted.includes(peer)) return socketAnswer;
+  if (!isTrustedBalancer(peer)) return socketAnswer;
 
   const raw = headers && headers['x-forwarded-for'];
   const joined = Array.isArray(raw) ? raw.join(',') : raw;
@@ -71,6 +79,7 @@ function resolveClientIp(connectingIp, headers) {
 }
 
 module.exports = {
+  isTrustedBalancer,
   normalizeIp,
   resolveClientIp,
 };

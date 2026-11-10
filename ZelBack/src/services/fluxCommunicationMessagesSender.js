@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
+const hash = require('object-hash');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
@@ -11,6 +12,8 @@ const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./ut
 const fluxEventBus = require('./utils/fluxEventBus');
 const globalState = require('./utils/globalState');
 const { Privilege, authOf } = require('./utils/privileges');
+const { declaredIntent } = require('./utils/messageRoutes');
+const { INTENT } = require('./utils/messageIntent');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
@@ -20,11 +23,15 @@ const myMessageCache = cacheManager.tempMessageCache;
  * Sign and send a message to a peer.
  * @param {object} message Message to sign and send.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer Peer to send to.
+ * @param {object} [options]
+ * @param {boolean} [options.awaitDrain] Resolve once the socket has taken the frame.
+ * @param {function(object): Buffer} [options.encode] Puts the signed broadcast into a binary frame.
  */
 async function sendSignedMessage(message, peer, options = {}) {
   try {
-    const messageSigned = await serialiseAndSignFluxBroadcast(message);
-    if (!messageSigned) return;
+    const signed = await serialiseAndSignFluxBroadcast(message);
+    if (!signed) return;
+    const messageSigned = options.encode ? options.encode(JSON.parse(signed)) : signed;
     if (options.awaitDrain) {
       await peer.sendAsync(messageSigned);
     } else {
@@ -107,6 +114,15 @@ async function respondWithAppMessage(msgObj, peer) {
           // when responding from temp storage. Remove once all nodes have upgraded past
           // the check removal in messageStore.js.
           arcaneSender: appMessage.arcaneSender ?? true,
+          // An unpaid message's client tag, the cap a submitter range granted its
+          // client, and the signature of the node that admitted it over the
+          // message. A permanent message has none of them.
+          ...(appMessage.origin && {
+            clientTag: appMessage.clientTag,
+            clientTagHeight: appMessage.clientTagHeight,
+            ...(Number.isInteger(appMessage.clientTagCap) && { clientTagCap: appMessage.clientTagCap }),
+            origin: appMessage.origin,
+          }),
         };
         sendSignedMessage(temporaryAppMessage, peer);
         found += 1;
@@ -258,6 +274,21 @@ async function announcePolicySeq(seq) {
 }
 
 /**
+ * Keep a message this node created, for a peer that received it to ask for it
+ * again: a copy that arrives while another is verified is dropped, and its sender
+ * is asked if that copy fails.
+ * @param {string} serialised The signed broadcast.
+ * @returns {object} The signed broadcast, parsed.
+ */
+function keepOwnBroadcast(serialised) {
+  const message = JSON.parse(serialised);
+  if (declaredIntent(message.data.type) === INTENT.ANNOUNCE) {
+    cacheManager.announcementStore.set(hash(message.data), message);
+  }
+  return message;
+}
+
+/**
  * Relay a message to all connected peers (both directions), excluding the sender.
  * @param {string} data Serialised message data.
  * @param {string} [excludeKey] Peer key (ip:port) to exclude (the sender).
@@ -273,8 +304,9 @@ async function relay(data, excludeKey) {
 async function broadcastMessageToAll(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   if (!serialisedData) return null;
+  const message = keepOwnBroadcast(serialisedData);
   await relay(serialisedData);
-  return JSON.parse(serialisedData);
+  return message;
 }
 
 /**
@@ -284,6 +316,7 @@ async function broadcastMessageToAll(dataToBroadcast) {
 async function broadcastMessageToRandomOutgoing(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   if (!serialisedData) return;
+  keepOwnBroadcast(serialisedData);
   const peer = peerManager.getRandomPeer('outbound');
   if (peer) peer.send(serialisedData);
 }
@@ -295,6 +328,7 @@ async function broadcastMessageToRandomOutgoing(dataToBroadcast) {
 async function broadcastMessageToRandomIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   if (!serialisedData) return;
+  keepOwnBroadcast(serialisedData);
   const peer = peerManager.getRandomPeer('inbound');
   if (peer) peer.send(serialisedData);
 }
@@ -404,26 +438,43 @@ async function broadcastMessageFromUserPost(req, res) {
   });
 }
 
-// how long can this take?
 /**
- * To broadcast temporary app message.
- * @param {object} message Message.
+ * Sends a sync answer as it is read: messages of at most syncAnswerBatchSize
+ * events and syncAnswerBatchBytes bytes of events, the last marked done. An event
+ * over gossipMessageMaxBytes is not sent: no node takes one.
+ * @param {object} peer
+ * @param {function(Array, boolean): Promise<void>} send Sends one message.
+ * @param {string} label For the log.
+ * @returns {{add: function(object): Promise<void>, finish: function(): Promise<void>}}
  */
-async function broadcastTemporaryAppMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param appSpecifications object
-  * @param hash string - messageHash(type + version + JSON.stringify(appSpecifications) + timestamp + signature))
-  * @param timestamp number
-  * @param signature string
-  */
-  // no verification of message before broadcasting. Broadcasting happens always after data have been verified and are stored in our db. It is up to receiving node to verify it and store and rebroadcast.
-  if (typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.appSpecifications !== 'object' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
-    throw new Error('Invalid Flux App message for storing');
-  }
-  // sign once, send to both directions
-  await broadcastMessageToAll(message);
+function syncAnswerBatches(peer, send, label) {
+  const maxCount = config.fluxapps.syncAnswerBatchSize;
+  const maxBytes = config.fluxapps.syncAnswerBatchBytes;
+  const maxEventBytes = config.fluxapps.gossipMessageMaxBytes;
+  let batch = [];
+  let bytes = 0;
+  let total = 0;
+  const flush = async (done) => {
+    log.info(`${label} - Sending ${done ? 'final' : 'chunk of'} ${batch.length} to ${peer.key}${done ? ` (total: ${total + batch.length})` : ''}`);
+    await send(batch, done);
+    total += batch.length;
+    batch = [];
+    bytes = 0;
+  };
+  return {
+    async add(event) {
+      const eventBytes = Buffer.byteLength(JSON.stringify(event));
+      if (eventBytes > maxEventBytes) {
+        log.warn(`${label} - Not sending a ${eventBytes} byte event to ${peer.key}: over ${maxEventBytes} bytes`);
+        return;
+      }
+      if (batch.length && bytes + eventBytes > maxBytes) await flush(false);
+      batch.push(event);
+      bytes += eventBytes;
+      if (batch.length >= maxCount) await flush(false);
+    },
+    finish: () => flush(true),
+  };
 }
 
 async function respondWithTempMessages(peer, sinceTimestamp = 0) {
@@ -454,11 +505,15 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
       .find(query, { projection: { _id: 0, receivedAt: 0, expireAt: 0 } })
       .sort({ receivedAt: 1 });
 
-    const batchSize = config.fluxapps.syncAnswerBatchSize;
-    let batch = [];
-    let total = 0;
+    const answer = syncAnswerBatches(
+      peer,
+      (messages, done) => sendSignedMessage({
+        type: 'fluxapptempsync', version: 1, messages, done,
+      }, peer, { awaitDrain: true }),
+      'respondWithTempMessages',
+    );
     for await (const msg of cursor) {
-      batch.push({
+      await answer.add({
         type: msg.type,
         version: msg.version,
         appSpecifications: msg.appSpecifications,
@@ -466,16 +521,15 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
         timestamp: msg.timestamp,
         signature: msg.signature,
         arcaneSender: msg.arcaneSender,
+        ...(msg.origin && {
+          clientTag: msg.clientTag,
+          clientTagHeight: msg.clientTagHeight,
+          ...(Number.isInteger(msg.clientTagCap) && { clientTagCap: msg.clientTagCap }),
+          origin: msg.origin,
+        }),
       });
-      if (batch.length >= batchSize) {
-        log.info(`respondWithTempMessages - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: false }, peer, { awaitDrain: true });
-        total += batch.length;
-        batch = [];
-      }
     }
-    log.info(`respondWithTempMessages - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: true }, peer, { awaitDrain: true });
+    await answer.finish();
   } catch (error) {
     log.error(error);
   }
@@ -515,20 +569,15 @@ async function streamBatchedSync(peer, { sinceTimestamp, collectionName, validit
       .find(finalQuery, { projection: finalProjection })
       .sort({ broadcastedAt: 1 });
 
-    const batchSize = config.fluxapps.syncAnswerBatchSize;
-    let batch = [];
-    let total = 0;
+    const answer = syncAnswerBatches(
+      peer,
+      (messages, done) => sendSignedMessage({ type: messageType, messages, done }, peer, { awaitDrain: true }),
+      label,
+    );
     for await (const doc of cursor) {
-      batch.push(doc);
-      if (batch.length >= batchSize) {
-        log.info(`${label} - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: messageType, messages: batch, done: false }, peer, { awaitDrain: true });
-        total += batch.length;
-        batch = [];
-      }
+      await answer.add(doc);
     }
-    log.info(`${label} - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: messageType, messages: batch, done: true }, peer, { awaitDrain: true });
+    await answer.finish();
   } catch (error) {
     log.error(error);
   }
@@ -587,7 +636,6 @@ module.exports = {
   broadcastMessageToAll,
   broadcastMessageFromUser,
   broadcastMessageFromUserPost,
-  broadcastTemporaryAppMessage,
   broadcastMessageToRandomOutgoing,
   broadcastMessageToRandomIncoming,
 };

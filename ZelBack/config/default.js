@@ -669,6 +669,66 @@ module.exports = {
     // it. The 24h the code has actually run since is the value.
     installErrorTtlS: 86400,
     tempMsgTtlS: 3600, // collection-level index, serviceManager.js
+    // How many unpaid app messages a node holds, within tempMsgTtlS, from one
+    // client (by its client tag) and from one admitting operator (by the key that
+    // signed the frame admitting them). A message without a client tag is not
+    // counted. The network policy's `unpaidallowances` document sets both, and
+    // grants submitter ranges caps of their own (utils/unpaidAllowances.js);
+    // these apply while a node holds no readable copy of it.
+    clientTagCap: 20,
+    originKeyCap: 100,
+    // Authenticated Arcane links (services/arcaneLink.js). Each handshake costs one
+    // node-auth fluxbench call, so: at most linkHandshakesPerIp per peer IP in
+    // linkHandshakeWindowMs, none from an IP for linkHandshakeBackoffMs after one
+    // of its links failed to prove the secret, at most nodeAuthCallsConcurrent
+    // calls at once with nodeAuthCallsQueued waiting, and the rest dropped (the
+    // link stays unauthenticated).
+    linkHandshakesPerIp: 6,
+    linkHandshakeWindowMs: 600000,
+    linkHandshakeBackoffMs: 600000,
+    nodeAuthCallsConcurrent: 2,
+    nodeAuthCallsQueued: 32,
+    // Fetching an announced message (services/utils/announcementFetch.js). A peer
+    // asked has hashFetchRttMultiplier round trips plus hashFetchBaseMs to deliver,
+    // or hashFetchDefaultMs before its latency is measured, doubled for each peer
+    // asked before it up to 2^hashFetchMaxBackoff. A timer more than hashFetchLateMs
+    // late means this node is behind. hashFetchesMax is how many messages are
+    // fetched at once. A peer's connection ends at hashFetchMissesToDisconnect
+    // misses within hashFetchMissWindowMs, while it has missed more than
+    // hashFetchMissesPerServed for each message it served there, once
+    // minimumFluxOSAllowedVersion is at least hashFetchDisconnectFrom, the first
+    // release that fetches from one peer.
+    hashFetchRttMultiplier: 3,
+    hashFetchBaseMs: 100,
+    hashFetchDefaultMs: 500,
+    hashFetchLateMs: 50,
+    hashFetchMaxBackoff: 4,
+    hashFetchesMax: 5000,
+    hashFetchMissesToDisconnect: 20,
+    hashFetchMissesPerServed: 10,
+    hashFetchMissWindowMs: 600000,
+    hashFetchDisconnectFrom: '8.24.0',
+    // A connection between two Arcane nodes joins the peer set when its link
+    // handshake settles, or unauthenticated at this deadline.
+    linkHandshakeDeadlineMs: 10000,
+    // The first release that tags every unpaid app message it admits. Once
+    // minimumFluxOSAllowedVersion is at least this, an unpaid message without a
+    // client tag is refused; below it one is taken from any peer, uncounted
+    // (services/appMessaging/unpaidAdmission.js).
+    untaggedRefusedFrom: '8.24.0',
+    // Admitting an unpaid app message (services/appMessaging/admissionQuorum.js).
+    // Only an ArcaneOS node admits one, only while it holds admissionQuorum
+    // authenticated links on distinct IPs, and answers success only once peers on
+    // admissionQuorum distinct IPs hold it, within admissionTimeoutMs; nothing is
+    // committed after that. A peer holds a proposed message for admissionHoldMs
+    // awaiting the commit, and at most admissionHoldMax at once.
+    admissionQuorum: 3,
+    // The authenticated links on distinct IPs a node keeps: the quorum and a margin of
+    // two, so a peer or two can be away and the node still admits.
+    admissionLinkTarget: 5,
+    admissionTimeoutMs: 10000,
+    admissionHoldMs: 25000,
+    admissionHoldMax: 500,
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,
@@ -712,6 +772,16 @@ module.exports = {
     discoveryRetryMs: 60000,
     discoveryFailRetryMs: 120000,
     discoveryConnectionDelayMs: 500,
+    // The random peers discovery keeps beyond the deterministic ring: it dials
+    // until a node holds discoveryMaxOutbound outbound (discoveryMinUniqueOutboundIps
+    // of them on distinct IPs) and asks to be dialled until it holds
+    // discoveryMaxInbound inbound (discoveryMinUniqueInboundIps distinct), drawing at
+    // most discoveryMaxIterations candidates for each.
+    discoveryMaxOutbound: 14,
+    discoveryMinUniqueOutboundIps: 9,
+    discoveryMaxInbound: 12,
+    discoveryMinUniqueInboundIps: 5,
+    discoveryMaxIterations: 100,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
     // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted
@@ -720,6 +790,24 @@ module.exports = {
     nodeMonitorRemovalDelayMs: 5000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
+    // bytes of events per message of an answer to a peer's state sync. At least
+    // gossipMessageMaxBytes, so any event a node takes fits in one.
+    syncAnswerBatchBytes: 8 * 1024 * 1024,
+    // the largest event a node takes from a peer, as a broadcast or inside a sync
+    // answer. The largest app message the validator allows is under 3 MB
+    // (tests/unit/gossipMessageSize.test.js).
+    gossipMessageMaxBytes: 8 * 1024 * 1024,
+    // the largest frame a node takes from a peer: a sync answer of
+    // syncAnswerBatchBytes of events, a separator per event and its envelope. A
+    // frame over it closes the connection before it is parsed
+    // (utils/FluxPeerSocket.js), but for a sync answer owed by a release that
+    // batches by count alone.
+    peerFrameMaxBytes: (8 * 1024 * 1024) + (64 * 1024),
+    // the largest websocket message a peer socket takes, ws's default. Once
+    // minimumFluxOSAllowedVersion is at least 8.24.0, the first release that
+    // batches sync answers by bytes, every peer is held to peerFrameMaxBytes:
+    // this falls to that value and FluxPeerSocket's exception goes.
+    wsMaxPayloadBytes: 100 * 1024 * 1024,
     // Residential-node staging. The placement hold is immediate and is not
     // tunable; these pace only the part that moves customer data.
     residentialCheckIntervalMs: 6 * 60 * 60 * 1000, // re-evaluate the verdict
