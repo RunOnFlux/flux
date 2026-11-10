@@ -3976,6 +3976,22 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [], appliedBy: 'library' });
     });
 
+    it('on ArcaneOS also lets app networks reach flux-shutdownd\'s termination API', async () => {
+      process.env.FLUXOS_PATH = '/usr/lib/fluxos';
+      let arcaneHelper;
+      try {
+        arcaneHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {});
+      } finally {
+        delete process.env.FLUXOS_PATH;
+      }
+      firewallEnabled(true);
+      answered({ removed: 0, applied: true });
+
+      await arcaneHelper.adjustFirewall();
+
+      expect(appliedRules()).to.deep.include(['allow', 'from', '172.23.0.0/16', 'proto', 'tcp', 'to', '169.254.43.43/32', 'port', '16102']);
+    });
+
     it('opens the network\'s daemon port', async () => {
       const labHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
         config: configWith({ daemon: { port: networks.labnet.daemon.port } }),
@@ -4937,6 +4953,33 @@ describe('fluxNetworkHelper tests', () => {
         const answer = await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', port, { schedule: [0, 10], deadline: 200 });
         expect(answer).to.equal(undefined);
       });
+    });
+  });
+
+  describe('addFluxNodeServiceIpToLoopback tests', () => {
+    const systemdSockets = require('../../ZelBack/src/services/utils/systemdSockets');
+    const nodecmd = require('node-cmd');
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('leaves the address to an image that passed the node service socket', async () => {
+      sinon.stub(systemdSockets, 'fd').withArgs('fluxos-node-service').returns(3);
+      const run = sinon.stub(nodecmd, 'run');
+
+      await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
+
+      sinon.assert.notCalled(run);
+    });
+
+    it('adds the address when no socket was passed', async () => {
+      sinon.stub(systemdSockets, 'fd').returns(undefined);
+      const run = sinon.stub(nodecmd, 'run').callsFake((cmd, cb) => cb(null, '', ''));
+
+      await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
+
+      sinon.assert.calledOnceWithMatch(run, 'sudo ip addr add 169.254.43.43/32 dev lo');
     });
   });
 });

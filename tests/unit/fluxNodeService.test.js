@@ -159,4 +159,35 @@ describe('fluxNodeService tests', () => {
       expect(replyFrom(res).status).to.equal('error');
     });
   });
+  describe('start', () => {
+    let app;
+    let systemdSockets;
+
+    function service() {
+      app = { use: sinon.stub(), get: sinon.stub(), all: sinon.stub(), listen: sinon.stub().returns({ close: sinon.stub() }) };
+      const express = sinon.stub().returns(app);
+      express.json = sinon.stub();
+      return proxyquire('../../ZelBack/src/services/fluxNodeService', {
+        express,
+        './utils/systemdSockets': systemdSockets,
+      });
+    }
+
+    beforeEach(() => {
+      systemdSockets = { NODE_SERVICE: 'fluxos-node-service', fd: sinon.stub() };
+    });
+
+    it('listens on the socket the image passed', () => {
+      systemdSockets.fd.withArgs('fluxos-node-service').returns(3);
+      service().start();
+      sinon.assert.calledOnce(app.listen);
+      expect(app.listen.firstCall.args[0]).to.deep.equal({ fd: 3 });
+    });
+
+    it('binds the node service address itself when no socket was passed', () => {
+      service().start();
+      sinon.assert.calledOnce(app.listen);
+      expect(app.listen.firstCall.args.slice(0, 2)).to.deep.equal([16101, '169.254.43.43']);
+    });
+  });
 });
