@@ -250,7 +250,7 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
 
   it('takes the collateral over, the listed node stands aside, and the app runs on one node', async function () {
     this.timeout(COLLATERAL_MS + (2 * RESPAWN_MS) + 120000);
-    await dbClient(COPY + 1).cloneFrom(LISTED + 1);
+    await dbClient(COPY + 1).cloneFrom(LISTED + 1, env.clients[LISTED]);
     const watch = watchRunsOnce(env, appName);
     try {
       await env.startNode(COPY);

@@ -5,6 +5,11 @@ const MONGO_URL = process.env.MONGO_URL || `mongodb://${getSubnetConfig().mongo}
 
 let sharedClient = null;
 
+// The checkpoints FluxOS passes just before renaming a staging collection over a
+// live one, and the staging collections themselves.
+const SWAP_CHECKPOINTS = ['registry:beforeSwap', 'ipLocation:beforeSwap', 'addressRecord:beforeSwap'];
+const STAGING_COLLECTIONS = new Set(['zelappsinformation_rebuild', 'ipranges_next', 'fluxnodeaddresses_rebuild']);
+
 async function getClient() {
   if (!sharedClient) {
     sharedClient = new MongoClient(MONGO_URL);
@@ -41,24 +46,68 @@ export function dbClient(nodeNum) {
     dbNames,
     // Makes this node's databases a copy of another node's, as a machine started
     // from a clone of that node's disk holds them. For a node not yet started.
-    async cloneFrom(sourceNum) {
+    //
+    // FluxOS replaces three collections whole, by renaming a staging collection
+    // over the live one: the app registry, the IP location table and the address
+    // record. A rename over a collection being read ends the read. The source's
+    // three swaps are held at their checkpoints for the copy, so none starts its
+    // rename while the copy runs; a swap already past its checkpoint when the hold
+    // took effect renames once more at most. The copy compares every collection's
+    // uuid before and after, and copies again while one changed: three writers
+    // allow at most three such passes. Staging collections are scratch each
+    // writer drops and refills before use, and are not copied.
+    //
+    // @param {number} sourceNum The source node's number.
+    // @param {object} sourceClient The source node's client, which holds the checkpoints.
+    async cloneFrom(sourceNum, sourceClient) {
       const client = await getClient();
       const source = dbClient(sourceNum);
-      // eslint-disable-next-line no-restricted-syntax
-      for (const name of Object.keys(dbNames)) {
-        const from = client.db(source.dbNames[name]);
-        const to = client.db(dbNames[name]);
-        // eslint-disable-next-line no-await-in-loop
-        await to.dropDatabase();
-        // eslint-disable-next-line no-await-in-loop
-        const collections = await from.listCollections({}, { nameOnly: true }).toArray();
+      const uuids = async () => {
+        const seen = new Map();
         // eslint-disable-next-line no-restricted-syntax
-        for (const { name: collection } of collections) {
+        for (const name of Object.keys(dbNames)) {
           // eslint-disable-next-line no-await-in-loop
-          const docs = await from.collection(collection).find({}).toArray();
-          // eslint-disable-next-line no-await-in-loop
-          if (docs.length) await to.collection(collection).insertMany(docs);
+          const collections = await client.db(source.dbNames[name]).listCollections({ type: 'collection' }).toArray();
+          collections
+            .filter(({ name: collection }) => !STAGING_COLLECTIONS.has(collection))
+            .forEach(({ name: collection, info }) => seen.set(`${name}.${collection}`, info.uuid.toString('hex')));
         }
+        return seen;
+      };
+      const copy = async () => {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const name of Object.keys(dbNames)) {
+          const from = client.db(source.dbNames[name]);
+          // eslint-disable-next-line no-await-in-loop
+          await client.db(dbNames[name]).dropDatabase();
+          // eslint-disable-next-line no-await-in-loop
+          const collections = await from.listCollections({ type: 'collection' }, { nameOnly: true }).toArray();
+          // eslint-disable-next-line no-restricted-syntax
+          for (const { name: collection } of collections.filter((c) => !STAGING_COLLECTIONS.has(c.name))) {
+            // eslint-disable-next-line no-await-in-loop
+            await from.collection(collection).aggregate([{ $out: { db: dbNames[name], coll: collection } }]).toArray();
+          }
+        }
+      };
+      const unchanged = (before, after) => before.size === after.size
+        && [...before].every(([key, uuid]) => after.get(key) === uuid);
+
+      await Promise.all(SWAP_CHECKPOINTS.map((name) => sourceClient.holdCheckpoint(name)));
+      try {
+        for (let pass = 1; pass <= SWAP_CHECKPOINTS.length + 1; pass += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const before = await uuids();
+          // eslint-disable-next-line no-await-in-loop
+          const copied = await copy().then(() => true, (err) => {
+            if (!/renamed|dropped|NamespaceNotFound|QueryPlanKilled/i.test(err.message)) throw err;
+            return false;
+          });
+          // eslint-disable-next-line no-await-in-loop
+          if (copied && unchanged(before, await uuids())) return;
+        }
+        throw new Error(`cloneFrom: node ${sourceNum} replaced a collection on every pass with its swaps held`);
+      } finally {
+        await Promise.all(SWAP_CHECKPOINTS.map((name) => sourceClient.releaseCheckpoint(name).catch(() => {})));
       }
     },
 
