@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
+const systemdSockets = require('./utils/systemdSockets');
 const { decodeWIF, privKeyToPubKey } = require('./utils/fluxCryptoUtils');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
@@ -3775,6 +3776,8 @@ async function nodeFirewallRules() {
   // app containers reach the fluxnode service; the rest of loopback is refused
   // by allowOnlyDockerNetworksToFluxNodeService, as ufw does not filter loopback
   rules.push(['allow', 'from', fluxAppDockerNetworks, 'proto', 'tcp', 'to', `${config.server.fluxNodeServiceAddress}/32`, 'port', '16101']);
+  // and, on ArcaneOS, flux-shutdownd's termination API, where an app reads why it is stopped
+  if (isArcane) rules.push(['allow', 'from', fluxAppDockerNetworks, 'proto', 'tcp', 'to', `${config.server.fluxNodeServiceAddress}/32`, 'port', '16102']);
   return rules;
 }
 
@@ -4053,9 +4056,14 @@ async function allowOnlyDockerNetworksToFluxNodeService() {
 }
 
 /**
- * Adds the 169.254 adddress to the loopback interface for use with the flux node service.
+ * Adds the 169.254 address to the loopback interface for use with the flux node service. An
+ * image that passes the node service's socket owns the address, and it is left to it.
  */
 async function addFluxNodeServiceIpToLoopback() {
+  if (systemdSockets.fd(systemdSockets.NODE_SERVICE) !== undefined) {
+    log.info(`fluxNodeService IP: ${config.server.fluxNodeServiceAddress} is the image's`);
+    return;
+  }
   const cmdAsync = util.promisify(nodecmd.run);
 
   // could also check exists first with:
