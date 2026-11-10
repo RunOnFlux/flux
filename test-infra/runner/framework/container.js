@@ -117,10 +117,7 @@ export async function blockPeerAccess(container, peerIps, apiPort) {
   for (const peerIp of peerIps) {
     // eslint-disable-next-line no-await-in-loop
     const r = await execInContainer(container, `iptables -I INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j REJECT --reject-with tcp-reset`);
-    // An idle keep-alive socket holds no reference on node's event loop, so a
-  // check left waiting on one can end the process with exit 0: only the line
-  // the script prints once every check has passed counts.
-  if (r.exitCode !== 0 || !/^moved$/m.test(r.stdout || '')) {
+    if (r.exitCode !== 0) {
       throw new Error(`blockPeerAccess: could not drop ${peerIp} -> :${apiPort}: ${r.output}`);
     }
   }
@@ -164,10 +161,7 @@ export async function redirectOutbound(container, {
       const rule = `-t nat OUTPUT -p ${proto} -d ${toIp} --dport ${ports} -j DNAT --to-destination ${landsOn}`;
       // eslint-disable-next-line no-await-in-loop
       const r = await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -A OUTPUT')}`);
-      // An idle keep-alive socket holds no reference on node's event loop, so a
-  // check left waiting on one can end the process with exit 0: only the line
-  // the script prints once every check has passed counts.
-  if (r.exitCode !== 0 || !/^moved$/m.test(r.stdout || '')) {
+      if (r.exitCode !== 0) {
         throw new Error(`redirectOutbound: could not send ${toIp}:${ports}/${proto} to ${landsOn}: ${r.output}`);
       }
       rules.push(rule);
