@@ -174,10 +174,12 @@ export const PRODUCTION_ADMISSION_LINK_TARGET = 5;
  * @param {number} absentCount Stubs and deferred nodes.
  * @param {number} unlinkableCount Dialing nodes no link authenticates with:
  *   legacy nodes, and nodes not listed at their own address.
+ * @param {number} [minOutgoing] The fewest peers any node of the fleet dials, when a
+ *   suite runs the fleet below its ring.
  * @returns {number}
  */
-export function deriveAdmissionQuorum(nodeCount, absentCount, unlinkableCount) {
-  const reachable = reachablePeers(dialerCount(nodeCount, absentCount), absentCount);
+export function deriveAdmissionQuorum(nodeCount, absentCount, unlinkableCount, minOutgoing = Infinity) {
+  const reachable = reachablePeers(dialerCount(nodeCount, absentCount), absentCount, minOutgoing);
   const margin = PRODUCTION_ADMISSION_LINK_TARGET - PRODUCTION_ADMISSION_QUORUM;
   return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - unlinkableCount - margin));
 }
@@ -190,15 +192,20 @@ export function deriveAdmissionQuorum(nodeCount, absentCount, unlinkableCount) {
  * START of the list that pay, because index 0's backward arc is the one that
  * wraps onto the absent end of the ring.
  *
+ * Each arc is as long as the nodes dial: the ring's, or fewer when a suite runs
+ * the fleet below it, since a node is dialled only by the nodes behind it.
+ *
  * Conservative on both counts: ringArc is the disjoint arc, so a suite that
  * overrode minOutgoing higher only ever holds MORE than this, and the
  * subtraction assumes every absent slot lands inside the arc.
  * @param {number} dialers
  * @param {number} absentCount Stubs and deferred nodes.
+ * @param {number} [minOutgoing] The fewest peers any node dials, below the ring's arc.
  * @returns {number}
  */
-export function reachablePeers(dialers, absentCount = 0) {
-  return Math.max(0, Math.min(dialers - 1, (2 * ringArc(dialers)) - absentCount));
+export function reachablePeers(dialers, absentCount = 0, minOutgoing = Infinity) {
+  const arc = Math.min(ringArc(dialers), minOutgoing);
+  return Math.max(0, Math.min(dialers - 1, (2 * arc) - absentCount));
 }
 
 /**

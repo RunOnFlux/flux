@@ -1925,7 +1925,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // carries, for the same reason - see peer-topology.js.
         ...deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps),
         // And the admission quorum, for the same reason - see peer-topology.js.
-        admissionQuorum: deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, unlinkableNodeCount),
+        admissionQuorum: deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, unlinkableNodeCount, Math.min(
+          ...[configOverrides, ...Object.values(nodeConfigOverrides)]
+            .map((o) => o?.fluxapps?.minOutgoing).filter((n) => Number.isInteger(n)),
+        )),
         // Travels as configuration, like every other override. It used to be an
         // env var the entrypoint sed into shared.js - but the merged config is
         // written by REQUIRING the per-node file, which spreads shared.js at

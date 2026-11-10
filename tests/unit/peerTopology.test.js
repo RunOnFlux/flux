@@ -90,6 +90,15 @@ describe('harness peer topology', () => {
     expect(topology.deriveAdmissionQuorum(6, 1, 0)).to.equal(1);
   });
 
+  it('asks a fleet run below its ring for the quorum the peers it dials can meet', () => {
+    expect(topology.reachablePeers(7, 0, 1)).to.equal(2);
+    expect(topology.reachablePeers(9, 0, 2)).to.equal(4);
+    expect(topology.reachablePeers(9, 0, 6), 'a higher override leaves the ring arc').to.equal(topology.reachablePeers(9));
+    expect(topology.deriveAdmissionQuorum(7, 0, 0), 'fixture: the ring alone meets a quorum').to.equal(3);
+    expect(topology.deriveAdmissionQuorum(7, 0, 0, 1)).to.equal(0);
+    expect(topology.deriveAdmissionQuorum(12, 0, 0, 3)).to.equal(3);
+  });
+
   describe('readiness thresholds', () => {
     [
       // nodes, carried, ready threshold
