@@ -373,6 +373,7 @@ export function nodeClient(nodeNum) {
         'hashSync:complete',
         'hashSync:bulkFetched',
         'hashSync:failed',
+        'hashSync:ephemeralRound',
         'hashRequest:received',
         'hashRequest:responded',
         'message:dispatched',

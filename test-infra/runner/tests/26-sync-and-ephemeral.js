@@ -6,8 +6,12 @@ import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
-  startTicker, advanceBlock, advanceBlocks, queueAppTx,
+  startTicker, stopTicker, advanceBlock, advanceBlocks, queueAppTx, driveUntil,
 } from '../framework/daemon-control.js';
+import { bootAndPeer as bootAndPeerFleet } from '../framework/reconciler-suite.js';
+import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
+import { nodeKey, fluxTeamKey } from '../framework/keys.js';
+import { authenticate } from '../auth.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForAppInstalled, waitForOrchestratorState, waitFor,
@@ -155,5 +159,82 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
       totalServed += stats.messagesServed;
     }
     expect(totalServed).to.be.greaterThan(0);
+  });
+});
+
+// A node that lost a message asks nodes it holds no connection to, over temporary
+// connections, and between Arcane nodes they answer. Every node here is Arcane and
+// real: a stub offers no link, so the case above passes whether or not an Arcane
+// node takes a question on a temporary connection.
+//
+// Nine dialers hold four outbound and two inbound peers each, so SUBJECT is
+// connected to at most six of the eight others and the round has nodes to open
+// connections to. hashSyncMaxRounds 0 sends a missing message straight to that
+// round: the subject's own peers, which hold the message, are never asked.
+describe('a node resolves a lost message over temporary connections to Arcane nodes', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+  const SUBJECT = 4;
+  const REGISTRAR = 2;
+  const RECHECK_BLOCKS = 2;
+  let appHash;
+  let db;
+  let round;
+  let marks;
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 9,
+      tickerAutostart: false,
+      configOverrides: { fluxapps: { hashSyncMaxRounds: 0, hashSyncFallbackRecheckBlocks: RECHECK_BLOCKS } },
+    });
+    await bootAndPeerFleet(env);
+    const spec = buildAppSpec({ name: `e2eephemarc${Date.now()}`, instances: 3 });
+    const registered = await registerAndConfirm(env.clients[REGISTRAR].url, nodeKey(REGISTRAR + 1), spec, env.clients);
+    expect(registered.status, JSON.stringify(registered)).to.equal('success');
+    ({ appHash } = registered);
+
+    db = dbClient(SUBJECT + 1);
+    await waitFor(async () => (await db.appHashRecord(appHash))?.message === true
+      && (await db.permanentMessages({ hash: appHash })).length === 1,
+    { timeout: 60000, interval: 2000, label: `node ${SUBJECT} holds the message` });
+    await stopTicker();
+
+    const subject = env.clients[SUBJECT];
+    const { zelidauth } = await authenticate(subject.url, fluxTeamKey());
+    await db.deletePermanentMessage(appHash);
+    const audit = await subject.reconstructHashes(zelidauth);
+    expect(audit.data?.message?.changed, `fixture: node ${SUBJECT} marked the lost message missing: ${JSON.stringify(audit)}`).to.equal(1);
+
+    marks = env.clients.map((c) => c.getLastEventId());
+    const roundOf = () => subject.getEventBuffer().find((e) => e.id > marks[SUBJECT] && e.event === 'hashSync:ephemeralRound');
+    await driveUntil(subject, () => Boolean(roundOf()), {
+      blocks: RECHECK_BLOCKS + 2, label: `node ${SUBJECT} asked over temporary connections`,
+    });
+    round = roundOf().data;
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('asks nodes it holds no connection to', () => {
+    expect(round.asked, 'the round opened no connection').to.not.be.empty;
+  });
+
+  it('is answered by a node it asked', () => {
+    const subjectIp = env.clients[SUBJECT].ip;
+    const askedIps = round.asked.map((key) => key.split(':')[0]);
+    const answered = env.clients.filter((c, i) => askedIps.includes(c.ip) && c.getEventBuffer().some((e) => e.id > marks[i]
+      && e.event === 'hashRequest:responded' && e.data.peer.split(':')[0] === subjectIp && e.data.found === 1));
+    expect(answered.map((c) => c.ip), `asked: ${round.asked.join(', ')}`).to.not.be.empty;
+  });
+
+  it('resolves the message in that round and holds it again', async () => {
+    expect(round).to.include({ requested: 1, unresolved: 0 });
+    expect((await db.permanentMessages({ hash: appHash })).map((m) => m.hash)).to.deep.equal([appHash]);
   });
 });
