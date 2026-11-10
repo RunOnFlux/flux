@@ -57,7 +57,7 @@ export async function moveNodeAddress(container, to, from, { prefix = Number(get
     `ip addr add ${from}/32 dev ${iface}`,
     `iptables -I ${unreachable(from)}`,
     ...kept.map((service) => `iptables -I ${keptFrom(from, service)}`),
-    ...cut.map((service) => `ss -K dst ${service} >/dev/null`),
+    ...cut.map((service) => `ss -K dst ${service} >/dev/null 2>&1`),
   ].join('\n');
   const script = `
 const http = require('http');
@@ -78,8 +78,8 @@ const daemon = () => ask(cutAgent, process.env.DAEMON_HOST, 16124, 'the daemon s
   await fdm();
   const { socket } = await daemon();
   const closed = new Promise((resolve, reject) => {
-    socket.once('close', resolve);
-    setTimeout(() => reject(new Error('the connection to the daemon stub was not closed by the move')), 5000).unref();
+    const timer = setTimeout(() => reject(new Error('the connection to the daemon stub was not closed by the move')), 5000);
+    socket.once('close', () => { clearTimeout(timer); resolve(); });
   });
   execFileSync('sh', ['-c', process.env.MOVE], { stdio: 'inherit' });
   await closed;
@@ -87,10 +87,14 @@ const daemon = () => ask(cutAgent, process.env.DAEMON_HOST, 16124, 'the daemon s
   await daemon();
   keptAgent.destroy();
   cutAgent.destroy();
+  console.log('moved');
 })().catch((err) => { console.error(err.message); process.exit(1); });
 `;
   const r = await execInContainer(container, ['env', `FDM_HOST=${fdm}`, `DAEMON_HOST=${daemon}`, `MOVE=${move}`, 'node', '-e', script]);
-  if (r.exitCode !== 0) {
+  // An idle keep-alive socket holds no reference on node's event loop, so a
+  // check left waiting on one can end the process with exit 0: only the line
+  // the script prints once every check has passed counts.
+  if (r.exitCode !== 0 || !/^moved$/m.test(r.stdout || '')) {
     throw new Error(`moveNodeAddress: moving ${from} to ${to} on ${iface} failed: ${r.output}`);
   }
   return to;
@@ -124,7 +128,10 @@ export async function blockPeerAccess(container, peerIps, apiPort) {
   for (const peerIp of peerIps) {
     // eslint-disable-next-line no-await-in-loop
     const r = await execInContainer(container, `iptables -I INPUT -p tcp --dport ${apiPort} -s ${peerIp} -j REJECT --reject-with tcp-reset`);
-    if (r.exitCode !== 0) {
+    // An idle keep-alive socket holds no reference on node's event loop, so a
+  // check left waiting on one can end the process with exit 0: only the line
+  // the script prints once every check has passed counts.
+  if (r.exitCode !== 0 || !/^moved$/m.test(r.stdout || '')) {
       throw new Error(`blockPeerAccess: could not drop ${peerIp} -> :${apiPort}: ${r.output}`);
     }
   }
@@ -168,7 +175,10 @@ export async function redirectOutbound(container, {
       const rule = `-t nat OUTPUT -p ${proto} -d ${toIp} --dport ${ports} -j DNAT --to-destination ${landsOn}`;
       // eslint-disable-next-line no-await-in-loop
       const r = await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -A OUTPUT')}`);
-      if (r.exitCode !== 0) {
+      // An idle keep-alive socket holds no reference on node's event loop, so a
+  // check left waiting on one can end the process with exit 0: only the line
+  // the script prints once every check has passed counts.
+  if (r.exitCode !== 0 || !/^moved$/m.test(r.stdout || '')) {
         throw new Error(`redirectOutbound: could not send ${toIp}:${ports}/${proto} to ${landsOn}: ${r.output}`);
       }
       rules.push(rule);
