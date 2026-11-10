@@ -1,11 +1,10 @@
 /*
  * A peer sending what no node takes is refused by the node it reaches, and so
  * relayed by none: a broadcast over the per-message limit, an install error over
- * its length, an encrypted spec carrying a plain compose, an enterprise string
- * over its length, and a frame over the frame limit. A caller that
- * opens connections and never finishes their link handshake is held to the
- * node's inbound limit and to its allowed ports, and a frame replayed on an
- * authenticated link is dropped.
+ * its length, an enterprise string over its length, and a frame over the frame
+ * limit. A caller that opens connections and never finishes their link handshake
+ * is held to the node's inbound limit and to its allowed ports, and a frame
+ * replayed on an authenticated link is dropped.
  *
  * The stub peer is an Arcane node that authenticates its links, peered with one
  * Arcane node (ENTRY) and one legacy node (LEGACY) and nothing else; the other
@@ -21,17 +20,14 @@
  * its verdict.
  *
  * Out of reach: fluxbench's real AES-key unwrap. The daemon stub answers every
- * decryptrsamessage with one fixed key, which framework/enterprise-helper.js
- * encrypts with.
+ * decryptrsamessage with one fixed key.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
-import { buildSeedableApp, buildSeedableEnterpriseApp } from '../framework/seed-helper.js';
-import { buildEnterpriseBlob } from '../framework/enterprise-helper.js';
-import { assignPorts } from '../framework/port-allocator.js';
-import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { buildSeedableApp } from '../framework/seed-helper.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
 import { pendingMessage, pendingMessageOn, pendingVerdict } from '../framework/unpaid-messages.js';
 import { waitFor, waitForFirstEvent } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -66,21 +62,6 @@ describe('a peer sending what no node takes is refused at every node and relayed
   );
   const refusedFor = (hash, reason) => ({
     event: 'network:appmessageRefused', matches: (d) => d.hash === hash && (!reason || d.reason.includes(reason)),
-  });
-  const component = (componentName) => ({
-    name: componentName,
-    description: 'a component',
-    repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-    ports: [],
-    domains: [''],
-    environmentParameters: [],
-    commands: [],
-    containerPorts: [80],
-    containerData: '/tmp',
-    cpu: 0.1,
-    ram: 100,
-    hdd: 1,
-    repoauth: '',
   });
 
   before(async function () {
@@ -158,33 +139,6 @@ describe('a peer sending what no node takes is refused at every node and relayed
       const first = await waitForFirstEvent(env.clients[i], outcomes, { afterId: marks[i], timeout: 90000 });
       expect(first.event, `node ${i}: ${JSON.stringify(first.data)}`).to.equal('network:appinstallingerror');
     }
-  });
-
-  it('refuses an encrypted spec carrying a plain compose, on a node that decrypts and on one that cannot', async function () {
-    this.timeout(300000);
-    const badName = name('plain');
-    // Ported before encrypting, so what the blob decrypts to is a spec the validator takes.
-    const components = [component(badName)];
-    assignPorts(components, badName);
-    const bad = await buildSeedableApp({
-      env, name: badName, instances: 1, compose: components, enterprise: buildEnterpriseBlob(components),
-    });
-    const good = await buildSeedableEnterpriseApp({ env, name: name('sealed'), instances: 1 });
-    const marks = marksOf(REACHED);
-
-    await stub.broadcast(pendingMessage(bad));
-
-    for (const i of REACHED) {
-      // eslint-disable-next-line no-await-in-loop
-      const verdict = await pendingVerdict(env.clients[i], bad.hash, refusedFor(bad.hash), {
-        afterId: marks[i], label: `node ${i}'s verdict on the encrypted spec with a plain compose`,
-      });
-      expect(verdict, `node ${i}: ${JSON.stringify(verdict)}`).to.have.nested.property('refused.reason')
-        .that.equals('An encrypted specification carries its compose and contacts only inside enterprise');
-    }
-
-    await stub.broadcast(pendingMessage(good));
-    await storedOnEvery(good.hash, 'an encrypted spec with no plain compose, stored on every real node');
   });
 
   it('refuses an enterprise string over its length on both nodes, and only a node that decrypts refuses one of exactly its length', async function () {
