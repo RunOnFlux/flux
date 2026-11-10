@@ -157,7 +157,7 @@ function regionAssignment(domains, withRegions) {
  * @param {number} domains How many organisations to split across
  * @param {string} [subnet] Dotted /24 prefix to split, e.g. '25.196.0'
  * @param {boolean} [withRegions] Whether rows carry a region
- * `countryByIp` places single addresses in another country - `{ '31.200.5.11':
+ * `countryByIp` places single addresses in another country - `{ '25.193.0.11':
  * 'FR' }` - over whatever the rows above say, keeping each address's
  * organisation. It is how a suite moves ONE node, chosen after the fleet is up,
  * without moving its neighbours.
@@ -1413,7 +1413,7 @@ control.post('/iplocation', (req, res) => {
     // Absent, the artifact carries an empty orgClasses section, so every node falls
     // back to deciding its own address - which is what the reader does with a
     // build that classified nothing.
-    // { countryByIp: { '31.200.5.11': 'FR' } } moves single addresses to another of
+    // { countryByIp: { '25.193.0.11': 'FR' } } moves single addresses to another of
     // the published countries.
     const countryByIp = req.body.countryByIp ?? null;
     const unknown = Object.values(countryByIp ?? {}).filter((cc) => !GEO_COUNTRIES.includes(cc));
