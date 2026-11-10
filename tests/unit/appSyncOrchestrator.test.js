@@ -2024,21 +2024,78 @@ describe('AppSyncOrchestrator', () => {
     });
   });
 
-  describe('hash sync recovery', () => {
-    it('should retry hash sync on failure', async () => {
-      syncMissingHashesStub.onFirstCall().rejects(new Error('connection failed'));
-      syncMissingHashesStub.onSecondCall().resolves({ resolved: 10, missing: 0, unreachable: 0 });
+  describe('a failed hash sync is retried', () => {
+    const RETRY_MS = 10000;
+    const MAX_RETRIES = 2;
+    const failed = () => new Error('connection failed');
+    const done = { resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null };
 
-      const orchestrator = makeOrchestrator();
+    function startSyncing() {
+      const mod = loadWithConfig({ hashSyncRetryMs: RETRY_MS, hashSyncMaxRetries: MAX_RETRIES });
+      const orchestrator = new mod.AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      orchestrator.onMessageCapabilityChange(true);
       orchestrator.start(defaultBootContext);
       blockEmitter.emit('blocksProcessed', 2555000);
-      await clock.tickAsync(0);
+      return orchestrator;
+    }
 
-      expect(syncMissingHashesStub.calledOnce).to.be.true;
-      expect(orchestrator.state).to.equal(STATES.SYNCING);
-      expect(logStub.error.calledWith(sinon.match(/Hash sync failed.*attempt 1\/3/))).to.be.true;
+    it('runs the sync again once hashSyncRetryMs has passed, and not before', async () => {
+      syncMissingHashesStub.onFirstCall().rejects(failed());
+      syncMissingHashesStub.onSecondCall().resolves(done);
+      startSyncing();
+      await clock.tickAsync(0);
+      expect(syncMissingHashesStub.callCount, 'the first attempt').to.equal(1);
+      expect(globalStateStub.dbReady, 'a failed attempt rebuilt the registry').to.not.equal(true);
+
+      await clock.tickAsync(RETRY_MS - 1);
+      expect(syncMissingHashesStub.callCount, 'retried before hashSyncRetryMs').to.equal(1);
+
+      await clock.tickAsync(1);
+      expect(syncMissingHashesStub.callCount, 'the retry').to.equal(2);
+      expect(globalStateStub.dbReady, 'the retry that succeeded rebuilt the registry').to.equal(true);
     });
 
+    it('makes hashSyncMaxRetries attempts in all', async () => {
+      syncMissingHashesStub.rejects(failed());
+      startSyncing();
+
+      await clock.tickAsync(RETRY_MS * (MAX_RETRIES + 3));
+
+      expect(syncMissingHashesStub.callCount).to.equal(MAX_RETRIES);
+    });
+
+    it('runs no retry scheduled before the node degraded', async () => {
+      syncMissingHashesStub.onFirstCall().rejects(failed());
+      const orchestrator = startSyncing();
+      await clock.tickAsync(0);
+
+      peerEmitter.emit('peersBelowThreshold', 0);
+      expect(orchestrator.state, 'fixture: the node degraded').to.equal(STATES.DEGRADED);
+      await clock.tickAsync(RETRY_MS * 3);
+
+      expect(syncMissingHashesStub.callCount).to.equal(1);
+    });
+
+    it('counts attempts from one again once the node recovers', async () => {
+      syncMissingHashesStub.rejects(failed());
+      const orchestrator = startSyncing();
+      await clock.tickAsync(RETRY_MS * (MAX_RETRIES + 1));
+      expect(syncMissingHashesStub.callCount, 'fixture: every attempt was made').to.equal(MAX_RETRIES);
+
+      peerEmitter.emit('peersBelowThreshold', 0);
+      peersUp();
+      await clock.tickAsync(0);
+      expect(orchestrator.state, 'fixture: the node is resyncing').to.equal(STATES.RESYNCING);
+      expect(syncMissingHashesStub.callCount, 'the sync on recovery').to.equal(MAX_RETRIES + 1);
+
+      syncMissingHashesStub.resolves(done);
+      await clock.tickAsync(RETRY_MS);
+      expect(syncMissingHashesStub.callCount, 'the failed sync on recovery was retried').to.equal(MAX_RETRIES + 2);
+      expect(globalStateStub.dbReady).to.equal(true);
+    });
+  });
+
+  describe('hash sync recovery', () => {
     it('should fall back to block timer when hash sync retries exhausted', async () => {
       syncMissingHashesStub.rejects(new Error('persistent failure'));
 

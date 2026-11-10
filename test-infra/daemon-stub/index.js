@@ -42,6 +42,19 @@ let currentHeight = Number(process.env.INITIAL_HEIGHT);
 let deterministicNodeList = [];
 let originalNodeList = [];
 let pendingBlocks = [];
+// The active chain's hash at each height a fork replaced; every other height is
+// `000000000000stub<height>`.
+const forkedHashes = new Map();
+// Headers of the blocks a fork left behind, hash -> { height, previousblockhash }:
+// fluxd keeps a stale branch's headers and answers getblockheader for them.
+const staleHeaders = new Map();
+let forkCount = 0;
+let mempool = [];
+
+function hashAt(height) {
+  return forkedHashes.get(height) ?? `000000000000stub${height}`;
+}
+
 // height -> block time, epoch seconds. A block's time is fixed when it is mined,
 // or when it is first asked about if it predates this stub, and every later read
 // returns the same value - as the chain does, where every node reads one header
@@ -304,7 +317,7 @@ const rpcHandlers = {
     chain: 'main',
     blocks: localHeightFor(sourceIp),
     headers: currentHeight,
-    bestblockhash: `000000000000stub${localHeightFor(sourceIp)}`,
+    bestblockhash: hashAt(localHeightFor(sourceIp)),
     difficulty: 1000,
     verificationprogress: 1,
     chainwork: '0000000000000000000000000000000000000000000000000000000000000001',
@@ -349,14 +362,15 @@ const rpcHandlers = {
   getpeerinfo: () => [],
 
   getchaintips: () => [
-    { height: currentHeight, hash: `000000000000stub${currentHeight}`, branchlen: 0, status: 'active' },
+    { height: currentHeight, hash: hashAt(currentHeight), branchlen: 0, status: 'active' },
   ],
 
-  getbestblockhash: (params, sourceIp) => `000000000000stub${localHeightFor(sourceIp)}`,
+  getbestblockhash: (params, sourceIp) => hashAt(localHeightFor(sourceIp)),
 
   getblockhash: (params) => {
     const height = params[0];
-    return `000000000000stub${height}`;
+    const pending = pendingBlocks.find((b) => b.height === height);
+    return pending?.hash ?? hashAt(height);
   },
 
   getblock: (params) => {
@@ -366,13 +380,18 @@ const rpcHandlers = {
 
     const pending = pendingBlocks.find((b) => b.height === asNum || b.height === hashOrHeight || b.hash === hashOrHeight);
     if (pending) {
-      const confirmations = verbosity === 2 ? fluxnodeTxsAt(pending.height) : [];
-      return confirmations.length ? { ...pending, tx: [...(pending.tx || []), ...confirmations] } : pending;
+      const fluxnodeTxs = verbosity === 2 ? fluxnodeTxsAt(pending.height) : [];
+      return {
+        ...pending,
+        // Read live: the chain moves on after a block is pushed.
+        confirmations: currentHeight - pending.height + 1,
+        ...(fluxnodeTxs.length ? { tx: [...(pending.tx || []), ...fluxnodeTxs] } : {}),
+      };
     }
 
     const height = !Number.isNaN(asNum) ? asNum : currentHeight;
     const block = {
-      hash: `000000000000stub${height}`,
+      hash: hashAt(height),
       confirmations: currentHeight - height + 1,
       size: 1000,
       height,
@@ -382,8 +401,8 @@ const rpcHandlers = {
       time: blockTimeOf(height),
       nonce: 0,
       difficulty: 1000,
-      previousblockhash: height > 0 ? `000000000000stub${height - 1}` : undefined,
-      nextblockhash: height < currentHeight ? `000000000000stub${height + 1}` : undefined,
+      previousblockhash: height > 0 ? hashAt(height - 1) : undefined,
+      nextblockhash: height < currentHeight ? hashAt(height + 1) : undefined,
     };
 
     if (verbosity === 2) {
@@ -395,18 +414,28 @@ const rpcHandlers = {
 
   getblockheader: (params) => {
     const hash = params[0];
+    const stale = staleHeaders.get(hash);
+    if (stale) {
+      return {
+        hash, confirmations: -1, height: stale.height, version: 4, previousblockhash: stale.previousblockhash, time: blockTimeOf(stale.height),
+      };
+    }
+    const pending = pendingBlocks.find((b) => b.hash === hash);
+    const forkedHeight = [...forkedHashes].find(([, forked]) => forked === hash)?.[0];
+    const stubHeight = /stub(\d+)$/.exec(hash);
+    const height = pending?.height ?? forkedHeight ?? (stubHeight ? Number(stubHeight[1]) : currentHeight);
     return {
       hash,
-      confirmations: 1,
-      height: currentHeight,
+      confirmations: currentHeight - height + 1,
+      height,
       version: 4,
-      previousblockhash: `000000000000stub${currentHeight - 1}`,
-      time: blockTimeOf(currentHeight),
+      previousblockhash: pending?.previousblockhash ?? hashAt(height - 1),
+      time: blockTimeOf(height),
     };
   },
 
   getmempoolinfo: () => ({ size: 0, bytes: 0, usage: 0 }),
-  getrawmempool: () => [],
+  getrawmempool: () => mempool,
 
   viewdeterministiczelnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
   viewdeterministicfluxnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
@@ -481,7 +510,7 @@ const rpcHandlers = {
         locktime: 0,
         vin: [],
         vout,
-        blockhash: `000000000000stub${currentHeight}`,
+        blockhash: hashAt(currentHeight),
         confirmations: 1,
         time: Math.floor(Date.now() / 1000),
         blocktime: Math.floor(Date.now() / 1000),
@@ -840,8 +869,7 @@ function tickBlock() {
   }
   if (txs.length > 0) {
     pendingBlocks.push({
-      hash: `000000000000stub${currentHeight}`,
-      confirmations: 1,
+      hash: hashAt(currentHeight),
       size: 1000,
       height: currentHeight,
       version: 4,
@@ -850,7 +878,7 @@ function tickBlock() {
       time: blockTimeOf(currentHeight),
       nonce: 0,
       difficulty: 1000,
-      previousblockhash: `000000000000stub${currentHeight - 1}`,
+      previousblockhash: hashAt(currentHeight - 1),
     });
     console.log(`Block ${currentHeight}: ${txs.length} app tx(s)`);
   }
@@ -944,20 +972,14 @@ control.post('/advance-block', (req, res) => {
   }
   if (block) {
     block.height = block.height || currentHeight;
-    block.hash = block.hash || `000000000000stub${currentHeight}`;
+    block.hash = block.hash || hashAt(currentHeight);
+    block.previousblockhash = block.previousblockhash || hashAt(block.height - 1);
     block.time = block.time ?? blockTimeOf(block.height);
-    // Computed live, the way a synthesized block computes it at the top of this
-    // file. Stamping 1 at push time made a block carrying transactions read as
-    // the chain tip no matter how far behind the node was, while an empty block
-    // did not - so the one class of block whose isSynced skip matters most, an
-    // app registration, was the one class the stub had made unskippable.
-    block.confirmations = currentHeight - block.height + 1;
     block.tx = [...(block.tx || []), ...txs];
     pendingBlocks.push(block);
   } else if (txs.length > 0) {
     pendingBlocks.push({
-      hash: `000000000000stub${currentHeight}`,
-      confirmations: 1,
+      hash: hashAt(currentHeight),
       size: 1000,
       height: currentHeight,
       version: 4,
@@ -966,7 +988,7 @@ control.post('/advance-block', (req, res) => {
       time: blockTimeOf(currentHeight),
       nonce: 0,
       difficulty: 1000,
-      previousblockhash: `000000000000stub${currentHeight - 1}`,
+      previousblockhash: hashAt(currentHeight - 1),
     });
     console.log(`Block ${currentHeight}: ${txs.length} app tx(s) (manual advance)`);
   }
@@ -1086,6 +1108,34 @@ control.post('/queue-app-tx', (req, res) => {
 control.post('/add-block-fixture', (req, res) => {
   pendingBlocks.push(req.body.block);
   res.json({ pendingBlocks: pendingBlocks.length });
+});
+
+// Replaces the active chain from fromHeight to the tip with a branch of the same
+// length: new hashes, and none of the replaced blocks' transactions. The replaced
+// blocks' headers stay answerable, as fluxd's do for a stale branch.
+control.post('/mempool', (req, res) => {
+  mempool = Array.isArray(req.body?.txids) ? req.body.txids : [];
+  res.json({ mempool });
+});
+
+control.post('/fork', (req, res) => {
+  const fromHeight = Number(req.body?.fromHeight);
+  if (!Number.isInteger(fromHeight) || fromHeight < 1 || fromHeight > currentHeight) {
+    return res.status(400).json({ error: `fromHeight must be a height from 1 to the tip ${currentHeight}` });
+  }
+  const replaced = [];
+  for (let height = fromHeight; height <= currentHeight; height += 1) {
+    const pending = pendingBlocks.find((b) => b.height === height);
+    replaced.push({ height, hash: hashAt(height), previousblockhash: pending?.previousblockhash ?? hashAt(height - 1) });
+  }
+  forkCount += 1;
+  replaced.forEach(({ height, hash, previousblockhash }) => {
+    staleHeaders.set(hash, { height, previousblockhash });
+    forkedHashes.set(height, `000000000000fork${forkCount}h${height}`);
+  });
+  pendingBlocks = pendingBlocks.filter((b) => b.height < fromHeight);
+  console.log(`Fork ${forkCount}: blocks ${fromHeight}..${currentHeight} replaced`);
+  return res.json({ fromHeight, tip: currentHeight, replaced: replaced.map((b) => b.hash) });
 });
 
 control.delete('/pending-blocks', (req, res) => {
@@ -1392,6 +1442,8 @@ control.post('/reset', (req, res) => {
   for (const ip of [...refusalHolds.keys()]) releaseRefusals(ip);
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];
+  forkedHashes.clear();
+  staleHeaders.clear();
   pendingAppTxQueue.length = 0;
   requestJournal.length = 0;
   seededAddressDeltas.length = 0;

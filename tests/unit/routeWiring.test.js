@@ -550,7 +550,6 @@ describe('route wiring', () => {
       'get /daemon/getblockheader/:hash?/:verbose?',
       'get /daemon/getblocksubsidy/:height?',
       'get /daemon/getblocktemplate/:jsonrequestobject?',
-      'get /daemon/getchaintips',
       'get /daemon/getconnectioncount',
       'get /daemon/getdeprecationinfo',
       'get /daemon/getdifficulty',

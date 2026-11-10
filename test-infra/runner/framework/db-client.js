@@ -609,23 +609,5 @@ export function dbClient(nodeNum) {
       const localDb = await db('local');
       await localDb.collection('policydocuments').deleteOne({ _id: 'networkPolicy' });
     },
-
-    async failpointFind(collection, { times = 1, errorCode = 50 } = {}) {
-      const client = await getClient();
-      const namespace = `${dbNames.explorer}.${collection}`;
-      await client.db('admin').command({
-        configureFailPoint: 'failCommand',
-        mode: { times },
-        data: { failCommands: ['find'], errorCode, namespace },
-      });
-    },
-
-    async failpointClear() {
-      const client = await getClient();
-      await client.db('admin').command({
-        configureFailPoint: 'failCommand',
-        mode: 'off',
-      });
-    },
   };
 }

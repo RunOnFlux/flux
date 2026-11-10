@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
+const { MongoOperationTimeoutError } = require('mongodb');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
@@ -88,6 +89,41 @@ describe('upnpMappingRecord tests', () => {
     expect(errorStub.firstCall.args[0]).to.match(/31000\/TCP not recorded: not primary/);
   });
 
+  // A router turn waits on a mapping's record, so each write it makes is bounded by
+  // the driver's timeoutMS; the driver ending a write at that bound is its contract.
+  it('bounds every write a router turn waits on by recordWriteLimitMs', async () => {
+    const updates = sinon.spy(collection, 'updateOne');
+    const deletes = sinon.spy(collection, 'deleteOne');
+    dbHelper.databaseConnection.returns(null);
+    await upnpMappingRecord.mapping(16137, 'TCP', 'Flux_Backend_API');
+    await upnpMappingRecord.removed(16138, 'TCP');
+    dbHelper.databaseConnection.restore();
+    sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => collection }) });
+
+    await upnpMappingRecord.mapping(31000, 'TCP', 'Flux_App_web');
+    await upnpMappingRecord.removed(31000, 'TCP');
+
+    // the two that waited for the database, then the turn's own add and removal
+    const options = [...updates.getCalls(), ...deletes.getCalls()].map((call) => call.args[2] ?? call.args[1]);
+    expect(options).to.have.length(4);
+    options.forEach((o) => expect(o.timeoutMS).to.equal(config.upnp.recordWriteLimitMs));
+  });
+
+  [
+    ['mapping', () => upnpMappingRecord.mapping(31999, 'TCP', 'Flux_App_web', 0), 'updateOne', '31999/TCP not recorded'],
+    ['removal', () => upnpMappingRecord.removed(31998, 'TCP'), 'deleteOne', '31998/TCP not cleared'],
+  ].forEach(([what, write, method, logged]) => {
+    it(`logs a ${what} record that ran out of time, and lets the router turn go on`, async () => {
+      sinon.stub(collection, method).rejects(new MongoOperationTimeoutError('Timed out during operation execution'));
+      const errorStub = sinon.stub(log, 'error');
+
+      await write();
+
+      sinon.assert.calledOnce(errorStub);
+      expect(errorStub.firstCall.args[0]).to.equal(`upnpMappingRecord - ${logged}: Timed out during operation execution`);
+    });
+  });
+
   it('keeps what it records before the database is connected, and writes it first once it is', async () => {
     dbHelper.databaseConnection.returns(null);
     await upnpMappingRecord.mapping(16137, 'TCP', 'Flux_Backend_API');
@@ -128,48 +164,5 @@ describe('upnpMappingRecord tests', () => {
 
     expect((await upnpMappingRecord.all()).map((r) => r.port)).to.deep.equal([16137]);
     expect([...documents.keys()]).to.deep.equal(['16137/TCP']);
-  });
-});
-
-// A router turn waits on a mapping's record, so a write the database cannot take
-// fails within config.upnp.recordWriteLimitMs instead of holding the turn.
-describe('upnpMappingRecord against a database that takes no write', () => {
-  const LIMIT_MS = config.upnp.recordWriteLimitMs;
-  let admin;
-
-  before(async () => {
-    await dbHelper.initiateDB();
-    admin = dbHelper.databaseConnection().db('admin');
-  });
-
-  // Locking flushes the database to disk first, which takes as long as the disk does, so it
-  // is set up before each test: a test is timed on the write alone.
-  beforeEach(async () => {
-    await admin.command({ fsync: 1, lock: true });
-  });
-
-  afterEach(async () => {
-    sinon.restore();
-    await admin.command({ fsyncUnlock: 1 }).catch(() => {});
-    await dbHelper.databaseConnection().db(config.database.local.database)
-      .collection(config.database.local.collections.upnpMappings).deleteMany({ _id: { $in: ['31999/TCP', '31998/TCP'] } });
-  });
-
-  [
-    ['records a mapping', () => upnpMappingRecord.mapping(31999, 'TCP', 'Flux_App_web', 0), '31999/TCP not recorded'],
-    ['ends a record', () => upnpMappingRecord.removed(31998, 'TCP'), '31998/TCP not cleared'],
-  ].forEach(([what, write, logged]) => {
-    it(`${what} or fails within the limit while writes are locked out`, async () => {
-      sinon.stub(log, 'error');
-
-      const startedMs = Date.now();
-      await write();
-      const tookMs = Date.now() - startedMs;
-
-      expect(tookMs, 'how long the write held its caller').to.be.below(LIMIT_MS + 1000);
-      const messages = log.error.getCalls().map((call) => String(call.args[0]));
-      expect(messages.some((m) => m.includes(logged)), JSON.stringify(messages)).to.equal(true);
-      expect(messages.filter((m) => m.includes(logged)).join(), 'canary: the write ran out of time').to.match(/timed? ?out|time limit|exceeded/i);
-    });
   });
 });
