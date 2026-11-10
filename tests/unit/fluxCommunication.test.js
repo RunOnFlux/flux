@@ -44,19 +44,16 @@ const PEER_MANAGER_HOOKS = ['linkHandshake', 'messageDispatcher', 'linkMessageDi
 const PEER_MANAGER_EVENTS = ['peerConnected', 'peerDisconnected', 'authenticatedLinkLost', 'authenticatedLinkGained'];
 
 /**
- * fluxCommunication loaded again as an Arcane node, installed on the shared peer
- * manager as production installs it. restore() puts the hooks back and removes
- * the listeners this copy added.
- * @param {object} [stubs] More proxyquire stubs.
+ * fluxCommunication loaded again with these proxyquire stubs, installed on the
+ * shared peer manager as production installs it. restore() puts the hooks back and
+ * removes the listeners this copy added.
+ * @param {object} [stubs]
  * @returns {{mod: object, hooks: object, restore: function(): void}}
  */
-function loadArcaneFluxCommunication(stubs = {}) {
+function loadFluxCommunication(stubs = {}) {
   const hooks = Object.fromEntries(PEER_MANAGER_HOOKS.map((name) => [name, peerManager[name]]));
   const listeners = Object.fromEntries(PEER_MANAGER_EVENTS.map((event) => [event, peerManager.listeners(event)]));
-  const mod = proxyquire('../../ZelBack/src/services/fluxCommunication', {
-    './utils/appConstants': { ...appConstants, isArcane: true },
-    ...stubs,
-  });
+  const mod = proxyquire('../../ZelBack/src/services/fluxCommunication', stubs);
   return {
     mod,
     hooks,
@@ -68,6 +65,36 @@ function loadArcaneFluxCommunication(stubs = {}) {
     },
   };
 }
+
+/**
+ * fluxCommunication loaded again as an Arcane node (loadFluxCommunication).
+ * @param {object} [stubs] More proxyquire stubs.
+ * @returns {{mod: object, hooks: object, restore: function(): void}}
+ */
+function loadArcaneFluxCommunication(stubs = {}) {
+  return loadFluxCommunication({ './utils/appConstants': { ...appConstants, isArcane: true }, ...stubs });
+}
+
+/**
+ * A ws client that records the address it was opened to and never connects, so a
+ * dial made through it leaves nothing behind.
+ */
+class UnansweredWebSocket extends EventEmitter {
+  static dialled = [];
+
+  constructor(uri) {
+    super();
+    UnansweredWebSocket.dialled.push(uri);
+    this.readyState = WebSocket.CONNECTING;
+  }
+
+  close() { this.readyState = WebSocket.CLOSED; }
+
+  terminate() { this.readyState = WebSocket.CLOSED; }
+}
+Object.assign(UnansweredWebSocket, {
+  CONNECTING: WebSocket.CONNECTING, OPEN: WebSocket.OPEN, CLOSING: WebSocket.CLOSING, CLOSED: WebSocket.CLOSED,
+});
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -929,7 +956,8 @@ describe('fluxCommunication tests', () => {
     });
 
     before(() => {
-      arcane = loadArcaneFluxCommunication();
+      // Its dials open no socket: each test announces the connection itself.
+      arcane = loadArcaneFluxCommunication({ ws: UnansweredWebSocket });
       ({ mod } = arcane);
     });
 
@@ -1990,21 +2018,25 @@ describe('fluxCommunication tests', () => {
     // without asking whose address it is. A self-connection is not just a wasted
     // socket: it takes a peer slot, is offered back as a peer to gossip and to
     // sync from, and answers every question with what this node already knows.
+    const dialFrom = async (address) => {
+      UnansweredWebSocket.dialled = [];
+      const dialler = loadFluxCommunication({ ws: UnansweredWebSocket });
+      try {
+        await dialler.mod.initiateAndHandleConnection(address);
+      } finally {
+        dialler.restore();
+      }
+      return UnansweredWebSocket.dialled.map((uri) => new URL(uri).host);
+    };
+
     it('refuses to connect to this node\'s own address', async () => {
-      peerManager.reset();
-
-      await fluxCommunication.initiateAndHandleConnection('44.192.51.11:16127');
-
+      expect(await dialFrom('44.192.51.11:16127')).to.deep.equal([]);
       expect(peerManager.outboundCount).to.equal(0);
       expect(peerManager.isPending('44.192.51.11:16127'), 'left itself marked pending').to.equal(false);
     });
 
     it('still connects to a different node at the same port', async () => {
-      peerManager.reset();
-
-      await fluxCommunication.initiateAndHandleConnection('44.192.51.12:16127').catch(() => {});
-
-      expect(peerManager.has('44.192.51.11:16127')).to.equal(false);
+      expect(await dialFrom('44.192.51.12:16127')).to.deep.equal(['44.192.51.12:16127']);
     });
 
   });
@@ -2812,7 +2844,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(logSpy, 'Node not confirmed. Flux discovery is awaiting.');
     });
 
-    it('should start connecting nodes if everything is set up properly', async () => {
+    it('dials its deterministic peers and a random one when everything is set up', async () => {
       const fluxNodeList = [
         '44.192.51.10',
         '44.192.51.12',
@@ -2825,68 +2857,36 @@ describe('fluxCommunication tests', () => {
         '44.192.51.19:16197',
         '44.192.51.11',
       ];
-
+      const randomAddresses = ['1.2.3.4:16137', '1.2.3.5:16137', '1.2.3.6:16137'];
       sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').returns('44.192.51.11');
-      fluxNetworkHelper.setLocalSocketAddress('44.192.51.11');
+      sinon.stub(peerManager, 'getOwnSocketAddress').returns('44.192.51.11:16127');
       sinon.stub(fluxCommunicationUtils, 'getFluxnodeFromFluxList').returns('44.192.51.11');
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
-
-      // Mock delay to return immediately
       sinon.stub(serviceHelper, 'delay').resolves();
-
-      // everything being set up properly now includes knowing the network
       sinon.stub(networkStateService, 'isReady').returns(true);
-
-      // Mock different addresses to avoid infinite loop
-      const addresses = ['1.2.3.4:16137', '1.2.3.5:16137', '1.2.3.6:16137'];
       let addressIndex = 0;
-      sinon.stub(networkStateService, 'getRandomSocketAddress').callsFake(() => {
-        const address = addresses[addressIndex % addresses.length];
+      sinon.stub(networkStateService, 'getRandomSocketAddress').callsFake(async () => {
         addressIndex += 1;
-        return Promise.resolve(address);
+        return randomAddresses[(addressIndex - 1) % randomAddresses.length];
       });
-
-      // Stub initiateAndHandleConnection to prevent actual connections
-      // eslint-disable-next-line no-unused-vars
-      const initiateStub = sinon.stub(fluxCommunication, 'initiateAndHandleConnection').resolves();
-
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { message: 'all is good!' } } });
+      daemonServiceStub.returns({ data: { synced: true } });
       const infoSpy = sinon.spy(log, 'info');
+      UnansweredWebSocket.dialled = [];
+      const discovery = loadFluxCommunication({ ws: UnansweredWebSocket });
+      try {
+        await discovery.mod.fluxDiscovery();
+      } finally {
+        discovery.restore();
+        peerManager.reset();
+      }
 
-      daemonServiceStub.returns({
-        data: {
-          synced: true,
-        },
-      });
-
-      const axiosGetResponse = {
-        data: {
-          status: 'success',
-          data: {
-            message: 'all is good!',
-          },
-        },
-      };
-      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
-
-      // Start fluxDiscovery and wait for it to make connection attempts
-      // eslint-disable-next-line no-unused-vars
-      const discoveryPromise = fluxCommunication.fluxDiscovery();
-
-      // Wait for the discovery logic to execute and make at least one connection attempt
-      // eslint-disable-next-line no-promise-executor-return
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Verify the expected log calls were made
-      sinon.assert.calledWith(infoSpy, 'Searching for my node on sortedNodeList');
       sinon.assert.calledWith(infoSpy, 'My node was found on index: 9 of 10 nodes');
-
-      // Verify that connection process started by checking for peer addition logs
-      const addPeerCalls = infoSpy.getCalls().filter((call) => call.args[0] && call.args[0].includes('Adding random Flux peer'));
-
-      // The test passes if we see peer addition logs (which happen right before connections)
-      expect(addPeerCalls.length).to.be.at.least(1);
-    }).timeout(5000);
+      const dialledAddresses = UnansweredWebSocket.dialled.map((uri) => new URL(uri).host);
+      expect(dialledAddresses, 'no deterministic peer dialled').to.include('44.192.51.10:16127');
+      expect(dialledAddresses.some((address) => randomAddresses.includes(address)), `no random peer dialled: ${dialledAddresses}`).to.equal(true);
+    });
   });
 
   describe('handleNodeSigtermMessage tests', () => {
