@@ -170,7 +170,9 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
 // Nine dialers hold four outbound and two inbound peers each, so SUBJECT is
 // connected to at most six of the eight others and the round has nodes to open
 // connections to. hashSyncMaxRounds 0 sends a missing message straight to that
-// round: the subject's own peers, which hold the message, are never asked.
+// round: the subject's own peers, which hold the message, are never asked. The
+// subject loses its unpromoted copy with the permanent one, as a node does once
+// the copy has expired, so nothing it holds resolves the message.
 describe('a node resolves a lost message over temporary connections to Arcane nodes', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -205,6 +207,8 @@ describe('a node resolves a lost message over temporary connections to Arcane no
     const subject = env.clients[SUBJECT];
     const { zelidauth } = await authenticate(subject.url, fluxTeamKey());
     await db.deletePermanentMessage(appHash);
+    await db.deleteTemporaryMessages(appHash);
+    expect(await db.pendingMessage(appHash), `fixture: node ${SUBJECT} holds no unpromoted copy`).to.equal(null);
     const audit = await subject.reconstructHashes(zelidauth);
     expect(audit.data?.message?.changed, `fixture: node ${SUBJECT} marked the lost message missing: ${JSON.stringify(audit)}`).to.equal(1);
 

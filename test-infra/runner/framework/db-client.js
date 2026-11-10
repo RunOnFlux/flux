@@ -366,6 +366,12 @@ export function dbClient(nodeNum) {
       if (result.deletedCount !== 1) throw new Error(`no permanent message for ${hash}`);
     },
 
+    // Every unpromoted copy of a message this node holds; answers how many there were.
+    async deleteTemporaryMessages(hash) {
+      const globalDb = await db('appsGlobal');
+      return (await globalDb.collection('zelappstemporarymessages').deleteMany({ hash })).deletedCount;
+    },
+
     async deleteAppHash(hash) {
       const explorerDb = await db('explorer');
       await explorerDb.collection('zelappshashes').deleteOne({ hash });
