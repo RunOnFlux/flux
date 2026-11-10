@@ -1898,6 +1898,10 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
 /**
  * Open an ephemeral connection to a peer. Returns a promise that resolves
  * with the FluxPeerSocket once connected, or null on failure.
+ *
+ * It carries one question and never joins the peer set, so it offers no link:
+ * an Arcane node holds what arrives on a connection offering one until the link
+ * settles, and this end never opens it.
  * @param {string} connection - IP or IP:port
  * @returns {Promise<FluxPeerSocket|null>}
  */
@@ -1923,7 +1927,7 @@ function openEphemeralConnection(connection) {
         handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,
         maxPayload: config.fluxapps.wsMaxPayloadBytes,
         headers: {
-          'X-Flux-Capabilities': FLUX_CAPABILITIES.join(','),
+          'X-Flux-Capabilities': FLUX_CAPABILITIES.filter((capability) => capability !== arcaneLink.CAPABILITY).join(','),
           'X-Flux-Version': FLUX_VERSION,
           'X-Flux-Uptime': String(Math.floor(process.uptime())),
         },

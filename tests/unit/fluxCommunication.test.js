@@ -33,6 +33,7 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const announcementFetch = require('../../ZelBack/src/services/utils/announcementFetch');
 const fluxPeerSocketModule = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const fluxPeerManagerModule = require('../../ZelBack/src/services/utils/FluxPeerManager');
 const appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
 const { PEER_SOURCE, FluxPeerSocket } = fluxPeerSocketModule;
@@ -2209,6 +2210,35 @@ describe('fluxCommunication tests', () => {
       sinon.restore();
       if (wsserver && typeof wsserver.close === 'function') {
         wsserver.close();
+      }
+    });
+
+    it('offers the link on a peer connection and not on a temporary one', async () => {
+      const offered = (wss) => new Promise((resolve) => {
+        wss.on('connection', (_ws, req) => resolve(req.headers['x-flux-capabilities'].split(',')));
+      });
+      // What an Arcane node advertises: FluxPeerSocket adds the link capability as it loads there.
+      const arcane = loadArcaneFluxCommunication({
+        './utils/FluxPeerManager': {
+          ...fluxPeerManagerModule,
+          FLUX_CAPABILITIES: Object.freeze([...fluxPeerManagerModule.FLUX_CAPABILITIES, arcaneLink.CAPABILITY]),
+        },
+      });
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
+      const askedServer = new WebSocket.Server({ host: '127.0.0.3', port: 16127 });
+      try {
+        daemonServiceMiscRpcsStub.returns({ data: { synced: false, height: 0 } });
+        const peerOffer = offered(wsserver);
+        await arcane.mod.initiateAndHandleConnection('127.0.0.2');
+        expect(await peerOffer, 'fixture: a peer connection offers the link').to.include(arcaneLink.CAPABILITY);
+
+        const temporaryOffer = offered(askedServer);
+        await arcane.mod.openEphemeralConnection('127.0.0.3:16127');
+        expect(await temporaryOffer).to.not.include(arcaneLink.CAPABILITY);
+      } finally {
+        askedServer.clients.forEach((client) => client.terminate());
+        askedServer.close();
+        arcane.restore();
       }
     });
 
