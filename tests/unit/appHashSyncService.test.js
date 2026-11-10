@@ -342,6 +342,20 @@ describe('appHashSyncService tests', () => {
       await first;
     });
 
+    it('fails when its read of the payment records fails, and runs on the next call', async () => {
+      dbHelperStub.findInDatabase.onFirstCall().rejects(new Error('read failed'));
+      dbHelperStub.findInDatabase.onSecondCall().resolves([]);
+
+      await appHashSyncService.syncMissingHashes().then(
+        () => expect.fail('a sync whose read failed reported success'),
+        (error) => expect(error.message).to.equal('read failed'),
+      );
+      const next = await appHashSyncService.syncMissingHashes();
+
+      expect(next).to.include({ resolved: 0, missing: 0 });
+      expect(dbHelperStub.findInDatabase.callCount, 'the next call read the records').to.equal(2);
+    });
+
     it('should use bulk fetch when many hashes are missing', async () => {
 
       const manyMissing = Array(1500).fill(null).map((_, i) => ({
