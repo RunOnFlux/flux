@@ -123,6 +123,7 @@ async function spawnLoop() {
   spawnLoopRunning = true;
   try {
     while (!globalState.spawnerPaused) {
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SPAWNER_BEFORE_PASS);
       const delayMs = await trySpawningGlobalApplication();
       if (delayMs > 0) await serviceHelper.delay(delayMs);
     }

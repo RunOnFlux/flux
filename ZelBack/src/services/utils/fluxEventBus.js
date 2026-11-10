@@ -76,6 +76,9 @@ const Checkpoint = Object.freeze({
   ADDRESS_RECORD_BEFORE_SWAP: 'addressRecord:beforeSwap',
   // A give-up pass holds the pass lock and has not yet read anything.
   GIVEUP_BEFORE_PASS: 'giveUp:beforePass',
+  // The spawn loop is between passes: the last pass, and any install it started,
+  // has finished, and the next has read nothing.
+  SPAWNER_BEFORE_PASS: 'spawner:beforePass',
   // A give-up pass has decided to hand an app back and has not yet checked the
   // chain height or started the removal. Keyed by the app name.
   GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',
