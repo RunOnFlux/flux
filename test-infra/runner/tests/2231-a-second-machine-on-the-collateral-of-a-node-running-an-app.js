@@ -41,6 +41,7 @@ const LISTED = 0;
 const BYSTANDER = 1;
 const OTHER = 2;
 const COPY = 3;
+const SPAWNER_BEFORE_PASS = 'spawner:beforePass';
 // The collision check's grace and the confirmation's block, from the death.
 const COLLATERAL_MS = 6 * 60 * 1000;
 // The dead node's location lifetime (63s in this fleet), then a spawn and a start.
@@ -88,8 +89,14 @@ async function fleetRunningTheApp(hookCtx, appName) {
     }],
   });
   // Registered on chain, as on the network: the three online hold the app from the
-  // owner's broadcast and the payment.
+  // owner's broadcast and the payment. It is placed on the listed node alone: the
+  // other two are held between spawner passes until they hold its location there,
+  // so their next pass finds the app at its instance count.
   const online = [LISTED, BYSTANDER, OTHER];
+  const others = [BYSTANDER, OTHER];
+  const parkedFrom = others.map((i) => env.clients[i].getLastEventId());
+  await Promise.all(others.map((i) => env.clients[i].holdCheckpoint(SPAWNER_BEFORE_PASS)));
+  await Promise.all(others.map((i, k) => env.clients[i].waitForEvent('checkpoint:held', (d) => d.name === SPAWNER_BEFORE_PASS, 180000, { afterId: parkedFrom[k] })));
   await stopTicker();
   await deliverAppByBlock(env, app, online);
   await advanceBlock();
@@ -97,6 +104,12 @@ async function fleetRunningTheApp(hookCtx, appName) {
   await waitFor(async () => (await Promise.all(online.map((i) => dbClient(i + 1).globalAppSpec(appName))))
     .every((row) => row?.hash === app.hash), { timeout: 120000, interval: 2000, label: 'every node online holds the app' });
   await installSeededOnNodes(env, app, [LISTED]);
+  const listedIp = env.clients[LISTED].ip;
+  await waitFor(async () => (await Promise.all(others.map(async (i) => (await dbClient(i + 1).getAppLocations(appName))
+    .some((row) => String(row.ip).split(':')[0] === listedIp)))).every(Boolean), {
+    timeout: 120000, interval: 2000, label: 'the other nodes hold the app at the listed node',
+  });
+  await Promise.all(others.map((i) => env.clients[i].releaseCheckpoint(SPAWNER_BEFORE_PASS)));
   return { env, app };
 }
 
