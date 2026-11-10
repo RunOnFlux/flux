@@ -167,9 +167,9 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
 // real: a stub offers no link, so the case above passes whether or not an Arcane
 // node takes a question on a temporary connection.
 //
-// Nine dialers hold four outbound and two inbound peers each, so SUBJECT is
-// connected to at most six of the eight others and the round has nodes to open
-// connections to. hashSyncMaxRounds 0 sends a missing message straight to that
+// Each node dials the four after it on the ring and is dialled by the four before
+// it, so of twelve nodes SUBJECT is connected to eight and the round has three to
+// open connections to. hashSyncMaxRounds 0 sends a missing message straight to that
 // round: the subject's own peers, which hold the message, are never asked. The
 // subject loses its unpromoted copy with the permanent one, as a node does once
 // the copy has expired, so nothing it holds resolves the message.
@@ -188,7 +188,7 @@ describe('a node resolves a lost message over temporary connections to Arcane no
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 9,
+      nodes: 12,
       tickerAutostart: false,
       configOverrides: { fluxapps: { hashSyncMaxRounds: 0, hashSyncFallbackRecheckBlocks: RECHECK_BLOCKS } },
     });
