@@ -7,90 +7,79 @@ export async function execInContainer(container, command) {
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, output: result.output };
 }
 
-// Move a node to a different address on the fleet network, as a router's public
-// IP changing moves a real node: its public address changes, and what it reaches
-// on its own machine does not notice.
+// Move a node to a different address on the fleet network: the new one goes on,
+// the old one comes off.
 //
-// The new address becomes the interface's primary, so every connection the node
-// opens from then on is made from it. The old address stays on the interface as
-// a /32, and to every other address on the fleet network it is gone: what
-// arrives for it is answered host-unreachable, the error a sender gets from an
-// address no host holds. A new connection to it fails at once rather than
-// hanging, so a peer's availability probe reports a failure inside the asking
-// node's budget, not a timeout. A connection already open to it dies silently,
-// and stays counted until the peer's liveness gives up on it. Nothing is hidden
-// from the node list, so peers still recognise the node as the sender of the
+// This is what an address change IS, and doing it for real is what makes the rest
+// of the fixture honest. Its peers then find it unreachable at the old address
+// because it genuinely is not there - no packet filter simulating it, and nothing
+// hidden from the node list, so they still recognise it as the sender of the
 // fluxipchanged broadcast that follows.
 //
-// The harness services split by how they know the node:
-// - Mongo, the registry and the FDM stub do not tell callers apart by address.
-//   They still reach the old address, so a connection the node holds to them
-//   carries on through the move, as one to a service on its own machine does.
-// - The daemon, syncthing and external HTTP stubs know a node by the address
-//   its requests arrive from. The node's connections to them are closed at the
-//   move, so it reaches them again from the new address at once.
+// The timing matters and is measured. A probe to an address that is gone fails
+// with EHOSTUNREACH at ~3.1s (ARP gives up), NOT a hang - so a peer's own probe
+// budget of 5s sees a failure rather than a timeout, and it answers the asking
+// node inside that node's 7s budget. Those margins are why this works where
+// dropping packets did not: a dropped probe burns the full 5s, and the answer
+// then arrives after the asker has already given up, which reads as "I could not
+// ask" rather than "you are unreachable" - a different branch entirely, and one
+// that never consults benchmark.
 //
-// Before it returns, the move checks both: a keep-alive connection to the FDM
-// stub opened before it answers on the same socket after it, and one to the
-// daemon stub is closed by it.
+// On a real node Mongo, fluxd, syncthing and benchmark are on its own machine,
+// and an address change never touches its connections to them. The harness
+// services are on the fleet network instead, and a connection the node held to
+// one from the old address would hang until its client gives up (Mongo's
+// driver: 30s, with every database call waiting on it). So every connection the
+// node holds to a harness service is closed at the move, and the node reaches
+// the service again from the new address at once: the stubs that know a node
+// by the address its requests arrive from know it there, and Mongo's driver
+// retries the read or write the closed connection carried.
+//
+// Before it returns, the move checks that: keep-alive connections to the daemon
+// and FDM stubs opened before it are closed by it, and both stubs answer again.
 //
 // @param {object} container The node's container.
 // @param {string} to Bare address to move to, inside the run's slot.
 // @param {string} from Bare address to give up.
 // Both carry the slot's prefix, which is the one the node's address has.
 export async function moveNodeAddress(container, to, from, { prefix = Number(getSubnetConfig().subnet.split('/')[1]), iface = 'eth0' } = {}) {
-  const { gateway, mongo, registry, fdm, daemon, syncthing, externalStub } = getSubnetConfig();
-  const kept = [gateway, mongo, registry, fdm];
-  const cut = [daemon, syncthing, externalStub];
-  const unreachable = (address) => `INPUT -d ${address} -j REJECT --reject-with icmp-host-unreachable`;
-  const keptFrom = (address, service) => `INPUT -d ${address} -s ${service} -j ACCEPT`;
+  const {
+    mongo, daemon, syncthing, registry, externalStub, fdm,
+  } = getSubnetConfig();
   const move = [
     'set -e',
-    // an address the node gave up before is taken back whole
-    ...kept.map((service) => `while iptables -D ${keptFrom(to, service)} 2>/dev/null; do :; done`),
-    `while iptables -D ${unreachable(to)} 2>/dev/null; do :; done`,
-    `ip addr del ${to}/32 dev ${iface} 2>/dev/null || true`,
-    `ip addr add ${to}/${prefix} dev ${iface}`,
-    // without it, removing the primary removes every secondary with it
-    `sysctl -qw net.ipv4.conf.${iface}.promote_secondaries=1`,
-    `ip addr del ${from}/${prefix} dev ${iface}`,
-    `ip addr add ${from}/32 dev ${iface}`,
-    `iptables -I ${unreachable(from)}`,
-    ...kept.map((service) => `iptables -I ${keptFrom(from, service)}`),
-    ...cut.map((service) => `ss -K dst ${service} >/dev/null 2>&1`),
+    `ip addr add ${to}/${prefix} dev ${iface} 2>/dev/null || ip -br addr show ${iface} | grep -q " ${to}/${prefix}"`,
+    `ip addr del ${from}/${prefix} dev ${iface} 2>/dev/null || ! ip -br addr show ${iface} | grep -q " ${from}/${prefix}"`,
+    ...[mongo, daemon, syncthing, registry, externalStub, fdm].map((service) => `ss -K dst ${service} >/dev/null 2>&1`),
   ].join('\n');
   const script = `
 const http = require('http');
 const { execFileSync } = require('child_process');
-const ask = (agent, host, port, name) => new Promise((resolve, reject) => {
+const ask = (host, port, name) => new Promise((resolve, reject) => {
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
   const req = http.get({ host, port, path: '/', agent, timeout: 5000 }, (res) => {
     res.resume();
-    res.on('end', () => resolve({ reused: req.reusedSocket, socket: req.socket }));
+    res.on('end', () => resolve({ socket: req.socket, agent }));
   });
   req.on('timeout', () => req.destroy(new Error(name + ' did not answer within 5s')));
   req.on('error', reject);
 });
-const keptAgent = new http.Agent({ keepAlive: true, maxSockets: 1 });
-const cutAgent = new http.Agent({ keepAlive: true, maxSockets: 1 });
-const fdm = () => ask(keptAgent, process.env.FDM_HOST, 16130, 'the FDM stub');
-const daemon = () => ask(cutAgent, process.env.DAEMON_HOST, 16124, 'the daemon stub');
+const closedBy = ({ socket }, name) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error('the connection to ' + name + ' was not closed by the move')), 5000);
+  socket.once('close', () => { clearTimeout(timer); resolve(); });
+});
+const stubs = [[process.env.DAEMON_HOST, 16124, 'the daemon stub'], [process.env.FDM_HOST, 16130, 'the FDM stub']];
 (async () => {
-  await fdm();
-  const { socket } = await daemon();
-  const closed = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('the connection to the daemon stub was not closed by the move')), 5000);
-    socket.once('close', () => { clearTimeout(timer); resolve(); });
-  });
+  const held = await Promise.all(stubs.map(([host, port, name]) => ask(host, port, name)));
+  const closed = Promise.all(held.map((h, i) => closedBy(h, stubs[i][2])));
   execFileSync('sh', ['-c', process.env.MOVE], { stdio: 'inherit' });
   await closed;
-  if (!(await fdm()).reused) throw new Error('the connection to the FDM stub opened before the move is not the one that answered after it');
-  await daemon();
-  keptAgent.destroy();
-  cutAgent.destroy();
+  const again = await Promise.all(stubs.map(([host, port, name]) => ask(host, port, name)));
+  [...held, ...again].forEach(({ agent }) => agent.destroy());
   console.log('moved');
 })().catch((err) => { console.error(err.message); process.exit(1); });
 `;
-  const r = await execInContainer(container, ['env', `FDM_HOST=${fdm}`, `DAEMON_HOST=${daemon}`, `MOVE=${move}`, 'node', '-e', script]);
+  const r = await execInContainer(container, ['env', `DAEMON_HOST=${daemon}`, `FDM_HOST=${fdm}`, `MOVE=${move}`, 'node', '-e', script]);
   // An idle keep-alive socket holds no reference on node's event loop, so a
   // check left waiting on one can end the process with exit 0: only the line
   // the script prints once every check has passed counts.
