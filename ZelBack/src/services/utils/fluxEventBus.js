@@ -68,6 +68,12 @@ const Checkpoint = Object.freeze({
   // A rebuild of the app registry has built its new copy from the message log and
   // holds the registry lock; the copy has not yet replaced the registry.
   REGISTRY_BEFORE_SWAP: 'registry:beforeSwap',
+  // A new IP location baseline is in its staging collection, and the staging
+  // collection has not yet replaced the live table.
+  IPLOCATION_BEFORE_SWAP: 'ipLocation:beforeSwap',
+  // A rebuilt address record is in its staging collection, and the staging
+  // collection has not yet replaced the record.
+  ADDRESS_RECORD_BEFORE_SWAP: 'addressRecord:beforeSwap',
   // A give-up pass holds the pass lock and has not yet read anything.
   GIVEUP_BEFORE_PASS: 'giveUp:beforePass',
   // A give-up pass has decided to hand an app back and has not yet checked the

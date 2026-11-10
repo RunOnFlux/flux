@@ -39,6 +39,7 @@ const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
 const cidrUtils = require('../utils/cidrUtils');
 const { bareIp } = require('../utils/socketAddressUtils');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 const gunzip = util.promisify(zlib.gunzip);
 
@@ -489,6 +490,7 @@ async function setArtifact(bytes) {
   if (!database) throw unavailable('no database connection');
   await dropStagingCollection(database);
   await fillStagingCollection(buf, parsed, database);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.IPLOCATION_BEFORE_SWAP);
   await database.renameCollection(ipRangesNextCollection, ipRangesCollection, { dropTarget: true });
 
   status = { ready: true, generated: parsed.header.generated, rowCount: parsed.rowCount };
