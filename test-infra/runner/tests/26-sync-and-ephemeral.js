@@ -177,7 +177,9 @@ describe('a node cut off while an app registered resolves its message over tempo
   let env;
   dumpLogsOnFailure(() => env);
   const SUBJECT = 5;
-  const REGISTRAR = 2;
+  // Dials the four after it, none of them SUBJECT, so the partition leaves its
+  // outbound floor whole and its door takes the registration.
+  const REGISTRAR = 8;
   let rest;
   let appHash;
   let marks;
