@@ -1,5 +1,7 @@
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { getSubnetConfig } from './subnet-config.js';
+import { recordNodeMove as recordDaemonNodeMove } from './daemon-control.js';
+import { recordNodeMove as recordSyncthingNodeMove } from './syncthing-control.js';
 
 export async function execInContainer(container, command) {
   const args = Array.isArray(command) ? command : ['sh', '-c', command];
@@ -31,9 +33,10 @@ export async function execInContainer(container, command) {
 // one from the old address would hang until its client gives up (Mongo's
 // driver: 30s, with every database call waiting on it). So every connection the
 // node holds to a harness service is closed at the move, and the node reaches
-// the service again from the new address at once: the stubs that know a node
-// by the address its requests arrive from know it there, and Mongo's driver
-// retries the read or write the closed connection carried.
+// the service again from the new address at once, and Mongo's driver retries
+// the read or write the closed connection carried. The daemon and syncthing
+// stubs know a node by the address its requests arrive from, so both are told
+// the new address is the same node before any request can arrive from it.
 //
 // Before it returns, the move checks that: keep-alive connections to the daemon
 // and FDM stubs opened before it are closed by it, and both stubs answer again.
@@ -46,6 +49,7 @@ export async function moveNodeAddress(container, to, from, { prefix = Number(get
   const {
     mongo, daemon, syncthing, registry, externalStub, fdm,
   } = getSubnetConfig();
+  await Promise.all([recordDaemonNodeMove(from, to), recordSyncthingNodeMove(from, to)]);
   const move = [
     'set -e',
     `ip addr add ${to}/${prefix} dev ${iface} 2>/dev/null || ip -br addr show ${iface} | grep -q " ${to}/${prefix}"`,

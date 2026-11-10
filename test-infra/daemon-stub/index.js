@@ -115,6 +115,11 @@ function nodeBySourceIp(sourceIp) {
   const clean = sourceIp.replace('::ffff:', '');
   const listed = deterministicNodeList.find((n) => n.ip.split(':')[0] === clean);
   if (listed) return listed;
+  const moved = movedNodes.get(clean);
+  if (moved) {
+    return deterministicNodeList.find((n) => n.ip.split(':')[0] === moved)
+      || originalNodeList.find((n) => n.ip.split(':')[0] === moved) || null;
+  }
   // A node that has really moved arrives from its NEW address while its list entry
   // still says where it was - which is exactly the state an address change puts it
   // in, before the chain catches up. It is the same node, and failing to recognise
@@ -141,6 +146,11 @@ function nodeBySourceIp(sourceIp) {
   // and what a mined confirmation changes, leave it out.
   return originalNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
 }
+
+// Nodes whose container a suite moved: the address it now holds -> the address
+// its list entry carries. Its requests from there are that node's, whatever its
+// answers are moved to.
+const movedNodes = new Map();
 
 // Machines that run on another node's collateral: real ip -> the real ip of the
 // listed node they run as. Each is a machine of its own all the same, so what its
@@ -1017,6 +1027,18 @@ control.post('/advance-block', (req, res) => {
 control.post('/set-height', (req, res) => {
   currentHeight = req.body.height;
   res.json({ currentHeight });
+});
+
+// A node's container moved from one address to another: { from, to }, bare
+// addresses. Its requests from `to` are the node's from then on; what the stub
+// answers about it stays with /node-address.
+control.post('/node-moved', (req, res) => {
+  const { from, to } = req.body || {};
+  if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+  const node = movedNodes.get(from) ?? from;
+  movedNodes.delete(from);
+  movedNodes.set(to, node);
+  return res.json({ node, at: to });
 });
 
 // Machines that run on another node's collateral, replacing any set before:

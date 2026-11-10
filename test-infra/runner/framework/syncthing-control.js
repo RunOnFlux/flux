@@ -46,6 +46,20 @@ export async function getSyncthingState() {
   return get('/state');
 }
 
+/**
+ * Tells the stub a node's container now holds `to` instead of `from`, so its
+ * requests from `to` reach the same syncthing: a node keeps its device ID and
+ * folders when its address changes.
+ *
+ * @param {string} from Bare address the container held.
+ * @param {string} to Bare address it holds now.
+ */
+export async function recordNodeMove(from, to) {
+  const r = await post('/node-moved', { from, to });
+  if (r.error) throw new Error(`the syncthing stub refused the move ${from} -> ${to}: ${r.error}`);
+  return r;
+}
+
 // Folder config is stored as current state, so a change and the change that
 // undoes it cancel out: a folder paused for an operation and resumed afterwards
 // reads identically to one nothing touched. These expose the ordered write
