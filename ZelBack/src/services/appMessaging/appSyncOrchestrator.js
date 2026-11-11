@@ -72,6 +72,9 @@ function freshSyncCompletions() {
   };
 }
 
+// The orchestrator started and not yet stopped, read by the test-state snapshot.
+let running = null;
+
 class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
   #blockEmitter = null;
@@ -200,6 +203,18 @@ class AppSyncOrchestrator {
     return this.#state;
   }
 
+  /**
+   * Where this node's state-sync attempt stands. While it is `open` the node
+   * asks each peer that connects for its app state; `complete` and
+   * `budgetSpent` ask nobody until the attempt starts again.
+   * @returns {'open'|'complete'|'budgetSpent'}
+   */
+  syncAttempt() {
+    if (this.#stateSyncComplete) return 'complete';
+    if (this.#syncBudgetSpent) return 'budgetSpent';
+    return 'open';
+  }
+
   #setState(newState) {
     const prevState = this.#state;
     if (prevState === newState) return;
@@ -217,6 +232,7 @@ class AppSyncOrchestrator {
   async start(bootContext) {
     if (this.#started) return;
     this.#started = true;
+    running = this;
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
 
     this.#bootContext = bootContext;
@@ -1302,6 +1318,7 @@ class AppSyncOrchestrator {
    */
   async stop() {
     this.#started = false;
+    if (running === this) running = null;
     if (this.#heartbeatInterval) {
       clearInterval(this.#heartbeatInterval);
       this.#heartbeatInterval = null;
@@ -1360,7 +1377,8 @@ class AppSyncOrchestrator {
   }
 }
 
-// The state this node's orchestrator is in now - harness-only, see fluxEventBus.js.
-fluxEventBus.snapshot('orchestrator', () => ({ state: globalState.appSyncState }));
+// The state this node's running orchestrator is in now, and where its state-sync
+// attempt stands - harness-only, see fluxEventBus.js.
+fluxEventBus.snapshot('orchestrator', () => ({ state: globalState.appSyncState, attempt: running?.syncAttempt() ?? null }));
 
 module.exports = { AppSyncOrchestrator, STATES };
