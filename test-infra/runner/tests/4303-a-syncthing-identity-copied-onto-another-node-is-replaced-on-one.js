@@ -79,9 +79,6 @@ describe('a syncthing identity copied onto another node is replaced on one of th
     await Promise.all(HOLDERS.map((i) => waitFor(() => isDaemonUp(client(i)), {
       timeout: 180000, interval: 3000, label: `syncthing up on node ${i}`,
     })));
-    await Promise.all(HOLDERS.map((i) => waitFor(() => hasRecord(i), {
-      timeout: 300000, interval: 3000, label: `node ${i} has recorded its syncthing identity`,
-    })));
     const ids = await Promise.all(HOLDERS.map((i) => getDeviceId(client(i))));
     expect(new Set(ids).size, 'the holders start with identities of their own').to.equal(2);
   });
@@ -93,6 +90,9 @@ describe('a syncthing identity copied onto another node is replaced on one of th
 
   it('replaces an identity copied with its record on the node it was copied onto', async function () {
     this.timeout(900000);
+    await waitFor(() => hasRecord(high), {
+      timeout: 300000, interval: 3000, label: `node ${high} has recorded its syncthing identity`,
+    });
     const original = await getDeviceId(client(high));
     const marks = HOLDERS.map((i) => client(i).getLastEventId());
     await copyHome(high, low, [...IDENTITY, RECORD]);

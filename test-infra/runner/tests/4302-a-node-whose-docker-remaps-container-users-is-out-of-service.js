@@ -10,6 +10,7 @@
  * Docker that comes back: a reconciler acting before the check would rebuild it there.
  */
 import { describe, it, before, after } from 'mocha';
+import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -83,6 +84,8 @@ describe('a node whose Docker remaps container users is out of service', functio
   it('returns to service once Docker restarts without remapping', async function () {
     this.timeout(180000);
     const client = env.clients[SUBJECT];
+    const held = await client.getDOSState();
+    expect(held.data?.dosMessage ?? '', 'the node is out of service for remapping before Docker restarts without it').to.match(/userns-remap/);
     const beforeRestore = client.getLastEventId();
     await setDockerUsernsRemap(client.container, false);
     await client.waitForEvent('dos:changed', (d) => d.dosState < 100 && !/userns-remap/.test(d.dosMessage ?? ''), 120000, { afterId: beforeRestore });
