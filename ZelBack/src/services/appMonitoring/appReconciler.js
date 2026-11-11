@@ -15,7 +15,6 @@ const containerHealthMonitor = require('./containerHealthMonitor');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { localAppsInformation } = require('../utils/appConstants');
-const { AsyncGate } = require('../utils/asyncGate');
 
 // The single, level-based actuator for app containers. Every trigger (docker
 // die event, stream reconnect, hourly tick, boot, post-install, and the
@@ -86,28 +85,6 @@ const dirty = new Set(); // ids re-requested while in flight -> reconcile again
 const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
 const unhandledFailures = new Map(); // id -> consecutive passes that threw
-
-// The boot-drain gate: opens once every boot-held component has completed ONE
-// reconcile pass (started, backoff-deferred, awaiting-controller, or failed
-// loudly) - NOT "all containers running". The first apprunning broadcast waits
-// on it so the snapshot doesn't race the boot starts (rows the snapshot misses
-// expire on the ~7min sigterm TTL and the app respawns elsewhere). Capped so a
-// wedged reconcile can never suppress the node's network presence.
-const BOOT_DRAIN_SETTLE_CAP_MS = 2 * 60 * 1000;
-const bootDrainGate = new AsyncGate();
-const bootDraining = new Set(); // boot-held ids still on their first pass
-let bootDrainCapTimer = null;
-
-function settleBootDrain(reason) {
-  if (bootDrainGate.ready) return;
-  if (bootDrainCapTimer) {
-    clearTimeout(bootDrainCapTimer);
-    bootDrainCapTimer = null;
-  }
-  bootDraining.clear();
-  bootDrainGate.open();
-  log.info(`appReconciler - boot drain settled (${reason})`);
-}
 
 // while an install/remove/redeploy/backup/restore or a deliberate stop owns a
 // container, defer and re-check shortly (the operation also re-enqueues on
@@ -1247,10 +1224,6 @@ function runReconcile(identifier) {
     })
     .finally(() => {
       inFlight.delete(identifier);
-      // one completed pass (actuated or deferred) is all the boot drain needs
-      if (bootDraining.delete(identifier) && bootDraining.size === 0) {
-        settleBootDrain('all boot reconciles completed a pass');
-      }
       if (dirty.has(identifier)) {
         dirty.delete(identifier);
         setImmediate(() => enqueue(identifier));
@@ -1754,16 +1727,6 @@ async function start() {
   // drain everything enqueued during boot now that daemon/DB are ready
   const pending = [...bootPending];
   bootPending.clear();
-  if (pending.length === 0) {
-    settleBootDrain('nothing to drain');
-    return;
-  }
-  pending.forEach((id) => bootDraining.add(id));
-  bootDrainCapTimer = setTimeout(() => {
-    log.warn(`appReconciler - boot drain cap reached with ${bootDraining.size} reconcile(s) still in flight: ${[...bootDraining].join(', ')}`);
-    settleBootDrain('cap reached');
-  }, BOOT_DRAIN_SETTLE_CAP_MS);
-  if (bootDrainCapTimer.unref) bootDrainCapTimer.unref();
   pending.forEach((id) => enqueue(id));
 }
 
@@ -1772,11 +1735,6 @@ function stop() {
   backoffTimers.forEach((t) => clearTimeout(t));
   backoffTimers.clear();
   unhandledFailures.clear();
-  if (bootDrainCapTimer) {
-    clearTimeout(bootDrainCapTimer);
-    bootDrainCapTimer = null;
-  }
-  bootDraining.clear();
   inFlight.clear();
   dirty.clear();
   bootPending.clear();
@@ -1801,7 +1759,6 @@ module.exports = {
   requestStopAndClearData,
   dataClearPending,
   dataEvents,
-  waitForBootDrainSettled: () => bootDrainGate.wait(),
   start,
   stop,
   // The one answer to "what is this container actually doing" - it probes the
