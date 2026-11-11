@@ -10,6 +10,7 @@ const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const helpers = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const syncthingIdentityClash = require('../../ZelBack/src/services/syncthingIdentityClash');
 
 const { IdentityVerdict } = peerIdentityService;
 
@@ -582,6 +583,47 @@ describe('syncthingMonitorHelpers tests', () => {
       // The stale entry is not among the devices in use, so the sweep of unused
       // devices removes it.
       expect(devicesIds).to.deep.equal(['REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']);
+    });
+
+    describe('a peer that reports a device ID another holder reports too', () => {
+      const MINE = 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA';
+      const SHARED = 'REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA';
+      let noteClaim;
+
+      beforeEach(() => {
+        noteClaim = sandbox.stub(syncthingIdentityClash, 'noteClaimOfOwnDeviceId').resolves();
+      });
+
+      it("has a peer reporting this node's own device ID tested, and keeps it out of the folder", async () => {
+        peerIdentityService.verifyPeer.resolves({
+          verdict: IdentityVerdict.VERIFIED,
+          identity: { socketAddress: '10.0.0.2:16127', pubKey: 'PUB', deviceId: MINE },
+        });
+        const devices = await helpers.buildDeviceConfiguration(
+          [{ ip: '10.0.0.2:16127' }], LOCAL, MINE, new Map(), [], [], [],
+        );
+        expect(devices).to.deep.equal([{ deviceID: MINE }]);
+        sinon.assert.calledOnceWithExactly(noteClaim, '10.0.0.2:16127', MINE);
+      });
+
+      it('tests nothing for an entry at this node\'s own address', async () => {
+        peerIdentityService.verifyPeer.resolves({
+          verdict: IdentityVerdict.VERIFIED,
+          identity: { socketAddress: LOCAL, pubKey: 'PUB', deviceId: MINE },
+        });
+        await helpers.buildDeviceConfiguration([{ ip: LOCAL }], LOCAL, MINE, new Map(), [], [], []);
+        sinon.assert.notCalled(noteClaim);
+      });
+
+      it('notes two peers reporting one device ID, once', async () => {
+        const publish = sandbox.stub(fluxEventBus, 'publish');
+        const locations = [{ ip: '10.0.0.3:16127' }, { ip: '10.0.0.4:16127' }];
+        await helpers.buildDeviceConfiguration(locations, LOCAL, MINE, new Map(), [], [], []);
+        await helpers.buildDeviceConfiguration(locations, LOCAL, MINE, new Map(), [], [], []);
+        const seen = publish.getCalls().filter((call) => call.args[0] === 'syncthing:sharedIdentitySeen');
+        expect(seen.map((call) => call.args[1])).to.deep.equal([{ peers: ['10.0.0.3:16127', '10.0.0.4:16127'], deviceId: SHARED }]);
+        sinon.assert.notCalled(noteClaim);
+      });
     });
 
     describe('a listed peer that gives no device', () => {

@@ -15,6 +15,7 @@ const {
 
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { canonicalSyncthingDeviceId } = require('../utils/syncthingDeviceId');
+const syncthingIdentityClash = require('../syncthingIdentityClash');
 
 /**
  * Helper function to get device ID from remote node with retry capability
@@ -182,6 +183,24 @@ function peerSyncthingAddresses(ip, port) {
   return [`tcp://${ip}:${port + 2}`];
 }
 
+const sharedIdentitiesNoted = new Set();
+
+/**
+ * Two peers report one syncthing device ID. This node reaches only one of them
+ * under it; they settle it between themselves (syncthingIdentityClash). Said
+ * once per pair.
+ * @param {string} first
+ * @param {string} second
+ * @param {string} deviceID
+ */
+function noteSharedIdentity(first, second, deviceID) {
+  const key = `${first} ${second} ${deviceID}`;
+  if (sharedIdentitiesNoted.has(key)) return;
+  sharedIdentitiesNoted.add(key);
+  log.warn(`buildDeviceConfiguration - ${first} and ${second} report the same syncthing device ID ${deviceID}`);
+  fluxEventBus.publish('syncthing:sharedIdentitySeen', { peers: [first, second], deviceId: deviceID });
+}
+
 /**
  * Build device configuration from locations
  * @param {Array} locations - App locations
@@ -239,10 +258,18 @@ async function buildDeviceConfiguration(
 
     // Add to folder devices if not already present and not my ID
     if (deviceID !== myDeviceId) {
+      const sharer = resolvedDevices.find((other) => other && other.deviceID === deviceID && other.name < name);
+      if (sharer) noteSharedIdentity(sharer.name, name, deviceID);
       const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
       if (!folderDeviceExists) {
         devices.push({ deviceID });
       }
+    } else if (!socketAddressesMatch(name, localSocketAddr)) {
+      // Not awaited: the test is a TLS handshake, and the folder pass does not
+      // wait on it.
+      syncthingIdentityClash.noteClaimOfOwnDeviceId(name, myDeviceId).catch((error) => {
+        log.error(`buildDeviceConfiguration - testing ${name}'s claim to this node's device ID failed: ${error.message}`);
+      });
     }
 
     // Add to global devices configuration if not already configured

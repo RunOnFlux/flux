@@ -21,6 +21,7 @@ const proxyquire = require('proxyquire');
 const sinon = require('sinon');
 const config = require('config');
 const syncthingFixtures = require('./data/syncthingFixtures');
+const generalService = require('../../ZelBack/src/services/generalService');
 
 // The script syncthing's namespace runs before syncthing (syncthingService NUMERIC_ID_SYNCTHING).
 const LAUNCH_SCRIPT = 'mount --rbind /etc "$3"'
@@ -2172,6 +2173,126 @@ describe('syncthingService tests', () => {
       syncthingService.onListenerStateKnown(told);
 
       sinon.assert.calledOnceWithExactly(told, syncthingService.SYNCTHING_LISTENER.CANNOT_LISTEN);
+    });
+  });
+  describe('syncthing identity', () => {
+    const DEVICE = 'XKLMVJA-M56FRX2-LYRDLST-PQJVEHG-I5C7A3B-YQJPOFB-2ROTI3S-4FIH6AL';
+    const OTHER_DEVICE = 'OD2POVH-2QWEHYY-AKI6AU2-ZUEQLXY-MTGOIG7-PE57QHU-INYFY5C-QTNOPQ5';
+    const COLLATERAL = { txhash: 'a'.repeat(64), txindex: 0 };
+    const OWN = `${'a'.repeat(64)}:0`;
+    const ELSEWHERE = `${'b'.repeat(64)}:1`;
+    const record = (deviceId, collateral) => JSON.stringify({ deviceId, collateral });
+    let runCmdStub;
+    let readFileStub;
+    let writeFileStub;
+    let publishStub;
+    let collateralStub;
+
+    beforeEach(() => {
+      syncthingService.resetIdentityState();
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+      readFileStub = sinon.stub(fs, 'readFile');
+      writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+      publishStub = sinon.stub(fluxEventBus, 'publish');
+      collateralStub = sinon.stub(generalService, 'obtainNodeCollateralInformation').resolves(COLLATERAL);
+    });
+
+    afterEach(async () => {
+      syncthingService.resetIdentityState();
+      await syncthingService.syncthingController().abort();
+      sinon.restore();
+    });
+
+    const removedKeys = () => runCmdStub.getCalls()
+      .filter((call) => call.args[0] === 'rm')
+      .map((call) => call.args[1].params.slice(1).map((file) => path.basename(file)));
+
+    describe('the record of the node an identity was made for', () => {
+      it('is written when there is none', async () => {
+        readFileStub.rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+        await syncthingService.checkIdentityRecord(DEVICE);
+        sinon.assert.calledOnce(writeFileStub);
+        expect(path.basename(writeFileStub.firstCall.args[0])).to.equal('flux-identity.json');
+        expect(JSON.parse(writeFileStub.firstCall.args[1])).to.deep.equal({ deviceId: DEVICE, collateral: OWN });
+      });
+
+      it('is left as it is when it matches', async () => {
+        readFileStub.resolves(record(DEVICE, OWN));
+        await syncthingService.checkIdentityRecord(DEVICE);
+        sinon.assert.notCalled(writeFileStub);
+      });
+
+      it('replaces an identity made for another collateral that syncthing still runs', async () => {
+        readFileStub.resolves(record(DEVICE, ELSEWHERE));
+        await syncthingService.checkIdentityRecord(DEVICE);
+        sinon.assert.notCalled(writeFileStub);
+
+        await syncthingService.regenerateIdentity();
+        expect(removedKeys()).to.deep.equal([['cert.pem', 'key.pem']]);
+        sinon.assert.calledWithMatch(publishStub, 'syncthing:identityRegenerated', { reason: sinon.match(ELSEWHERE) });
+      });
+
+      it('records an identity syncthing has already replaced, and replaces nothing', async () => {
+        readFileStub.resolves(record(OTHER_DEVICE, ELSEWHERE));
+        await syncthingService.checkIdentityRecord(DEVICE);
+        expect(JSON.parse(writeFileStub.firstCall.args[1])).to.deep.equal({ deviceId: DEVICE, collateral: OWN });
+        expect(syncthingService.requestIdentityRegeneration('test'), 'nothing was pending, so a request is taken up').to.equal(true);
+      });
+
+      it('waits, recording nothing, until the collateral can be read', async () => {
+        readFileStub.resolves(record(DEVICE, ELSEWHERE));
+        collateralStub.rejects(new Error('daemon not ready'));
+        await syncthingService.checkIdentityRecord(DEVICE);
+        sinon.assert.notCalled(writeFileStub);
+        sinon.assert.notCalled(readFileStub);
+
+        collateralStub.resolves(COLLATERAL);
+        readFileStub.resolves(record(DEVICE, OWN));
+        await syncthingService.checkIdentityRecord(DEVICE);
+        sinon.assert.calledOnce(readFileStub);
+      });
+
+      it('waits for syncthing to give its device ID', async () => {
+        await syncthingService.checkIdentityRecord(null);
+        sinon.assert.notCalled(collateralStub);
+      });
+
+      it('is checked once per process, and again after a replacement', async () => {
+        readFileStub.resolves(record(DEVICE, OWN));
+        await syncthingService.checkIdentityRecord(DEVICE);
+        await syncthingService.checkIdentityRecord(DEVICE);
+        sinon.assert.calledOnce(readFileStub);
+
+        syncthingService.requestIdentityRegeneration('test');
+        await syncthingService.regenerateIdentity();
+        readFileStub.resolves(record(DEVICE, OWN));
+        await syncthingService.checkIdentityRecord(OTHER_DEVICE);
+        expect(JSON.parse(writeFileStub.lastCall.args[1])).to.deep.equal({ deviceId: OTHER_DEVICE, collateral: OWN });
+      });
+    });
+
+    describe('replacing the identity', () => {
+      it('stops syncthing before removing its key pair', async () => {
+        syncthingService.requestIdentityRegeneration('test');
+        await syncthingService.regenerateIdentity();
+        const commands = runCmdStub.getCalls().map((call) => call.args[0]);
+        expect(commands.indexOf('pgrep'), 'syncthing is looked for before the keys go').to.be.within(0, commands.indexOf('rm'));
+        expect(removedKeys()).to.deep.equal([['cert.pem', 'key.pem']]);
+        expect(runCmdStub.getCalls().find((call) => call.args[0] === 'rm').args[1].runAsRoot).to.equal(true);
+      });
+
+      it('replaces it at most once in six hours, whatever asks', async () => {
+        expect(syncthingService.requestIdentityRegeneration('first')).to.equal(true);
+        await syncthingService.regenerateIdentity();
+        expect(syncthingService.requestIdentityRegeneration('second')).to.equal(false);
+
+        const restore = advanceMonotonic(6 * 60 * 60 * 1000 + 1);
+        try {
+          expect(syncthingService.requestIdentityRegeneration('third')).to.equal(true);
+        } finally {
+          restore();
+        }
+      });
     });
   });
 });
