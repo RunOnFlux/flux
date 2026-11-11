@@ -1,5 +1,6 @@
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const globalState = require('../utils/globalState');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appReconciler = require('./appReconciler');
@@ -108,13 +109,20 @@ async function subscribe() {
 
     log.info('containerCrashRecovery - listening for container crash events');
 
-    // a re-established stream may have missed die events while it was down;
-    // reconcile every component from actual state to catch orphans
-    if (hasConnected && globalState.bootContainerStateSettled) {
-      log.info('containerCrashRecovery - stream reconnected, reconciling all components');
-      appReconciler.enqueueAll('reconnect').catch((err) => {
-        log.error(`containerCrashRecovery - reconnect reconcile failed: ${err.message}`);
-      });
+    if (hasConnected) {
+      // A reconnect follows a Docker restart, the only point at which Docker takes
+      // up a user namespace setting. Asked before the sweep, so a node that now
+      // remaps is out of service before anything is rebuilt under it.
+      const info = await dockerService.dockerInfo().catch(() => null);
+      const userNamespaceAllowed = fluxNetworkHelper.checkDockerUserNamespace(info?.SecurityOptions ?? null);
+      // a re-established stream may have missed die events while it was down;
+      // reconcile every component from actual state to catch orphans
+      if (userNamespaceAllowed && globalState.bootContainerStateSettled) {
+        log.info('containerCrashRecovery - stream reconnected, reconciling all components');
+        appReconciler.enqueueAll('reconnect').catch((err) => {
+          log.error(`containerCrashRecovery - reconnect reconcile failed: ${err.message}`);
+        });
+      }
     }
     hasConnected = true;
   } catch (err) {

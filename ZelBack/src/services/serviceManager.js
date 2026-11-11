@@ -355,6 +355,7 @@ async function startFluxFunctions() {
     // version found and the version required.
     fluxNetworkHelper.checkDockerVersionAllowed(await dockerService.dockerVersion().then((version) => version.Version, () => null));
     await fluxNetworkHelper.checkCgroupsAllowed(dockerInfo?.CgroupDriver ?? null);
+    fluxNetworkHelper.checkDockerUserNamespace(dockerInfo?.SecurityOptions ?? null);
     // Before any work that a restart would cut short: a registration that
     // needs its kill timeout raised restarts FluxOS, and this waits for it.
     await fluxService.ensurePm2KillTimeout();

@@ -11,7 +11,11 @@ describe('containerCrashRecovery die bridge', () => {
   beforeEach(() => {
     stubs = {
       log: { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
-      dockerService: { dockerGetEvents: sinon.stub() },
+      dockerService: {
+        dockerGetEvents: sinon.stub(),
+        dockerInfo: sinon.stub().resolves({ SecurityOptions: ['name=apparmor', 'name=seccomp,profile=builtin', 'name=cgroupns'] }),
+      },
+      fluxNetworkHelper: { checkDockerUserNamespace: sinon.stub().returns(true) },
       globalState: (() => {
         const state = resetGlobalState();
         state.bootContainerStateSettled = true;
@@ -23,6 +27,7 @@ describe('containerCrashRecovery die bridge', () => {
     containerCrashRecovery = proxyquire('../../ZelBack/src/services/appMonitoring/containerCrashRecovery', {
       '../../lib/log': stubs.log,
       '../dockerService': stubs.dockerService,
+      '../fluxNetworkHelper': stubs.fluxNetworkHelper,
       '../utils/globalState': stubs.globalState,
       '../appManagement/appsRuntimeState': stubs.appsRuntimeState,
       './appReconciler': stubs.appReconciler,
@@ -110,6 +115,72 @@ describe('containerCrashRecovery die bridge', () => {
         containerCrashRecovery.stop();
         clock.restore();
       }
+    });
+
+    // A reconnect follows a Docker restart, which is when Docker takes up a user
+    // namespace setting.
+    describe('a reconnect asks whether Docker remaps container users', () => {
+      async function reconnect(clock) {
+        const first = makeStream();
+        stubs.dockerService.dockerGetEvents.resolves(makeStream());
+        stubs.dockerService.dockerGetEvents.onFirstCall().resolves(first);
+        await containerCrashRecovery.start();
+        first.emit('close');
+        clock.tick(10000 + 1);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+
+      it('does not ask on the first connection', async () => {
+        try {
+          stubs.dockerService.dockerGetEvents.resolves(makeStream());
+          await containerCrashRecovery.start();
+          expect(stubs.fluxNetworkHelper.checkDockerUserNamespace.called).to.be.false;
+        } finally {
+          containerCrashRecovery.stop();
+        }
+      });
+
+      it('asks with what Docker reports, then sweeps every component', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+        try {
+          await reconnect(clock);
+          sinon.assert.calledOnceWithExactly(
+            stubs.fluxNetworkHelper.checkDockerUserNamespace,
+            ['name=apparmor', 'name=seccomp,profile=builtin', 'name=cgroupns'],
+          );
+          sinon.assert.calledOnceWithExactly(stubs.appReconciler.enqueueAll, 'reconnect');
+        } finally {
+          containerCrashRecovery.stop();
+          clock.restore();
+        }
+      });
+
+      it('rebuilds nothing under a Docker that now remaps', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+        try {
+          stubs.dockerService.dockerInfo.resolves({ SecurityOptions: ['name=userns'] });
+          stubs.fluxNetworkHelper.checkDockerUserNamespace.returns(false);
+          await reconnect(clock);
+          sinon.assert.calledOnceWithExactly(stubs.fluxNetworkHelper.checkDockerUserNamespace, ['name=userns']);
+          expect(stubs.appReconciler.enqueueAll.called).to.be.false;
+        } finally {
+          containerCrashRecovery.stop();
+          clock.restore();
+        }
+      });
+
+      it('passes null when Docker does not answer', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+        try {
+          stubs.dockerService.dockerInfo.rejects(new Error('connect ENOENT /var/run/docker.sock'));
+          await reconnect(clock);
+          sinon.assert.calledOnceWithExactly(stubs.fluxNetworkHelper.checkDockerUserNamespace, null);
+        } finally {
+          containerCrashRecovery.stop();
+          clock.restore();
+        }
+      });
     });
   });
 });
