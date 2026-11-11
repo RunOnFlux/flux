@@ -4,6 +4,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const globalState = require('../utils/globalState');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appReconciler = require('./appReconciler');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 // Bridges the Docker container 'die' event stream into the reconcile workqueue.
 // All restart decisions (restart policy, exit code, backoff, operator-stop,
@@ -38,7 +39,8 @@ function scheduleResubscribe(reason) {
   const delayMs = resubscribeDelayMs;
   resubscribeDelayMs = Math.min(delayMs * 2, RESUBSCRIBE_MAX_DELAY_MS);
   log.warn(`containerCrashRecovery - event stream ${reason}; resubscribing in ${delayMs / 1000}s`);
-  resubscribeTimer = setTimeout(() => {
+  resubscribeTimer = setTimeout(async () => {
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.DOCKER_EVENTS_BEFORE_RESUBSCRIBE, 'docker');
     resubscribeTimer = null;
     // eslint-disable-next-line no-use-before-define
     subscribe();
