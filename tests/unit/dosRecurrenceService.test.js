@@ -147,6 +147,25 @@ describe('dosRecurrenceService tests', () => {
     expect(stored.episodeHeights).to.have.lengthOf(3);
   });
 
+  it('quarantines the node once a hold that outlived a restart ends', async () => {
+    await episode();
+    await episode();
+    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    await service.settled();
+    await service.stop();
+
+    service = load();
+    await service.start();
+    await service.settled();
+    expect(held(), 'the hold did not survive the restart').to.equal(true);
+    await advanceTo(1000 + service.SHORT_HOLD_BLOCKS);
+    await service.settled();
+
+    expect(held()).to.equal(false);
+    expect(placementHeld()).to.equal(true);
+    expect(stored.placementHold.blocks).to.equal(service.HELD_QUARANTINE_BLOCKS);
+  });
+
   it('keeps a hold taken with no chain height until a height is known, and counts it from there', async () => {
     height = 0;
     await episode();

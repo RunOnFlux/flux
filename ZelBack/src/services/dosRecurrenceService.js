@@ -43,8 +43,9 @@ const FAILURE_OWNERS = [
   nodeDosState.StickyDosOwner.PEER_SET_STABILITY,
 ];
 
-// The record as last stored: the heights of the episodes in the window, and each
-// hold as `{ fromHeight, blocks }`.
+// The record as last stored: the heights of the episodes in the window, each hold
+// as `{ fromHeight, blocks }`, and whether the node is out of service on an episode
+// it counted, so its return to service starts the quarantine across a restart.
 let record = null;
 // The last chain height this service has judged the holds at, once whatever
 // that height changed is saved; 0 until it has judged one.
@@ -61,7 +62,7 @@ function collection() {
 
 function emptyRecord() {
   return {
-    episodeHeights: [], dosHold: null, placementHold: null, lastEpisodeHeld: false,
+    episodeHeights: [], dosHold: null, placementHold: null, lastEpisodeHeld: false, awaitingExit: false,
   };
 }
 
@@ -91,7 +92,10 @@ function holdBy(state) {
 
 async function load() {
   const stored = await collection().findOne({ _id: RECORD_ID }, { projection: { _id: 0 } });
-  return { ...emptyRecord(), ...stored };
+  // A record written before awaitingExit was kept holds the node out exactly
+  // while an episode it counted is open.
+  const awaitingExit = stored?.awaitingExit ?? Boolean(stored?.dosHold);
+  return { ...emptyRecord(), ...stored, awaitingExit };
 }
 
 async function save(before, after) {
@@ -153,6 +157,7 @@ function onEntered() {
       ...state,
       episodeHeights,
       lastEpisodeHeld: blocks > 0,
+      awaitingExit: true,
       placementHold: null,
       dosHold: blocks ? { fromHeight: height || null, blocks } : state.dosHold,
     };
@@ -160,18 +165,19 @@ function onEntered() {
 }
 
 /**
- * The node is back in service after an episode: it takes no new apps for the
- * quarantine.
+ * The node is back in service: after an episode it counted, it takes no new apps
+ * for the quarantine.
  * @returns {Promise<object|undefined>}
  */
 function onCleared() {
-  return pass((state, height) => ({
+  return pass((state, height) => (state.awaitingExit ? {
     ...state,
+    awaitingExit: false,
     placementHold: {
       fromHeight: height || null,
       blocks: state.lastEpisodeHeld ? HELD_QUARANTINE_BLOCKS : QUARANTINE_BLOCKS,
     },
-  }));
+  } : state));
 }
 
 fluxEventBus.snapshot('dosRecurrence', () => ({ judgedHeight, record }));
@@ -188,17 +194,11 @@ async function start() {
   // that is not an episode. Every later hold is set while the node is already
   // out of service, so it is never one either.
   holdBy(record);
-  // An exit is a quarantine only after an episode this service counted.
-  let counted = false;
   stopListening = [
     nodeDosState.onNodeDos(() => {
-      counted = outOnFailure();
-      if (counted) onEntered();
+      if (outOnFailure()) onEntered();
     }),
-    nodeDosState.onNodeDosCleared(() => {
-      if (counted) onCleared();
-      counted = false;
-    }),
+    nodeDosState.onNodeDosCleared(() => { onCleared(); }),
     rule.watch((error) => log.error(`dosRecurrence - ${error.message}`)),
   ];
 }
