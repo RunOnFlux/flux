@@ -26,7 +26,7 @@ const REACHABILITY_MESSAGES = [
   'Flux is not available for outside communication',
 ];
 const IP_DETECTION_FAILED = 'Flux IP detection failed';
-const PORTS_MESSAGE = /^Ports tested not reachable from outside/;
+const PORTS_MESSAGE = /^Ports tested from outside failed/;
 
 const dosOf = async (client) => (await client.getDOSState()).data ?? {};
 

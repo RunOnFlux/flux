@@ -111,7 +111,8 @@ const dosState = {
   originalPortFailed: null,
   routerRefusalsSeen: 0,
 };
-const portsNotWorking = new Set();
+// Each port the apps port check found not working, to what it found (availabilityChecker.PortFailure).
+const portsNotWorking = new Map();
 const appsStorageViolations = [];
 
 /**
