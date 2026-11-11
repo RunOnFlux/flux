@@ -57,6 +57,67 @@ export async function destroyFolderVolume(container, folderId) {
   await run(container, `rm -f ${sq(folderImage(folderId))} && umount -l ${sq(root)} && chattr -i ${sq(root)}`, `destroy the volume of ${folderId}`);
 }
 
+/**
+ * A disk of the node's own, at `mountpoint`: an ext4 image on the node's volume,
+ * mounted through a device-mapper device so it reads as a disk rather than a loop
+ * mount. The image is made the first time and kept, so the same filesystem comes
+ * back each time the disk is mounted. Device-mapper names are the host kernel's,
+ * so each carries the node's hostname; the device goes with the disk's unmount.
+ * @param {string} mountpoint Absolute path, e.g. /mnt/disk2.
+ */
+export async function mountDisk(container, mountpoint) {
+  const img = `/mnt/appdata/disk-${mountpoint.replace(/\//g, '_')}.img`;
+  await run(
+    container,
+    `mountpoint -q ${sq(mountpoint)} && exit 0; `
+    + `[ -f ${sq(img)} ] || { truncate -s 512M ${sq(img)} && mkfs.ext4 -q -F ${sq(img)}; } && `
+    + `mkdir -p ${sq(mountpoint)} && name="flux-$(hostname)-$(basename ${sq(mountpoint)})" && `
+    + `loop="$(losetup -f --show ${sq(img)})" && `
+    + `dmsetup create --noudevsync "$name" --table "0 $(blockdev --getsz "$loop") linear $loop 0" && `
+    + 'dmsetup mknodes "$name" && '
+    + `mount "/dev/mapper/$name" ${sq(mountpoint)} && dmsetup remove --deferred "$name" && losetup -d "$loop" && `
+    + `findmnt -no SOURCE ${sq(mountpoint)} | grep -q '^/dev/mapper/'`,
+    `mount a disk at ${mountpoint}`,
+  );
+}
+
+/**
+ * Unmounts a disk mountDisk mounted. Its image is kept.
+ */
+export async function unmountDisk(container, mountpoint) {
+  await run(container, `umount ${sq(mountpoint)} && ! mountpoint -q ${sq(mountpoint)}`, `unmount the disk at ${mountpoint}`);
+}
+
+/**
+ * Moves a component's volume image to `dir`, with its container stopped and its
+ * volume unmounted first. The node's FluxOS must be down: nothing may mount the
+ * volume again or start the container while the image moves.
+ * @param {string} folderId The component's identifier, flux<component>_<app>.
+ * @param {string} dir Absolute path of the directory the image moves to.
+ */
+export async function moveFolderImage(container, folderId, dir) {
+  const image = folderImage(folderId);
+  // eslint-disable-next-line no-use-before-define
+  await unmountFolderVolume(container, folderId, image);
+  await run(container, `mv ${sq(image)} ${sq(dir)}/ && [ -f ${sq(`${dir}/${folderId}FLUXFSVOL`)} ]`, `move the image of ${folderId} to ${dir}`);
+}
+
+/**
+ * Unmounts a component's volume with its container stopped, leaving its image
+ * where it is. The node's FluxOS must be down.
+ * @param {string} folderId The component's identifier, flux<component>_<app>.
+ * @param {string} image Absolute path of the component's image.
+ */
+export async function unmountFolderVolume(container, folderId, image) {
+  const root = folderRoot(folderId);
+  await run(container, `docker stop ${sq(folderId)} >/dev/null; umount -l ${sq(root)} && chattr -i ${sq(root)}`, `unmount the volume of ${folderId}`);
+  await run(
+    container,
+    `for i in $(seq 1 60); do [ -z "$(losetup -j ${sq(image)})" ] && exit 0; sleep 1; done; losetup -j ${sq(image)}; exit 1`,
+    `wait for the loop device to release the image of ${folderId}`,
+  );
+}
+
 const folderImageHeader = (folderId) => `${folderImage(folderId)}.header`;
 
 /**

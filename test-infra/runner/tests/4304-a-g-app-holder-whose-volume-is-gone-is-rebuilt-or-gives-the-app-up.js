@@ -6,14 +6,15 @@
  *
  * Real syncthing: the data that comes back to the rebuilt standby, and the files the
  * standby keeps while the primary goes, are syncthing's own. The image is removed and
- * its mount dropped under a running FluxOS, as a disk that loses it does.
+ * its mount dropped while the node's FluxOS is down, and found gone when it starts:
+ * a node that lost the disk holding it, rebooted.
  *
  * A = the standby, B = the primary, C holds nothing.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { placeSilentPrimaryApp, A, B } from '../framework/silent-primary.js';
-import { execInContainer } from '../framework/container.js';
+import { execInContainer, crashFluxos, releaseFluxos } from '../framework/container.js';
 import { clearMaster } from '../framework/fdm-control.js';
 import { scanFolder, listFolderFiles } from '../framework/syncthing-real.js';
 import { destroyFolderVolume } from '../framework/volume-fixture.js';
@@ -54,7 +55,9 @@ describe('a g: app holder whose volume is gone is rebuilt, or gives the app up',
   it('rebuilds a standby whose volume is gone, and its copy syncs the primary\'s data again', async function () {
     this.timeout(600000);
     const beforeLoss = client(A).getLastEventId();
+    await crashFluxos(client(A).container, { hold: true });
     await destroyFolderVolume(client(A).container, folder);
+    await releaseFluxos(client(A).container);
 
     const decision = await client(A).waitForEvent('app:lostVolume', (d) => d.identifier === fleet.identifier, 180000, { afterId: beforeLoss });
     expect(decision.data.action, `the standby decided: ${JSON.stringify(decision.data)}`).to.equal('rebuild');
@@ -74,7 +77,9 @@ describe('a g: app holder whose volume is gone is rebuilt, or gives the app up',
       holdsEveryFile(A).then((held) => { if (!held) standbyLostFiles = true; }).catch(() => {});
     }, 2000);
     try {
+      await crashFluxos(client(B).container, { hold: true });
       await destroyFolderVolume(client(B).container, folder);
+      await releaseFluxos(client(B).container);
 
       const decision = await client(B).waitForEvent('app:lostVolume', (d) => d.identifier === fleet.identifier, 180000, { afterId: beforeLoss });
       expect(decision.data.action, `the primary decided: ${JSON.stringify(decision.data)}`).to.equal('remove');
