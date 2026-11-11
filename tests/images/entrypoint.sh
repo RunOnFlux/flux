@@ -32,9 +32,6 @@ fi
 
 npm run prebuild || exit 1
 
-# create directories etc
-sudo syncthing --home=/home/$USER/.config/syncthing 2>&1 > /dev/null &
-
 npm run ciconfig
 
 export NODE_CONFIG_DIR=$(pwd)/tests/unit/globalconfig

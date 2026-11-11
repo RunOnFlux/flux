@@ -7,10 +7,6 @@ ARG NODE_VERSION=20.8.0
 RUN curl -fsSL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz | \
 tar -xJ -C /usr/local --strip-components=1
 
-RUN curl -o /usr/share/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg && \
-echo 'deb [signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable' > \
-/etc/apt/sources.list.d/syncthing.list && apt update && apt install syncthing -y
-
 RUN adduser --disabled-password \
 --gecos '' fluxtesting
 
@@ -19,10 +15,6 @@ RUN usermod -aG sudo,docker fluxtesting
 COPY entrypoint.sh /home/fluxtesting/
 
 RUN echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# for fluxService, it checks if these files are present
-# RUN touch /usr/local/bin/flux{d,benchd}
-RUN touch /usr/local/bin/fluxd && touch /usr/local/bin/fluxbenchd
 
 USER fluxtesting
 
