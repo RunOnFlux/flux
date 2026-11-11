@@ -41,7 +41,9 @@ import { fluxTeamKey, nodeKey } from './keys.js';
 // pins and the key the stub signs with from drifting apart.
 import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
-import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
+import {
+  HARNESS_BLOCK_MS, assertCoupledRatios, assertListRefreshesEveryBlock, loadSharedConfig,
+} from './coupled-knobs.js';
 import { startSyncedDataKeeper } from './synced-data-keeper.js';
 import { startSyncthingTrace, tracedPackages } from './syncthing-trace.js';
 
@@ -182,6 +184,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // The baseline a suite's overrides merge onto - read once, so the ratio check
 // sees what the node will actually run rather than only what the suite set.
 const sharedFluxapps = loadSharedConfig().fluxapps ?? {};
+const sharedNetworkState = loadSharedConfig().networkState ?? {};
 const fixturesDir = join(__dirname, '..', '..', 'fixtures');
 const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json'), 'utf-8'));
 // Identity for the fake-blockchain node list (collateral/pubkey/tier). Base-independent;
@@ -1490,6 +1493,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       BENCHD_PORT: '16224',
       CONTROL_PORT: '18232',
       TICKER_AUTOSTART: tickerAutostart ? 'true' : 'false',
+      BLOCK_INTERVAL_MS: String(HARNESS_BLOCK_MS),
       NODE_COUNT: String(nodes),
       INITIAL_HEIGHT: String(initialHeight),
       CONFIRMATION_INTERVAL_BLOCKS: String(confirmationIntervalBlocks),
@@ -1957,6 +1961,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // whose ratio has inverted still runs and still goes green, having quietly
     // stopped testing the thing the suite is named after.
     assertCoupledRatios({ ...sharedFluxapps, ...(nodeConfig.fluxapps ?? {}) });
+    assertListRefreshesEveryBlock({ ...sharedNetworkState, ...(nodeConfig.networkState ?? {}) });
     // Handed over as a file rather than as NODE_CONFIG. The config package merges
     // that variable over every file, which is a redirect no hash can see, so the
     // entry points delete it - production has no environment path into config at

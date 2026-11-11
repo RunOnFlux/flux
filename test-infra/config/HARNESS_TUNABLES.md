@@ -18,6 +18,7 @@ The two halves of a pair need not live in the same layer: `explorerPollIntervalM
 | a departure is visible before the next holder decides | give-up pass : `DEPARTURE_ANNOUNCE_MS` | - | `assertTurnPacing(fluxapps)` |
 | a holder's own announcement outlasts the turn it acts in | `handbackTurnMs` : `locationTtlS` less the announce interval | 0.92 | `assertTurnPacing(fluxapps)` |
 | a standby looks at the candidate ahead as often as production before its turn | `masterSlaveStaggerMs` : `masterSlaveIntervalMs` | 6 | `assertStaggerSpansElectionPasses(fluxapps)` |
+| the node list refreshes on every block | `networkState.minFetchIntervalMs` : block interval | 0.83 | `assertListRefreshesEveryBlock(networkState)` |
 
 A holder acts only on the second pass of a turn it owns, so one whole pass separates two holders acting; the second pair is what makes that pass long enough for the first departure to reach the second holder. The third is bounded by what it must stay under rather than by a ratio: a holder refuses a turn its own announcement lapses inside, so a turn at or above what a renewed announcement has left is one no holder ever acts in.
 
@@ -114,6 +115,7 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.syncTimeoutMs` | 120000 | 30000 | 4.0x |
 | `fluxapps.tempMsgTtlS` | 3600 | 300 | 12.0x |
 | `fluxapps.wsHandshakeTimeoutMs` | 10000 | 5000 | 2.0x |
+| `networkState.minFetchIntervalMs` | 25000 | 4000 | 6.3x |
 | `peers.wsMaxMissedPongs` | 3 | 2 | 1.5x |
 | `peers.wsPingIntervalMs` | 15000 | 2000 | 7.5x |
 | `syncthing.monitorIntervalMs` | 30000 | 3000 | 10.0x |

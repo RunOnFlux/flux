@@ -52,6 +52,11 @@ module.exports = {
     stuckIntervals: 6,
     stopWindowMs: 60 * 1000,
   },
+  // The least time between two fetches of the node list: under the 30 s block
+  // time, so the list refreshes on every block.
+  networkState: {
+    minFetchIntervalMs: 25000,
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,
