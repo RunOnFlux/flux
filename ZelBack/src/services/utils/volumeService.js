@@ -298,9 +298,9 @@ async function placementVolumesInGib() {
  *
  * @returns {Promise<Array<object>>} mount rows from deviceHelper
  */
-async function eligibleHostMounts() {
-  const mounts = await deviceHelper.listMountedFilesystems();
-  return mounts.filter((mount) => isSearchableFilesystem(mount) && mount.target !== '/');
+async function eligibleHostMounts(mounts = null) {
+  const listed = mounts || await deviceHelper.listMountedFilesystems();
+  return listed.filter((mount) => isSearchableFilesystem(mount) && mount.target !== '/');
 }
 
 /**
@@ -376,7 +376,7 @@ async function isPathMounted(dirPath) {
  * is the owner's signed specification and holds nothing this node observed.
  *
  * @param {string} identifier Component identifier or docker app id.
- * @returns {Promise<{path: string, fsUuid: string|null}|null>} Null when this
+ * @returns {Promise<{path: string, fsUuid: string|null, hostFsUuid: (string|null|undefined)}|null>} Null when this
  *   node recorded no image.
  * @throws When the record cannot be read.
  */
@@ -401,7 +401,8 @@ async function recordedVolumeImage(identifier) {
  * @param {string|null} fsUuid Filesystem UUID inside the image.
  */
 async function recordVolumeImage(identifier, volumeFile, fsUuid) {
-  await appsRuntimeState.setVolumeImage(identifier, volumeFile, fsUuid).catch((error) => {
+  const hostFsUuid = await hostFilesystemUuid(volumeFile);
+  await appsRuntimeState.setVolumeImage(identifier, volumeFile, fsUuid, hostFsUuid).catch((error) => {
     log.warn(`recordVolumeImage - could not record ${volumeFile} for ${identifier}: ${error.message}`);
   });
 }
@@ -423,7 +424,21 @@ async function recordVolumeImage(identifier, volumeFile, fsUuid) {
  * @throws when the record cannot be written.
  */
 async function recordNewVolumeImage(identifier, volumeFile, fsUuid) {
-  await appsRuntimeState.setVolumeImage(identifier, volumeFile, fsUuid);
+  await appsRuntimeState.setVolumeImage(identifier, volumeFile, fsUuid, await hostFilesystemUuid(volumeFile));
+}
+
+/**
+ * The UUID of the host filesystem holding a path, or null when it has none or
+ * cannot be read.
+ * @param {string} target Absolute path.
+ * @returns {Promise<string|null>}
+ */
+async function hostFilesystemUuid(target) {
+  const res = await serviceHelper.runCommand('findmnt', {
+    logError: false, params: ['-n', '-o', 'UUID', '-T', target],
+  });
+  if (res.error) return null;
+  return String(res.stdout || '').trim() || null;
 }
 
 /**
@@ -663,9 +678,10 @@ async function getVolumeFilePath(appId) {
   // thing. It travels with a found path too, where it says which question the
   // search left open rather than why it came up short.
 
+  let mounted = null;
   try {
-    const mounts = await eligibleHostMounts();
-    mounts.forEach((mount) => {
+    mounted = await deviceHelper.listMountedFilesystems();
+    (await eligibleHostMounts(mounted)).forEach((mount) => {
       candidates.push(path.join(mount.target, volumeFileName));
     });
   } catch (error) {
@@ -716,6 +732,13 @@ async function getVolumeFilePath(appId) {
     return {
       path: found, conclusive: true, blocked, recorded, recordSettled,
     };
+  }
+
+  // A search cannot rule an image out of a filesystem that is not mounted: the
+  // disk this node put it on may not be up yet.
+  if (!blocked && recorded?.hostFsUuid && mounted && !mounted.some((mount) => mount.uuid === recorded.hostFsUuid)) {
+    blocked = 'host_filesystem_absent';
+    log.warn(`getVolumeFilePath - ${appId}'s image was on filesystem ${recorded.hostFsUuid}, which is not mounted, so the image is not ruled out`);
   }
 
   return {
@@ -822,7 +845,7 @@ async function ensureAppVolumeMounted(identifier) {
       log.warn(`ensureAppVolumeMounted - the image recorded for ${appId} could not be read (${error.message}), so nothing is recorded for it now`);
       return undefined;
     });
-    if (known !== undefined && (!known || !known.fsUuid)) {
+    if (known !== undefined && (!known || !known.fsUuid || known.hostFsUuid === undefined)) {
       // What the mount actually resolves through, whenever the kernel will say:
       // a recorded path is where an image was put, and a volume re-created
       // elsewhere leaves that path naming a file this mount does not use.
@@ -1004,7 +1027,7 @@ async function ensureAppVolumeMounted(identifier) {
   // node no longer uses. Leaving that last one would send every later boot
   // back through the filename search this record exists to remove, and hand
   // the refusal above to whatever turned up at the old path.
-  if (!atRecordedPath || !stamped.fsUuid) {
+  if (!atRecordedPath || !stamped.fsUuid || stamped.hostFsUuid === undefined) {
     const stamp = await imageFsUuid(volumeFile);
     if (!atRecordedPath || stamp) await recordVolumeImage(appId, volumeFile, stamp);
   }

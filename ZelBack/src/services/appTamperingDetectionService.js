@@ -102,6 +102,8 @@ const VOLUME_FAULT_EVENTS = {
   loop_unavailable: 'volume_host_fault',
   mount_host_refused: 'volume_host_fault',
   volume_incomplete_install: 'volume_host_fault',
+  // the filesystem the image was recorded on is not mounted
+  host_filesystem_absent: 'volume_host_fault',
 };
 
 /**
