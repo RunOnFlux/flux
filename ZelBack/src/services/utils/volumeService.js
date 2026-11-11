@@ -7,6 +7,7 @@ const mountParser = require('./mountParser');
 const { requirePlainMountSources } = require('./plainPaths');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
+const volumeUnmountWatch = require('./volumeUnmountWatch');
 const log = require('../../lib/log');
 const {
   appsFolder, appVolumesPath, legacyAppVolumesPath, APP_VOLUME_MOUNT_OPTIONS,
@@ -863,6 +864,7 @@ async function ensureAppVolumeMounted(identifier) {
       }
     }
     await useDirectIo(mountPoint);
+    await volumeUnmountWatch.watchVolume(appId, mountPoint);
     return { mounted: true, alreadyMounted: true };
   }
 
@@ -1020,6 +1022,7 @@ async function ensureAppVolumeMounted(identifier) {
 
   log.info(`ensureAppVolumeMounted - mounted ${volumeFile} at ${mountPoint}`);
   await useDirectIo(mountPoint);
+  await volumeUnmountWatch.watchVolume(appId, mountPoint);
   // An image found by the search is recorded now that it is known to mount, so
   // the search runs once for it and the lookup answers ever after.
   // Recorded now that the mount has proved the image real: a first discovery,

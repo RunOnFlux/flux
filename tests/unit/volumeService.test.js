@@ -22,6 +22,7 @@ describe('volumeService tests', () => {
   let deviceHelperStub;
   let appsRuntimeStateStub;
   let tamperStub;
+  let unmountWatchStub;
   let logStub;
   let volumeService;
 
@@ -61,6 +62,7 @@ describe('volumeService tests', () => {
     // created a volume through this code, which is every legacy install.
     appsRuntimeStateStub = { getVolumeImage: sinon.stub().resolves(null), setVolumeImage: sinon.stub().resolves() };
     tamperStub = { recordEvent: sinon.stub().resolves() };
+    unmountWatchStub = { watchVolume: sinon.stub().resolves(true) };
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
     };
@@ -82,6 +84,7 @@ describe('volumeService tests', () => {
       '../deviceHelper': deviceHelperStub,
       '../appManagement/appsRuntimeState': appsRuntimeStateStub,
       '../appTamperingDetectionService': tamperStub,
+      './volumeUnmountWatch': unmountWatchStub,
       fs: { promises: fsStub.promises },
     });
   });
@@ -787,6 +790,43 @@ describe('volumeService tests', () => {
 
   // An image this node recorded on a filesystem that is not mounted has not been
   // ruled out: the disk may not be up yet, and a rebuild over it would abandon it.
+  describe('the watch on a mounted volume', () => {
+    it('is set on a volume found mounted', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8').resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'u', hostFsUuid: 'h' });
+
+      await volumeService.ensureAppVolumeMounted('app1');
+
+      sinon.assert.calledOnceWithExactly(unmountWatchStub.watchVolume, 'fluxapp1', `${APPS_FOLDER}fluxapp1`);
+    });
+
+    it('is set on a volume this node mounts', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
+      dispatchRunCommand({ mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }) });
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dev/loop-control').resolves();
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.mounted).to.equal(true);
+      sinon.assert.calledOnceWithExactly(unmountWatchStub.watchVolume, 'fluxapp1', `${APPS_FOLDER}fluxapp1`);
+    });
+
+    it('is not set on a volume that could not be mounted', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      dispatchRunCommand({ mountpoint: async () => ({ error: new Error('not mounted'), stdout: '', stderr: '' }) });
+      fsStub.promises.access.rejects(enoent());
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result.mounted).to.equal(false);
+      sinon.assert.notCalled(unmountWatchStub.watchVolume);
+    });
+  });
+
   describe('the host filesystem an image was recorded on', () => {
     const recordedOnDisk2 = { path: '/mnt/disk2/fluxapp1FLUXFSVOL', fsUuid: 'image-uuid', hostFsUuid: 'disk2-uuid' };
 

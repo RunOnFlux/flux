@@ -21,6 +21,7 @@ const appUninstaller = require('./appLifecycle/appUninstaller');
 const unregisteredEnterpriseCleanup = require('./appLifecycle/unregisteredEnterpriseCleanup');
 const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const lostVolumeRecovery = require('./appLifecycle/lostVolumeRecovery');
+const volumeUnmountWatch = require('./utils/volumeUnmountWatch');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
@@ -593,6 +594,8 @@ async function startFluxFunctions() {
       ? advancedWorkflows.hardRedeployComponent(appName, componentName)
       : advancedWorkflows.hardRedeploy(specifications)));
     appReconciler.setOnVolumeUnavailable((component) => lostVolumeRecovery.recover(component));
+    // a volume unmounted under a running node is reconciled as it goes
+    volumeUnmountWatch.setOnUnmount((appId) => appReconciler.enqueue(appId));
     // the node's address moved, so every app that survived it has to come up on
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it
