@@ -65,11 +65,29 @@ const Checkpoint = Object.freeze({
   // The explorer is about to process a block, and has not fetched it yet. Keyed
   // by the block's height.
   EXPLORER_BEFORE_BLOCK: 'explorer:beforeBlock',
+  // A rebuild of the app registry has built its new copy from the message log and
+  // holds the registry lock; the copy has not yet replaced the registry.
+  REGISTRY_BEFORE_SWAP: 'registry:beforeSwap',
+  // A new IP location baseline is in its staging collection, and the staging
+  // collection has not yet replaced the live table.
+  IPLOCATION_BEFORE_SWAP: 'ipLocation:beforeSwap',
+  // A rebuilt address record is in its staging collection, and the staging
+  // collection has not yet replaced the record.
+  ADDRESS_RECORD_BEFORE_SWAP: 'addressRecord:beforeSwap',
   // A give-up pass holds the pass lock and has not yet read anything.
   GIVEUP_BEFORE_PASS: 'giveUp:beforePass',
+  // The spawn loop is between passes: the last pass, and any install it started,
+  // has finished, and the next has read nothing.
+  SPAWNER_BEFORE_PASS: 'spawner:beforePass',
   // A give-up pass has decided to hand an app back and has not yet checked the
   // chain height or started the removal. Keyed by the app name.
   GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',
+  // A copy is stopped to be handed back and its folder is not yet scanned. Keyed by
+  // the folder id.
+  LEAVING_COPY_BEFORE_SCAN: 'leavingCopy:beforeScan',
+  // A node's folder records request is admitted and syncthing not yet read. Keyed by
+  // the folder id.
+  FOLDER_RECORDS_BEFORE_READ: 'folderRecords:beforeRead',
   // A removal is committed, has told the network if it tells it, and has not yet
   // torn anything down. Keyed by the app name.
   REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',

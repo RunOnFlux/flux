@@ -2,7 +2,7 @@
 // installer would accept.
 //
 // placementFeasibility.nodeLocationMatchesGeolocation decides who COUNTS as a
-// candidate, and hwRequirements.checkAppGeolocationRequirements decides who may
+// candidate, and hwRequirements.appGeolocationVerdict decides who may
 // actually INSTALL. They are separate implementations of the same rule, over
 // different data sources, and neither module's own suite owns the relationship
 // between them. A candidate filter stricter than the installer under-counts,
@@ -141,18 +141,16 @@ async function installerAccepts(geolocation, nodeGeo) {
   if (!installerGates.has(key)) {
     installerGates.set(key, proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
       '../geolocationService': { getNodeGeolocation: sinon.stub().resolves({ ...nodeGeo, ip: '203.0.113.10' }) },
+      '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('203.0.113.10:16127') },
       '../appPlacement/ipLocationStore': {
         lookup: sinon.stub().resolves(tableHit(nodeGeo)),
         isStoreUnavailable: () => false,
       },
     }));
   }
-  try {
-    await installerGates.get(key).checkAppGeolocationRequirements({ version: 7, geolocation });
-    return true;
-  } catch (error) {
-    return false;
-  }
+  const gate = installerGates.get(key);
+  const { verdict } = await gate.appGeolocationVerdict({ version: 7, geolocation });
+  return verdict === gate.GeoVerdict.PASS;
 }
 
 describe('placement eligibility parity with install-time geolocation', () => {

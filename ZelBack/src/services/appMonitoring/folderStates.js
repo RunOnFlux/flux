@@ -74,6 +74,7 @@ function recreated(folderId) {
  */
 function removed(folderId) {
   globalState.folderStates.delete(folderId);
+  globalState.publishedFileBytes.delete(folderId);
 }
 
 /**
@@ -137,6 +138,26 @@ function sending(folderId) {
 }
 
 /**
+ * Records what a writable folder's index holds, as the monitor pass read it.
+ * @param {string} folderId
+ * @param {number|null} bytes File bytes in the folder's global index; null when the
+ *   status could not be read, which leaves a peer no evidence.
+ */
+function published(folderId, bytes) {
+  if (bytes === null) globalState.publishedFileBytes.delete(folderId);
+  else globalState.publishedFileBytes.set(folderId, bytes);
+}
+
+/**
+ * Whether a writable folder is known to hold bytes in the index.
+ * @param {string} folderId
+ * @returns {boolean}
+ */
+function publishesBytes(folderId) {
+  return globalState.publishedFileBytes.get(folderId) > 0;
+}
+
+/**
  * Records a folder the monitor pass found a ready standby. A measurement it holds
  * stands; any other state becomes no claim, because a ready standby is not measured.
  * @param {string} folderId
@@ -164,7 +185,7 @@ function claimOf(folderId) {
  * none of its lists: a peer reads it from the folders this node sends. Every other
  * folder is in exactly one.
  * @param {Set<string>} writable The folders this node holds writable.
- * @returns {{holding: object, notLookedAt: string[], heldOut: string[], volumeGone: string[]}}
+ * @returns {{holding: object, notLookedAt: string[], heldOut: string[], volumeGone: string[], published: object}}
  */
 function answer(writable) {
   const holding = {};
@@ -178,8 +199,12 @@ function answer(writable) {
     else if (entry.state === FolderState.VOLUME_GONE) volumeGoneIds.push(folderId);
     else holding[folderId] = claimOf(folderId);
   });
+  const publishedByFolder = {};
+  globalState.publishedFileBytes.forEach((bytes, folderId) => {
+    if (writable.has(folderId)) publishedByFolder[folderId] = bytes;
+  });
   return {
-    holding, notLookedAt, heldOut: heldOutIds, volumeGone: volumeGoneIds,
+    holding, notLookedAt, heldOut: heldOutIds, volumeGone: volumeGoneIds, published: publishedByFolder,
   };
 }
 
@@ -192,6 +217,8 @@ module.exports = {
   installed,
   measured,
   notMounted,
+  published,
+  publishesBytes,
   receiveOnlyFolderIds,
   recreated,
   removed,

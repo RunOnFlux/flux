@@ -11,9 +11,121 @@ const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const syncthingFolderWrites = require('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites');
+const config = require('config');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 
-// Every app directory here has its volume mounted unless a test says otherwise.
-const mountEveryVolume = () => sinon.stub(volumeService, 'isPathMounted').resolves(true);
+// syncthing's folder config, one stub per test: a test sets what syncthing holds on it.
+const configFolders = () => (syncthingService.getConfigFolders.restore
+  ? syncthingService.getConfigFolders
+  : sinon.stub(syncthingService, 'getConfigFolders'));
+
+// The local database's record of devices taken out of folders, kept in memory.
+let records;
+let asked;
+const recordCollection = {
+  updateOne: async (filter, update) => { records.set(filter._id, { _id: filter._id, ...update.$set }); },
+  find: (filter) => ({ toArray: async () => [...records.values()].filter((doc) => filter._id.$in.includes(doc._id)) }),
+  deleteMany: async (filter) => {
+    [...records.values()]
+      .filter((doc) => (filter._id ? filter._id.$in.includes(doc._id) : doc.folder === filter.folder))
+      .forEach((doc) => records.delete(doc._id));
+  },
+};
+
+// Every app directory here has its volume mounted, syncthing holds no folder, and
+// no device has been taken out of a folder, unless a test says otherwise.
+const mountEveryVolume = () => {
+  sinon.stub(volumeService, 'isPathMounted').resolves(true);
+  configFolders().resolves([]);
+  records = new Map();
+  asked = [];
+  sinon.stub(dbHelper, 'databaseConnection').returns({
+    db: (name) => ({
+      collection: (collectionName) => {
+        asked.push(`${name}.${collectionName}`);
+        return recordCollection;
+      },
+    }),
+  });
+};
+
+describe('refetchDeviceIndex', () => {
+  const devices = [{ deviceID: 'ME' }, { deviceID: 'PRIMARY' }];
+  const folder = { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, devices };
+
+  beforeEach(mountEveryVolume);
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('takes the device out of the folder and puts it back, in that order', async () => {
+    configFolders().resolves([folder]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY')).to.equal(true);
+
+    expect(adjust.args).to.deep.equal([
+      ['patch', { devices: [{ deviceID: 'ME' }] }, 'fluxprobe_app'],
+      ['patch', { devices }, 'fluxprobe_app'],
+    ]);
+  });
+
+  it('holds the folder across both writes', async () => {
+    configFolders().resolves([folder]);
+    const order = [];
+    let finishFirst;
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async (_method, fields) => {
+      order.push(fields.paused === undefined ? fields.devices.length : 'other');
+      if (order.length === 1) await new Promise((resolve) => { finishFirst = resolve; });
+      return { status: 'success' };
+    });
+
+    const refetch = syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY');
+    await new Promise(setImmediate);
+    await new Promise(setImmediate);
+    const other = syncthingFolderWrites.patchFolder('fluxprobe_app', { paused: true });
+    await new Promise(setImmediate);
+    finishFirst();
+    await Promise.all([refetch, other]);
+
+    expect(order).to.deep.equal([1, 2, 'other']);
+    sinon.assert.calledThrice(adjust);
+  });
+
+  it('writes nothing for a folder syncthing does not hold', async () => {
+    configFolders().resolves([]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY')).to.equal(false);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('writes nothing for a device the folder is not shared with', async () => {
+    configFolders().resolves([folder]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'NOBODY')).to.equal(false);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('does not put the device back when taking it out failed', async () => {
+    configFolders().resolves([folder]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error' });
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY')).to.equal(false);
+    sinon.assert.calledOnce(adjust);
+  });
+
+  it('answers false when putting the device back failed', async () => {
+    configFolders().resolves([folder]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+    adjust.onFirstCall().resolves({ status: 'success' });
+    adjust.onSecondCall().resolves({ status: 'error' });
+
+    expect(await syncthingFolderWrites.refetchDeviceIndex('fluxprobe_app', 'PRIMARY')).to.equal(false);
+  });
+});
 
 describe('changeSyncthingFolderType', () => {
   beforeEach(mountEveryVolume);
@@ -23,7 +135,7 @@ describe('changeSyncthingFolderType', () => {
   });
 
   it('writes the type together with every setting FluxOS owns on the folder', async () => {
-    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+    configFolders().resolves([
       { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly' },
     ]);
     const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
@@ -36,7 +148,7 @@ describe('changeSyncthingFolderType', () => {
   });
 
   it('writes nothing when the folder already has the type', async () => {
-    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+    configFolders().resolves([
       { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
     ]);
     const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
@@ -49,7 +161,7 @@ describe('changeSyncthingFolderType', () => {
 
   describe('unpausing in the same write', () => {
     it('writes the type and paused:false together', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true },
       ]);
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
@@ -61,7 +173,7 @@ describe('changeSyncthingFolderType', () => {
     });
 
     it('unpauses a paused folder that already has the type', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly', paused: true },
       ]);
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
@@ -72,7 +184,7 @@ describe('changeSyncthingFolderType', () => {
     });
 
     it('writes nothing for an unpaused folder that already has the type', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly', paused: false },
       ]);
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
@@ -83,7 +195,7 @@ describe('changeSyncthingFolderType', () => {
     });
 
     it('leaves the pause alone without the option', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true },
       ]);
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
@@ -103,7 +215,7 @@ describe('changeSyncthingFolderType', () => {
     });
 
     it('succeeds when the type shows in the config within the wait', async () => {
-      const read = sinon.stub(syncthingService, 'getConfigFolders');
+      const read = configFolders();
       read.onFirstCall().resolves(folderOfType('receiveonly'));
       read.resolves(folderOfType('sendreceive'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
@@ -114,7 +226,7 @@ describe('changeSyncthingFolderType', () => {
     });
 
     it('fails when the type never shows within the wait', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      configFolders().resolves(folderOfType('receiveonly'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
 
       const changed = await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 50 });
@@ -123,7 +235,7 @@ describe('changeSyncthingFolderType', () => {
     });
 
     it('fails at once without a wait', async () => {
-      const read = sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      const read = configFolders().resolves(folderOfType('receiveonly'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves(unanswered);
 
       const changed = await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'sendreceive');
@@ -133,7 +245,7 @@ describe('changeSyncthingFolderType', () => {
     });
 
     it('a write syncthing refused fails at once, even with a wait', async () => {
-      const read = sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOfType('receiveonly'));
+      const read = configFolders().resolves(folderOfType('receiveonly'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { httpStatus: 400 } });
 
       const changed = await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 1000 });
@@ -228,7 +340,7 @@ describe('syncthing folder writes', () => {
     it('holds the next write to a folder while a type change waits to show', async () => {
       sinon.stub(serviceHelper, 'delay').callsFake(() => new Promise((resolve) => { setTimeout(resolve, 5); }));
       let applied = false;
-      sinon.stub(syncthingService, 'getConfigFolders').callsFake(async () => [
+      configFolders().callsFake(async () => [
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: applied ? 'sendreceive' : 'receiveonly' },
       ]);
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
@@ -250,7 +362,7 @@ describe('syncthing folder writes', () => {
 
     it('asks whether to abandon a type change once the folder is its turn, and writes nothing if so', async () => {
       const first = heldWrite();
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly' },
       ]);
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
@@ -272,7 +384,7 @@ describe('syncthing folder writes', () => {
 
   describe('scanning before a type change', () => {
     it('scans before the write that changes the type', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
       ]);
       const scan = sinon.stub(syncthingService, 'scanFolder').resolves();
@@ -284,7 +396,7 @@ describe('syncthing folder writes', () => {
     });
 
     it('makes a folder whose volume is not mounted receive, unscanned', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
       ]);
       sinon.stub(syncthingService, 'scanFolder').rejects(Object.assign(new Error('not mounted'), { code: 'VOLUME_NOT_MOUNTED' }));
@@ -296,7 +408,7 @@ describe('syncthing folder writes', () => {
     });
 
     it('leaves the type unchanged when the scan does not finish', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
       ]);
       sinon.stub(syncthingService, 'scanFolder').rejects(new Error('timeout of 600000ms exceeded'));
@@ -308,7 +420,7 @@ describe('syncthing folder writes', () => {
     });
 
     it('lets the scan run as long as a scan of a large folder takes, not the client\'s default', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
       ]);
       const scan = sinon.stub(syncthingService, 'scanFolder').resolves();
@@ -320,7 +432,7 @@ describe('syncthing folder writes', () => {
     });
 
     it('does not hold the folder\'s other writes while it scans', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive' },
       ]);
       let scanned;
@@ -338,7 +450,7 @@ describe('syncthing folder writes', () => {
     });
 
     it('does not scan a folder that already has the type', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      configFolders().resolves([
         { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly' },
       ]);
       const scan = sinon.stub(syncthingService, 'scanFolder').resolves();
@@ -353,7 +465,7 @@ describe('syncthing folder writes', () => {
     const folderOf = (type) => [{ id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type }];
 
     it('covers a folder it turns sending with two scans, the second once the first has answered, and returns without waiting for them', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOf('receiveonly'));
+      configFolders().resolves(folderOf('receiveonly'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
       const first = heldWrite();
       const scan = sinon.stub(syncthingService, 'scanFolder');
@@ -371,7 +483,7 @@ describe('syncthing folder writes', () => {
     });
 
     it('scans nothing for a folder that receives', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOf('sendreceive'));
+      configFolders().resolves(folderOf('sendreceive'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
       const scan = sinon.stub(syncthingService, 'scanFolder').resolves({ status: 'success' });
       globalState.promotedFolderIds.add('fluxprobe_app');
@@ -449,7 +561,7 @@ describe('syncthing folder writes', () => {
     });
 
     it('stands the write when a scan does not finish, and makes no second scan', async () => {
-      sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOf('receiveonly'));
+      configFolders().resolves(folderOf('receiveonly'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
       const scan = sinon.stub(syncthingService, 'scanFolder').rejects(new Error('timeout of 600000ms exceeded'));
       const count = sinon.spy(fluxEventBus, 'count');
@@ -479,7 +591,7 @@ describe('syncthing folder writes', () => {
     });
 
     it('covers a type change syncthing did not answer that applied later', async () => {
-      const folders = sinon.stub(syncthingService, 'getConfigFolders');
+      const folders = configFolders();
       folders.onFirstCall().resolves(folderOf('receiveonly'));
       folders.resolves(folderOf('sendreceive'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { httpStatus: null } });
@@ -605,7 +717,7 @@ describe('a folder whose volume is not mounted', () => {
 
   beforeEach(() => {
     volumeService.isPathMounted.withArgs(path).resolves(false);
-    sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folder, path, type: 'receiveonly' }]);
+    configFolders().resolves([{ id: folder, path, type: 'receiveonly' }]);
     adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
   });
 
@@ -663,7 +775,7 @@ describe('folderConfig', () => {
 
   it('answers the folder syncthing holds at the app folder path', async () => {
     const folder = { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true };
-    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+    configFolders().resolves([
       { id: 'fluxother_app', path: `${appsFolder}fluxother_app`, type: 'receiveonly' }, folder,
     ]);
 
@@ -671,13 +783,13 @@ describe('folderConfig', () => {
   });
 
   it('answers null for a folder syncthing does not hold', async () => {
-    sinon.stub(syncthingService, 'getConfigFolders').resolves([]);
+    configFolders().resolves([]);
 
     expect(await syncthingFolderWrites.folderConfig('fluxprobe_app')).to.equal(null);
   });
 
   it('answers null when syncthing cannot be read', async () => {
-    sinon.stub(syncthingService, 'getConfigFolders').rejects(new Error('syncthing did not answer'));
+    configFolders().rejects(new Error('syncthing did not answer'));
 
     expect(await syncthingFolderWrites.folderConfig('fluxprobe_app')).to.equal(null);
   });
@@ -706,7 +818,7 @@ describe('a planned shutdown', () => {
   });
 
   it('refuses a type change that would unpause', async () => {
-    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+    configFolders().resolves([
       { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true },
     ]);
     const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
@@ -752,7 +864,7 @@ describe('pauseAllFolders', () => {
   });
 
   it('pauses every folder syncthing holds, and names those it could not', async () => {
-    sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: 'fluxa_one' }, { id: 'fluxb_two' }, { id: 'fluxc_three' }]);
+    configFolders().resolves([{ id: 'fluxa_one' }, { id: 'fluxb_two' }, { id: 'fluxc_three' }]);
     const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
     adjust.withArgs('patch', { paused: true }, 'fluxb_two').resolves({ status: 'error', data: { message: 'refused' } });
     adjust.withArgs('patch', { paused: true }, 'fluxc_three').rejects(new Error('no answer'));
@@ -765,5 +877,286 @@ describe('pauseAllFolders', () => {
       ['patch', { paused: true }, 'fluxb_two'],
       ['patch', { paused: true }, 'fluxc_three'],
     ]);
+  });
+});
+
+describe('a device added back to a folder', () => {
+  const folderId = 'fluxprobe_app';
+  const held = (devices) => [{ id: folderId, path: `${appsFolder}${folderId}`, devices: devices.map((deviceID) => ({ deviceID })) }];
+  let pause;
+  let resume;
+  let publish;
+  const takenOut = (device, folder = folderId) => records.set(`${folder}|${device}`, { _id: `${folder}|${device}`, folder, device });
+
+  beforeEach(() => {
+    mountEveryVolume();
+    pause = sinon.stub(syncthingService, 'systemPause').resolves({});
+    resume = sinon.stub(syncthingService, 'systemResume').resolves({});
+    publish = sinon.stub(fluxEventBus, 'publish');
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('pauses and then resumes the device on a release that keeps a dropped device\'s sequence', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+    sinon.assert.calledOnceWithExactly(resume, 'PEER');
+    sinon.assert.callOrder(pause, resume);
+    sinon.assert.calledWith(publish, 'syncthing:deviceReconnected', { device: 'PEER', folders: [folderId] });
+  });
+
+  it('reconnects a device a whole-folder write adds back', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.putFolders([{ id: folderId, type: 'receiveonly', devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] }]);
+
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+    sinon.assert.calledOnceWithExactly(resume, 'PEER');
+  });
+
+  it('reconnects nothing on a release that hears a returning device\'s whole index', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(true);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    sinon.assert.notCalled(pause);
+    sinon.assert.notCalled(resume);
+  });
+
+  it('reconnects nothing when the write adds no device', async () => {
+    configFolders().resolves(held(['ME', 'PEER']));
+    const version = sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+
+    sinon.assert.notCalled(version);
+    sinon.assert.notCalled(pause);
+  });
+
+  it('reconnects nothing for a folder the write creates', async () => {
+    configFolders().resolves([]);
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.putFolders([{ id: folderId, type: 'receiveonly', devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] }]);
+
+    sinon.assert.notCalled(pause);
+  });
+
+  it('reconnects nothing when the write did not land', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    sinon.assert.notCalled(pause);
+  });
+
+  it('resumes the device when its pause failed, and the write stands', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+    pause.rejects(new Error('no answer'));
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.calledOnceWithExactly(resume, 'PEER');
+    sinon.assert.neverCalledWith(publish, 'syncthing:deviceReconnected', sinon.match.any);
+  });
+
+  it('leaves the write standing when syncthing\'s version cannot be read', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').rejects(new Error('no answer'));
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.notCalled(pause);
+  });
+
+  it('keeps the record of a device whose write did not land', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect([...records.keys()]).to.deep.equal([`${folderId}|PEER`]);
+  });
+
+  it('reconnects nothing for a device added to the folder for the first time', async () => {
+    configFolders().resolves(held(['ME']));
+    const version = sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.notCalled(version);
+    sinon.assert.notCalled(pause);
+    sinon.assert.notCalled(resume);
+  });
+
+  it('records a device a write takes out of the folder, in the local database, before the write', async () => {
+    configFolders().resolves(held(['ME', 'PEER']));
+    sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async () => {
+      expect([...records.keys()]).to.deep.equal([`${folderId}|PEER`]);
+      return { status: 'success' };
+    });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+
+    expect([...records.values()].map(({ folder, device }) => `${folder} ${device}`)).to.deep.equal([`${folderId} PEER`]);
+    expect(new Set(asked)).to.deep.equal(new Set([`${config.database.local.database}.syncthingdroppeddevices`]));
+  });
+
+  it('records a device a whole-folder write takes out of the folder', async () => {
+    configFolders().resolves(held(['ME', 'PEER']));
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.putFolders([{ id: folderId, type: 'receiveonly', devices: [{ deviceID: 'ME' }] }]);
+
+    expect([...records.keys()]).to.deep.equal([`${folderId}|PEER`]);
+  });
+
+  it('reconnects a device taken out of the folder by one write and added back by a later one, once', async () => {
+    const folders = configFolders();
+    folders.resolves(held(['ME', 'PEER']));
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+    sinon.assert.notCalled(pause);
+
+    folders.resolves(held(['ME']));
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+    sinon.assert.calledOnceWithExactly(resume, 'PEER');
+    expect(records.size).to.equal(0);
+
+    // the same device taken out of a folder it was never recorded for, and added again
+    folders.resolves(held(['ME']));
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+    sinon.assert.calledOnce(pause);
+  });
+
+  it('reconnects a device whose own config was deleted after it left the folder, when it is added back', async () => {
+    const folders = configFolders();
+    folders.resolves(held(['ME', 'PEER']));
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    // the monitor deletes a device only once no folder lists it: the folder write comes first
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+    // the device is deleted and later configured again outside this module; the folder holds ME alone throughout
+    folders.resolves(held(['ME']));
+    await syncthingFolderWrites.putFolders([{ id: folderId, type: 'receiveonly', devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] }]);
+
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+    sinon.assert.calledOnceWithExactly(resume, 'PEER');
+  });
+
+  it('reconnects only the devices taken out, of those one write adds', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }, { deviceID: 'NEWCOMER' }] });
+
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+    sinon.assert.calledWith(publish, 'syncthing:deviceReconnected', { device: 'PEER', folders: [folderId] });
+  });
+
+  it('ends a device\'s record when it is added back on a release that needs no reconnect', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(true);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    sinon.assert.notCalled(pause);
+    expect(records.size).to.equal(0);
+  });
+
+  it('ends a device\'s record when its reconnect fails', async () => {
+    configFolders().resolves(held(['ME']));
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+    pause.rejects(new Error('no answer'));
+    resume.rejects(new Error('no answer'));
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    expect(records.size).to.equal(0);
+  });
+
+  it('reconnects every device a write adds back when the record cannot be read', async () => {
+    configFolders().resolves(held(['ME']));
+    sinon.stub(recordCollection, 'find').returns({ toArray: async () => { throw new Error('no answer'); } });
+    sinon.stub(syncthingService, 'refetchesDroppedDevices').resolves(false);
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }, { deviceID: 'PEER' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.calledOnceWithExactly(pause, 'PEER');
+  });
+
+  it('makes the write when the removal cannot be recorded', async () => {
+    configFolders().resolves(held(['ME', 'PEER']));
+    sinon.stub(recordCollection, 'updateOne').rejects(new Error('no answer'));
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder(folderId, { devices: [{ deviceID: 'ME' }] });
+
+    expect(response.status).to.equal('success');
+    sinon.assert.calledOnceWithExactly(adjust, 'patch', { devices: [{ deviceID: 'ME' }] }, folderId);
+  });
+
+  it('ends every record of a folder it deletes, and only that folder\'s', async () => {
+    takenOut('PEER');
+    takenOut('OTHER');
+    takenOut('PEER', 'fluxother_app');
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.deleteFolder(folderId);
+
+    expect([...records.keys()]).to.deep.equal(['fluxother_app|PEER']);
+  });
+
+  it('keeps a folder\'s records when syncthing refuses its deletion', async () => {
+    takenOut('PEER');
+    sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
+
+    await syncthingFolderWrites.deleteFolder(folderId);
+
+    expect(records.size).to.equal(1);
   });
 });

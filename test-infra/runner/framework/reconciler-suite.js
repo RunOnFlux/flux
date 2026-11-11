@@ -11,6 +11,9 @@ import {
 } from './daemon-control.js';
 import { dbClient } from './db-client.js';
 import {
+  deliverApp, deliverAppByBlock, deliverToFleet, onlineNodes,
+} from './app-delivery.js';
+import {
   buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp, buildSeedableUpdate,
 } from './seed-helper.js';
 import { authenticate } from '../auth.js';
@@ -66,66 +69,18 @@ export async function seedSyncScopedData(env, name, index) {
   }).catch(() => {});
 }
 
-// Seed a pre-built app's global spec into the given nodes' DBs (so a local install
-// can resolve it).
-// A seeded app must still be alive on the chain the fleet is about to run. This
-// is the funnel every global seed passes through, and it is the only place that
-// holds BOTH the app and the env, so it is where the two are checked against
-// each other rather than trusted to have been built consistently.
-//
-// Getting this wrong is silent and expensive: the spawner drops an expired app
-// from every candidate list (so spawner suites spin their whole budget and time
-// out rather than failing), and expireGlobalApplications deletes it outright on
-// any node that restarts. That is a harness fault that presents as a product
-// one, in the most expensive possible shape.
-function assertAliveOnThisChain(env, app) {
-  const seededAt = app.permanentMessage.height;
-  const expiresAt = seededAt + (app.spec.expire ?? 22000);
-  if (expiresAt <= env.initialHeight) {
-    throw new Error(
-      `seeded app ${app.spec.name} expires at block ${expiresAt}, at or below this suite's `
-      + `chain start (${env.initialHeight}) - it is already expired before the fleet processes `
-      + 'its first block. Seed relative to the chain rather than to a literal: '
-      + 'buildSeedableApp({ env, ... }).',
-    );
-  }
-}
-
-export async function seedGlobalSpec(env, app, indices) {
-  assertAliveOnThisChain(env, app);
-  await Promise.all(indices.map(async (i) => {
-    const dc = dbClient(i + 1);
-    await dc.seedGlobalAppSpec(app.spec);
-    await dc.seedPermanentMessage(app.permanentMessage);
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }));
-}
-
-// The chain now carries a newer specification for an app these nodes already
-// hold. Written the way hash sync writes it: the app's row REPLACED, the new
-// permanent message and hash appended beside the old ones. The periodic reinstall
-// pass compares the two hashes and acts.
-//
-// A suite that seeds the row without the message and hash gets a node that sees
-// the change and cannot verify it.
-export async function seedSpecUpdate(env, updated, indices) {
-  await Promise.all(indices.map(async (i) => {
-    const dc = dbClient(i + 1);
-    await dc.replaceGlobalAppSpec(updated.spec);
-    await dc.seedPermanentMessage(updated.permanentMessage);
-    await dc.seedAppHash(updated.hash, updated.permanentMessage.height, true);
-  }));
-}
-
 // expireGlobalApplications runs every 2 blocks x the post-PON speed multiplier
 // (explorerService).
 const EXPIRY_PERIOD_BLOCKS = 2 * 4;
+// The term a retiring app's last update gives it, from the block it lands in.
+const RETIRE_TERM_BLOCKS = 4 * EXPIRY_PERIOD_BLOCKS;
 
 /**
  * Take an app off the whole fleet the way an app leaves the network: its
- * owner's specification has run out. An update whose term ended long ago is
- * seeded on every node, so each node's expiry job deletes the specification and
- * uninstalls the app, and nothing places it again. Drives the chain with the
+ * owner's specification runs out. An update with a term of a few expiry passes
+ * is paid for in the next block, which every node scans whatever its state, then
+ * the chain is driven until each node's expiry job has deleted the specification
+ * and uninstalled the app, and nothing places it again. Drives the chain with the
  * ticker stopped, and leaves the ticker running.
  * @param {object} env
  * @param {object} app The app as seeded (buildSeedableApp or buildSeedableUpdate).
@@ -136,13 +91,14 @@ const EXPIRY_PERIOD_BLOCKS = 2 * 4;
  */
 export async function retireApp(env, app, { timeout = 120000 } = {}) {
   const { name } = app.spec;
-  const expired = await buildSeedableUpdate(app, (spec) => { spec.expire = 1; });
-  await seedSpecUpdate(env, expired, env.clients.map((_unused, i) => i));
+  const ending = await buildSeedableUpdate(app, (spec) => { spec.expire = RETIRE_TERM_BLOCKS; });
   await stopTicker();
   try {
+    await deliverAppByBlock(env, ending, onlineNodes(env));
     await driveUntil(env.clients[1], async () => (await Promise.all(env.clients
       .map((_unused, i) => dbClient(i + 1).globalAppSpec(name)))).every((row) => row === null), {
-      blocks: 3 * EXPIRY_PERIOD_BLOCKS, label: `every node expires ${name}`,
+      // the block the update lands in, its term, then two expiry passes
+      blocks: 1 + RETIRE_TERM_BLOCKS + (2 * EXPIRY_PERIOD_BLOCKS), label: `every node expires ${name}`,
     });
   } finally {
     await startTicker();
@@ -159,7 +115,7 @@ export async function retireApp(env, app, { timeout = 120000 } = {}) {
 // as the flux team (adminandfluxteam) since these are seeded global specs.
 // Returns the indices it installed on.
 export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
-  await seedGlobalSpec(env, app, indices);
+  await deliverApp(env, app, indices);
   return installSeededOnNodes(env, app, indices, { timeout });
 }
 
@@ -490,10 +446,7 @@ export async function waitForLocationTable(node, { domains, timeout = 90000 } = 
 // Seed a pre-built app (buildSeedableApp / buildSeedableSyncthingApp) into every
 // node's DB and wait until it installs on some node; resolves that node index.
 export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
-  // Through the guarded funnel, never inlined: seedGlobalSpec is the one place
-  // that checks the app is alive on this suite's chain, and a seed that skips
-  // it fails twenty minutes later as a spawner timeout instead of now.
-  await seedGlobalSpec(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
+  await deliverToFleet(env, app);
   return Promise.any(env.clients.map(async (c, i) => {
     await waitForAppInstalled(c, app.spec.name, timeout);
     return i;
@@ -504,8 +457,7 @@ export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
 // install it; resolves the sorted list of those node indices. Used by the
 // multi-node gates (g: election needs >= 2 holders).
 export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 } = {}) {
-  // Through the guarded funnel, never inlined - same contract as seedAndInstall.
-  await seedGlobalSpec(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
+  await deliverToFleet(env, app);
   const installed = [];
   await Promise.all(env.clients.map(async (c, i) => {
     try {
@@ -520,16 +472,16 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
   return installed;
 }
 
-// SPAWNER path: seed an app's global spec into EVERY node's globalzelapps DB
-// (collection zelappsinformation — the one trySpawningGlobalApplication aggregates
-// over) so each node's spawner sees it as missing-instances and self-selects. No
-// running/installing locations are seeded, so `actual` starts at 0 and the spawner
-// drives real placement + collision-resolution. The app image must be pushed first.
+// SPAWNER path: deliver an app to every running node (deliverToFleet) so each node's
+// spawner sees it as missing instances and self-selects. No running or installing
+// location exists, so `actual` starts at 0 and the spawner drives real placement and
+// collision resolution. The app image must be pushed first.
 //
-// `indices` limits the seed to those nodes, which orders placement by construction:
+// `indices` limits delivery to those nodes, which orders placement by construction:
 // a node the spec has not reached cannot select the app.
-export async function seedSpawnerApp(env, app, indices = env.clients.map((_, i) => i)) {
-  await seedGlobalSpec(env, app, indices);
+export async function seedSpawnerApp(env, app, indices = null) {
+  if (indices) await deliverApp(env, app, indices);
+  else await deliverToFleet(env, app);
 }
 
 // Ground-truth count of where an app is actually installed across the fleet

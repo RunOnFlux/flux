@@ -170,8 +170,8 @@ export async function setHeight(height) {
   return post('/set-height', { height });
 }
 
-export async function queueAppTx(appHash) {
-  return post('/queue-app-tx', { appHash });
+export async function queueAppTx(appHash, { valueSat } = {}) {
+  return post('/queue-app-tx', { appHash, ...(valueSat === undefined ? {} : { valueSat }) });
 }
 
 // -- A node's daemon behind the chain's tip --
@@ -222,6 +222,20 @@ export async function clearDaemonBehind(node) {
  */
 export async function setNodeAddress(node, reported, { scope = 'all' } = {}) {
   return post(`/node-address/${String(node).split(':')[0]}`, { reported, scope });
+}
+
+/**
+ * Tells the stub a node's container now holds `to` instead of `from`, so its
+ * requests from `to` are that node's. What the stub answers about the node is
+ * unchanged: that is setNodeAddress.
+ *
+ * @param {string} from Bare address the container held.
+ * @param {string} to Bare address it holds now.
+ */
+export async function recordNodeMove(from, to) {
+  const r = await post('/node-moved', { from, to });
+  if (r.error) throw new Error(`the daemon stub refused the move ${from} -> ${to}: ${r.error}`);
+  return r;
 }
 
 /**

@@ -8,6 +8,7 @@ const config = require('config');
 const dbHelper = require('./dbHelper');
 const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
 const { normalizeSocketAddress } = require('./utils/socketAddressUtils');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 // fluxd's FLUXNODE_CONFIRM_UPDATE_EXPIRATION_HEIGHT_V4: a node that does not
 // confirm within this many blocks leaves the node list, so every listed node's
@@ -272,6 +273,7 @@ async function rebuild(height, fetchBlock, database) {
   if (built.size) await staging.insertMany([...built].map(([_id, record]) => ({ _id, ...record })));
   // eslint-disable-next-line no-use-before-define
   await ensureIndexes(database, REBUILD_COLLECTION);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.ADDRESS_RECORD_BEFORE_SWAP);
   await staging.rename(RECORD_COLLECTION, { dropTarget: true });
   noteRecorded(height);
 }

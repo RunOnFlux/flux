@@ -186,6 +186,10 @@ let promotedFolderIds = null;
 // before promoting one of their own, so that the node with the data wins rather than
 // the node with the lowest address.
 const folderStates = new Map();
+// What each folder this node sends holds in the cluster's index, in file bytes, as the
+// monitor pass last read it: folderId -> bytes. Peers read it to tell a writable copy
+// holding nothing from one they have not heard from yet.
+const publishedFileBytes = new Map();
 
 // This node's place in deciding which holder seeds a folder at a cold start:
 // folderId -> { stage, bytes, newestModified }. `intent` while this node is elected,
@@ -404,6 +408,7 @@ module.exports = {
   get promotedFolderIds() { return promotedFolderIds; },
   set promotedFolderIds(ids) { promotedFolderIds = ids; },
   get folderStates() { return folderStates; },
+  get publishedFileBytes() { return publishedFileBytes; },
   get seedMarks() { return seedMarks; },
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },

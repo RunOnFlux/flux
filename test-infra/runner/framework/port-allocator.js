@@ -11,10 +11,7 @@
  * hashed the moment it is built. A port added afterwards leaves the app
  * carrying a hash of a specification that no longer exists.
  *
- * That is also the seam with no holes. The rule was first written into the nine
- * builders, which four suites route around by hand-writing their compose; then
- * into reconciler-suite.seedGlobalSpec, which five route around by seeding to
- * the database themselves. Every one of them calls buildSeedableApp.
+ * Every app a suite builds, whatever writes its compose, goes through it.
  */
 /**
  * The allocator owns everything from here up. A hand-written port must sit

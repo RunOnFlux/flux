@@ -784,6 +784,32 @@ function nonFileEntryBytesForVersion(version) {
 }
 
 /**
+ * Whether a release hears a device's whole index again once the device has left a
+ * folder and come back. Before v2.1.2 a daemon drops the device's records and keeps the
+ * sequence it had reached, so the device goes on sending deltas and the records never
+ * return.
+ * @param {string} version syncthing's version string, e.g. v2.0.15
+ * @returns {boolean}
+ * @throws When the version cannot be parsed.
+ */
+function refetchesDroppedDevicesForVersion(version) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(typeof version === 'string' ? version : '');
+  if (!match) throw new Error(`syncthing reported a version that cannot be read: ${JSON.stringify(version)}`);
+  const [major, minor, patch] = match.slice(1).map(Number);
+  return major > 2 || (major === 2 && (minor > 1 || (minor === 1 && patch >= 2)));
+}
+
+/**
+ * Whether this node's syncthing hears a device's whole index again after the device left
+ * a folder. Read from the running daemon on every call: a release can go back as well as
+ * forward across a restart.
+ * @returns {Promise<boolean>}
+ */
+async function refetchesDroppedDevices() {
+  return refetchesDroppedDevicesForVersion((await systemVersion())?.version);
+}
+
+/**
  * How many bytes this node's syncthing counts for each directory and each symlink.
  *
  * Read from the running daemon on every call, never remembered: the release can
@@ -874,6 +900,20 @@ async function getDbLocalChanged(folder, page = 1, perpage = LOCAL_CHANGED_PAGE_
     throw new Error('folder parameter is mandatory');
   }
   return request('get', `/rest/db/localchanged?folder=${folder}&page=${page}&perpage=${perpage}`);
+}
+
+/**
+ * What this node holds as a folder's latest and a device's index does not.
+ * @param {string} folder Folder ID.
+ * @param {string} device Device ID.
+ * @param {number} [page]
+ * @param {number} [perpage]
+ * @returns {Promise<object>} syncthing's `progress`, `queued` and `rest` lists, or `files`
+ */
+async function getDbRemoteNeed(folder, device, page = 1, perpage = LOCAL_CHANGED_PAGE_SIZE) {
+  return request('get', `/rest/db/remoteneed?${qs.stringify({
+    folder, device, page, perpage,
+  })}`);
 }
 
 /**
@@ -2760,9 +2800,12 @@ module.exports = {
   getDbStatusInFileBytes,
   nonFileEntryBytes,
   nonFileEntryBytesForVersion,
+  refetchesDroppedDevices,
+  refetchesDroppedDevicesForVersion,
   statusInFileBytes,
   getDbFile,
   getDbLocalChanged,
+  getDbRemoteNeed,
   eachDbLocalChanged,
   dbRevert,
   drainFoldersToPeers,

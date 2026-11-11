@@ -84,6 +84,7 @@ module.exports = {
         nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
         upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
+        syncthingDroppedDevices: 'syncthingdroppeddevices', // each device this node took out of an app folder and has not added back
       },
     },
     daemon: {
@@ -818,7 +819,7 @@ module.exports = {
     // to run when it is renewed (locationTtlS less the announce interval, 65
     // minutes), or no holder's announcement outlasts the turn it would act in.
     // Asserted against production's own config in the unit tests.
-    residentialTurnMs: 60 * 60 * 1000,
+    handbackTurnMs: 60 * 60 * 1000,
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
@@ -911,6 +912,9 @@ module.exports = {
     ip: '127.0.0.1',
     port: 8384,
     monitorIntervalMs: 30000, // syncthingApps reconfiguration/sync-readiness cycle
+    // How long a copy stopped to be handed back waits for a peer to hold it before it
+    // serves again, its scan included.
+    leavingCopyWaitMs: 300000,
     // How long a node goes without a successful health probe before it reports
     // syncthing down. Four missed passes of the 60s sentinel loop: wide enough
     // that a slow adjustSyncthing or a couple of blips cannot mark the node

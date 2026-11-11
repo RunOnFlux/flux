@@ -37,7 +37,9 @@ const syncthingServiceMock = {
   adjustConfigFolders: sinon.stub().resolves(),
   getFolderIdErrors: sinon.stub(),
   systemRestart: sinon.stub().resolves(),
+  systemPause: sinon.stub().resolves(),
   systemResume: sinon.stub().resolves(),
+  refetchesDroppedDevices: sinon.stub().resolves(true),
   getDbStatus: sinon.stub(),
   getDbCompletion: sinon.stub().resolves({ remoteState: 'notSharing' }),
   getDeviceStats: sinon.stub().resolves({}),
@@ -122,8 +124,16 @@ const peerFolderLivenessMock = {
 // Load module with mocked dependencies
 const appTamperingDetectionServiceMock = { recordEvent: sinon.stub().resolves() };
 
-// The real writers, over the same syncthing mock the monitor reads.
+// The real writers, over the same syncthing mock the monitor reads, with no device
+// recorded as taken out of a folder.
+const syncthingDroppedDevicesMock = {
+  dropped: sinon.stub().resolves(),
+  addedBack: sinon.stub().resolves(new Map()),
+  cleared: sinon.stub().resolves(),
+  folderRemoved: sinon.stub().resolves(),
+};
 const syncthingFolderWrites = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites', {
+  './syncthingDroppedDevices': syncthingDroppedDevicesMock,
   '../serviceHelper': serviceHelperMock,
   '../syncthingService': syncthingServiceMock,
   '../utils/volumeService': volumeServiceMock,
@@ -1906,7 +1916,8 @@ describe('syncthingMonitor tests', () => {
     describe('the folders it tells peers are writable', () => {
       it('counts a folder the role made writable after the pass read it', async () => {
         writesAFolder();
-        syncthingServiceMock.getConfigFolders.callsFake(async () => {
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'receiveonly' }]);
+        syncthingServiceMock.getConfigFolders.onFirstCall().callsFake(async () => {
           await syncthingFolderWrites.patchFolder('testapp', { type: 'sendreceive' });
           return [{ id: 'testapp', type: 'receiveonly' }];
         });

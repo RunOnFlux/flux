@@ -43,6 +43,7 @@ import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
 import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
 import { startSyncedDataKeeper } from './synced-data-keeper.js';
+import { startSyncthingTrace, tracedPackages } from './syncthing-trace.js';
 
 // How long after a re-attach the collector goes on treating an exact repeat as docker
 // replaying a line it already has. Docker's `since` is whole-second, so the replay is over
@@ -704,6 +705,7 @@ function makeEnvShell(networkName) {
       tornDown = true;
       // the next fleet in this process places its own nodes
       setIpGroups({});
+      env.stopSyncthingTrace?.();
       const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
       // Every step below is a docker round trip with no timeout of its own, and until
       // now they printed only on THROW - and being slow is not throwing. The `after`
@@ -1385,7 +1387,9 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
+    const tracePackages = syncthing === 'binary' ? tracedPackages() : [];
     await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, arcaneStubPeers, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
+    env.stopSyncthingTrace = startSyncthingTrace(env.clients, tracePackages);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown

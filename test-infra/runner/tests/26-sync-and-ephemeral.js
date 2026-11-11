@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dbClient } from '../framework/db-client.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
@@ -54,12 +55,7 @@ describe('Signed sync completes on late-joining node', function () {
         cpu: 0.1, ram: 100, hdd: 1, repoauth: '',
       }],
     });
-    for (let i = 1; i <= 10; i++) {
-      const dc = dbClient(i);
-      await dc.seedGlobalAppSpec(app.spec);
-      await dc.seedPermanentMessage(app.permanentMessage);
-      await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-    }
+    await deliverApp(env, app, Array.from({ length: 10 }, (_, i) => i));
     await queueAppTx(app.hash);
     await advanceBlock();
     await Promise.any(

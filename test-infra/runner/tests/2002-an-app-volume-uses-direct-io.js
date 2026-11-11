@@ -24,7 +24,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { execInContainer, getAppContainerId } from '../framework/container.js';
 import { volumeRoot } from '../framework/volume-fixture.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
@@ -106,7 +107,7 @@ describe('an app volume uses direct I/O', function () {
       spec.compose[0].description = 'direct I/O test container, second specification';
     });
     const beforeUpdate = holder.getLastEventId();
-    await seedSpecUpdate(env, updated, [0]);
+    await deliverApp(env, updated, [0]);
     await stopTicker();
     const replaced = () => waitForComponentRedeployed(holder, appName, appName, false, 0, { afterId: beforeUpdate })
       .then(() => true, () => false);

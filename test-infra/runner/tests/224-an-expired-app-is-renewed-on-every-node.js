@@ -197,8 +197,8 @@ describe('an expired app is renewed by an update, on every node alike', function
     const db = dbClient(OBSERVER + 1);
     // Canary: the node is put back to the registrations, so only the rebuild can restore the
     // renewals.
-    await db.replaceGlobalAppSpec(registered.late);
-    await db.replaceGlobalAppSpec(registered.owner);
+    await db.writeStaleGlobalAppSpec(registered.late);
+    await db.writeStaleGlobalAppSpec(registered.owner);
     expect(await specHash(OBSERVER, lateName)).to.equal(registered.late.hash);
 
     const client = env.clients[OBSERVER];

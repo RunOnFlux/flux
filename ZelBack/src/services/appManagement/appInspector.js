@@ -543,19 +543,24 @@ function startAppMonitoring(appName) {
   const { appsMonitored } = globalState;
 
   log.info('Initialize Monitoring...');
-  // Clear previous interval for this app to prevent multiple intervals
+  // A monitor started over a running one replaces it: its next sample is
+  // cancelled, and one in progress schedules no other.
   if (appsMonitored[appName] && appsMonitored[appName].oneMinuteInterval) {
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
+    clearTimeout(appsMonitored[appName].oneMinuteInterval);
   }
-  appsMonitored[appName] = {
+  const session = {
     statsStore: [],
     // the throttler reads everything past this, then moves it forward; a
     // watermark rather than a wipe, so the series stays whole for the charts
     lastCpuDecisionAt: 0,
+    // the container's CPU limit, which each sample carries as the chart's scale:
+    // read from the container until known, then kept by recordCpuLimit
     nanoCpus: null,
-    run: 0,
+    // the timer of the next sample; null once monitoring is stopped
+    oneMinuteInterval: null,
   };
-  // Validated, because setInterval does not. A missing key coerces to NaN and
+  appsMonitored[appName] = session;
+  // Validated, because setTimeout does not. A missing key coerces to NaN and
   // anything below 1 is treated as ONE MILLISECOND - so the sampler would ask
   // docker for stats on every monitored component about a thousand times a
   // second instead of once a minute. That has happened to this exact key
@@ -569,9 +574,20 @@ function startAppMonitoring(appName) {
   if (sampleIntervalMs !== configuredInterval) {
     log.warn(`statsSampleIntervalMs is ${JSON.stringify(configuredInterval)}, not a number of at least 1000; sampling every 60s instead`);
   }
-  appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
+  // Samples fall due at fixed multiples of the interval from the start, and one
+  // sample is scheduled only once the one before it has ended: a sample that
+  // overruns a due time gives that slot up rather than running beside it.
+  const startedAt = monotonicMs();
+  let sample;
+  const scheduleNext = () => {
+    if (appsMonitored[appName] !== session || session.oneMinuteInterval === null) return;
+    const now = monotonicMs();
+    const due = startedAt + (Math.floor((now - startedAt) / sampleIntervalMs) + 1) * sampleIntervalMs;
+    session.oneMinuteInterval = setTimeout(sample, due - now);
+  };
+  sample = async () => {
     try {
-      if (!appsMonitored[appName]) {
+      if (appsMonitored[appName] !== session) {
         log.error(`Monitoring of ${appName} already stopped`);
         return;
       }
@@ -588,16 +604,13 @@ function startAppMonitoring(appName) {
       if (dockerContainer.State !== 'running') {
         return;
       }
-      appsMonitored[appName].run += 1;
       const statsNow = await dockerService.dockerContainerStats(appName);
       statsNow.disk_stats = await getContainerStorage(appName);
-      // the allocation only moves when the throttler moves it, so it is read on
-      // the same cadence as before and carried onto the samples in between
-      if (appsMonitored[appName].run % 3 === 1) {
+      if (session.nanoCpus === null) {
         const inspect = await dockerService.dockerContainerInspect(appName);
-        appsMonitored[appName].nanoCpus = inspect?.HostConfig?.NanoCpus ?? null;
+        session.nanoCpus = inspect?.HostConfig?.NanoCpus ?? null;
       }
-      statsNow.nanoCpus = appsMonitored[appName].nanoCpus;
+      statsNow.nanoCpus = session.nanoCpus;
 
       // A PARTIAL disk reading is a floor, not a total: some mount could not be
       // sized, so the figure is lower than the truth by an unknown amount.
@@ -616,8 +629,8 @@ function startAppMonitoring(appName) {
       // The live path is unaffected and stays honest: /apps/appstats takes a fresh
       // reading rather than serving this store, so a caller asking what the usage
       // is RIGHT NOW still gets status 'partial' and can act on it.
-      const lastKnownDisk = appsMonitored[appName].statsStore.length
-        ? appsMonitored[appName].statsStore[appsMonitored[appName].statsStore.length - 1].disk
+      const lastKnownDisk = session.statsStore.length
+        ? session.statsStore[session.statsStore.length - 1].disk
         : null;
       // Any reading the sizing step did not stand behind, not just a partial one.
       // Its catch returns { used: 0, status: 'error' } - a dockerd blip mid-tick
@@ -634,18 +647,21 @@ function startAppMonitoring(appName) {
       }
 
       const elapsed = monotonicMs();
-      appsMonitored[appName].statsStore.push({
+      session.statsStore.push({
         timestamp: Date.now(),
         elapsed,
         ...extractSample(statsNow),
       });
-      appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
+      session.statsStore = session.statsStore.filter(
         (stat) => elapsed - stat.elapsed <= 7 * 24 * 60 * 60 * 1000,
       );
     } catch (error) {
       log.error(error);
+    } finally {
+      scheduleNext();
     }
-  }, sampleIntervalMs);
+  };
+  session.oneMinuteInterval = setTimeout(sample, sampleIntervalMs);
 }
 
 /**
@@ -658,7 +674,7 @@ function stopAppMonitoring(appName, deleteData) {
   const { appsMonitored } = globalState;
 
   if (appsMonitored[appName]) {
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
+    clearTimeout(appsMonitored[appName].oneMinuteInterval);
     // Dropped, not just cleared: a stale handle is indistinguishable from a live
     // one, and ensureAppMonitoring has to be able to tell them apart.
     appsMonitored[appName].oneMinuteInterval = null;
@@ -904,6 +920,30 @@ function sampleCpuLoad(sample, specifiedCpu) {
 }
 
 /**
+ * Records a container's CPU limit as the allocation its monitoring samples carry.
+ * @param {object} appsMonitored - Applications monitoring data
+ * @param {string} containerName - The app or component container name
+ * @param {number|undefined} nanoCpus - The limit; a missing or zero one records nothing
+ */
+function recordCpuLimit(appsMonitored, containerName, nanoCpus) {
+  const monitored = appsMonitored[containerName];
+  // eslint-disable-next-line no-param-reassign
+  if (monitored && nanoCpus) monitored.nanoCpus = nanoCpus;
+}
+
+/**
+ * Sets a container's CPU limit, and records it for the container's samples.
+ * @param {object} appsMonitored - Applications monitoring data
+ * @param {string} containerName - The app or component container name
+ * @param {number} nanoCpus - The limit
+ * @returns {Promise<void>}
+ */
+async function setCpuLimit(appsMonitored, containerName, nanoCpus) {
+  await dockerService.appDockerUpdateCpu(containerName, nanoCpus);
+  recordCpuLimit(appsMonitored, containerName, nanoCpus);
+}
+
+/**
  * Hold a throttle-exempt container at its full specified cpu instead of deciding on it.
  *
  * Restoring is not optional. A game server lowered before it became exempt (or before this
@@ -912,20 +952,21 @@ function sampleCpuLoad(sample, specifiedCpu) {
  * @param {string} containerName - The app or component container name
  * @param {number} specifiedCpu - The cpu the app or component specified
  * @param {object} inspect - The container's docker inspect
- * @param {object} monitored - The monitoring entry, which may have gone mid-pass
+ * @param {object} appsMonitored - Applications monitoring data
  * @param {number} decisionAt - The watermark to stamp
  * @returns {Promise<void>}
  */
-async function holdExemptAtSpecifiedCpu(containerName, specifiedCpu, inspect, monitored, decisionAt) {
+async function holdExemptAtSpecifiedCpu(containerName, specifiedCpu, inspect, appsMonitored, decisionAt) {
   const nanoCpus = inspect.HostConfig?.NanoCpus;
   const specifiedNanoCpus = Math.round(specifiedCpu * 1e9);
   if (nanoCpus && nanoCpus < specifiedNanoCpus) {
-    await dockerService.appDockerUpdateCpu(containerName, specifiedNanoCpus);
+    await setCpuLimit(appsMonitored, containerName, specifiedNanoCpus);
     log.info(`checkApplicationsCpuUSage ${containerName} throttle-exempt, restoring cpu 100.`);
   } else {
     log.info(`checkApplicationsCpuUSage ${containerName} throttle-exempt, skipping CPU throttling`);
   }
   // Guarded for the same reason as the watermark writes in the caller.
+  const monitored = appsMonitored[containerName];
   if (monitored) {
     // eslint-disable-next-line no-param-reassign
     monitored.lastCpuDecisionAt = decisionAt;
@@ -961,6 +1002,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
         stats = cpuDecisionWindow(appsMonitored[app.name]);
         // eslint-disable-next-line no-await-in-loop
         const inspect = await dockerService.dockerContainerInspect(app.name);
+        recordCpuLimit(appsMonitored, app.name, inspect?.HostConfig?.NanoCpus);
         // Skip CPU throttling for containers with CFS burst actively applied.
         // Ground truth comes from the kernel (cpu.max.burst > 0), not from the
         // owner whitelist — so a misconfigured/unsupported node where setCpuBurst
@@ -978,7 +1020,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
         // Game servers deployed by the games hub are never throttled. See cpuThrottleExemption.
         if (inspect && cpuThrottleExemption.isCpuThrottleExempt(app.name)) {
           // eslint-disable-next-line no-await-in-loop
-          await holdExemptAtSpecifiedCpu(app.name, app.cpu, inspect, appsMonitored[app.name], decisionAt);
+          await holdExemptAtSpecifiedCpu(app.name, app.cpu, inspect, appsMonitored, decisionAt);
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -1014,28 +1056,28 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             if (cpuPercentage === 1) {
               if (app.cpu > 2) {
                 // eslint-disable-next-line no-await-in-loop
-                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.8));
+                await setCpuLimit(appsMonitored, app.name, Math.round(app.cpu * 1e9 * 0.8));
               } else {
                 // eslint-disable-next-line no-await-in-loop
-                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
+                await setCpuLimit(appsMonitored, app.name, Math.round(app.cpu * 1e9 * 0.9));
               }
               log.info(`checkApplicationsCpuUSage ${app.name} lowering cpu.`);
             }
           } else if (cpuPercentage <= 0.8) {
             // eslint-disable-next-line no-await-in-loop
-            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
+            await setCpuLimit(appsMonitored, app.name, Math.round(app.cpu * 1e9 * 0.85));
             log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 85.`);
           } else if (cpuPercentage <= 0.85) {
             // eslint-disable-next-line no-await-in-loop
-            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
+            await setCpuLimit(appsMonitored, app.name, Math.round(app.cpu * 1e9 * 0.9));
             log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 90.`);
           } else if (cpuPercentage <= 0.9) {
             // eslint-disable-next-line no-await-in-loop
-            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.95));
+            await setCpuLimit(appsMonitored, app.name, Math.round(app.cpu * 1e9 * 0.95));
             log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 95.`);
           } else if (cpuPercentage < 1) {
             // eslint-disable-next-line no-await-in-loop
-            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
+            await setCpuLimit(appsMonitored, app.name, Math.round(app.cpu * 1e9));
             log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 100.`);
           }
         }
@@ -1049,6 +1091,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
           stats = cpuDecisionWindow(appsMonitored[compName]);
           // eslint-disable-next-line no-await-in-loop
           const inspect = await dockerService.dockerContainerInspect(compName);
+          recordCpuLimit(appsMonitored, compName, inspect?.HostConfig?.NanoCpus);
           // Skip CPU throttling for components with CFS burst actively applied.
           // Per-component check — components of the same app may have different
           // burst state if some failed to apply.
@@ -1065,7 +1108,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
           // Exemption is by APP name: every component of a hub game server is held at spec.
           if (inspect && cpuThrottleExemption.isCpuThrottleExempt(app.name)) {
             // eslint-disable-next-line no-await-in-loop
-            await holdExemptAtSpecifiedCpu(compName, appComponent.cpu, inspect, appsMonitored[compName], decisionAt);
+            await holdExemptAtSpecifiedCpu(compName, appComponent.cpu, inspect, appsMonitored, decisionAt);
             // eslint-disable-next-line no-continue
             continue;
           }
@@ -1095,28 +1138,28 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
               if (cpuPercentage === 1) {
                 if (appComponent.cpu > 2) {
                   // eslint-disable-next-line no-await-in-loop
-                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.8));
+                  await setCpuLimit(appsMonitored, compName, Math.round(appComponent.cpu * 1e9 * 0.8));
                 } else {
                   // eslint-disable-next-line no-await-in-loop
-                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
+                  await setCpuLimit(appsMonitored, compName, Math.round(appComponent.cpu * 1e9 * 0.9));
                 }
                 log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} lowering cpu.`);
               }
             } else if (cpuPercentage <= 0.8) {
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.85));
+              await setCpuLimit(appsMonitored, compName, Math.round(appComponent.cpu * 1e9 * 0.85));
               log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 85.`);
             } else if (cpuPercentage <= 0.85) {
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
+              await setCpuLimit(appsMonitored, compName, Math.round(appComponent.cpu * 1e9 * 0.9));
               log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 90.`);
             } else if (cpuPercentage <= 0.9) {
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.95));
+              await setCpuLimit(appsMonitored, compName, Math.round(appComponent.cpu * 1e9 * 0.95));
               log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 95.`);
             } else if (cpuPercentage < 1) {
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
+              await setCpuLimit(appsMonitored, compName, Math.round(appComponent.cpu * 1e9));
               log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 100.`);
             }
           }

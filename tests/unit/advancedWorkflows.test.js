@@ -28,6 +28,8 @@ const { PeerComponent } = require('../../ZelBack/src/services/appMonitoring/peer
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../../ZelBack/src/services/utils/addressMoveEvents');
 const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+const handbackTurns = require('../../ZelBack/src/services/utils/handbackTurns');
 const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
 const appRebuild = require('../../ZelBack/src/services/appLifecycle/appRebuild');
 const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
@@ -5414,7 +5416,6 @@ describe('advancedWorkflows tests', () => {
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
       volGlobalState.folderStates.clear();
       volGlobalState.seedMarks.clear();
-      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // The volume search reads the real mount table through findmnt. Stubbing
       // it keeps these cases about the synced-mark rather than about whichever
@@ -5634,8 +5635,6 @@ describe('advancedWorkflows tests', () => {
     const component = { name: 'frontend', hdd: 1 };
 
     const withVolume = (availableGib) => {
-      // eslint-disable-next-line global-require
-      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // eslint-disable-next-line global-require
       const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
@@ -8538,6 +8537,195 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     });
   });
 
+  describe('a copy that can write leaves in one attempt', () => {
+    const leavingCopy = require('../../ZelBack/src/services/appLifecycle/leavingCopy');
+    const stop = [{ identifier: 'web_appone', folderId: 'fluxweb_appone', unsyncedSubdirs: [] }];
+    const proven = { proven: true, code: 'PROVEN', reason: 'held' };
+
+    beforeEach(() => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      evacuationSafety.canSafelyRemoveApp.onFirstCall().resolves({
+        safe: false, code: 'STOP_REQUIRED', reason: 'stop first', stop,
+      });
+      evacuationSafety.canSafelyRemoveApp.onSecondCall().resolves({ safe: true, code: 'SYNCED_ELSEWHERE', reason: 'held' });
+      sinon.stub(leavingCopy, 'stopAndProve').resolves(proven);
+      sinon.stub(leavingCopy, 'giveBack');
+      sinon.stub(leavingCopy, 'removed');
+      sinon.stub(syncthingFolderStateMachine, 'findSyncedPeer');
+      sinon.stub(syncthingFolderStateMachine, 'folderHoldsNothing');
+      sinon.stub(registryManager, 'shuttingDownNodes').resolves([]);
+    });
+
+    it('removes on the attempt\'s proof and the gate again, on that one pass', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.stopAndProve, stop, sinon.match.func);
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+      const { handedBack } = evacuationSafety.canSafelyRemoveApp.secondCall.args[1];
+      expect([...handedBack]).to.deep.equal(['web_appone']);
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+      sinon.assert.calledOnceWithExactly(leavingCopy.removed, stop);
+      sinon.assert.notCalled(leavingCopy.giveBack);
+    });
+
+    it('proves a copy by a peer holding it', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves({ deviceID: 'PEER' });
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(true);
+      sinon.assert.notCalled(syncthingFolderStateMachine.folderHoldsNothing);
+    });
+
+    it('proves a copy with no synced peer by its holding nothing', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves(null);
+      syncthingFolderStateMachine.folderHoldsNothing.resolves(true);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(true);
+      sinon.assert.calledWith(syncthingFolderStateMachine.folderHoldsNothing, 'fluxweb_appone', []);
+    });
+
+    it('does not prove a copy no peer holds and that holds something', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves(null);
+      syncthingFolderStateMachine.folderHoldsNothing.resolves(false);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(false);
+    });
+
+    it('gives back an attempt that cannot prove, and acts on nothing else that pass', async () => {
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+      leavingCopy.stopAndProve.resolves({ proven: false, code: 'COPY_NOT_HELD', reason: 'no peer' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.calledOnce(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('gives back a proven attempt the gate then refuses', async () => {
+      evacuationSafety.canSafelyRemoveApp.onSecondCall().resolves({ safe: false, code: 'BELOW_INSTANCE_COUNT', reason: 'short' });
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('gives back a copy the removal did not remove', async () => {
+      appUninstaller.removeAppLocally.resolves(RemovalOutcome.BUSY);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.notCalled(leavingCopy.removed);
+    });
+
+    it('gives back a copy when the removal throws', async () => {
+      appUninstaller.removeAppLocally.rejects(new Error('docker gone'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+    });
+
+    it('gives back an attempt that outlived its turn', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      daemonServiceUtils.executeCall.withArgs('getBlockCount').resolves({ status: 'success', data: GIVE_UP_PASS.height + GIVE_UP_PASS.period });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+    });
+  });
+
+  describe('a copy no peer holds', () => {
+    const strandedIndex = require('../../ZelBack/src/services/appMonitoring/strandedIndex');
+    const component = { identifier: 'server_appone', folderId: 'fluxserver_appone', syncMode: 'g' };
+    const noPeer = {
+      safe: false, code: 'NO_SYNCED_PEER', reason: 'no peer', component,
+    };
+
+    beforeEach(() => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      evacuationSafety.canSafelyRemoveApp.resolves(noPeer);
+      sinon.stub(strandedIndex, 'repairIfStranded').resolves({ code: 'NOTHING_STRANDED' });
+      peerIdentityService.askSigned.resolves({
+        verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+        answer: { held: [], purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+      });
+    });
+
+    const heldBy = (address) => peerIdentityService.askSigned.withArgs(address).resolves({
+      verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+      answer: { held: [component.folderId], purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+    });
+
+    it('asks about the node a peer shows is running the component, FDM or no FDM', async () => {
+      heldBy('5.6.7.8:16127');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(strandedIndex.repairIfStranded, component.folderId, '5.6.7.8:16127', LOCAL);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does nothing more this pass once a folder has restarted', async () => {
+      heldBy('5.6.7.8:16127');
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+      strandedIndex.repairIfStranded.resolves({ code: 'REFETCHED' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnce(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('goes on to the next app when nothing restarted', async () => {
+      heldBy('5.6.7.8:16127');
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('leaves a copy alone while no peer shows it runs the component', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('leaves a non-g: copy alone', async () => {
+      heldBy('5.6.7.8:16127');
+      evacuationSafety.canSafelyRemoveApp.resolves({ ...noPeer, component: { ...component, syncMode: 'r' } });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
+    });
+
+    it('leaves a refusal of any other kind alone', async () => {
+      heldBy('5.6.7.8:16127');
+      evacuationSafety.canSafelyRemoveApp.resolves({ ...noPeer, code: 'ONLY_HOST' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
+    });
+  });
+
   describe('the safety gate applies to BOTH reasons', () => {
     it('refuses a surplus removal that is not safe', async () => {
       // Before this, surplus removal deleted on an instance count alone - one of
@@ -9017,7 +9205,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       expect(releases(logWarn)).to.have.lengthOf(1);
-      expect(releases(logWarn)[0]).to.include('no longer evacuating');
+      expect(releases(logWarn)[0]).to.include('no longer leaving the app');
     });
 
     it('leaves a component it could not stop unmarked, so the next pass retries', async () => {
@@ -9055,6 +9243,217 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         .map((c) => String(c.args[0]))
         .filter((line) => line.includes('standing down as'));
       expect(stoodDown, 'reported a stand-down for a component still running').to.have.lengthOf(0);
+    });
+  });
+
+  describe('leaving an app whose geolocation no longer admits this node', () => {
+    const TABLE_FAIL = {
+      verdict: hwRequirements.GeoVerdict.FAIL, source: hwRequirements.GeoSource.TABLE, reason: 'not matching',
+    };
+    const KEYS = HOLDERS.map((holder) => holder.key);
+    const PASS_S = 1320;
+    let geolocationVerdict;
+
+    // The first turn at or after GIVE_UP_PASS's that `key` owns.
+    const turnOwnedBy = (key) => {
+      let turn = residentialNodeDosService.turnOf(GIVE_UP_PASS.time * 1000);
+      while (handbackTurns.turnOwner(KEYS, turn) !== key) turn += 1;
+      return turn;
+    };
+    // A pass due `offsetS` into a turn, the pass before it one pass earlier.
+    const passInto = (turn, offsetS) => {
+      const time = ((turn * residentialNodeDosService.TURN_MS) / 1000) + offsetS;
+      return { ...GIVE_UP_PASS, time, previousTime: time - PASS_S };
+    };
+    // Its pass before falls in the same turn.
+    const ownTurn = () => passInto(turnOwnedBy(OWN_KEY), 2 * PASS_S);
+    const releases = (published) => published.getCalls()
+      .filter((call) => call.args[0] === 'giveUp:standDownReleased')
+      .map((call) => call.args[1]);
+
+    beforeEach(() => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL));
+      registryManager.getApplicationGlobalSpecifications.resolves({
+        name: 'appone', version: 8, instances: 3, geolocation: ['acEU_GB'],
+      });
+      geolocationVerdict = sinon.stub(hwRequirements, 'appGeolocationVerdict').resolves(TABLE_FAIL);
+    });
+
+    it('removes the app in a turn it owns', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      expect(appUninstaller.removeAppLocally.firstCall.args[0]).to.equal('appone');
+    });
+
+    it('waits while another holder owns the turn', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(turnOwnedBy('key-b'), 2 * PASS_S));
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('waits on the first pass of a turn it owns', async () => {
+      // The pass before fell in the turn before.
+      await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(turnOwnedBy(OWN_KEY), PASS_S / 2));
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('judges the global specification, not the installed record', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledOnce(geolocationVerdict);
+      expect(geolocationVerdict.firstCall.args[0].geolocation).to.deep.equal(['acEU_GB']);
+    });
+
+    it('does not move an app on a FAIL that rests on the node\'s own report', async () => {
+      geolocationVerdict.resolves({ ...TABLE_FAIL, source: hwRequirements.GeoSource.SELF });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app on an UNKNOWN verdict', async () => {
+      geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.UNKNOWN, source: null, reason: 'unproven' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app whose global specification cannot be read', async () => {
+      registryManager.getApplicationGlobalSpecifications.resolves(null);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('stays while the gap a departure left is unfilled, and says so under its own reason', async () => {
+      // One holder has left and nothing correctly placed has taken the gap:
+      // this one keeps the app, and its data, where it is.
+      const logWarn = sinon.stub(log, 'warn');
+      registryManager.signedHoldersOf.resolves(HOLDERS.slice(0, 2));
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+
+      for (let pass = 0; pass < 12; pass += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+      }
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      const escalations = logWarn.getCalls()
+        .map((call) => String(call.args[0]))
+        .filter((line) => /refused 12 passes running \(MISPLACED, BELOW_INSTANCE_COUNT\)/.test(line));
+      expect(escalations).to.have.lengthOf(1);
+    });
+
+    it('leaves a spare copy to the surplus trim', async () => {
+      const holders = [...HOLDERS, { key: 'key-d', ip: 'key-d:16127', expireAt: new Date(4e12) }];
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'appone', instances: 3 },
+        locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127'),
+        LOCAL,
+        { turn: { ...TURN, holders }, misplaced: TABLE_FAIL },
+      );
+
+      expect(decision).to.include({ giveUp: false, reason: 'MISPLACED', code: 'ABOVE_INSTANCE_COUNT' });
+    });
+
+    it('does not remove once the chain has reached the next pass', async () => {
+      const pass = ownTurn();
+      daemonServiceUtils.executeCall.withArgs('getBlockCount').resolves({ status: 'success', data: pass.height + pass.period });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(pass);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not spend the evacuation interval on a misplaced departure', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
+    });
+
+    describe('a misplaced primary', () => {
+      let stop;
+
+      beforeEach(() => {
+        stop = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+        sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, indeterminate: false, running: false });
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop first', standDown: ['server_appone'],
+        });
+      });
+
+      it('stands down instead of removing the app', async () => {
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        sinon.assert.calledOnceWithExactly(stop, 'server_appone', 'stopped', 'standing down to hand the app back');
+        sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      });
+
+      it('stands for election again once the app is no longer misplaced', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+        geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.PASS, source: null, reason: null });
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'NOT_LEAVING' }]);
+      });
+
+      [
+        ['the read fails', () => geolocationVerdict.rejects(new Error('database busy'))],
+        ['the specification cannot be read', () => registryManager.getApplicationGlobalSpecifications.resolves(null)],
+        ['the region is unproven', () => geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.UNKNOWN, source: null, reason: 'not set' })],
+      ].forEach(([name, arrange]) => {
+        it(`stays stood down when ${name}`, async () => {
+          const published = sinon.spy(fluxEventBus, 'publish');
+          await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+          arrange();
+
+          await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+          expect(releases(published)).to.deep.equal([]);
+          sinon.assert.calledOnce(stop);
+        });
+      });
+
+      it('leaves on the owned turn however long the placement stays unread', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        const stoodDown = turnOwnedBy(OWN_KEY);
+        await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(stoodDown, 2 * PASS_S));
+        geolocationVerdict.rejects(new Error('database busy'));
+        let owned = stoodDown + 1;
+        while (handbackTurns.turnOwner(KEYS, owned) !== OWN_KEY) owned += 1;
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(owned + 1, 2 * PASS_S));
+
+        expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'OWNED_TURN_PASSED' }]);
+      });
+
+      it('stands for election again on the table no longer placing it wrong, whatever its own report', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+        geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.FAIL, source: hwRequirements.GeoSource.SELF, reason: 'report' });
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'NOT_LEAVING' }]);
+      });
+
+      it('stays stood down while the app is still misplaced', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        expect(releases(published)).to.deep.equal([]);
+      });
     });
   });
 

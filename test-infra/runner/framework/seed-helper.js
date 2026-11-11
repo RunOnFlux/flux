@@ -78,6 +78,9 @@ export async function buildSeedableApp({
   // different one. Nothing rejects that - the node simply decides the app is
   // obsolete and reinstalls it forever.
   nodes = [],
+  // The owner's geolocation, in the spec's own vocabulary ('acEU_DE',
+  // 'a!cEU_FR'). Set here for the same reason as `nodes`: it is signed.
+  geolocation = [],
 }) {
   const appOwner = owner ?? ownerKey.zelid;
 
@@ -106,7 +109,7 @@ export async function buildSeedableApp({
     }],
     instances,
     contacts: [],
-    geolocation: [],
+    geolocation,
     expire,
     nodes,
     staticip,
@@ -558,72 +561,6 @@ export async function buildSeedableIndexRefApp({
     ];
 
   return buildSeedableApp({ name, compose, ...rest });
-}
-
-export function buildRunningState({ appName, nodeIps, hash, broadcastedAt = null }) {
-  const ts = broadcastedAt ?? Date.now();
-
-  const locations = nodeIps.map((ip) => ({
-    name: appName,
-    ip,
-    hash,
-    broadcastedAt: ts,
-    runningSince: ts - 60000,
-  }));
-
-  const stateEvents = nodeIps.map((ip) => ({
-    type: 'apprunning',
-    ip,
-    dedupKey: 'v2',
-    broadcastedAt: new Date(ts),
-    expireAt: new Date(ts + 125 * 60 * 1000),
-    receivedAt: new Date(ts),
-    data: {
-      apps: [{ name: appName, hash, runningSince: ts - 60000 }],
-      ip,
-      broadcastedAt: ts,
-    },
-  }));
-
-  return { locations, stateEvents };
-}
-
-export async function seedAppOnAllNodes(dbClients, {
-  name, compose, height, instances, env,
-} = {}) {
-  const app = await buildSeedableApp({
-    name, compose, height, instances, env,
-  });
-
-  const seedPromises = dbClients.map(async (dbc) => {
-    await dbc.seedGlobalAppSpec(app.spec);
-    await dbc.seedPermanentMessage(app.permanentMessage);
-    await dbc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  });
-  await Promise.all(seedPromises);
-
-  return app;
-}
-
-export async function seedAppWithRunningState(dbClients, nodeIps, {
-  name, compose, height, instances, env,
-} = {}) {
-  const app = await seedAppOnAllNodes(dbClients, {
-    name, compose, height, instances, env,
-  });
-  const state = buildRunningState({ appName: name, nodeIps, hash: app.hash });
-
-  const seedPromises = dbClients.map(async (dbc, i) => {
-    for (const loc of state.locations) {
-      await dbc.seedAppLocation(loc);
-    }
-    for (const evt of state.stateEvents) {
-      await dbc.seedAppStateEvent(evt);
-    }
-  });
-  await Promise.all(seedPromises);
-
-  return { ...app, locations: state.locations, stateEvents: state.stateEvents };
 }
 
 /**

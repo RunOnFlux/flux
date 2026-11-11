@@ -85,6 +85,41 @@ for f in /dat/var/log/syncthing*.log* "${SYNCTHING_HOME}"/syncthing*.log*; do
 done
 `;
 
+// What a node's syncthing holds about each folder when the test failed: its status,
+// its completion against each device it shares the folder with, the first files it
+// still needs, its errors and its config, with the daemon's connections, devices and
+// version. The daemon's state leaves with the node, and its log says what it did,
+// not what it was waiting for. A node with no daemon answering writes nothing.
+const SYNCTHING_STATE = `
+H="${SYNCTHING_HOME}"
+K=$(sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' "$H/config.xml" 2>/dev/null | head -1)
+[ -n "$K" ] || exit 0
+API_KEY="$K" python3 -c '
+import json, os, urllib.parse, urllib.request
+def get(path):
+    request = urllib.request.Request("http://127.0.0.1:8384" + path, headers={"X-API-Key": os.environ["API_KEY"]})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)
+    except Exception as error:
+        return {"unreadable": str(error)}
+state = {path: get(path) for path in ("/rest/system/version", "/rest/system/connections", "/rest/config/devices")}
+folders = get("/rest/config/folders")
+state["folders"] = {}
+for folder in folders if isinstance(folders, list) else []:
+    q = urllib.parse.quote(folder["id"])
+    state["folders"][folder["id"]] = {
+        "config": folder,
+        "status": get("/rest/db/status?folder=" + q),
+        "need": get("/rest/db/need?perpage=20&folder=" + q),
+        "errors": get("/rest/folder/errors?folder=" + q),
+        "completion": {d["deviceID"]: get("/rest/db/completion?folder=" + q + "&device=" + urllib.parse.quote(d["deviceID"]))
+                       for d in folder.get("devices", [])},
+    }
+print(json.dumps(state, indent=1))
+' 2>&1
+`;
+
 const APP_LOGS = `
 for c in $(docker ps -a --format '{{.Names}}'); do
   echo "=== $c ($(docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}}' "$c" 2>&1)), last ${APP_LOG_LINES} lines ==="
@@ -170,6 +205,7 @@ export function dumpLogsOnFailure(getEnv) {
     )));
     const nodeFilesByEnv = await Promise.all(envs.map(async (env) => ({
       syncthing: await readFromNodes(env, SYNCTHING_LOGS),
+      'syncthing-state': await readFromNodes(env, SYNCTHING_STATE),
       apps: await readFromNodes(env, APP_LOGS),
       network: await readFromNodes(env, NETWORK_STATE),
     })));

@@ -27,6 +27,7 @@ import { buildAppSpec, registerApp, registerAndConfirm } from '../framework/app-
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { execInContainer } from '../framework/container.js';
 import { dbClient } from '../framework/db-client.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { REGISTRY_REPO_HOST, STORAGE_HOST } from '../framework/subnet-config.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import {
@@ -232,10 +233,7 @@ describe('1901 a storage link addresses Flux storage or nothing', function suite
         instances: 1,
         compose: composeWith(appName, ['F_S_ENV=https://legacy.example.com/env']),
       });
-      const holder = dbClient(1);
-      await holder.seedGlobalAppSpec(app.spec);
-      await holder.seedPermanentMessage(app.permanentMessage);
-      await holder.seedAppHash(app.hash, app.permanentMessage.height, true);
+      await deliverApp(env, app, [0]);
 
       // Every other node learns the hash from the chain and has to go and get
       // the message, which is the path that validates it as a replay.

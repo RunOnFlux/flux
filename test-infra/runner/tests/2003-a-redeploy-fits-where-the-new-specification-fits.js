@@ -23,7 +23,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { getAppContainerId } from '../framework/container.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
@@ -106,7 +107,7 @@ describe('a redeploy keeps the app on a node with room for its new specification
       spec.compose[0].hdd = 20;
     });
     const beforeUpdate = holder.getLastEventId();
-    await seedSpecUpdate(env, updated, [0]);
+    await deliverApp(env, updated, [0]);
     await stopTicker();
 
     // Either answer ends the drive: the hard redeploy finishing, or the app

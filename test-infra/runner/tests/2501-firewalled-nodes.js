@@ -168,7 +168,7 @@ describe('2501 firewalled nodes', function suite() {
       // the form FluxOS opens an app port in
       'ufw allow proto tcp from 0.0.0.0/0 to any port 4103',
     ].join(' && '));
-    expect(seeded.exitCode, seeded.stdout).to.equal(0);
+    expect(seeded.exitCode, seeded.output).to.equal(0);
     const before = await rulesAdded(LEGACY);
     expect(before.filter(isOutbound), 'the seeded outbound rules').to.have.lengthOf(4);
     // The inbound and route rules seeded here. Other code opens and closes rules of

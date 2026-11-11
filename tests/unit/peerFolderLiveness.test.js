@@ -404,7 +404,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
+        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [], published: {},
       });
     });
 

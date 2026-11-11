@@ -10,13 +10,13 @@ carry the SAME factor, or the property between them is deleted or inverted.
 
 ## Pairs checked at fleet boot
 
-The two halves of a pair need not live in the same layer: `explorerPollIntervalMs` is in `shared.js` and `residentialTurnMs` is in a suite's overrides. `test-infra/runner/framework/coupled-knobs.js` derives these and `test-env.js` asserts them on the EFFECTIVE config of every node of every fleet before boot. Over production's ratio passes - an uncompressed knob is slow, not wrong. Under throws.
+The two halves of a pair need not live in the same layer: `explorerPollIntervalMs` is in `shared.js` and `handbackTurnMs` is in a suite's overrides. `test-infra/runner/framework/coupled-knobs.js` derives these and `test-env.js` asserts them on the EFFECTIVE config of every node of every fleet before boot. Over production's ratio passes - an uncompressed knob is slow, not wrong. Under throws.
 
 | property | harness pair | production ratio | how the harness gets it |
 |---|---|---:|---|
-| a handback turn holds its owner's second give-up pass | `residentialTurnMs` : `removeFluxAppsPeriod` x 4 x `explorerPollIntervalMs` | 2.73 | `derivedTurnMs(fluxapps)` - never a literal |
+| a handback turn holds its owner's second give-up pass | `handbackTurnMs` : `removeFluxAppsPeriod` x 4 x `explorerPollIntervalMs` | 2.73 | `derivedTurnMs(fluxapps)` - never a literal |
 | a departure is visible before the next holder decides | give-up pass : `DEPARTURE_ANNOUNCE_MS` | - | `assertTurnPacing(fluxapps)` |
-| a holder's own announcement outlasts the turn it acts in | `residentialTurnMs` : `locationTtlS` less the announce interval | 0.92 | `assertTurnPacing(fluxapps)` |
+| a holder's own announcement outlasts the turn it acts in | `handbackTurnMs` : `locationTtlS` less the announce interval | 0.92 | `assertTurnPacing(fluxapps)` |
 | a standby looks at the candidate ahead as often as production before its turn | `masterSlaveStaggerMs` : `masterSlaveIntervalMs` | 6 | `assertStaggerSpansElectionPasses(fluxapps)` |
 
 A holder acts only on the second pass of a turn it owns, so one whole pass separates two holders acting; the second pair is what makes that pass long enough for the first departure to reach the second holder. The third is bounded by what it must stay under rather than by a ratio: a holder refuses a turn its own announcement lapses inside, so a turn at or above what a renewed announcement has left is one no holder ever acts in.

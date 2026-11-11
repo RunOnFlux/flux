@@ -10,6 +10,7 @@ const config = require('config');
 const serviceHelper = require('./serviceHelper');
 const { withRegistryWrite } = require('./appDatabase/registryWriteLock');
 const appMessageChain = require('./utils/appMessageChain');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
@@ -1227,6 +1228,7 @@ async function reindexGlobalAppsInformation(
       }
     }
 
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REGISTRY_BEFORE_SWAP);
     await infoCol.rename(globalAppsInformationCol, { dropTarget: true });
 
     log.info(
