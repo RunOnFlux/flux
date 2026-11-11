@@ -56,7 +56,10 @@ function mainThreadStack() {
           return `${frame.functionName || '<anonymous>'} (${url}:${frame.location.lineNumber + 1})`;
         }));
       });
-      session.post('Debugger.enable', () => session.post('Debugger.pause'));
+      session.post('Debugger.enable', () => {
+        if (done) return;
+        try { session.post('Debugger.pause'); } catch (error) { finish([`<no stack: ${error.message}>`]); }
+      });
       setTimeout(() => finish(['<the main thread did not pause>']), 2000);
     } catch (error) {
       finish([`<no stack: ${error.message}>`]);

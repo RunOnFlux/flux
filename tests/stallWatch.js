@@ -22,7 +22,10 @@ Atomics.store(beat, 0, realHrtime());
 titleBytes.set(encoder.encode('loading the test files'));
 realSetInterval(() => { Atomics.store(beat, 0, realHrtime()); }, BEAT_MS).unref();
 
-new Worker(path.join(__dirname, 'stallWatchdog.js'), { workerData: { shared, BEAT_MS, STALL_MS } }).unref();
+// A diagnostic: whatever becomes of the watchdog, the run goes on.
+const watchdog = new Worker(path.join(__dirname, 'stallWatchdog.js'), { workerData: { shared, BEAT_MS, STALL_MS } });
+watchdog.on('error', (error) => { process.stderr.write(`run-unit: the stall watchdog stopped: ${error.message}\n`); });
+watchdog.unref();
 
 let currentTest = 'loading the test files';
 new PerformanceObserver((list) => {
