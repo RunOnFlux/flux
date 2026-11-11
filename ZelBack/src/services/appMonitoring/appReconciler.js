@@ -86,6 +86,12 @@ const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
 const unhandledFailures = new Map(); // id -> consecutive passes that threw
 
+// False from the loss of FluxOS's Docker event stream until its reconnect. The
+// stream is a local socket that drops only when Docker stops, so the Docker that
+// answers after a loss is one FluxOS has not yet checked; the reconnect checks
+// it, opens this, and reconciles every component.
+let dockerWatched = true;
+
 // while an install/remove/redeploy/backup/restore or a deliberate stop owns a
 // container, defer and re-check shortly (the operation also re-enqueues on
 // completion, so this is just a backstop)
@@ -735,6 +741,10 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
 
 async function reconcile(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
+  if (!dockerWatched) {
+    fluxEventBus.count('reconciler:deferred', identifier, 'dockerUnwatched');
+    return;
+  }
   if (isManagedElsewhere(identifier)) {
     fluxEventBus.count('reconciler:deferred', identifier, 'managedElsewhere');
     scheduleRetry(identifier, MANAGED_RETRY_MS);
@@ -1716,6 +1726,21 @@ function committedIdentifiers() {
   return [...ids];
 }
 
+/**
+ * FluxOS's Docker event stream was lost: no pass acts until it is back.
+ */
+function dockerUnwatched() {
+  dockerWatched = false;
+}
+
+/**
+ * The event stream is back and the Docker behind it has been checked. Passes act
+ * again; the caller reconciles every component.
+ */
+function dockerWatchedAgain() {
+  dockerWatched = true;
+}
+
 // --- lifecycle -----------------------------------------------------------
 
 let started = false;
@@ -1735,6 +1760,7 @@ function stop() {
   backoffTimers.forEach((t) => clearTimeout(t));
   backoffTimers.clear();
   unhandledFailures.clear();
+  dockerWatched = true;
   inFlight.clear();
   dirty.clear();
   bootPending.clear();
@@ -1759,6 +1785,8 @@ module.exports = {
   requestStopAndClearData,
   dataClearPending,
   dataEvents,
+  dockerUnwatched,
+  dockerWatchedAgain,
   start,
   stop,
   // The one answer to "what is this container actually doing" - it probes the

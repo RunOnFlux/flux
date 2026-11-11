@@ -1638,6 +1638,20 @@ describe('appReconciler tests', () => {
     });
   });
 
+  describe('while Docker is unwatched', () => {
+    it('acts on nothing and reads nothing, and acts again once watched', async () => {
+      appReconciler.dockerUnwatched();
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.dockerContainerInspect.called).to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+
+      appReconciler.dockerWatchedAgain();
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.dockerContainerInspect.called).to.be.true;
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+    });
+  });
+
   describe('workqueue', () => {
     it('enqueue runs a reconcile once the boot gate is open', async () => {
       // startAppMonitoring is the last step of a start-path reconcile
