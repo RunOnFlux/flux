@@ -508,6 +508,18 @@ describe('appReconciler tests', () => {
       expect(deferredLoud, 'should log the volume defer loudly').to.equal(true);
     });
 
+    it('tells the unavailable-volume handler what the component is and why its volume did not mount', async () => {
+      localSpec = { name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      const told = sinon.stub().resolves();
+      appReconciler.setOnVolumeUnavailable(told);
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      await appReconciler.reconcile('db_App');
+      sinon.assert.calledOnceWithExactly(told, {
+        identifier: 'db_App', appName: 'App', version: 8, synced: true, reason: 'volume_file_missing',
+      });
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
     it('honors a pending stop even when the data volume cannot be mounted (mount-safety hold)', async () => {
       // a stop takes nothing from the app dir; deferring it left the incident's
       // container running over the gutted volume with the hold unenforceable

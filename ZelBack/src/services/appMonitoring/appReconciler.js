@@ -92,6 +92,11 @@ const unhandledFailures = new Map(); // id -> consecutive passes that threw
 // it, opens this, and reconciles every component.
 let dockerWatched = true;
 
+// Told of a component whose volume could not be mounted (lostVolumeRecovery):
+// set by serviceManager, as what it does depends on the redeploy code, which
+// depends on this module.
+let onVolumeUnavailable = null;
+
 // while an install/remove/redeploy/backup/restore or a deliberate stop owns a
 // container, defer and re-check shortly (the operation also re-enqueues on
 // completion, so this is just a backstop)
@@ -837,6 +842,15 @@ async function reconcile(rawIdentifier) {
       }
     }
     log.error(`appReconciler - ${identifier} data volume not mounted (${volumeMount.reason}); deferring all actuation`);
+    if (onVolumeUnavailable) {
+      onVolumeUnavailable({
+        identifier,
+        appName: mainAppName,
+        version: spec.appSpec.version,
+        synced: spec.isG || spec.isR,
+        reason: volumeMount.reason,
+      }).catch((error) => log.error(`appReconciler - the unavailable volume of ${identifier} was not handled: ${error.message}`));
+    }
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeUnavailable', reason: volumeMount.reason });
     // A mount fault is recorded under the same name the boot sweep uses, so a
     // fleet query for an event sees a node whether the fault was there at boot
@@ -1727,6 +1741,14 @@ function committedIdentifiers() {
 }
 
 /**
+ * @param {(component: object) => Promise<void>} fn Told of every component
+ *   whose volume could not be mounted.
+ */
+function setOnVolumeUnavailable(fn) {
+  onVolumeUnavailable = fn;
+}
+
+/**
  * FluxOS's Docker event stream was lost: no pass acts until it is back.
  */
 function dockerUnwatched() {
@@ -1787,6 +1809,7 @@ module.exports = {
   dataEvents,
   dockerUnwatched,
   dockerWatchedAgain,
+  setOnVolumeUnavailable,
   start,
   stop,
   // The one answer to "what is this container actually doing" - it probes the
