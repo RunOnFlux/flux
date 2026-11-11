@@ -40,6 +40,18 @@ module.exports = {
   networkState: {
     minFetchIntervalMs: 25000,
   },
+  // A node that keeps going out of service is held out longer each time. Its
+  // episodes are counted over the last windowBlocks; a 1st or 2nd keeps it from
+  // new apps for quarantineBlocks once back in service, the 3rd holds it out for
+  // shortHoldBlocks and then from new apps for heldQuarantineBlocks, and the 4th
+  // and later hold it out for longHoldBlocks. 120 blocks is one hour of 30 s blocks.
+  dosRecurrence: {
+    windowBlocks: 2880,
+    quarantineBlocks: 120,
+    heldQuarantineBlocks: 720,
+    shortHoldBlocks: 720,
+    longHoldBlocks: 2880,
+  },
   database: {
     url: database,
     port: 27017,

@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const proxyquire = require('proxyquire').noCallThru();
+const config = require('config');
 
 describe('dosRecurrenceService tests', () => {
   let service;
@@ -19,7 +20,7 @@ describe('dosRecurrenceService tests', () => {
       updateOne: async (filter, update) => { stored = JSON.parse(JSON.stringify(update.$set)); },
     };
     return proxyquire('../../ZelBack/src/services/dosRecurrenceService', {
-      config: { database: { local: { database: 'local', collections: { dosRecurrence: 'dosrecurrence' } } } },
+      config: { database: { local: { database: 'local', collections: { dosRecurrence: 'dosrecurrence' } } }, dosRecurrence: config.dosRecurrence },
       '../lib/log': { error: () => {}, info: () => {}, warn: () => {} },
       './dbHelper': { databaseConnection: () => ({ db: () => ({ collection: () => collection }) }) },
       './nodeDosState': nodeDosState,

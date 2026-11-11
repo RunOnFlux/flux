@@ -42,6 +42,11 @@ loses the property, so the factor is pinned by a unit test.
 | `confirmation.daemonExpiredMs` | 19200000 | 600000 | 32.0x |
 | `confirmation.daemonStaleMs` | 7500000 | 300000 | 25.0x |
 | `confirmation.pollIntervalMs` | 30000 | 5000 | 6.0x |
+| `dosRecurrence.heldQuarantineBlocks` | 720 | 30 | 24.0x |
+| `dosRecurrence.longHoldBlocks` | 2880 | 120 | 24.0x |
+| `dosRecurrence.quarantineBlocks` | 120 | 5 | 24.0x |
+| `dosRecurrence.shortHoldBlocks` | 720 | 30 | 24.0x |
+| `dosRecurrence.windowBlocks` | 2880 | 120 | 24.0x |
 | `fluxapps.appSyncDegradedThreshold` | 4 | 1 | 4.0x |
 | `fluxapps.appSyncMinCompletions` | 3 | 1 | 3.0x |
 | `fluxapps.appSyncMinPeerUptime` | 7500 | 0 | n/a |

@@ -18,14 +18,14 @@ const fluxEventBus = require('./utils/fluxEventBus');
 //   - the 4th and later: held out for LONG_HOLD_BLOCKS, then the same.
 //
 // Counted in blocks, every window is the chain's: neither a restart nor the
-// node's clock moves it. 120 blocks is one hour of 30 s blocks.
-const WINDOW_BLOCKS = 2880;
-const QUARANTINE_BLOCKS = 120;
-const HELD_QUARANTINE_BLOCKS = 720;
+// node's clock moves it. The lengths are config.dosRecurrence's.
+const WINDOW_BLOCKS = config.dosRecurrence.windowBlocks;
+const QUARANTINE_BLOCKS = config.dosRecurrence.quarantineBlocks;
+const HELD_QUARANTINE_BLOCKS = config.dosRecurrence.heldQuarantineBlocks;
 const SHORT_HOLD_EPISODES = 3;
-const SHORT_HOLD_BLOCKS = 720;
+const SHORT_HOLD_BLOCKS = config.dosRecurrence.shortHoldBlocks;
 const LONG_HOLD_EPISODES = 4;
-const LONG_HOLD_BLOCKS = 2880;
+const LONG_HOLD_BLOCKS = config.dosRecurrence.longHoldBlocks;
 
 const RECORD_ID = 'dosRecurrence';
 const OWNER = nodeDosState.StickyDosOwner.DOS_RECURRENCE;

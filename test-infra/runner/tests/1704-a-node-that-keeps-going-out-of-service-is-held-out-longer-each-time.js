@@ -13,14 +13,16 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { loadSharedConfig } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
 // A node that keeps going out of service is held out longer each time. Each
-// time it enters DOS the height is recorded; counted over the last 2880 blocks,
-// a 1st or 2nd episode keeps it from taking new apps for 120 blocks once it is
-// back in service, a 3rd holds it out of service for 720 blocks and then from
-// new apps for 720, and a 4th or later holds it out for 2880.
+// time it enters DOS the height is recorded; counted over the last windowBlocks,
+// a 1st or 2nd episode keeps it from taking new apps for quarantineBlocks once
+// it is back in service, a 3rd holds it out of service for shortHoldBlocks and
+// then from new apps for heldQuarantineBlocks, and a 4th or later holds it out
+// for longHoldBlocks. The lengths are the fleet's config.dosRecurrence.
 //
 // Each episode is the fault itself: the node sits behind a UPnP router whose
 // table is made full, so the availability check's own test mappings are
@@ -59,12 +61,14 @@ const isTestMapping = (m) => ['Flux_UPNP_Mapping_Test', 'Flux_Test_App'].include
 const UPNP_DOS = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
 const OWNER = 'dosRecurrence';
 
-// the service's blocks (ZelBack/src/services/dosRecurrenceService.js)
-const QUARANTINE_BLOCKS = 120;
-const HELD_QUARANTINE_BLOCKS = 720;
-const SHORT_HOLD_BLOCKS = 720;
-const LONG_HOLD_BLOCKS = 2880;
-const WINDOW_BLOCKS = 2880;
+// the fleet's recurrence lengths, in blocks (config.dosRecurrence)
+const {
+  quarantineBlocks: QUARANTINE_BLOCKS,
+  heldQuarantineBlocks: HELD_QUARANTINE_BLOCKS,
+  shortHoldBlocks: SHORT_HOLD_BLOCKS,
+  longHoldBlocks: LONG_HOLD_BLOCKS,
+  windowBlocks: WINDOW_BLOCKS,
+} = loadSharedConfig().dosRecurrence;
 
 describe('a node that keeps going out of service is held out longer each time', function () {
   let env;
@@ -143,7 +147,7 @@ describe('a node that keeps going out of service is held out longer each time', 
     await env?.teardown();
   });
 
-  it('takes no new apps for 120 blocks once back in service from a first episode, then takes them', async function () {
+  it(`takes no new apps for ${QUARANTINE_BLOCKS} blocks once back in service from a first episode, then takes them`, async function () {
     this.timeout(OUT_WITHIN_MS + BACK_WITHIN_MS + 300000);
     const episode = await routerRefusesUntilOutOfService();
     expect(episode.episodeHeights).to.have.lengthOf(1);
@@ -179,7 +183,7 @@ describe('a node that keeps going out of service is held out longer each time', 
     await node().waitForEvent('dos:changed', (d) => d.dosState < DOS_THRESHOLD, BACK_WITHIN_MS, { afterId: mark });
   });
 
-  it('stays out of service from a third episode in the window, through a FluxOS restart, until 720 blocks have passed', async function () {
+  it(`stays out of service from a third episode in the window, through a FluxOS restart, until ${SHORT_HOLD_BLOCKS} blocks have passed`, async function () {
     this.timeout(OUT_WITHIN_MS + 2 * BACK_WITHIN_MS + 600000);
     const episode = await routerRefusesUntilOutOfService();
     expect(episode.episodeHeights).to.deep.equal([firstHeight, secondHeight, secondHeight]);
@@ -213,7 +217,7 @@ describe('a node that keeps going out of service is held out longer each time', 
     expect((await recurrence()).record.placementHold.blocks).to.equal(HELD_QUARANTINE_BLOCKS);
   });
 
-  it('is held out of service for 2880 blocks from a fourth episode in the window', async function () {
+  it(`is held out of service for ${LONG_HOLD_BLOCKS} blocks from a fourth episode in the window`, async function () {
     this.timeout(OUT_WITHIN_MS + BACK_WITHIN_MS + 120000);
     const episode = await routerRefusesUntilOutOfService();
     fourthHeight = secondHeight + SHORT_HOLD_BLOCKS;
@@ -222,7 +226,7 @@ describe('a node that keeps going out of service is held out longer each time', 
     await routerTakesMappingsAgain();
   });
 
-  it('counts only the episodes inside the last 2880 blocks', async function () {
+  it(`counts only the episodes inside the last ${WINDOW_BLOCKS} blocks`, async function () {
     this.timeout(OUT_WITHIN_MS + BACK_WITHIN_MS + 120000);
     const pastEverything = fourthHeight + Math.max(LONG_HOLD_BLOCKS, WINDOW_BLOCKS);
     const mark = node().getLastEventId();
