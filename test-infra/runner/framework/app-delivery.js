@@ -129,11 +129,14 @@ export async function deliverApp(env, app, indices) {
 
     const paid = Math.max(await quote(client, message.appSpecifications), minimumPaymentAt(message.height));
     const now = Date.now();
+    // A payment is recorded at a block the chain has mined: a message built ahead of the
+    // tip is paid at the tip, or a later payment of the same app would order before it.
+    const { currentHeight } = await getState();
     await dc.seedTemporaryMessage(pendingMessage(message, now));
     await dc.seedAppHashes([{
       hash: message.hash,
       txid: message.txid,
-      height: message.height,
+      height: Math.min(message.height, currentHeight),
       value: Math.round(paid * 1e8),
       message: false,
       messageNotFound: false,
