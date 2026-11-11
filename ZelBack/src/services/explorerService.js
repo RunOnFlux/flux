@@ -258,6 +258,32 @@ async function recordAppPayment(database, payment) {
 }
 
 /**
+ * Whether a transaction paying the app address is an app payment this node
+ * records: one that carries a 64-character message, pays at least the price
+ * floor of its height, and lands at or after `epochstart`.
+ * @param {object} payment
+ * @param {string} payment.txid
+ * @param {number} payment.height
+ * @param {string} payment.message The transaction's decoded message.
+ * @param {number} payment.valueSat What it paid the app address.
+ * @param {number} payment.minPrice The price floor at its height, in FLUX.
+ * @returns {{txid: string, height: number, hash: string, valueSat: number, minPriceSat: number,
+ *   reason: ('payment'|'beforeEpoch'|'notAMessage'|'belowMinPrice')}}
+ */
+function appPaymentDecision({
+  txid, height, message, valueSat, minPrice,
+}) {
+  const minPriceSat = minPrice * 1e8;
+  let reason = 'payment';
+  if (height < config.fluxapps.epochstart) reason = 'beforeEpoch';
+  else if (message.length !== 64) reason = 'notAMessage';
+  else if (valueSat < minPriceSat) reason = 'belowMinPrice';
+  return {
+    txid, height, hash: message, valueSat, minPriceSat, reason,
+  };
+}
+
+/**
  * To process verbose block data for entry to Insight database.
  * @param {object} blockDataVerbose Verbose block data.
  * @param {string} database Database.
@@ -303,20 +329,25 @@ async function processInsight(blockDataVerbose, database) {
         const appPrices = await chainUtilities.getChainParamsPriceUpdates();
         const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
         const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-        // MAY contain App transaction. Store it.
-        if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of X flux had to be paid for us bothering checking
+        const decision = appPaymentDecision({
+          txid: tx.txid, height: blockDataVerbose.height, message, valueSat: isFluxAppMessageValue, minPrice: priceSpecifications.minPrice,
+        });
+        let recorded = false;
+        if (decision.reason === 'payment') {
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
             syncAttempts: 0, nextRetryHeight: blockDataVerbose.height,
           };
           // A hash is paid once: a payment this node already holds stands.
           // eslint-disable-next-line no-await-in-loop
-          if (await recordAppPayment(database, appTxRecord)) {
+          recorded = await recordAppPayment(database, appTxRecord);
+          if (recorded) {
             paymentsToRequest.push(appTxRecord);
           } else {
             log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
           }
         }
+        fluxEventBus.publish('explorer:appPayment', { ...decision, recorded });
       }
       // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation && message;
@@ -1778,6 +1809,7 @@ module.exports = {
   processBootstrapTx,
   getVerboseBlock,
   decodeMessage,
+  appPaymentDecision,
   processInsight,
   insertTransactions,
   setZelAppSpecsMigrationDone,
