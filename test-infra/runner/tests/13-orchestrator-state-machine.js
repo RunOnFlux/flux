@@ -345,6 +345,9 @@ describe('Orchestrator: peer drop during SYNCING', function () {
       // #checkReadiness never lets node 0 out of SYNCING. The ticker stays stopped, so
       // the block timer that would otherwise release it never expires either.
       nodeConfigOverrides: { 0: { fluxapps: { appSyncMinCompletions: 5 } } },
+      // No synced node can give node 0 five answers, and none is wanted: every
+      // node starts cold.
+      syncedNodes: [],
     });
     // discover: true also waits for the peer threshold, which is what arms the manager to
     // report dropping below it later.

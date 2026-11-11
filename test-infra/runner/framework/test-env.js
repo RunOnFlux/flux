@@ -31,6 +31,7 @@ import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-
 import { stubPeerClient } from './stub-peer-helper.js';
 import {
   derivePeerThresholds, deriveReadinessThresholds, deriveAdmissionQuorum, carriedPeers, ringArc, dialerCount,
+  ringConnections, chooseSyncedNodes,
 } from './peer-topology.js';
 import { pushImage, mirrorExecutorImage, executorImageReference } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
@@ -1008,6 +1009,110 @@ function nodeReadyWaitStrategy(nodeIp) {
 // What can be wrong with a node's own syncthing, for createTestEnv's syncthingFaults.
 export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STARTED: 'notStarted' });
 
+/**
+ * The per-node config that decides how each node of a fleet reaches state-sync
+ * readiness: a fallback of 0 blocks for a node that cannot carry its peer
+ * threshold, and for the nodes that start synced. Pure: createTestEnv applies it,
+ * and anything checking a fleet's shape reads the same answer.
+ * @param {object} fleet createTestEnv's options, and its stubs' peerings.
+ * @returns {{peerlessOverrides: object, syncedOverrides: object}}
+ */
+export function fleetSyncOverrides({
+  nodes, deferredNodes = 0, stubPeers = [], syncedNodes = null, configOverrides = null, nodeConfigOverrides = {},
+  collateralOf = {}, answeringSyncPeers = [], stubPeerings,
+}) {
+  // A FLEET TOO SMALL TO PEER CANNOT USE THE PEER-GATED FALLBACK.
+  //
+  // The block fallback only advances while the peer count is above
+  // appSyncPeerThreshold and resets when it falls below appSyncDegradedThreshold
+  // (appSyncOrchestrator), which is the whole of "a peerless node must not
+  // spawn". A one-node fleet has no peers at all and a two-node ring gives each
+  // node one, so neither can ever cross the threshold - and in such a fleet the
+  // fallback is not slow, it is unreachable, so nothing ever leaves SYNCING.
+  //
+  // Zero is the honest value there rather than a workaround. The fallback asks
+  // "have you had long enough to hear from everyone", and a node with nobody to
+  // hear from cannot answer it - which is the same reason the synced nodes below
+  // exist and the same value they use.
+  //
+  // Counted against EVERY other fleet member, stubs included, so the guard errs
+  // towards not firing: a stub that does carry a connection is counted as one.
+  // A suite that declares its own appSyncFallbackMinutes is testing this budget
+  // and keeps what it asked for.
+  const reachablePeers = carriedPeers(nodes, stubPeers.length + deferredNodes);
+  // What the fleet runs when no suite sets them - see deriveReadinessThresholds.
+  const readiness = deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps);
+  const peerlessOverrides = {};
+  for (let index = 0; index < nodes; index += 1) {
+    const declaredFallback = nodeConfigOverrides[index]?.fluxapps?.appSyncFallbackMinutes
+      ?? configOverrides?.fluxapps?.appSyncFallbackMinutes;
+    if (declaredFallback !== undefined) continue;
+    const threshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
+      ?? configOverrides?.fluxapps?.appSyncPeerThreshold
+      ?? readiness.appSyncPeerThreshold;
+    if (reachablePeers >= threshold) continue;
+    // A node with nobody to carry its messages meets a threshold of none, or it
+    // could never be heard. A suite that declares a threshold keeps what it asked for.
+    const declaredThreshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
+      ?? configOverrides?.fluxapps?.appSyncPeerThreshold;
+    peerlessOverrides[index] = mergeConfigs(
+      { fluxapps: { appSyncFallbackMinutes: 0, ...(declaredThreshold === undefined ? { appSyncPeerThreshold: 0, appSyncDegradedThreshold: 0 } : {}) } },
+      nodeConfigOverrides[index] ?? null,
+    );
+  }
+
+  // THE SYNCED NODES, unless the suite names them. A node completes its sync only
+  // from peers it is connected to, so they are chosen from the ring discovery
+  // builds: enough that every joining node has as many synced neighbours as it
+  // needs answers, and never node 0, which is by convention the node under test,
+  // and a subject that is authoritative before it starts is a subject whose sync
+  // cannot be observed. Stubs answer a state sync only when declared answering,
+  // and deferred nodes have not booted.
+  //
+  // A node with a fallback of 0 blocks - peerless above, or so declared - is
+  // authoritative from the start and answers like a synced one. A node whose
+  // suite declares its fallback is testing that budget: it is neither required
+  // to complete by sync nor made synced.
+  const fallbackOf = (index) => nodeConfigOverrides[index]?.fluxapps?.appSyncFallbackMinutes
+    ?? configOverrides?.fluxapps?.appSyncFallbackMinutes
+    ?? (peerlessOverrides[index] ? 0 : undefined);
+  const firstDeferredIndex = nodes - deferredNodes;
+  const unlisted = Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1);
+  const booted = Array.from({ length: nodes }, (_unused, i) => i)
+    .filter((i) => i < firstDeferredIndex && !stubPeers.includes(i));
+  const syncedFromStart = booted.filter((i) => fallbackOf(i) === 0);
+  const joining = booted.filter((i) => fallbackOf(i) === undefined && !unlisted.includes(i));
+  let establishedNodes = syncedNodes;
+  if (!establishedNodes) {
+    const arc = derivePeerThresholds(nodes, stubPeers.length + deferredNodes).minOutgoing;
+    const connections = ringConnections(
+      Array.from({ length: nodes }, (_unused, i) => i).filter((i) => !unlisted.includes(i)),
+      {
+        arcOf: (i) => nodeConfigOverrides[i]?.fluxapps?.minOutgoing ?? configOverrides?.fluxapps?.minOutgoing ?? arc,
+        dialers: booted,
+        stubs: stubPeers,
+        extra: [...stubPeerings].flatMap(([stubIdx, indices]) => indices.map((i) => [stubIdx, i])),
+      },
+    );
+    establishedNodes = chooseSyncedNodes(joining, {
+      candidates: joining.filter((i) => i !== 0),
+      connections,
+      needOf: (i) => nodeConfigOverrides[i]?.fluxapps?.appSyncMinCompletions
+        ?? configOverrides?.fluxapps?.appSyncMinCompletions
+        ?? sharedFluxapps.appSyncMinCompletions ?? 3,
+      answering: [...syncedFromStart, ...answeringSyncPeers],
+    });
+  }
+  const syncedOverrides = {};
+  for (const index of establishedNodes) {
+    syncedOverrides[index] = mergeConfigs(
+      { fluxapps: { appSyncFallbackMinutes: 0 } },
+      nodeConfigOverrides[index] ?? null,
+    );
+  }
+  return { peerlessOverrides, syncedOverrides };
+}
+
 // `syncthing` selects what each node talks to. 'stub' (the default) is the
 // shared control-plane stub: it serves every node, moves no files, and is what
 // the gate runs on. 'binary' gives each node its own real daemon from the image
@@ -1131,39 +1236,12 @@ export async function createTestEnv({
   //
   // That is a network-wide cold start, and it is not what a booting node meets.
   // Production joins a network that has been up for hours. So the default is an
-  // established fleet - the minimum number of nodes another node needs for its
-  // sync to complete - and the cold start is asked for by name with [].
+  // established fleet, chosen by fleetSyncOverrides, and the cold start is asked
+  // for by name with [].
   //
-  // Taken from the TOP of the fleet because index 0 is by convention the node
-  // under test, and a subject that is authoritative before it starts is a
-  // subject whose sync cannot be observed. Stubs cannot answer a state sync and
-  // deferred nodes have not booted, so neither can serve.
-  // Enough for ANY node in this fleet to complete, not just a default one: a
-  // suite that raises the requirement on the node it is watching needs that
-  // many peers able to answer, and a default sized for the shared config would
-  // leave it one short and looking like the product had stalled.
-  const completionsAsked = [
-    configOverrides?.fluxapps?.appSyncMinCompletions ?? sharedFluxapps.appSyncMinCompletions ?? 3,
-    ...Object.values(nodeConfigOverrides)
-      .map((o) => o?.fluxapps?.appSyncMinCompletions)
-      .filter((n) => Number.isInteger(n)),
-  ];
-  const completionsNeeded = Math.max(...completionsAsked);
-  const firstDeferredIndex = nodes - deferredNodes;
-  const canAnswer = Array.from({ length: nodes }, (_unused, i) => i)
-    .filter((i) => i < firstDeferredIndex && !stubPeers.includes(i));
-  // Never the whole fleet. If there is nobody left over to do the joining then
-  // a sync is not a thing that can happen here at all - a lone node has no peer
-  // to ask - and making every node authoritative would only change how the
-  // subject itself reaches readiness, which is the opposite of the point.
-  const established = canAnswer.length > completionsNeeded
-    ? canAnswer.slice(-completionsNeeded)
-    : [];
-  const establishedNodes = syncedNodes ?? established;
-
   // Refused rather than clamped: an index outside the fleet is a suite asking
   // for a synced peer and silently not getting one, which reads as covered.
-  for (const index of establishedNodes) {
+  for (const index of syncedNodes ?? []) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes) {
       throw new Error(`createTestEnv: syncedNodes index ${index} is not a node in a fleet of ${nodes}`);
     }
@@ -1259,53 +1337,11 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: arcaneStubPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
     }
   }
-  const syncedOverrides = {};
-  for (const index of establishedNodes) {
-    syncedOverrides[index] = mergeConfigs(
-      { fluxapps: { appSyncFallbackMinutes: 0 } },
-      nodeConfigOverrides[index] ?? null,
-    );
-  }
-
-  // A FLEET TOO SMALL TO PEER CANNOT USE THE PEER-GATED FALLBACK.
-  //
-  // The block fallback only advances while the peer count is above
-  // appSyncPeerThreshold and resets when it falls below appSyncDegradedThreshold
-  // (appSyncOrchestrator), which is the whole of "a peerless node must not
-  // spawn". A one-node fleet has no peers at all and a two-node ring gives each
-  // node one, so neither can ever cross the threshold - and in such a fleet the
-  // fallback is not slow, it is unreachable, so nothing ever leaves SYNCING.
-  //
-  // Zero is the honest value there rather than a workaround. The fallback asks
-  // "have you had long enough to hear from everyone", and a node with nobody to
-  // hear from cannot answer it - which is the same reason establishedNodes above
-  // exists and the same value it uses.
-  //
-  // Counted against EVERY other fleet member, stubs included, so the guard errs
-  // towards not firing: a stub that does carry a connection is counted as one.
-  // A suite that declares its own appSyncFallbackMinutes is testing this budget
-  // and keeps what it asked for.
-  const reachablePeers = carriedPeers(nodes, stubPeers.length + deferredNodes);
   // What the fleet runs when no suite sets them - see deriveReadinessThresholds.
   const readiness = deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps);
-  const peerlessOverrides = {};
-  for (let index = 0; index < nodes; index += 1) {
-    const declaredFallback = nodeConfigOverrides[index]?.fluxapps?.appSyncFallbackMinutes
-      ?? configOverrides?.fluxapps?.appSyncFallbackMinutes;
-    if (declaredFallback !== undefined) continue;
-    const threshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
-      ?? configOverrides?.fluxapps?.appSyncPeerThreshold
-      ?? readiness.appSyncPeerThreshold;
-    if (reachablePeers >= threshold) continue;
-    // A node with nobody to carry its messages meets a threshold of none, or it
-    // could never be heard. A suite that declares a threshold keeps what it asked for.
-    const declaredThreshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
-      ?? configOverrides?.fluxapps?.appSyncPeerThreshold;
-    peerlessOverrides[index] = mergeConfigs(
-      { fluxapps: { appSyncFallbackMinutes: 0, ...(declaredThreshold === undefined ? { appSyncPeerThreshold: 0, appSyncDegradedThreshold: 0 } : {}) } },
-      nodeConfigOverrides[index] ?? null,
-    );
-  }
+  const { peerlessOverrides, syncedOverrides } = fleetSyncOverrides({
+    nodes, deferredNodes, stubPeers, syncedNodes, configOverrides, nodeConfigOverrides, collateralOf, answeringSyncPeers, stubPeerings,
+  });
 
   // WHETHER ANYTHING MAY WAIT FOR THIS FLEET TO HOLD POLICY, which is two questions of
   // different kinds and the framework may only answer one of them.

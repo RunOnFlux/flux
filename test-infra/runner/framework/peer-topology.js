@@ -242,6 +242,92 @@ export function ringPeerFloors(index, ring, {
 }
 
 /**
+ * The nodes each node is connected to once discovery has run its deterministic
+ * ring: a node dials the `arcOf(i)` slots after it and asks as many before it to
+ * dial it back (fluxCommunication.js). A stub takes a dial and makes none, and a
+ * slot nothing answers on supplies nothing. `extra` adds connections made outside
+ * the ring, such as a stub's peerings.
+ *
+ * @param {number[]} ring Every listed index, in list order.
+ * @param {object} shape
+ * @param {function(number): number} shape.arcOf A dialer's minOutgoing.
+ * @param {number[]} shape.dialers Listed indices that dial and answer asks.
+ * @param {number[]} [shape.stubs] Indices that take a dial and never make one.
+ * @param {Array<[number, number]>} [shape.extra] Further connections, as pairs.
+ * @returns {Map<number, Set<number>>} Each dialer's and stub's connections.
+ */
+export function ringConnections(ring, {
+  arcOf, dialers, stubs = [], extra = [],
+}) {
+  const connections = new Map([...dialers, ...stubs].map((i) => [i, new Set()]));
+  const connect = (a, b) => {
+    if (a === b || !connections.has(a) || !connections.has(b)) return;
+    connections.get(a).add(b);
+    connections.get(b).add(a);
+  };
+  const size = ring.length;
+  dialers.forEach((i) => {
+    const position = ring.indexOf(i);
+    if (position < 0) return;
+    for (let step = 1; step <= Math.min(size, arcOf(i)); step += 1) {
+      connect(i, ring[(position + step) % size]);
+      const behind = ring[(((position - step) % size) + size) % size];
+      if (dialers.includes(behind)) connect(i, behind);
+    }
+  });
+  extra.forEach(([a, b]) => connect(a, b));
+  return connections;
+}
+
+/**
+ * The nodes that start with their app state already synced, so that every other
+ * node completes its own state sync from its neighbours rather than waiting out
+ * the block fallback: the fewest of `candidates` that give each node outside them
+ * `needOf(i)` neighbours able to answer, the highest indices among sets of one
+ * size. `answering` are stubs that answer a sync.
+ *
+ * With no candidate there is nothing to choose: a node alone in its fleet has
+ * nobody to sync from. Otherwise throws, naming each node, when no choice of
+ * candidates reaches what it needs: that fleet's suite declares its synced nodes
+ * itself.
+ *
+ * @param {number[]} nodes The nodes that sync.
+ * @param {object} shape
+ * @param {number[]} shape.candidates The nodes that may start synced.
+ * @param {Map<number, Set<number>>} shape.connections From ringConnections.
+ * @param {function(number): number} shape.needOf A node's appSyncMinCompletions.
+ * @param {number[]} [shape.answering]
+ * @returns {number[]}
+ */
+export function chooseSyncedNodes(nodes, {
+  candidates, connections, needOf, answering = [],
+}) {
+  if (!candidates.length) return [];
+  const answerers = (i, synced) => [...(connections.get(i) ?? [])]
+    .filter((peer) => synced.includes(peer) || answering.includes(peer)).length;
+  const short = nodes.filter((i) => !candidates.includes(i) && answerers(i, candidates) < needOf(i));
+  if (short.length) {
+    throw new Error(`createTestEnv: node${short.length > 1 ? 's' : ''} ${short.join(', ')} cannot be connected to enough synced nodes to complete a state sync; declare syncedNodes`);
+  }
+  const satisfies = (synced) => nodes.every((i) => synced.includes(i) || answerers(i, synced) >= needOf(i));
+  const pool = [...candidates].sort((a, b) => b - a);
+  // Every set of `size` from pool[start..], in order of their highest indices.
+  const subsets = (start, size) => {
+    if (size === 0) return [[]];
+    const sets = [];
+    for (let i = start; i <= pool.length - size; i += 1) {
+      subsets(i + 1, size - 1).forEach((rest) => sets.push([pool[i], ...rest]));
+    }
+    return sets;
+  };
+  for (let size = 0; size <= pool.length; size += 1) {
+    const synced = subsets(0, size).find(satisfies);
+    if (synced) return synced.sort((a, b) => a - b);
+  }
+  return pool.sort((a, b) => a - b);
+}
+
+/**
  * The peer total each node reaches once the ring has closed. Used for the boot
  * wait: it is the same demand expressed as a sum, which is robust even if a
  * suite has overridden the arc into an overlapping shape.
