@@ -29,8 +29,13 @@ globalThis.userconfig = {
 // eslint-disable-next-line global-require
 const { resetGlobalState } = require('./unit/fixtures/globalState');
 
+// A stall of the process, rather than of a test's own work, is reported with the
+// test running and what held it (stallWatch.js).
+const stallWatch = require('./stallWatch');
+
 exports.mochaHooks = {
   beforeEach() {
+    stallWatch.testStarted(this.currentTest.fullTitle());
     resetGlobalState();
   },
 };
