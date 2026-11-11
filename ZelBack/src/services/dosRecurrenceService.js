@@ -3,22 +3,29 @@ const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const nodeDosState = require('./nodeDosState');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxEventBus = require('./utils/fluxEventBus');
+const {
+  blockWindowRule, inWindow, judgeHold, untilText,
+} = require('./utils/blockWindowHolds');
 
-// A node that keeps going out of service is held out longer each time, so it
-// stops taking apps on between failures only to drop them again.
+// A node that keeps failing is held out longer each time, so it stops taking
+// apps on between failures only to drop them again.
 //
-// Each time the node enters DOS for a reason other than this service's own, the
-// chain height is recorded. Counted over the last WINDOW_BLOCKS:
+// Each time the node enters DOS on a failure, the chain height is recorded.
+// Counted over the last WINDOW_BLOCKS:
 //   - a 1st or 2nd episode: once the node is back in service it takes no new
 //     apps for QUARANTINE_BLOCKS;
 //   - the 3rd: the node is held out of service for SHORT_HOLD_BLOCKS, then takes
 //     no new apps for HELD_QUARANTINE_BLOCKS;
 //   - the 4th and later: held out for LONG_HOLD_BLOCKS, then the same.
 //
-// Counted in blocks, every window is the chain's: neither a restart nor the
-// node's clock moves it. The lengths are config.dosRecurrence's.
+// A failure is the node not doing what a node must: its ports not answering, its
+// router refusing it, its host stalled, its peers dropping. A DOS a policy sets
+// on purpose (residential, tampering, a version floor, a second machine on the
+// collateral, a misconfigured fluxd, the IP change limit) is not one: it ends
+// when its condition does, and repeating it says nothing about the node failing.
+//
+// The lengths are config.dosRecurrence's, in blocks (utils/blockWindowHolds).
 const WINDOW_BLOCKS = config.dosRecurrence.windowBlocks;
 const QUARANTINE_BLOCKS = config.dosRecurrence.quarantineBlocks;
 const HELD_QUARANTINE_BLOCKS = config.dosRecurrence.heldQuarantineBlocks;
@@ -30,18 +37,22 @@ const LONG_HOLD_BLOCKS = config.dosRecurrence.longHoldBlocks;
 const RECORD_ID = 'dosRecurrence';
 const OWNER = nodeDosState.StickyDosOwner.DOS_RECURRENCE;
 const PLACEMENT_OWNER = fluxNetworkHelper.PlacementHoldOwner.DOS_RECURRENCE;
+const FAILURE_OWNERS = [
+  nodeDosState.StickyDosOwner.UPNP_ROUTER,
+  nodeDosState.StickyDosOwner.HOST_STALL,
+  nodeDosState.StickyDosOwner.PEER_SET_STABILITY,
+];
 
-// The record as last read or written: the heights of the episodes in the
-// window, and each hold as `{ fromHeight, blocks }`. A height recorded as null
-// was taken while this node knew no chain height and is fixed at the first one
-// it learns.
+// The record as last stored: the heights of the episodes in the window, and each
+// hold as `{ fromHeight, blocks }`.
 let record = null;
 // The last chain height this service has judged the holds at, once whatever
 // that height changed is saved; 0 until it has judged one.
 let judgedHeight = 0;
-// Writes to the record run one after another, in the order the events came.
-let writing = Promise.resolve();
+// The height the pass running now judges at.
+let judgingHeight = 0;
 let stopListening = [];
+let lastPass = Promise.resolve();
 
 function collection() {
   const db = dbHelper.databaseConnection();
@@ -55,37 +66,17 @@ function emptyRecord() {
 }
 
 /**
- * @param {Array<number|null>} heights
- * @param {number} height The chain's height now; 0 when unknown.
- * @returns {Array<number|null>} The heights inside the window. A null height
- * is taken as `height`, and is kept as null while no height is known.
+ * @returns {boolean} Whether the node is out of service on a failure, among
+ * whatever else holds it out.
  */
-function inWindow(heights, height) {
-  if (!height) return heights;
-  return heights.map((at) => at ?? height).filter((at) => height - at < WINDOW_BLOCKS);
-}
-
-/**
- * @param {{fromHeight: number|null, blocks: number}|null} hold
- * @param {number} height
- * @returns {boolean} Whether the hold has run its course at `height`. A hold
- * stands while no height is known, or none was when it started.
- */
-function holdEnded(hold, height) {
-  return Boolean(hold) && hold.fromHeight !== null && height > 0 && height - hold.fromHeight >= hold.blocks;
-}
-
-/**
- * @param {{fromHeight: number|null, blocks: number}} hold
- * @returns {string}
- */
-function untilText(hold) {
-  return hold.fromHeight === null ? 'a chain height is known' : `block ${hold.fromHeight + hold.blocks}`;
+function outOnFailure() {
+  if (FAILURE_OWNERS.some((owner) => nodeDosState.isStickyDosHeldBy(owner))) return true;
+  return nodeDosState.isScoreDos() && !fluxNetworkHelper.isPolicyDosMessage(nodeDosState.getRawDosMessage());
 }
 
 /** Holds the node as the record says, and releases what it no longer holds. */
-function apply() {
-  const { dosHold, placementHold, episodeHeights } = record;
+function holdBy(state) {
+  const { dosHold, placementHold, episodeHeights } = state;
   if (dosHold) {
     nodeDosState.setStickyDos(OWNER, `Out of service until ${untilText(dosHold)}: ${episodeHeights.length} DOS episodes in 24 hours`);
   } else {
@@ -98,82 +89,89 @@ function apply() {
   }
 }
 
-async function save() {
-  await collection().updateOne({ _id: RECORD_ID }, { $set: record }, { upsert: true });
+async function load() {
+  const stored = await collection().findOne({ _id: RECORD_ID }, { projection: { _id: 0 } });
+  return { ...emptyRecord(), ...stored };
 }
 
+async function save(before, after) {
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    await collection().updateOne({ _id: RECORD_ID }, { $set: after }, { upsert: true });
+    fluxEventBus.publish('dosRecurrence:changed', { ...after });
+  }
+  return true;
+}
+
+function judge(state, height) {
+  judgingHeight = height;
+  return {
+    ...state,
+    episodeHeights: inWindow(state.episodeHeights, height, WINDOW_BLOCKS),
+    dosHold: judgeHold(state.dosHold, height),
+    placementHold: judgeHold(state.placementHold, height),
+  };
+}
+
+const rule = blockWindowRule({
+  load,
+  save,
+  judge,
+  apply: (state) => {
+    record = state;
+    holdBy(state);
+    if (judgingHeight) judgedHeight = judgingHeight;
+  },
+});
+
 /**
- * Runs `change` on the record after every change before it, then saves the
- * record and holds the node as it says.
- * @param {function(number): void} change Called with the chain height.
- * @returns {Promise<void>}
+ * Runs a pass of the rule, kept for settled().
+ * @param {function(object, number): object} [change]
+ * @returns {Promise<object|undefined>}
  */
-function update(change) {
-  writing = writing.then(async () => {
-    change(daemonServiceMiscRpcs.chainHeight());
-    apply();
-    await save();
-    fluxEventBus.publish('dosRecurrence:changed', { ...record });
-  }).catch((error) => log.error(`dosRecurrence - ${error.message}`));
-  return writing;
+function pass(change) {
+  lastPass = rule.pass(change).catch((error) => { log.error(`dosRecurrence - ${error.message}`); });
+  return lastPass;
 }
 
 /**
- * The node entered DOS: one more episode.
- * @returns {Promise<void>}
+ * The node entered DOS on a failure: one more episode.
+ * @returns {Promise<object|undefined>}
  */
 function onEntered() {
-  return update((height) => {
-    record.episodeHeights = inWindow([...record.episodeHeights, height || null], height);
-    const count = record.episodeHeights.length;
+  return pass((state, height) => {
+    const episodeHeights = inWindow([...state.episodeHeights, height || null], height, WINDOW_BLOCKS);
+    const count = episodeHeights.length;
     let blocks = 0;
     if (count >= LONG_HOLD_EPISODES) blocks = LONG_HOLD_BLOCKS;
     else if (count >= SHORT_HOLD_EPISODES) blocks = SHORT_HOLD_BLOCKS;
-    record.lastEpisodeHeld = blocks > 0;
-    record.placementHold = null;
     if (blocks) {
-      record.dosHold = { fromHeight: height || null, blocks };
       log.error(`dosRecurrence - ${count} DOS episodes in 24 hours: out of service for ${blocks} blocks`);
     } else {
       log.warn(`dosRecurrence - DOS episode ${count} in 24 hours`);
     }
-  });
-}
-
-/**
- * The node is back in service: it takes no new apps for the quarantine.
- * @returns {Promise<void>}
- */
-function onCleared() {
-  return update((height) => {
-    record.placementHold = {
-      fromHeight: height || null,
-      blocks: record.lastEpisodeHeld ? HELD_QUARANTINE_BLOCKS : QUARANTINE_BLOCKS,
+    return {
+      ...state,
+      episodeHeights,
+      lastEpisodeHeld: blocks > 0,
+      placementHold: null,
+      dosHold: blocks ? { fromHeight: height || null, blocks } : state.dosHold,
     };
   });
 }
 
 /**
- * A new chain height: fixes the heights taken while none was known, and ends
- * the holds that have run their course.
- * @returns {Promise<void>|undefined}
+ * The node is back in service after an episode: it takes no new apps for the
+ * quarantine.
+ * @returns {Promise<object|undefined>}
  */
-function onHeight() {
-  const height = daemonServiceMiscRpcs.chainHeight();
-  if (!height) return undefined;
-  const { dosHold, placementHold, episodeHeights } = record;
-  const unfixed = episodeHeights.includes(null) || dosHold?.fromHeight === null || placementHold?.fromHeight === null;
-  if (!unfixed && !holdEnded(dosHold, height) && !holdEnded(placementHold, height)) {
-    judgedHeight = height;
-    return undefined;
-  }
-  return update((now) => {
-    record.episodeHeights = inWindow(record.episodeHeights, now);
-    ['dosHold', 'placementHold'].forEach((key) => {
-      if (record[key]?.fromHeight === null) record[key] = { ...record[key], fromHeight: now };
-      if (holdEnded(record[key], now)) record[key] = null;
-    });
-  }).then(() => { judgedHeight = height; });
+function onCleared() {
+  return pass((state, height) => ({
+    ...state,
+    placementHold: {
+      fromHeight: height || null,
+      blocks: state.lastEpisodeHeld ? HELD_QUARANTINE_BLOCKS : QUARANTINE_BLOCKS,
+    },
+  }));
 }
 
 fluxEventBus.snapshot('dosRecurrence', () => ({ judgedHeight, record }));
@@ -185,34 +183,42 @@ fluxEventBus.snapshot('dosRecurrence', () => ({ judgedHeight, record }));
  * @returns {Promise<void>}
  */
 async function start() {
-  const stored = await collection().findOne({ _id: RECORD_ID }, { projection: { _id: 0 } });
-  record = { ...emptyRecord(), ...stored };
+  record = await load();
   // Before listening: the restored hold takes the node out of service, and
   // that is not an episode. Every later hold is set while the node is already
   // out of service, so it is never one either.
-  apply();
+  holdBy(record);
+  // An exit is a quarantine only after an episode this service counted.
+  let counted = false;
   stopListening = [
-    nodeDosState.onNodeDos(() => { onEntered(); }),
-    nodeDosState.onNodeDosCleared(() => { onCleared(); }),
-    daemonServiceMiscRpcs.onDaemonHeight(() => onHeight()),
+    nodeDosState.onNodeDos(() => {
+      counted = outOnFailure();
+      if (counted) onEntered();
+    }),
+    nodeDosState.onNodeDosCleared(() => {
+      if (counted) onCleared();
+      counted = false;
+    }),
+    rule.watch((error) => log.error(`dosRecurrence - ${error.message}`)),
   ];
 }
 
 /**
- * @returns {Promise<void>} Resolves once every write started so far is saved.
+ * @returns {Promise<void>} Resolves once every pass started so far is saved.
  */
-function settled() {
-  return writing;
+async function settled() {
+  await lastPass;
+  await rule.pass();
 }
 
 /**
- * Stops following, and waits for the writes already started.
+ * Stops following, and waits for the passes already started.
  * @returns {Promise<void>}
  */
 async function stop() {
   stopListening.forEach((stopOne) => stopOne());
   stopListening = [];
-  await writing;
+  await settled();
 }
 
 module.exports = {

@@ -2530,6 +2530,15 @@ function releaseDosOwnedBy(owns) {
 
 const isCollisionMessage = (message) => COLLISION_MESSAGE_PREFIXES.some((prefix) => message.startsWith(prefix));
 
+/**
+ * @param {string|null} message A DOS score message.
+ * @returns {boolean} Whether a policy check set it rather than a failure: a
+ * FluxBench below the version floor, or a second machine on this collateral.
+ */
+function isPolicyDosMessage(message) {
+  return Boolean(message) && (message.startsWith(FLUXBENCH_VERSION_MESSAGE_PREFIX) || isCollisionMessage(message));
+}
+
 // The message the availability check set, kept so the check ends only its own.
 // Its points - asks no peer answered as reachable, and time reachable with too
 // few peer connections - are held in nodeDosState apart from the shared score.
@@ -4095,6 +4104,7 @@ module.exports = {
   applyContainerEgressRules,
   containerEgressRules,
   getMaxNumberOfIpChanges,
+  isPolicyDosMessage,
   allowOnlyDockerNetworksToFluxNodeService,
   addFluxNodeServiceIpToLoopback,
   keepUPNPPortsOpen,

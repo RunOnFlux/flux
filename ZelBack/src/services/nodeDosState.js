@@ -95,6 +95,14 @@ function isNodeDos() {
 }
 
 /**
+ * @returns {boolean} Whether the score, with the availability check's points,
+ * takes the node out of service, whatever the sticky holds say.
+ */
+function isScoreDos() {
+  return dosState + unreachablePoints + shortfallPoints >= DOS_LIMIT;
+}
+
+/**
  * @returns {string|null} Why the node is out of service, or null when no owner
  * holds it. Every reason, not an arbitrary one: naming one of two would send an
  * operator to lift a condition that would not return the node to service.
@@ -313,6 +321,7 @@ module.exports = {
   getShortfallPoints,
   getStickyDosMessage,
   isNodeDos,
+  isScoreDos,
   isStickyDosHeldBy,
   onNodeDos,
   onNodeDosCleared,

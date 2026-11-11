@@ -19,6 +19,10 @@ describe('dosRecurrenceService tests', () => {
       findOne: async () => (stored ? { ...stored } : null),
       updateOne: async (filter, update) => { stored = JSON.parse(JSON.stringify(update.$set)); },
     };
+    const daemonServiceMiscRpcs = {
+      chainHeight: () => height,
+      onDaemonHeight: (listener) => { heightListener = listener; return () => { heightListener = null; }; },
+    };
     return proxyquire('../../ZelBack/src/services/dosRecurrenceService', {
       config: { database: { local: { database: 'local', collections: { dosRecurrence: 'dosrecurrence' } } }, dosRecurrence: config.dosRecurrence },
       '../lib/log': { error: () => {}, info: () => {}, warn: () => {} },
@@ -26,14 +30,14 @@ describe('dosRecurrenceService tests', () => {
       './nodeDosState': nodeDosState,
       './fluxNetworkHelper': {
         PlacementHoldOwner: { DOS_RECURRENCE: 'dosRecurrence' },
+        isPolicyDosMessage: (message) => Boolean(message) && message.startsWith('Flux collision detection.'),
         setPlacementHold: (owner, reason) => { placementHolds.set(owner, reason); },
         clearPlacementHold: (owner) => { placementHolds.delete(owner); },
       },
       './utils/fluxEventBus': { publish: () => {}, snapshot: () => {} },
-      './daemonService/daemonServiceMiscRpcs': {
-        chainHeight: () => height,
-        onDaemonHeight: (listener) => { heightListener = listener; return () => { heightListener = null; }; },
-      },
+      './utils/blockWindowHolds': proxyquire('../../ZelBack/src/services/utils/blockWindowHolds', {
+        '../daemonService/daemonServiceMiscRpcs': daemonServiceMiscRpcs,
+      }),
     });
   }
 
@@ -159,5 +163,35 @@ describe('dosRecurrenceService tests', () => {
     await advanceTo(5000 + service.SHORT_HOLD_BLOCKS);
     await service.settled();
     expect(held()).to.equal(false);
+  });
+  it('counts no DOS a policy sets, and no quarantine follows it', async () => {
+    const { RESIDENTIAL_DOS } = nodeDosState.StickyDosOwner;
+    for (let i = 0; i < 4; i += 1) {
+      nodeDosState.setStickyDos(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
+      // eslint-disable-next-line no-await-in-loop
+      await service.settled();
+      nodeDosState.clearStickyDos(RESIDENTIAL_DOS);
+      // eslint-disable-next-line no-await-in-loop
+      await service.settled();
+    }
+    nodeDosState.setDos(100, 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
+    await service.settled();
+    nodeDosState.setDos(0, null);
+    await service.settled();
+
+    expect(stored?.episodeHeights ?? []).to.deep.equal([]);
+    expect(held()).to.equal(false);
+    expect(placementHeld()).to.equal(false);
+  });
+
+  it('counts a failure a sticky owner holds the node out for', async () => {
+    const { UPNP_ROUTER } = nodeDosState.StickyDosOwner;
+    nodeDosState.setStickyDos(UPNP_ROUTER, 'router refuses the node');
+    await service.settled();
+    nodeDosState.clearStickyDos(UPNP_ROUTER);
+    await service.settled();
+
+    expect(stored.episodeHeights).to.deep.equal([1000]);
+    expect(placementHeld()).to.equal(true);
   });
 });
