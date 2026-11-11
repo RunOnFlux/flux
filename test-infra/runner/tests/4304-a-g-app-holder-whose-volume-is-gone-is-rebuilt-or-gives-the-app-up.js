@@ -6,8 +6,10 @@
  *
  * Real syncthing: the data that comes back to the rebuilt standby, and the files the
  * standby keeps while the primary goes, are syncthing's own. The image is removed and
- * its mount dropped while the node's FluxOS is down, and found gone when it starts:
- * a node that lost the disk holding it, rebooted.
+ * its mount dropped under a running FluxOS, which learns of the unmount as it happens,
+ * and while FluxOS is down, which finds it gone when it starts: a node that lost the
+ * disk holding it, rebooted. A component is rebuilt at most once an hour, and a
+ * restart forgets that, so the standby's restart comes after its first rebuild.
  *
  * A = the standby, B = the primary, C holds nothing.
  */
@@ -52,7 +54,21 @@ describe('a g: app holder whose volume is gone is rebuilt, or gives the app up',
     await fleet?.env?.teardown();
   });
 
-  it('rebuilds a standby whose volume is gone, and its copy syncs the primary\'s data again', async function () {
+  it('rebuilds a standby whose volume is unmounted under a running FluxOS, as it goes', async function () {
+    this.timeout(600000);
+    const beforeLoss = client(A).getLastEventId();
+    await destroyFolderVolume(client(A).container, folder);
+
+    // Within a minute: the hourly sweep is not what finds it.
+    const decision = await client(A).waitForEvent('app:lostVolume', (d) => d.identifier === fleet.identifier, 60000, { afterId: beforeLoss });
+    expect(decision.data.action, `the standby decided: ${JSON.stringify(decision.data)}`).to.equal('rebuild');
+    await client(A).waitForEvent('app:componentRedeployed', (d) => d.name === appName && d.hard === true, 300000, { afterId: beforeLoss });
+    await waitFor(() => holdsEveryFile(A), { timeout: 300000, interval: 3000, label: 'the rebuilt standby holds every file again' });
+    expect(await fleet.isUp(B), 'the primary runs throughout').to.equal(true);
+    expect(fleet.twoRan, 'two holders ran the app').to.deep.equal([]);
+  });
+
+  it('rebuilds a standby whose volume is lost across a restart, and its copy syncs the primary\'s data again', async function () {
     this.timeout(600000);
     const beforeLoss = client(A).getLastEventId();
     await crashFluxos(client(A).container, { hold: true });
