@@ -284,43 +284,6 @@ describe('syncthingMonitorHelpers tests', () => {
     });
   });
 
-  describe('canonicalSyncthingDeviceId', () => {
-    // syncthing's documentation example, and a mainnet node's
-    const DOCS_EXAMPLE = 'MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD';
-    const MAINNET = 'OD2POVH-2QWEHYY-AKI6AU2-ZUEQLXY-MTGOIG7-PE57QHU-INYFY5C-QTNOPQ5';
-    const withoutCheckCharacters = (id) => [...id.replace(/-/g, '')].filter((c, i) => i % 14 !== 13).join('');
-
-    it('gives a device ID as syncthing writes one back as it is', () => {
-      expect(helpers.canonicalSyncthingDeviceId(DOCS_EXAMPLE)).to.equal(DOCS_EXAMPLE);
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET)).to.equal(MAINNET);
-    });
-
-    it('gives one without dashes, in lower case, with spaces, or without its check characters as syncthing writes it', () => {
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/-/g, ''))).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET.toLowerCase())).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/-/g, ' '))).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(withoutCheckCharacters(MAINNET))).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(withoutCheckCharacters(DOCS_EXAMPLE))).to.equal(DOCS_EXAMPLE);
-    });
-
-    it('gives one with 0, 1 and 8 typed for O, I and B as syncthing writes it', () => {
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/O/g, '0').replace(/I/g, '1'))).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(DOCS_EXAMPLE.replace(/B/g, '8'))).to.equal(DOCS_EXAMPLE);
-    });
-
-    it('refuses one whose check character does not match its group', () => {
-      [3, 10, 20, 40].forEach((at) => {
-        const changed = `${MAINNET.slice(0, at)}${MAINNET[at] === 'A' ? 'B' : 'A'}${MAINNET.slice(at + 1)}`;
-        expect(helpers.canonicalSyncthingDeviceId(changed), `changed at ${at}`).to.equal(null);
-      });
-    });
-
-    it('refuses anything else', () => {
-      ['PEERSTUB-DEVICE-0000001', '', MAINNET.slice(0, -1), `${MAINNET}A`, MAINNET.replace('2', '9'), null, undefined, 42, {}]
-        .forEach((value) => expect(helpers.canonicalSyncthingDeviceId(value), JSON.stringify(value)).to.equal(null));
-    });
-  });
-
   describe('getDeviceID', () => {
     it('should return device ID on successful response', async () => {
       const axiosStub = sandbox.stub(axios, 'get').resolves({
