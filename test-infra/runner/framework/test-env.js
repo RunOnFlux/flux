@@ -22,7 +22,7 @@ import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import {
   getSubnetConfig, setIpGroups, SLOT_WIDTH, REGISTRY_ALIAS, STORAGE_HOST,
 } from './subnet-config.js';
-import { closeDb } from './db-client.js';
+import { closeDb, dbClient } from './db-client.js';
 import { FLUXD_PUBLISHED_PORT, newFluxdLogin, setFluxdLogin } from './fluxd-control.js';
 import {
   clearInfraDeath, infraDeathError, reportInfraDeath, sleepUnlessInfraDead,
@@ -2201,6 +2201,36 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       env.syncedDataKeeper?.watch(client);
       deferredBuilders.delete(index);
       return client;
+    },
+
+    // Makes deferred node `to`, not yet started, a machine started from a copy of
+    // node `from`'s disk: its databases, and its volume, which holds its apps'
+    // data, their volume images and docker's data root with the apps' containers
+    // and images. The volume is copied with `from` paused, so the copy is one
+    // moment of it, as a disk snapshot is.
+    async cloneNodeDisk(from, to) {
+      if (!deferredBuilders.has(to)) throw new Error(`cloneNodeDisk: node ${to} is not a deferred node yet to start`);
+      await dbClient(to + 1).cloneFrom(from + 1, clients[from]);
+      const { dockerode } = (await getContainerRuntimeClient()).container;
+      const source = dockerode.getContainer(clients[from].container.getId());
+      const copy = await dockerode.createContainer({
+        Image: image('flux-e2e-fluxos-01'),
+        Entrypoint: ['bash', '-c', 'set -o pipefail; tar --xattrs --xattrs-include="*" --acls -S -C /from -cpf - . | tar --xattrs --xattrs-include="*" --acls -C /to -xpf -'],
+        HostConfig: { Binds: [`${volumeNames[from]}:/from:ro`, `${volumeNames[to]}:/to`] },
+        Labels: runLabels(),
+      });
+      await source.pause();
+      try {
+        await copy.start();
+        const { StatusCode } = await copy.wait();
+        if (StatusCode !== 0) {
+          const output = (await copy.logs({ stdout: true, stderr: true })).toString();
+          throw new Error(`cloneNodeDisk: copying node ${from}'s volume exited ${StatusCode}: ${output.slice(-2000)}`);
+        }
+      } finally {
+        await source.unpause();
+        await copy.remove({ force: true }).catch(() => {});
+      }
     },
 
     // Starts the FluxOS of a node created held (fluxosHeldNodes).

@@ -20,20 +20,22 @@ const subnet = getSubnetConfig();
 
 // A second machine starts on the collateral of a node running a single-instance
 // app. Whatever the second machine is, the collateral serves from one node and the
-// app runs on one node: every node of the fleet is watched from the second
-// machine's start until the network has settled, and a moment the app runs on two
-// fails the case.
+// app ends on one node.
 //
 // A machine installed afresh on the collateral finds the listed node answering,
 // holds itself out of service and runs nothing, and the app stays where it is.
 // When the listed node's machine dies, the collateral goes to the second machine,
 // the app comes back on exactly one node, and no move is announced: a second
-// machine taking a collateral over is not the listed node moving.
+// machine taking a collateral over is not the listed node moving. Every node of
+// the fleet is watched from the second machine's start, and a moment the app runs
+// on two fails these cases.
 //
-// A machine started from a clone of the listed node's disk holds the app and reads
-// its new address as the node having moved: it confirms there, the chain lists the
-// collateral there, and the listed node holds itself out of service and gives the
-// app up, which the network places again.
+// A machine started from a clone of the listed node's disk holds the app, its data
+// and its stopped container, and reads its new address as the node having moved: it
+// confirms there, the chain lists the collateral there, it starts the app, and the
+// listed node holds itself out of service and gives the app up. The two are not
+// ordered, so the app may run on both until the listed node has given it up; from
+// then on it runs on the clone alone.
 
 // Three nodes start together, so the fleet peers past the threshold and holds
 // policy, which an install needs; the second machine starts after them.
@@ -261,28 +263,30 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
     await env?.teardown();
   });
 
-  it('takes the collateral over, the listed node stands aside, and the app runs on one node', async function () {
-    this.timeout(COLLATERAL_MS + (2 * RESPAWN_MS) + 120000);
-    await dbClient(COPY + 1).cloneFrom(LISTED + 1, env.clients[LISTED]);
+  it('takes the collateral over, the listed node stands aside, and the app runs on the clone alone', async function () {
+    this.timeout(COLLATERAL_MS + (2 * RESPAWN_MS) + 240000);
+    await env.cloneNodeDisk(LISTED, COPY);
     const watch = watchRunsOnce(env, appName);
     try {
       await env.startNode(COPY);
       expect((await dbClient(COPY + 1).globalAppSpec(appName))?.hash, 'fixture: the clone holds the app').to.equal(app.hash);
+      await waitFor(async () => (await getAppContainerStatus(env.clients[COPY].container, appName, { all: true })) !== null, {
+        timeout: 120000, interval: 3000, label: 'fixture: the clone holds the app\'s container',
+      });
 
       await waitFor(async () => (await collateralAt(env)) === listedAt(COPY)
         && (await dosStateOf(env, LISTED)) >= OUT_OF_SERVICE, {
         timeout: COLLATERAL_MS, interval: 5000, label: 'the collateral at the clone and the listed node out of service',
       });
-      // A node out of service gives its apps up, so the app is placed again.
       await waitFor(async () => !(await isUp(env, appName, LISTED)), {
         timeout: 120000, interval: 3000, label: 'the listed node gave the app up',
       });
-      await waitFor(async () => (await watch.runningOn()).length === 1, {
-        timeout: RESPAWN_MS, interval: 5000, label: 'the app running on one node again',
+      await waitFor(() => isUp(env, appName, COPY), {
+        timeout: RESPAWN_MS, interval: 5000, label: 'the app running on the clone',
       });
-      await runsOnOneThroughout(watch, RESPAWN_MS);
+      expect(await runsOnOneThroughout(watch, RESPAWN_MS), 'the node running the app').to.equal(COPY);
     } finally {
-      expect(await watch.stop(), 'the app ran on two nodes').to.equal(null);
+      await watch.stop();
     }
   });
 });
