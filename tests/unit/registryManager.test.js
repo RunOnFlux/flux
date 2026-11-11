@@ -157,6 +157,56 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('storeAppSpecificationInForce tests', () => {
+    const name = `applytest${Date.now()}`;
+    const message = (hash, height, expire = 100) => ({
+      hash, height, appSpecifications: { name, hash, height, expire },
+    });
+    const apply = (specs, governing, atHeight) => {
+      sinon.stub(dbHelper, 'appMessagesThatCount').resolves(governing);
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { height: atHeight } });
+      return registryManager.storeAppSpecificationInForce(specs);
+    };
+
+    beforeEach(async () => {
+      await database.collection(config.database.appsglobal.collections.appsInformation).deleteMany({ name });
+    });
+
+    it('applies the message that governs the app, in force, and says so', async () => {
+      const update = message('aa', 1000);
+      const decision = await apply(update.appSpecifications, [message('bb', 900), update], 1010);
+
+      expect(decision).to.deep.equal({
+        name, hash: 'aa', height: 1000, applied: true, reason: 'applied', governingHash: 'aa', atHeight: 1010,
+      });
+      const held = await database.collection(config.database.appsglobal.collections.appsInformation).findOne({ name });
+      expect(held.hash).to.equal('aa');
+    });
+
+    it('declines a message another governs, naming the one that does', async () => {
+      const decision = await apply(message('aa', 1000).appSpecifications, [message('aa', 1000), message('bb', 1001)], 1010);
+
+      expect(decision).to.include({ applied: false, reason: 'notGoverning', governingHash: 'bb' });
+      expect(await database.collection(config.database.appsglobal.collections.appsInformation).findOne({ name })).to.equal(null);
+    });
+
+    it('declines a message whose term has ended', async () => {
+      const update = message('aa', 1000, 5);
+      const decision = await apply(update.appSpecifications, [update], 1010);
+
+      expect(decision).to.include({ applied: false, reason: 'notInForce', governingHash: 'aa' });
+    });
+
+    it('leaves a row that already holds the message', async () => {
+      const update = message('aa', 1000);
+      await apply(update.appSpecifications, [update], 1010);
+      sinon.restore();
+      const decision = await apply(update.appSpecifications, [update], 1011);
+
+      expect(decision).to.include({ applied: false, reason: 'alreadyHeld' });
+    });
+  });
+
   describe('getApplicationOwner tests', () => {
     beforeEach(async () => {
       const collection = config.database.appsglobal.collections.appsInformation;

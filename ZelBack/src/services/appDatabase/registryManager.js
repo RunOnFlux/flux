@@ -1780,25 +1780,37 @@ async function isGoverningAppMessage(appName, hash) {
  * current block. Any other message changes nothing: a newer one governs the app, or its term has ended.
  * A registration and an update are stored alike, so an update renews an app this node's expiry
  * pass has already removed, and this node holds what a rebuild from the log would. A row that
- * already holds this message at this height is left as it is.
+ * already holds this message at this height is left as it is. The decision is published as
+ * app:specApplied, whichever it is.
  * @param {object} appSpecs the message's specifications, with its hash and height
- * @returns {Promise<void>} Rejects when a read or the write fails: the caller decides what an
- *   unwritten registry row costs it.
+ * @returns {Promise<{name: string, hash: string, height: number, applied: boolean,
+ *   reason: ('applied'|'notGoverning'|'notInForce'|'alreadyHeld'), governingHash: (string|null), atHeight: number}>}
+ *   Rejects when a read or the write fails: the caller decides what an unwritten registry row costs it.
  */
 async function storeAppSpecificationInForce(appSpecs) {
   return withRegistryWrite(async () => {
-    if (!await isGoverningAppMessage(appSpecs.name, appSpecs.hash)) return;
+    const decide = (reason, governingHash, atHeight) => {
+      const decision = {
+        name: appSpecs.name, hash: appSpecs.hash, height: appSpecs.height, applied: reason === 'applied', reason, governingHash, atHeight,
+      };
+      fluxEventBus.publish('app:specApplied', decision);
+      return decision;
+    };
+    const governing = await governingAppMessage(appSpecs.name);
+    const governingHash = governing?.hash ?? null;
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
-    if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return;
+    if (governingHash !== appSpecs.hash) return decide('notGoverning', governingHash, currentHeight);
+    if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return decide('notInForce', governingHash, currentHeight);
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const held = await dbHelper.findOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, { projection: { _id: 0, hash: 1, height: 1 } });
-    if (held && held.hash === appSpecs.hash && held.height === appSpecs.height) return;
+    if (held && held.hash === appSpecs.hash && held.height === appSpecs.height) return decide('alreadyHeld', governingHash, currentHeight);
     await dbHelper.replaceOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, appSpecs, { upsert: true });
     fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
+    return decide('applied', governingHash, currentHeight);
   });
 }
 
