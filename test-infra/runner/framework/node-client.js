@@ -240,6 +240,7 @@ export function nodeClient(nodeNum) {
         'app:softRedeployed',
         'reinstall:passEnded',
         'app:componentRedeployed',
+        'app:lostVolume',
         'app:specStored',
         'app:running',
         // what this node records of when it took each app it holds
