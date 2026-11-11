@@ -15,6 +15,7 @@ import { deliverAppByBlock } from '../framework/app-delivery.js';
 import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
@@ -44,6 +45,7 @@ const BYSTANDER = 1;
 const OTHER = 2;
 const COPY = 3;
 const SPAWNER_BEFORE_PASS = 'spawner:beforePass';
+const BOOT_BEFORE_SYNC_WAIT = 'boot:beforeSyncWait';
 // The collision check's grace and the confirmation's block, from the death.
 const COLLATERAL_MS = 6 * 60 * 1000;
 // The dead node's location lifetime (63s in this fleet), then a spawn and a start.
@@ -58,16 +60,20 @@ const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:16127`)
  * the second machine not yet started.
  * @param {object} hookCtx
  * @param {string} appName
+ * @param {object} [overrides]
+ * @param {object} [overrides.fluxapps] The fleet's app config, over its peer floors.
+ * @param {object} [overrides.copy] The second machine's own config.
  * @returns {Promise<{env: object, app: object}>}
  */
-async function fleetRunningTheApp(hookCtx, appName) {
+async function fleetRunningTheApp(hookCtx, appName, { fluxapps = {}, copy = {} } = {}) {
   const env = await createTestEnv({
     hookCtx,
     nodes: 4,
     deferredNodes: 1,
     collateralOf: { [COPY + 1]: LISTED + 1 },
     tickerAutostart: false,
-    configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
+    configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, ...fluxapps } },
+    nodeConfigOverrides: { [COPY]: copy },
   });
   await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   await pushImage(appName, 'v1');
@@ -252,9 +258,18 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
   dumpLogsOnFailure(() => env);
   const appName = `e2ecloneapp${Date.now()}`;
 
+  // The clone's boot is judged by timers the harness compresses below the work in
+  // front of them: its downtime and the listed node's location record against the
+  // location lifetime, and its database against the boot sync wait, which runs
+  // from finding peers. The fleet keeps production's location lifetimes, which no
+  // part of this case comes near, and the clone boots held before its sync wait,
+  // released once it can be heard, when its database is moments away.
   before(async function () {
     this.timeout(600000);
-    ({ env, app } = await fleetRunningTheApp(this, appName));
+    ({ env, app } = await fleetRunningTheApp(this, appName, {
+      fluxapps: PRODUCTION_LOCATION_EXPIRIES,
+      copy: { testCheckpointsHeldAtStart: [BOOT_BEFORE_SYNC_WAIT] },
+    }));
     await waitFor(() => isUp(env, appName, LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
   });
 
@@ -268,7 +283,10 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
     await env.cloneNodeDisk(LISTED, COPY);
     const watch = watchRunsOnce(env, appName);
     try {
-      await env.startNode(COPY);
+      const clone = await env.startNode(COPY);
+      await clone.waitForEvent('checkpoint:held', (d) => d.name === BOOT_BEFORE_SYNC_WAIT, 180000);
+      await clone.waitForEvent('messageCapability:changed', (d) => d.capable === true, 180000);
+      await clone.releaseCheckpoint(BOOT_BEFORE_SYNC_WAIT);
       expect((await dbClient(COPY + 1).globalAppSpec(appName))?.hash, 'fixture: the clone holds the app').to.equal(app.hash);
       await waitFor(async () => (await getAppContainerStatus(env.clients[COPY].container, appName, { all: true })) !== null, {
         timeout: 120000, interval: 3000, label: 'fixture: the clone holds the app\'s container',

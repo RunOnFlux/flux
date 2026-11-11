@@ -156,6 +156,9 @@ const Checkpoint = Object.freeze({
   // Boot has read the location record of an app it held unconfirmed, and has not
   // yet released the app or acted on the answer. Keyed by app name.
   BOOT_BEFORE_LOCATION_DECISION: 'boot:beforeLocationDecision',
+  // Boot, before it waits a bounded time for the database: held, the wait starts
+  // only on release.
+  BOOT_BEFORE_SYNC_WAIT: 'boot:beforeSyncWait',
   // A removal has taken an app's containers and volume down and has not yet
   // deleted its row. Keyed by app name.
   REMOVAL_BEFORE_ROW_DELETE: 'removal:beforeRowDelete',
@@ -221,6 +224,11 @@ class FluxEventBus extends EventEmitter {
     // code paths paused at a checkpoint: { name, key, resume }
     this.#parked = [];
     this.#snapshots = new Map();
+    // Held from the moment the process starts, for a path that runs before the
+    // harness can reach the node: its boot.
+    if (this.#enabled && config.has('testCheckpointsHeldAtStart')) {
+      config.get('testCheckpointsHeldAtStart').forEach((name) => this.holdCheckpoint(name));
+    }
   }
 
   get enabled() { return this.#enabled; }

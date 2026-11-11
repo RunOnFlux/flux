@@ -530,6 +530,7 @@ async function manageAppsOnBoot(bootContext) {
 
     // A UPnP node is ready once its router has taken its own ports, as it is once
     // its database is: both within the one deadline.
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BOOT_BEFORE_SYNC_WAIT);
     const upnpNode = upnpService.isUPNP();
     try {
       if (await awaitWithin(unlessTakenOut(Promise.all([globalState.waitForDbReady(), upnpNode ? upnpService.whenUPNPReady() : null])), SYNC_TIMEOUT_MS, 'sync_timeout') === OUT_OF_SERVICE) {
