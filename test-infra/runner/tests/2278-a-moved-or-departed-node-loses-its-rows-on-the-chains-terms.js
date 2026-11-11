@@ -3,7 +3,7 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { moveNodeAddress } from '../framework/container.js';
+import { blockPeerAccess, moveNodeAddress, unblockPeerAccess } from '../framework/container.js';
 import {
   clearNodeAddress, clearNodeStatus, clearRpcFailures, failRpc, getState, removeFromNodeList, restoreToNodeList, setNodeAddress, setNodeStatus,
 } from '../framework/daemon-control.js';
@@ -61,6 +61,8 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
   dumpLogsOnFailure(() => env);
   const moved = [];
   const held = [];
+  // The links cut while a move is held: { container, ips }.
+  const cuts = [];
   const dropped = [];
   const stamp = Date.now();
   const apps = {
@@ -88,6 +90,14 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
     const newSocket = socketOf(toIp);
     await node.holdCheckpoint(BEFORE_RECONCILE, newSocket);
     held.push([i, newSocket]);
+    // A peer hears a move by its announcement, held here, or by a state sync from
+    // a node that holds it, the moved node first. The node at its new address is
+    // cut off from every other node, both ways, for as long as its move is held.
+    const others = env.clients.map((_unused, j) => j).filter((j) => j !== i);
+    cuts.push({ container: node.container, ips: await blockPeerAccess(node.container, others.map((j) => client(j).ip), API_PORT) });
+    await Promise.all(others.map(async (j) => {
+      cuts.push({ container: client(j).container, ips: await blockPeerAccess(client(j).container, [toIp], API_PORT) });
+    }));
     const anchor = node.getLastEventId();
     await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
     moved.push(fromIp);
@@ -138,6 +148,7 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
 
   after(async function () {
     this.timeout(60000);
+    await Promise.all(cuts.map(({ container, ips }) => unblockPeerAccess(container, ips, API_PORT).catch(() => {})));
     await Promise.all(held.map(([i, socket]) => client(i).releaseCheckpoint(BEFORE_RECONCILE, socket).catch(() => {})));
     await Promise.all(dropped.map((ip) => Promise.all([restoreToNodeList(ip).catch(() => {}), clearNodeStatus(ip).catch(() => {})])));
     await Promise.all(moved.map((ip) => clearNodeAddress(ip).catch(() => {})));
