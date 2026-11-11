@@ -26,6 +26,7 @@ const { RemovalOutcome } = require('./utils/removalOutcome');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
+const { blockWindowRule, holdEnded, inWindow } = require('./utils/blockWindowHolds');
 const nodeDosState = require('./nodeDosState');
 const globalState = require('./utils/globalState');
 const configManager = require('./utils/configManager');
@@ -1902,7 +1903,7 @@ const IP_CHANGES_ALLOWED = 1;
  * @returns {number[]}
  */
 function ipChangesInWindow(ipChangeHeights, height) {
-  return ipChangeHeights.map((at) => at ?? height).filter((at) => height - at < IP_CHANGE_WINDOW_BLOCKS);
+  return inWindow(ipChangeHeights, height, IP_CHANGE_WINDOW_BLOCKS);
 }
 
 function getMaxNumberOfIpChanges() {
@@ -2627,86 +2628,94 @@ function applyIpChangeHold() {
 }
 
 /**
- * One pass of enforceIpChangeHold. At a chain height, it judges the IP changes
- * the record holds inside the window: over the limit with no hold standing, it
- * starts one at the height of the newest change; over the limit with one
- * standing, a change after the hold's start moves the start to it, so a node
- * that keeps changing stays held. Passes run one at a time and a started hold
- * is in the record before the next pass reads it.
- * @returns {Promise<boolean>} Whether the node is held.
+ * The IP change rule's state at a height: the changes inside the window and the
+ * hold. Over the limit with no hold standing, a hold starts at the height of the
+ * newest change; over the limit with one standing, a change after the hold's
+ * start moves the start to it, so a node that keeps changing stays held. A hold
+ * ends IP_CHANGE_WINDOW_BLOCKS after its start.
+ * @param {{exists: boolean, heights: Array<number|null>, hold: object|null}} state
+ * @param {number} height The chain's height; 0 when unknown.
+ * @returns {object} The state at `height`.
  */
-async function enforceIpChangeHoldOnce() {
-  const record = await ownAddressRecord();
-  const height = daemonServiceMiscRpcs.chainHeight();
-  let hold = record?.ipChangeHold ?? null;
-  if (record && height) {
-    const records = ownAddressCollection();
-    const recorded = record.ipChangeHeights ?? [];
-    const inWindow = ipChangesInWindow(recorded, height);
-    if (recorded.includes(null)) {
-      await records.updateOne(
-        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHeights: recorded },
-        { $set: { ipChangeHeights: inWindow } },
-      );
-    }
-    maxNumberOfIpChanges = inWindow.length;
-    if (!hold && inWindow.length > IP_CHANGES_ALLOWED) {
-      hold = { fromHeight: Math.max(...inWindow) };
-      await records.updateOne({ _id: OWN_ADDRESS_RECORD_ID }, { $set: { ipChangeHold: hold } });
-      log.error(IP_CHANGES_MESSAGE);
-    } else if (hold && hold.fromHeight === null) {
-      await records.updateOne(
-        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: null } },
-        { $set: { ipChangeHold: { fromHeight: height } } },
-      );
-      hold = { fromHeight: height };
-    } else if (hold && inWindow.length > IP_CHANGES_ALLOWED && Math.max(...inWindow) > hold.fromHeight) {
-      const extended = { fromHeight: Math.max(...inWindow) };
-      await records.updateOne(
-        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },
-        { $set: { ipChangeHold: extended } },
-      );
-      hold = extended;
-    } else if (hold && height - hold.fromHeight >= IP_CHANGE_WINDOW_BLOCKS) {
-      await records.updateOne(
-        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },
-        { $set: { ipChangeHold: null } },
-      );
-      hold = null;
-    }
+function judgeIpChanges(state, height) {
+  if (!state.exists || !height) return state;
+  const heights = ipChangesInWindow(state.heights, height);
+  maxNumberOfIpChanges = heights.length;
+  const newest = Math.max(...heights);
+  let { hold } = state;
+  if (!hold && heights.length > IP_CHANGES_ALLOWED) {
+    hold = { fromHeight: newest, blocks: IP_CHANGE_WINDOW_BLOCKS };
+    log.error(IP_CHANGES_MESSAGE);
+  } else if (hold && hold.fromHeight === null) {
+    hold = { ...hold, fromHeight: height };
+  } else if (hold && heights.length > IP_CHANGES_ALLOWED && newest > hold.fromHeight) {
+    hold = { ...hold, fromHeight: newest };
+  } else if (holdEnded(hold, height)) {
+    hold = null;
   }
-  ipChangeHold = hold;
-  return applyIpChangeHold();
+  return { ...state, heights, hold };
 }
 
-// The pass of enforceIpChangeHold running, and the one asked for while it runs.
-let ipChangeHoldEnforcing = null;
-let ipChangeHoldEnforceNext = null;
+/**
+ * The IP change rule's state as this node's own address record holds it: the
+ * record keeps each change's height with the move that made it, so a change is
+ * counted once however often the move is acted on.
+ * @returns {Promise<object>}
+ */
+async function loadIpChanges() {
+  const record = await ownAddressRecord();
+  const stored = { heights: record?.ipChangeHeights, hold: record?.ipChangeHold };
+  return {
+    exists: Boolean(record),
+    heights: stored.heights ?? [],
+    hold: stored.hold ? { fromHeight: stored.hold.fromHeight ?? null, blocks: IP_CHANGE_WINDOW_BLOCKS } : null,
+    stored,
+  };
+}
+
+/**
+ * Writes the rule's state to the own address record while the record still
+ * holds what was read: a move writes its change to the same record.
+ * @param {object} before The state read.
+ * @param {object} after The state to store.
+ * @returns {Promise<boolean>} False when the record changed since it was read.
+ */
+async function saveIpChanges(before, after) {
+  if (!before.exists) return true;
+  const hold = after.hold ? { fromHeight: after.hold.fromHeight } : null;
+  if (JSON.stringify(before.heights) === JSON.stringify(after.heights)
+    && JSON.stringify(before.stored.hold ?? null) === JSON.stringify(hold)) return true;
+  const { matchedCount } = await ownAddressCollection().updateOne(
+    {
+      _id: OWN_ADDRESS_RECORD_ID,
+      ipChangeHeights: before.stored.heights === undefined ? { $exists: false } : before.stored.heights,
+      ipChangeHold: before.stored.hold ?? null,
+    },
+    { $set: { ipChangeHeights: after.heights, ipChangeHold: hold } },
+  );
+  return matchedCount === 1;
+}
+
+const ipChangeRule = blockWindowRule({
+  load: loadIpChanges,
+  save: saveIpChanges,
+  judge: judgeIpChanges,
+  apply: (state) => {
+    ipChangeHold = state.hold ? { fromHeight: state.hold.fromHeight } : null;
+    applyIpChangeHold();
+  },
+});
 
 /**
  * Brings the IP change hold to what this node's own address record holds at
  * the daemon's height, and holds the node by it: the one place the hold this
- * node acts on is set or ended. The record is kept to that height: a hold, or a
- * change, recorded before this node knew a height is given the first height it
- * knows, and a hold the chain has passed is ended.
- *
- * One pass runs at a time. A call while one runs is answered by a pass that
- * starts after it ends, so the record a writer has just written is read by a
- * pass that began after the write.
+ * node acts on is set or ended. Passes run one after another, so the record a
+ * writer has just written is read by a pass that began after the write.
  * @returns {Promise<boolean>} Whether the node is held.
  */
-function enforceIpChangeHold() {
-  if (!ipChangeHoldEnforcing) {
-    ipChangeHoldEnforcing = enforceIpChangeHoldOnce().finally(() => { ipChangeHoldEnforcing = null; });
-    return ipChangeHoldEnforcing;
-  }
-  if (!ipChangeHoldEnforceNext) {
-    ipChangeHoldEnforceNext = ipChangeHoldEnforcing.catch(() => {}).then(() => {
-      ipChangeHoldEnforceNext = null;
-      return enforceIpChangeHold();
-    });
-  }
-  return ipChangeHoldEnforceNext;
+async function enforceIpChangeHold() {
+  await ipChangeRule.pass();
+  return applyIpChangeHold();
 }
 
 // Stops the IP change hold's watch of the daemon's height, while it watches.
@@ -2720,9 +2729,7 @@ let stopIpChangeHoldWatch = null;
  */
 function startIpChangeHoldWatch() {
   if (!stopIpChangeHoldWatch) {
-    const enforce = () => enforceIpChangeHold().catch((error) => log.error(`IP change hold - ${error.message}`));
-    stopIpChangeHoldWatch = daemonServiceMiscRpcs.onDaemonHeight(enforce);
-    enforce();
+    stopIpChangeHoldWatch = ipChangeRule.watch((error) => log.error(`IP change hold - ${error.message}`));
   }
   return () => {
     if (stopIpChangeHoldWatch) stopIpChangeHoldWatch();
