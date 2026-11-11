@@ -943,6 +943,47 @@ async function reconcile(rawIdentifier) {
     await clearNetworkHealState(identifier);
   }
 
+  // An installed component has a container whether or not it is meant to run, so
+  // a missing one is rebuilt, created and not started, before any run decision.
+  if (!actual.exists) {
+    // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
+    // container to clear a stale endpoint, its absence is not tampering. Keep
+    // recreating it - paced on the heal ladder, never escalating to the vanished
+    // path's uninstall-on-failure. Only a container that vanished by other means
+    // takes that path.
+    let healRemoved;
+    try {
+      healRemoved = await appsRuntimeState.isNetworkHealRemoval(identifier);
+    } catch (err) {
+      // We cannot tell whether we removed this container ourselves. Guessing "no" is
+      // the destructive guess: it records a false tampering event and can uninstall
+      // the whole app on a failed recreate. Defer until the state is readable.
+      log.warn(`appReconciler - cannot read the heal state of the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
+    if (healRemoved) {
+      const wait = await appsRuntimeState.networkHealWaitMs(identifier);
+      if (wait > 0) {
+        log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
+        scheduleRetry(identifier, wait);
+        return;
+      }
+      try {
+        await appsRuntimeState.recordNetworkHealAttempt(identifier);
+      } catch (err) {
+        // unpaced retries would hammer the recreate; defer instead
+        log.error(`appReconciler - cannot pace the heal recreate of ${identifier} (${err.message}); will retry`);
+        scheduleRetry(identifier, MANAGED_RETRY_MS);
+        return;
+      }
+      await recreateForNetworkHeal(identifier);
+      return;
+    }
+    await recreateMissing(identifier);
+    return;
+  }
+
   // Pending data wipe: the sync layer flagged this component's local appdata as
   // stale/to-be-reset and to be cleared before it runs again. This is the highest-
   // priority data action and is resolved here, inside the per-key single-flight and
@@ -1069,45 +1110,6 @@ async function reconcile(rawIdentifier) {
       return; // running and properly attached (heal state was cleared above)
     }
     await healDetachedNetwork(identifier, mainAppName, spec);
-    return;
-  }
-
-  if (!actual.exists) {
-    // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
-    // container to clear a stale endpoint, its absence is not tampering. Keep
-    // recreating it - paced on the heal ladder, never escalating to the vanished
-    // path's uninstall-on-failure. Only a container that vanished by other means
-    // takes that path.
-    let healRemoved;
-    try {
-      healRemoved = await appsRuntimeState.isNetworkHealRemoval(identifier);
-    } catch (err) {
-      // We cannot tell whether we removed this container ourselves. Guessing "no" is
-      // the destructive guess: it records a false tampering event and can uninstall
-      // the whole app on a failed recreate. Defer until the state is readable.
-      log.warn(`appReconciler - cannot read the heal state of the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
-      scheduleRetry(identifier, MANAGED_RETRY_MS);
-      return;
-    }
-    if (healRemoved) {
-      const wait = await appsRuntimeState.networkHealWaitMs(identifier);
-      if (wait > 0) {
-        log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
-        scheduleRetry(identifier, wait);
-        return;
-      }
-      try {
-        await appsRuntimeState.recordNetworkHealAttempt(identifier);
-      } catch (err) {
-        // unpaced retries would hammer the recreate; defer instead
-        log.error(`appReconciler - cannot pace the heal recreate of ${identifier} (${err.message}); will retry`);
-        scheduleRetry(identifier, MANAGED_RETRY_MS);
-        return;
-      }
-      await recreateForNetworkHeal(identifier);
-      return;
-    }
-    await recreateMissing(identifier);
     return;
   }
 

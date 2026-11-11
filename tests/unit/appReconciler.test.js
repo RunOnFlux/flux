@@ -1068,6 +1068,56 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    describe('a missing container is rebuilt whatever the run decision', () => {
+      beforeEach(() => {
+        stubs.dockerService.dockerContainerInspect.rejects(new Error('Container db_App not found'));
+        stubs.dockerService.dockerListContainers.resolves([]);
+      });
+
+      it('rebuilds a g: component no controller has elected, without starting it', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'db_App', { start: false });
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('rebuilds an r: copy no controller has elected, without starting it', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'r:/data' }] };
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'db_App', { start: false });
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('rebuilds a standby a controller holds stopped, without starting it', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+        stubs.globalState.bootContainerStateSettled = false;
+        appReconciler.setControllerDesired('db_App', 'stopped', 'masterSlave standby');
+        stubs.globalState.bootContainerStateSettled = true;
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'db_App', { start: false });
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('rebuilds a component its operator stopped, without starting it', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: '/data' }] };
+        stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'db_App', { start: false });
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('rebuilds the container before clearing its data', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'r:/data' }] };
+        stubs.globalState.bootContainerStateSettled = false;
+        appReconciler.requestStopAndClearData('db_App', 'syncthing new app clean install');
+        stubs.globalState.bootContainerStateSettled = true;
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnce(stubs.containerHealthMonitor.recreateMissingContainers);
+        expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
+        expect(appReconciler.dataClearPending('db_App')).to.be.true;
+      });
+    });
+
     // controllerDesired is in-memory, so a FluxOS restart wipes it while the
     // container keeps running (Docker is independent of the FluxOS process). With
     // no controller opinion yet the reconciler must leave a running g:/r: container
