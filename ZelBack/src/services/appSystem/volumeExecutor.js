@@ -1529,6 +1529,13 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  *   extraction, a new folder or an archive is otherwise root's, and an app
  *   running as another user cannot change its own files. Only meaningful with
  *   `publish.staging`; a copy or a move keeps the owners its files already have.
+ * @param {boolean} [options.parents] - make the folders missing above the
+ *   destination when the result is published, each owned by the folder that
+ *   receives it (with or without `inheritOwner`). They are made only once the
+ *   result is ready, so a failed command or an upload over the ceiling makes
+ *   none; once made they stay if the publish is then refused (a `noReplace`
+ *   collision, say). A file or a dead link at any level refuses the operation, as
+ *   `mkdir -p` does. Needs flux-volume-tools v1.7.0.
  * @param {VolumePath} [options.workingDir] - the directory the command runs in,
  *   defaulting to the volume root. An archiver decides its stored layout from
  *   where it is run and what it is handed, and zip has no equivalent of tar's
@@ -1551,7 +1558,7 @@ async function run(session, argv, options = {}) {
     onProgress = null, isCanceled = null, status = 'Working...',
     publish = null, mkdirStaging = false, maxBytes = 0, maxFileBytes = 0, dataOnly = false,
     noReplace = false, merge = false, onBytes = null, workingDir = null, input = null,
-    slotHeld = false, inheritOwner = false,
+    slotHeld = false, inheritOwner = false, parents = false,
   } = options;
 
   if (!(session instanceof VolumeSession)) {
@@ -1608,6 +1615,7 @@ async function run(session, argv, options = {}) {
       ...(noReplace ? ['--no-replace'] : []),
       ...(merge ? ['--merge'] : []),
       ...(inheritOwner ? ['--inherit-owner'] : []),
+      ...(parents ? ['--parents'] : []),
       ...(input ? ['--from-stdin'] : []),
       toParam(target),
       toParam(publish.destination),

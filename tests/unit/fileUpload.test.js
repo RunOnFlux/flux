@@ -139,7 +139,34 @@ describe('fileSystemManager upload tests', () => {
     expect(options.publish.destination.relative).to.equal('photos/notes.txt');
     expect(options.slotHeld, 'the operation took a second slot').to.equal(true);
     expect(options.inheritOwner, 'an upload would be owned by root, not by the app').to.equal(true);
+    expect(options.parents, 'a folder made for the upload would be root\'s').to.equal(true);
     expect(release.called, 'the slot was never released').to.equal(true);
+  });
+
+  // The folder is made by each file's own publish (`parents`), not by a step of
+  // its own: a bare mkdir -p made every new level root's.
+  it('makes no folder of its own for a destination that is not there yet', async () => {
+    sessionStub.isDirectory.rejects(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+    const done = concluded();
+    await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.txt': 'x', 'b.txt': 'y' }, { folder: 'photos/new/deeper' }), res);
+    await done;
+
+    expect(executorStub.run.callCount, 'one publish per file and nothing else').to.equal(2);
+    executorStub.run.getCalls().forEach(({ args: [, argv, options] }) => {
+      expect(argv, 'a command ran before the upload').to.deep.equal([]);
+      expect(options.parents).to.equal(true);
+    });
+    expect(release.callCount).to.equal(1);
+  });
+
+  it('refuses a destination that exists and is not a folder', async () => {
+    sessionStub.isDirectory.resolves(false);
+    const done = concluded();
+    await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.txt': 'x' }), res);
+    await done;
+
+    expect(executorStub.run.called).to.equal(false);
+    expect(release.callCount).to.equal(1);
   });
 
   // The whole request is one operation. A slot per file would refuse the
@@ -316,7 +343,7 @@ describe('fileSystemManager upload tests', () => {
     it('refuses an upload into a missing folder below such a link', async () => {
       await upload('backup/in/new/deeper');
 
-      expect(executorStub.run.called, 'mkdir -p would have created appdata/new/deeper').to.equal(false);
+      expect(executorStub.run.called, 'the publish would have made appdata/new/deeper').to.equal(false);
       expect(res.json.firstCall.args[0].data.code).to.equal(409);
     });
 

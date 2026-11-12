@@ -1444,6 +1444,23 @@ describe('volumeExecutor tests', () => {
       expect(notAsked).to.not.include('--inherit-owner');
     });
 
+    it('passes --parents only when asked, so a publish into a missing folder is still refused', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op/66666666-6666-6666-6666-666666666666', { allowReserved: true });
+      const destination = await vol.resolve('a/b/out');
+
+      await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination }, parents: true });
+      await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
+
+      const asked = dockerServiceStub.createContainer.firstCall.args[0].Cmd;
+      const notAsked = dockerServiceStub.createContainer.secondCall.args[0].Cmd;
+      expect(flags(asked)).to.deep.equal([
+        'flux-op', '--root', '/work', '--discard-staging', '--parents',
+        '/work/.flux-op/66666666-6666-6666-6666-666666666666', '/work/a/b/out',
+      ]);
+      expect(notAsked).to.not.include('--parents');
+    });
+
     it('omits --merge by default, so an occupied directory is never replaced wholesale', async () => {
       const vol = await openSession();
       const staging = await vol.resolve('.flux-op/44444444-4444-4444-4444-444444444444', { allowReserved: true });
