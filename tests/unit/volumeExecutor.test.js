@@ -221,7 +221,10 @@ describe('volumeExecutor tests', () => {
     });
   });
 
-  afterEach(() => sinon.restore());
+  afterEach(() => {
+    volumeExecutor.stopImagePrefetch();
+    sinon.restore();
+  });
 
   describe('run - container configuration', () => {
     it('binds only the app volume, and binds the mount the session resolved', async () => {
@@ -765,7 +768,6 @@ describe('volumeExecutor tests', () => {
     });
 
     afterEach(() => {
-      volumeExecutor.stopImagePrefetch();
       globalThis.userconfig.initial.ipaddress = originalAddress;
     });
 
@@ -2405,10 +2407,10 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - an upload streamed into the container', () => {
-    const { Readable, Writable } = require('node:stream');
-
     let socket;
     let exit;
+    // Sources that never end on their own, destroyed after each test.
+    const unended = [];
 
     // A stand-in for the hijacked duplex socket. Records what reached the
     // container, and reports whether the transfer was ENDED - which is the
@@ -2429,8 +2431,9 @@ describe('volumeExecutor tests', () => {
     // first.
     const deferredExit = () => {
       let settle;
-      const promise = new Promise((resolve) => { settle = resolve; });
-      return { promise, finish: (StatusCode) => settle({ StatusCode }) };
+      let fail;
+      const promise = new Promise((resolve, reject) => { settle = resolve; fail = reject; });
+      return { promise, finish: (StatusCode) => settle({ StatusCode }), fail };
     };
 
     const sending = (chunks) => Readable.from(chunks);
@@ -2439,8 +2442,21 @@ describe('volumeExecutor tests', () => {
     // container gives up. Paced, because the socket here is a stand-in that
     // accepts instantly - a real one back-pressures, and an unpaced source
     // would fill this process's memory rather than the test's purpose.
-    const neverEnds = () => new Readable({
-      read() { setTimeout(() => this.push(Buffer.alloc(16)), 5); },
+    const neverEnds = () => {
+      let pacing = null;
+      const source = new Readable({
+        read() { pacing = setTimeout(() => this.push(Buffer.alloc(16)), 5); },
+        destroy(error, callback) {
+          clearTimeout(pacing);
+          callback(error);
+        },
+      });
+      unended.push(source);
+      return source;
+    };
+
+    afterEach(() => {
+      unended.splice(0).forEach((source) => source.destroy());
     });
 
     beforeEach(() => {
@@ -2452,6 +2468,8 @@ describe('volumeExecutor tests', () => {
       // resolving up front and racing the transfer.
       socket.on('finish', () => exit.finish(0));
       containerStub.stop = sinon.stub().callsFake(async () => exit.finish(143));
+      // A container removed before it ran has no exit: its wait ends with the container.
+      containerStub.remove = sinon.stub().callsFake(async () => exit.fail(new Error('no such container')));
       containerStub.wait = sinon.stub().returns(exit.promise);
       // The two attaches are told apart by what they ask for. Returning the
       // socket for both would let a test pass while the executor attached

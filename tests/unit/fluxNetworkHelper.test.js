@@ -73,6 +73,7 @@ const net = require('node:net');
 
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const { default: cacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -88,6 +89,10 @@ const FLUXBENCH_WITHOUT_PROBE = { status: 'error', data: { code: -32601, name: '
 
 describe('fluxNetworkHelper tests', () => {
   after(releaseMongo);
+
+  after(() => {
+    cacheManager.resetCaches();
+  });
 
   let getNetworkInfoStub;
 

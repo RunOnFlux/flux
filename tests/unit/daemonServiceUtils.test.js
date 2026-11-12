@@ -4,7 +4,7 @@ const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 
-const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
+const { FluxTTLCache, default: cacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const proxyquire = require('proxyquire').noCallThru();
@@ -15,6 +15,10 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('daemonServiceUtils tests', () => {
+  after(() => {
+    cacheManager.resetCaches();
+  });
+
   describe('reading flux.conf', () => {
     // A config whose parse can be held open, so the window between "being read" and "read"
     // is observable rather than a race.

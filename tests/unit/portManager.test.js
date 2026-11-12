@@ -20,6 +20,7 @@ const appQueryService = require('../../ZelBack/src/services/appQuery/appQuerySer
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
+const { default: cacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 
 // what portReconciler.want and keep answer for a port mapped, and for one the router refused
 const MAPPED = {
@@ -31,6 +32,10 @@ const REFUSED = {
 
 describe('portManager tests', () => {
   before(requireMongo);
+
+  after(() => {
+    cacheManager.resetCaches();
+  });
 
   afterEach(() => {
     sinon.restore();

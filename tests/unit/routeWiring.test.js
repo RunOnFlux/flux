@@ -34,6 +34,12 @@ const {
   requireRegistryReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
 
+// apicache.clear() with no target empties the store but leaves each entry's
+// expiry timer armed; clearing entry by entry stops both.
+function clearCache() {
+  apicache.getIndex().all.forEach((key) => apicache.clear(key));
+}
+
 /**
  * The route table routes.js builds, as a list of {method, path, chain}.
  * @returns {Array<{method: string, path: string, chain: Function[]}>}
@@ -342,8 +348,8 @@ describe('route wiring', () => {
       const released = held.map((res) => once(res, 'close'));
       server.closeAllConnections();
       server.close();
-      await Promise.all(released);
-      apicache.clear();
+      await Promise.all([...released, once(server, 'close')]);
+      clearCache();
     });
 
     // `from` is the caller's address: any 127.0.0.x reaches the server on 127.0.0.1.
@@ -444,7 +450,7 @@ describe('route wiring', () => {
     let calls;
 
     beforeEach(() => {
-      apicache.clear();
+      clearCache();
       calls = { boom: 0, reported: 0, fine: 0 };
       app = express();
       app.get('/boom', cache('30 seconds'), asyncRoute(async () => {
@@ -462,7 +468,7 @@ describe('route wiring', () => {
     });
 
     afterEach(() => {
-      apicache.clear();
+      clearCache();
     });
 
     it('does not answer a later caller from a handler that failed', async () => {

@@ -65,10 +65,12 @@ describe('verifyPool tests', () => {
       () => 'resolved',
       () => 'rejected',
     );
+    let stillPending;
     const outcome = await Promise.race([
       settled,
-      new Promise((resolve) => { setTimeout(() => resolve('STILL PENDING'), 5000); }),
+      new Promise((resolve) => { stillPending = setTimeout(() => resolve('STILL PENDING'), 5000); }),
     ]);
+    clearTimeout(stillPending);
 
     expect(outcome, 'verify() never settled - the queue has no way back into dispatch').to.not.equal('STILL PENDING');
   });

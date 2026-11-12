@@ -3551,6 +3551,8 @@ describe('fluxService tests', () => {
     let child;
     let publishStub;
     let files;
+    // A restart request a test leaves waiting on pm2.
+    let asked;
     const registration = (killTimeout) => JSON.stringify([
       { pm_id: 2, name: 'watchdog', pm2_env: {} },
       { pm_id: 3, name: 'flux', pm2_env: killTimeout === undefined ? {} : { kill_timeout: killTimeout } },
@@ -3576,9 +3578,15 @@ describe('fluxService tests', () => {
       });
       fsPromisesStubs.writeFile.resetHistory();
       process.env.pm_id = '3';
+      asked = null;
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      if (asked) {
+        // Ended as pm2 reports a restart that failed.
+        process.emit('SIGUSR2');
+        await asked;
+      }
       delete fsPromisesStubs.readFile;
       process.removeAllListeners('SIGUSR2');
       sinon.restore();
@@ -3586,9 +3594,9 @@ describe('fluxService tests', () => {
     });
 
     it('records the boot, asks pm2 detached from this process, and waits for the restart', async () => {
-      const pending = fluxService.ensurePm2KillTimeout();
+      asked = fluxService.ensurePm2KillTimeout();
 
-      expect(await returnedBy(pending), 'returned while the restart is under way').to.equal(false);
+      expect(await returnedBy(asked), 'returned while the restart is under way').to.equal(false);
       sinon.assert.calledWithExactly(fsPromisesStubs.writeFile, REQUEST, 'boot-a');
       sinon.assert.calledOnce(spawnStub);
       const [cmd, args, opts] = spawnStub.firstCall.args;
@@ -3692,7 +3700,7 @@ describe('fluxService tests', () => {
     it('asks again on a later machine boot', async () => {
       files[REQUEST] = 'boot-before\n';
 
-      fluxService.ensurePm2KillTimeout();
+      asked = fluxService.ensurePm2KillTimeout();
       await new Promise((resolve) => { setImmediate(resolve); });
 
       sinon.assert.calledOnce(spawnStub);

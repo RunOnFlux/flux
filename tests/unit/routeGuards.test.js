@@ -28,6 +28,17 @@ const {
 } = require('../../ZelBack/src/services/utils/routeGuards');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
+// apicache.clear() with no target empties the store but leaves each entry's
+// expiry timer armed; clearing entry by entry stops both.
+function clearCache() {
+  apicache.getIndex().all.forEach((key) => apicache.clear(key));
+}
+
+async function closeServer(server) {
+  server.close();
+  await once(server, 'close');
+}
+
 describe('routeGuards', () => {
   describe('rejectQueryParameters', () => {
     let app;
@@ -37,7 +48,7 @@ describe('routeGuards', () => {
     // apicache's store and its expiry timers are module-global, so this suite
     // both starts clean and leaves nothing behind for whatever runs next
     beforeEach(() => {
-      apicache.clear();
+      clearCache();
       handlerCalls = 0;
       app = express();
       app.get(
@@ -51,9 +62,9 @@ describe('routeGuards', () => {
       );
     });
 
-    afterEach(() => {
-      apicache.clear();
-      if (server) { server.close(); server = null; }
+    afterEach(async () => {
+      clearCache();
+      if (server) { await closeServer(server); server = null; }
     });
 
     // One server for the test, rather than one per request. supertest binds a
@@ -143,9 +154,9 @@ describe('routeGuards', () => {
       });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       globalState.bootContainerStateSettled = settledBefore;
-      if (server) { server.close(); server = null; }
+      if (server) { await closeServer(server); server = null; }
     });
 
     const get = (path) => {
@@ -203,9 +214,9 @@ describe('routeGuards', () => {
       });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       globalState.policyReady = policyBefore;
-      if (server) { server.close(); server = null; }
+      if (server) { await closeServer(server); server = null; }
     });
 
     const get = (path) => {
@@ -294,8 +305,8 @@ describe('routeGuards', () => {
       });
     });
 
-    afterEach(() => {
-      if (server) { server.close(); server = null; }
+    afterEach(async () => {
+      if (server) { await closeServer(server); server = null; }
     });
 
     const get = (path) => {
@@ -384,7 +395,7 @@ describe('routeGuards', () => {
       let flagBefore;
 
       beforeEach(() => {
-        apicache.clear();
+        clearCache();
         flagBefore = globalState[flag];
         globalState[flag] = false;
         handlerCalls = 0;
@@ -395,10 +406,10 @@ describe('routeGuards', () => {
         });
       });
 
-      afterEach(() => {
+      afterEach(async () => {
         globalState[flag] = flagBefore;
-        apicache.clear();
-        if (server) { server.close(); server = null; }
+        clearCache();
+        if (server) { await closeServer(server); server = null; }
       });
 
       const get = () => {
@@ -463,9 +474,9 @@ describe('routeGuards', () => {
       url = `http://127.0.0.1:${server.address().port}`;
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       server.closeAllConnections();
-      server.close();
+      await closeServer(server);
     });
 
     /** Starts a GET, returning the client request; its answer is `answered`. */
@@ -570,9 +581,9 @@ describe('routeGuards', () => {
       url = `http://127.0.0.1:${server.address().port}`;
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       server.closeAllConnections();
-      server.close();
+      await closeServer(server);
     });
 
     /** Starts a GET from `from` (any 127.0.0.x reaches the server); its answer is `answered`. */

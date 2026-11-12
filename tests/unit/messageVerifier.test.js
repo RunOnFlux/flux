@@ -809,9 +809,11 @@ describe('messageVerifier tests', () => {
     const answer = Array.from({ length: ANSWER_MESSAGES }, (_, i) => ({ hash: `h${i}`, padding: PADDING }));
     let server;
 
-    afterEach(() => {
-      server?.closeAllConnections();
-      server?.close();
+    afterEach(async () => {
+      if (!server) return;
+      server.closeAllConnections();
+      server.close();
+      await once(server, 'close');
       server = null;
     });
 

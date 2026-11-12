@@ -23,6 +23,15 @@ const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
 
 const signer = { pubKey: 'pubkey', sign: () => 'signature' };
+// The test server's own close, for a server whose listen is stubbed: it ends
+// what the server's 'listening' started, and answers the callback as the close
+// of a server that bound its port does.
+const { close: closeTestServer } = fluxHttpTestServer.FluxHttpTestServer.prototype;
+function closeUnbound(callback) {
+  closeTestServer.call(this);
+  return callback && callback();
+}
+
 // the check with a node that can sign its port test
 const signingAvailabilityChecker = proxyquire('../../ZelBack/src/services/appMonitoring/availabilityChecker', {
   '../utils/nodeSigner': { nodeSigner: async () => signer },
@@ -398,7 +407,7 @@ describe('availabilityChecker tests', () => {
           this.emit('listening');
           return this;
         });
-        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake((callback) => callback && callback());
+        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake(closeUnbound);
         portTestStub = sinon.stub(axios, 'post').resolves({ data: { status: 'success', data: { message: 'Ports reachable' } } });
       });
 
@@ -782,7 +791,7 @@ describe('availabilityChecker tests', () => {
           this.emit('listening');
           return this;
         });
-        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake((callback) => callback && callback());
+        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake(closeUnbound);
         portTestStub = sinon.stub(axios, 'post').callsFake(reading('ours', 'ours'));
       });
 
@@ -886,9 +895,9 @@ describe('availabilityChecker tests', () => {
             return reading('ours', 'ours')(url, body);
           });
           let heldAtClose;
-          fluxHttpTestServer.FluxHttpTestServer.prototype.close.callsFake((callback) => {
+          fluxHttpTestServer.FluxHttpTestServer.prototype.close.callsFake(function close(callback) {
             heldAtClose = portClaims.holderOf([PORT]);
-            return callback && callback();
+            return closeUnbound.call(this, callback);
           });
 
           await pass();

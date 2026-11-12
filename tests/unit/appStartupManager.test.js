@@ -154,6 +154,7 @@ describe('appStartupManager tests', () => {
       '../appMonitoring/appReconciler': appReconcilerStub,
       './appUninstaller': appUninstallerStub,
       './appSlice': appSliceStub,
+      './appNetworkLinker': { reconcileAllAppNetworkLinks: sinon.stub().resolves() },
       '../appMonitoring/nodeStatusMonitor': nodeStatusMonitor,
       '../appManagement/appPlacements': appPlacementsStub,
       '../utils/globalState': globalStateStub,
