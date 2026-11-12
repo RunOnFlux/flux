@@ -346,8 +346,9 @@ describe('route wiring', () => {
       apicache.clear();
     });
 
-    function open(requestPath) {
-      const req = http.get(`${url}${requestPath}`);
+    // `from` is the caller's address: any 127.0.0.x reaches the server on 127.0.0.1.
+    function open(requestPath, from = '127.0.0.1') {
+      const req = http.get(`${url}${requestPath}`, { localAddress: from });
       req.answered = new Promise((resolve) => {
         req.on('response', function readStatus(res) {
           res.resume();
@@ -403,11 +404,22 @@ describe('route wiring', () => {
     it('GET /apps/permanentmessagesbyheight serves four logs at a time', async () => {
       await serveRoute('/apps/permanentmessagesbyheight');
 
-      for (let i = 0; i < 4; i += 1) open(`/apps/permanentmessagesbyheight?fromHeight=0&toHeight=${i}`);
+      for (let i = 1; i <= 4; i += 1) open(`/apps/permanentmessagesbyheight?fromHeight=0&toHeight=${i}`, `127.0.0.${i}`);
       await untilHeld(4);
 
-      expect(await open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=9').answered).to.equal(503);
+      expect(await open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=9', '127.0.0.5').answered).to.equal(503);
       expect(held).to.have.lengthOf(4);
+    });
+
+    it('GET /apps/permanentmessagesbyheight serves one log at a time to one caller', async () => {
+      await serveRoute('/apps/permanentmessagesbyheight');
+
+      open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=1', '127.0.0.1');
+      await untilHeld(1);
+
+      expect(await open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=2', '127.0.0.1').answered).to.equal(503);
+      open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=3', '127.0.0.2');
+      await untilHeld(2);
     });
   });
 

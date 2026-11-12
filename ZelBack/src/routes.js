@@ -80,10 +80,11 @@ function withoutMessageHash(req) {
 
 // A permanent message lookup without a hash builds its whole answer in memory, so a node builds
 // one at a time.
-const permanentMessageQueryLimit = limitConcurrent(1, 'This node is already answering a permanent message query', withoutMessageHash);
+const permanentMessageQueryLimit = limitConcurrent(1, 'This node is already answering a permanent message query', { limited: withoutMessageHash });
 
-// Each message log being served keeps a processor core compressing it for its whole transfer.
-const permanentMessageLogLimit = limitConcurrent(4, 'This node is already serving as many message logs as it allows');
+// Each message log being served keeps a processor core compressing it for its whole transfer. One
+// caller is served one log at a time, so one caller cannot hold every place.
+const permanentMessageLogLimit = limitConcurrent(4, 'This node is already serving as many message logs as it allows', { perCaller: 1 });
 
 module.exports = (app) => {
   // GET PUBLIC methods

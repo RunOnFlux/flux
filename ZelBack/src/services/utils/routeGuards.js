@@ -5,6 +5,7 @@ const apicache = require('apicache');
 const messageHelper = require('../messageHelper');
 const globalState = require('./globalState');
 const { AsyncLock } = require('./asyncLock');
+const { resolveClientIp } = require('./ingressCapture');
 
 // What a caller turned away during boot is told to wait. The boot chain is
 // bounded by its own daemon and sync timeouts rather than by this number, so it
@@ -228,21 +229,25 @@ function everyRequest() {
 
 /**
  * Admit at most `maxConcurrent` of the requests `limited` selects at once, and
- * answer any more 503 with a Retry-After rather than holding them open: a
- * request kept waiting would hold its connection behind someone else's long
- * read. A request holds its place until its response closes, whether it
- * finished or the client went.
+ * at most `perCaller` of them from one caller address, and answer any more 503
+ * with a Retry-After rather than holding them open: a request kept waiting
+ * would hold its connection behind someone else's long read. A request holds
+ * its place until its response closes, whether it finished or the client went.
  *
  * Behind a cache, an answer the cache gives never reaches this, so only the
  * requests that do the work count against the limit.
  * @param {number} maxConcurrent
  * @param {string} busyMessage what a caller turned away is told
- * @param {(req: object) => boolean} [limited] which requests count against the
- *   limit; the rest pass straight through
+ * @param {object} [options]
+ * @param {(req: object) => boolean} [options.limited] which requests count
+ *   against the limit; the rest pass straight through
+ * @param {number} [options.perCaller] the places one caller address may hold
+ *   at once, the address read as resolveClientIp reads it
  * @returns {Function} express middleware
  */
-function limitConcurrent(maxConcurrent, busyMessage, limited = everyRequest) {
+function limitConcurrent(maxConcurrent, busyMessage, { limited = everyRequest, perCaller = maxConcurrent } = {}) {
   const places = new AsyncLock(maxConcurrent);
+  const placesByCaller = new Map();
 
   // Named for what the route table shows: routeWiring.test.js finds the limit in
   // a chain by this name.
@@ -251,9 +256,18 @@ function limitConcurrent(maxConcurrent, busyMessage, limited = everyRequest) {
     if (places.activeCount >= maxConcurrent) {
       return serviceUnavailable(res, busyMessage, BUSY_RETRY_AFTER_SECONDS);
     }
+    const { ip: caller } = resolveClientIp(req.socket?.remoteAddress, req.headers);
+    const callerHolds = placesByCaller.get(caller) || 0;
+    if (callerHolds >= perCaller) {
+      return serviceUnavailable(res, `${busyMessage} for one caller`, BUSY_RETRY_AFTER_SECONDS);
+    }
     places.register();
+    placesByCaller.set(caller, callerHolds + 1);
     res.once('close', function releasePlace() {
       places.disable();
+      const left = placesByCaller.get(caller) - 1;
+      if (left > 0) placesByCaller.set(caller, left);
+      else placesByCaller.delete(caller);
     });
     return next();
   };
