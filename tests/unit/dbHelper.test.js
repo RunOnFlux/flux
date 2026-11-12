@@ -41,7 +41,11 @@ describe('dbHelper tests', () => {
 
       const dbConnection = await dbHelper.connectMongoDb();
 
-      expect(dbConnection.s.url).to.equal(mongoUrl);
+      try {
+        expect(dbConnection.s.url).to.equal(mongoUrl);
+      } finally {
+        await dbConnection.close();
+      }
     });
   });
 
