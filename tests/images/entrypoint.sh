@@ -32,9 +32,6 @@ fi
 
 npm run prebuild || exit 1
 
-# create directories etc
-sudo syncthing --home=/home/$USER/.config/syncthing 2>&1 > /dev/null &
-
 npm run ciconfig
 
 export NODE_CONFIG_DIR=$(pwd)/tests/unit/globalconfig
@@ -55,7 +52,7 @@ if [[ -n $MANUAL_TEST ]]; then
   exit
 fi
 
-npx mocha "$@" --exit
+npx mocha --require ./tests/unit/databaseLeftovers.js "$@" --exit
 status=$?
 rm -f {debug,info,warn,error}.log
 exit $status

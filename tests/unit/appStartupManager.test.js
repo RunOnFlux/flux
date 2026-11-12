@@ -12,6 +12,7 @@ describe('appStartupManager tests', () => {
   let dbHelperStub;
   let dockerServiceStub;
   let fluxNetworkHelperStub;
+  let nodeDosStateStub;
   let upnpServiceStub;
   let routerEventsStub;
   let registryManagerStub;
@@ -54,6 +55,10 @@ describe('appStartupManager tests', () => {
 
     fluxNetworkHelperStub = {
       getLocalSocketAddress: sinon.stub(),
+      allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
+    };
+
+    nodeDosStateStub = {
       isNodeDos: sinon.stub().returns(false),
       isStickyDosHeldBy: sinon.stub().returns(false),
       setStickyDos: sinon.stub().callsFake((owner, reason) => holdNode(owner, reason)),
@@ -65,7 +70,6 @@ describe('appStartupManager tests', () => {
         return () => { holdListeners = holdListeners.filter((other) => other !== listener); };
       },
       getStickyDosMessage: () => (stickyHolds.size ? [...stickyHolds.values()].join('; ') : null),
-      allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
     };
 
     upnpServiceStub = {
@@ -144,6 +148,7 @@ describe('appStartupManager tests', () => {
       '../upnpService': upnpServiceStub,
       '../upnpRouter': { routerEvents: routerEventsStub },
       '../fluxNetworkHelper': fluxNetworkHelperStub,
+      '../nodeDosState': nodeDosStateStub,
       '../appDatabase/registryManager': registryManagerStub,
       './advancedWorkflows': advancedWorkflowsStub,
       '../appMonitoring/appReconciler': appReconcilerStub,
@@ -758,7 +763,7 @@ describe('appStartupManager tests', () => {
         await booting;
 
         expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'reconciled').to.equal(true);
-        sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
+        sinon.assert.notCalled(nodeDosStateStub.setStickyDos);
       });
 
       it('holds the node out of service as upnpRouter when the router has not taken its ports by the boot deadline, and leaves its apps to the hold\'s removal', async () => {
@@ -769,11 +774,11 @@ describe('appStartupManager tests', () => {
 
           const booting = appStartupManager.manageAppsOnBoot(KEEP);
           await clock.tickAsync(config.system.bootSyncTimeoutMs - 1);
-          sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
+          sinon.assert.notCalled(nodeDosStateStub.setStickyDos);
           await clock.tickAsync(1);
           await booting;
 
-          sinon.assert.calledOnceWithMatch(fluxNetworkHelperStub.setStickyDos, 'upnpRouter', sinon.match(/router has not taken this node's ports/));
+          sinon.assert.calledOnceWithMatch(nodeDosStateStub.setStickyDos, 'upnpRouter', sinon.match(/router has not taken this node's ports/));
           sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
           sinon.assert.calledWithMatch(logStub.error, /out of service \(UPnP: the router has not taken this node's ports/);
           expect(globalStateStub.bootContainerStateSettled).to.equal(true);
@@ -784,11 +789,11 @@ describe('appStartupManager tests', () => {
       });
 
       it('ends the upnpRouter hold once the router takes its ports', () => {
-        fluxNetworkHelperStub.isStickyDosHeldBy.withArgs('upnpRouter').returns(true);
+        nodeDosStateStub.isStickyDosHeldBy.withArgs('upnpRouter').returns(true);
 
         routerEventsStub.emit('upnpReady');
 
-        sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.clearStickyDos, 'upnpRouter');
+        sinon.assert.calledOnceWithExactly(nodeDosStateStub.clearStickyDos, 'upnpRouter');
       });
     });
 
@@ -899,7 +904,7 @@ describe('appStartupManager tests', () => {
     });
 
     it('removes every app of a node in DOS that no owner holds', async () => {
-      fluxNetworkHelperStub.isNodeDos.returns(true);
+      nodeDosStateStub.isNodeDos.returns(true);
       appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
 
       await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
@@ -1166,7 +1171,7 @@ describe('appStartupManager tests', () => {
 
     // A boot that stops before it reconciles the apps still clears stray records.
     it('removes stray records on a boot that stops early', async () => {
-      fluxNetworkHelperStub.isNodeDos.returns(true);
+      nodeDosStateStub.isNodeDos.returns(true);
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
@@ -1186,7 +1191,7 @@ describe('appStartupManager tests', () => {
       appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'web' }] });
       await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
 
-      fluxNetworkHelperStub.isNodeDos.returns(true);
+      nodeDosStateStub.isNodeDos.returns(true);
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPorts);
@@ -1228,7 +1233,7 @@ describe('appStartupManager tests', () => {
       appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'web' }] });
       await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
 
-      fluxNetworkHelperStub.isNodeDos.returns(true);
+      nodeDosStateStub.isNodeDos.returns(true);
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.notCalled(portManagerStub.declareInstalledAppsPorts);

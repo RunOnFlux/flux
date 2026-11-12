@@ -3,13 +3,15 @@ const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const { SIGTERM_EXPIRY_MS } = require('../../ZelBack/src/services/utils/appConstants');
 
 // Where an app runs is kept twice: the location table, and the view derived
 // from the event log. Every event that changes one is applied to both, and the
 // two must give the same answer for every order the events can arrive in.
 describe('the location table and the event-derived view agree', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const ips = [];

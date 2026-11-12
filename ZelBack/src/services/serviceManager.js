@@ -11,6 +11,7 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const nodeDosState = require('./nodeDosState');
 const databaseHealthService = require('./databaseHealthService');
 const hostStallService = require('./hostStallService');
 const appKill = require('./appLifecycle/appKill');
@@ -73,6 +74,7 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
 const peerSetStabilityService = require('./peerSetStabilityService');
+const dosRecurrenceService = require('./dosRecurrenceService');
 const outboundPathService = require('./outboundPathService');
 const uplinkService = require('./uplinkService');
 const nodeConfirmationService = require('./nodeConfirmationService');
@@ -100,16 +102,17 @@ const {
 
 // State objects for monitoring services
 const dosState = {
-  get dosMessage() { return fluxNetworkHelper.getDosMessage(); },
-  set dosMessage(value) { fluxNetworkHelper.setDosMessage(value); },
-  get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
-  set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
+  get dosMessage() { return nodeDosState.getDosMessage(); },
+  set dosMessage(value) { nodeDosState.setDosMessage(value); },
+  get dosStateValue() { return nodeDosState.getDosStateValue(); },
+  set dosStateValue(value) { nodeDosState.setDosStateValue(value); },
   testingPort: null,
   nextTestingPort: null,
   originalPortFailed: null,
   routerRefusalsSeen: 0,
 };
-const portsNotWorking = new Set();
+// Each port the apps port check found not working, to what it found (availabilityChecker.PortFailure).
+const portsNotWorking = new Map();
 const appsStorageViolations = [];
 
 /**
@@ -161,6 +164,10 @@ async function prepareDatabaseSchema() {
     { key: { appName: 1, detectedAt: -1 }, name: 'appName_detectedAt' },
     { key: { lastSeen: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'lastSeen_ttl' }, // 30 days
     { key: { appName: 1, eventType: 1, lastSeen: -1 }, name: 'appName_eventType_lastSeen' },
+  ]);
+  // a kept removal goes when its app's location row on this node would have expired
+  await dbHelper.ensureIndexes(database.collection(config.database.local.collections.unannouncedRemovals), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
   ]);
   // The unique incident-rollup index lives with its owner: duplicate rollups
   // must have their counts SUMMED, not one dropped, so the merge needs the
@@ -335,6 +342,9 @@ async function startFluxFunctions() {
     // moment with a database, before anything can ask whether it is fit, until
     // the chain has passed its hold.
     fluxNetworkHelper.startIpChangeHoldWatch();
+    // A node that keeps going out of service is held out longer each time:
+    // restored before anything can ask whether it is fit.
+    await dosRecurrenceService.start().catch((err) => log.error(`dosRecurrence start error: ${err.message}`));
     await dockerService.waitForDocker();
     const dockerInfo = await dockerService.dockerInfo().catch(() => null);
     // Where docker keeps its records, read while it answers, for a kill made

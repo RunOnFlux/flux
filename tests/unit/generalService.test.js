@@ -7,7 +7,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -20,6 +20,8 @@ const generateResponse = () => {
 };
 
 describe('generalService tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   describe('getCollateralInfo tests', () => {

@@ -14,7 +14,7 @@ const { expect } = chai;
 
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const { ensureIndex, ensureIndexes, dedupeByKey } = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
 
@@ -247,6 +247,8 @@ describe('dbHelper dedupeByKey', () => {
 // the healing above has to know WHICH index failed and a batch rejection does
 // not say.
 describe('dbHelper ensureIndexes', () => {
+  after(releaseMongo);
+
   afterEach(() => {
     sinon.restore();
   });

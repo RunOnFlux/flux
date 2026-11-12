@@ -6,7 +6,7 @@ const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/
 const appValidator = require('../../ZelBack/src/services/appRequirements/appValidator');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const EventEmitter = require('node:events');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
@@ -181,6 +181,8 @@ describe('updateAppGlobaly tests', () => {
 });
 
 describe('updateAppGlobalyApi tests', () => {
+  after(releaseMongo);
+
   let statusCode;
   const update = () => new Promise((resolve) => {
     const req = new EventEmitter();

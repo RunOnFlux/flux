@@ -64,6 +64,15 @@ module.exports = {
   networkState: {
     minFetchIntervalMs: 4000,
   },
+  // Production's lengths by one factor (24x), so their proportions stand: a node
+  // the fleet sends out of service takes no new apps for 5 blocks rather than 120.
+  dosRecurrence: {
+    windowBlocks: 120,
+    quarantineBlocks: 5,
+    heldQuarantineBlocks: 30,
+    shortHoldBlocks: 30,
+    longHoldBlocks: 120,
+  },
   github: {
     apiBaseUrl: 'http://25.192.0.6:3000',
   },

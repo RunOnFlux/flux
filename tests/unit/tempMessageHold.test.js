@@ -8,7 +8,7 @@ const config = require('config');
 const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const { MongoNetworkTimeoutError } = require('mongodb');
 
 const until = async (condition) => {
@@ -22,6 +22,8 @@ const until = async (condition) => {
 };
 
 describe('tempMessageHold', () => {
+  after(releaseMongo);
+
   const message = (hash, extra = {}) => ({ hash, type: 'fluxappregister', ...extra });
   const frameOf = (data, signature = 's', networkPath = []) => ({
     version: 1, timestamp: 1, pubKey: 'key', signature, data, networkPath,

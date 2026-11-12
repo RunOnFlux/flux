@@ -9,11 +9,13 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const imageVerifier = require('../../ZelBack/src/services/utils/imageVerifier');
 const policyStore = require('../../ZelBack/src/services/policyStore');
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
 const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 
 describe('imageManager tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   let imageManager;

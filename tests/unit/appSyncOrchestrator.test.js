@@ -1158,6 +1158,62 @@ describe('AppSyncOrchestrator', () => {
     });
   });
 
+  describe('where the state-sync attempt stands', () => {
+    it('is open until every answer it needs is in, then complete', async () => {
+      getEligibleSyncPeersStub = sinon.stub().returns(makeEligiblePeers(3));
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      expect(orchestrator.syncAttempt()).to.equal('open');
+
+      completeAllTypes(3);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.syncAttempt()).to.equal('complete');
+      await orchestrator.stop();
+    });
+
+    it('is budgetSpent once the budget runs out unanswered, and asks a peer that joins after nothing', async () => {
+      const peers = makeEligiblePeers(4);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers.slice(0, 3));
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      await clock.tickAsync(120000 + 1);
+      expect(orchestrator.syncAttempt()).to.equal('budgetSpent');
+
+      getEligibleSyncPeersStub.returns(peers);
+      peerEmitter.emit('peerConnected', peers[3].key, 99);
+      await clock.tickAsync(0);
+      expect(peers[3].send.called, 'a node with its budget spent asked a peer that joined').to.equal(false);
+      await orchestrator.stop();
+    });
+
+    it('opens again when the peers go and come back', async () => {
+      getEligibleSyncPeersStub = sinon.stub().returns(makeEligiblePeers(3));
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+      completeAllTypes(3);
+      await clock.tickAsync(0);
+      expect(orchestrator.syncAttempt()).to.equal('complete');
+
+      peerEmitter.emit('peersBelowThreshold', 3);
+      await clock.tickAsync(0);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.syncAttempt()).to.equal('open');
+      await orchestrator.stop();
+    });
+  });
+
   // The block fallback was two literals, so no fleet could have a node that
   // was able to answer a sync request from the moment it started - and on a
   // fleet where every node is still syncing, every node declines every other

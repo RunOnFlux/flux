@@ -6,11 +6,13 @@ const messageStore = require('../../ZelBack/src/services/appMessaging/messageSto
 const log = require('../../ZelBack/src/lib/log');
 const { appRunningEntries } = require('../../ZelBack/src/services/utils/appRunningEntries');
 const { RUNNING_EXPIRY_MS } = require('../../ZelBack/src/services/utils/appConstants');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 // A version 2 apprunning message is judged entry by entry: one entry without a
 // name and hash costs its sender that entry, never the rest of the message.
 describe('apprunning entries are stored one at a time', () => {
+  after(releaseMongo);
+
   const ip = '203.0.113.21:16127';
   const otherIp = '203.0.113.22:16127';
   const weeksAgo = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);

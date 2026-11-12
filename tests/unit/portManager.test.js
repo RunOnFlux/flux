@@ -15,7 +15,7 @@ const { EventEmitter } = require('node:events');
 const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../../ZelBack/src/services/utils/fluxUdpTestServer');
 const policyStore = require('../../ZelBack/src/services/policyStore');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -1884,6 +1884,8 @@ describe('releaseTestedPorts', () => {
 });
 
 describe('udpPortsNotOurs and udpDisputes', () => {
+  after(releaseMongo);
+
   const TOKEN = 'a'.repeat(32);
   const ours = fluxUdpTestServer.udpReply(TOKEN).toString();
 

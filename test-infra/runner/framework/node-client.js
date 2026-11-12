@@ -205,6 +205,7 @@ export function nodeClient(nodeNum) {
         'daemon:recovered',
         'daemon:unreachable',
         'dos:changed',
+        'dosRecurrence:changed',
         'explorer:ready',
         'explorer:appPayment',
         'app:specApplied',

@@ -3,9 +3,11 @@ const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('registryManager listedNodeMovedTo tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const A = '203.0.113.170:16127';

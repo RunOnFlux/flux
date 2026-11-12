@@ -16,7 +16,7 @@ const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/flux
 const policyStore = require('../../ZelBack/src/services/policyStore');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
@@ -133,6 +133,8 @@ function waitFor(predicate, timeout = 3000, interval = 10) {
 }
 
 describe('fluxCommunication tests', () => {
+  after(releaseMongo);
+
   before((done) => {
     localWsServer = new WebSocket.Server({ port: 0 }, () => {
       const { port } = localWsServer.address();

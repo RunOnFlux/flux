@@ -54,7 +54,7 @@ describe('availabilityChecker tests', () => {
       originalPortFailed: null,
       routerRefusalsSeen: 0,
     };
-    mockPortsNotWorking = new Set();
+    mockPortsNotWorking = new Map();
     mockFailedNodesCache = new Map();
     isArcane = false;
 
@@ -820,7 +820,7 @@ describe('availabilityChecker tests', () => {
 
         await pass();
 
-        expect(mockPortsNotWorking.has(mockDosState.testingPort)).to.equal(true);
+        expect(mockPortsNotWorking.get(mockDosState.testingPort)).to.equal('tcpOther');
       });
 
       it('takes a peer that does not read ports at its word', async () => {
@@ -965,9 +965,9 @@ describe('availabilityChecker tests', () => {
       // A pass whose TCP passes is a passing pass for TCP, whatever UDP needs next.
       it('clears its failed ports and lifts its DOS on a TCP pass whose first peer heard nothing over UDP, and still retests UDP', async () => {
         const count = sinon.spy(fluxEventBus, 'count');
-        mockPortsNotWorking.add(1234);
+        mockPortsNotWorking.set(1234, 'tcp');
         mockDosState.portFailureScore = 8;
-        mockDosState.dosMessage = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1234]';
+        mockDosState.dosMessage = 'Ports tested from outside failed. No answer over TCP: [1234].';
         mockDosState.dosStateValue = 100;
         portTestStub.callsFake(reading('ours', null));
 
@@ -1018,7 +1018,7 @@ describe('availabilityChecker tests', () => {
         await pass();
         await pass();
 
-        expect(mockPortsNotWorking.has(mockDosState.testingPort)).to.equal(true);
+        expect(mockPortsNotWorking.get(mockDosState.testingPort)).to.equal('udp');
         expect(fluxNetworkHelper.getUdpReachability().reachable).to.equal(false);
       });
 
@@ -1104,8 +1104,25 @@ describe('availabilityChecker tests', () => {
     });
   });
 
+  describe('portsDosMessage', () => {
+    it('states what each failed test found, one clause per kind, and no advice', () => {
+      expect(availabilityChecker.portsDosMessage(new Map([[49521, 'tcp']])))
+        .to.equal('Ports tested from outside failed. No answer over TCP: [49521].');
+      expect(availabilityChecker.portsDosMessage(new Map([[21436, 'udp'], [21437, 'udp']])))
+        .to.equal('Ports tested from outside failed. No answer over UDP: [21436,21437].');
+      expect(availabilityChecker.portsDosMessage(new Map([[3921, 'tcpOther']])))
+        .to.equal('Ports tested from outside failed. Answered by something other than this node over TCP: [3921].');
+    });
+
+    it('names every kind that occurred when the ports failed differently', () => {
+      const message = availabilityChecker.portsDosMessage(new Map([[49521, 'tcp'], [21436, 'udp'], [3921, 'tcpOther'], [21437, 'udp']]));
+
+      expect(message).to.equal('Ports tested from outside failed. No answer over UDP: [21436,21437]. No answer over TCP: [49521]. Answered by something other than this node over TCP: [3921].');
+    });
+  });
+
   describe('releaseOwnDos', () => {
-    const ports = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1]';
+    const ports = 'Ports tested from outside failed. No answer over TCP: [1].';
 
     it('ends its count, and the node\'s DOS when the message is this check\'s', () => {
       const state = { dosMessage: ports, dosStateValue: 100, portFailureScore: 100 };
@@ -1133,7 +1150,7 @@ describe('availabilityChecker tests', () => {
   });
 
   describe('countPortFailure', () => {
-    const ports = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1]';
+    const ports = 'Ports tested from outside failed. No answer over TCP: [1].';
 
     it('counts four a failure toward its own threshold, leaving the node\'s DOS alone below it', () => {
       const state = { dosMessage: null, dosStateValue: 3, portFailureScore: 92 };

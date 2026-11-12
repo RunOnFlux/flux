@@ -150,7 +150,9 @@ describe('a call to one node answered by another', function () {
       this.timeout(420000);
       const appName = `e2eredirsync${Date.now()}`;
       await pushTestApp(appName);
-      const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g', instances: 2 });
+      // One instance per node: the redirected node's slot stays open whichever
+      // node passes first, so it always selects the app and must decline it.
+      const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g', instances: 3 });
       const spawnAnchor = env.clients[A].getLastEventId();
       await seedSpawnerApp(env, app);
 

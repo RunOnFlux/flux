@@ -8,11 +8,13 @@ const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const { repairLostMessageFlags, restartRetryWindows } = require('../../ZelBack/src/services/migrations/appMessageHashes');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const { expect } = chai;
 
 describe('app message hash boot steps', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   let hashes;

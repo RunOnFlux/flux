@@ -55,7 +55,7 @@ const APPS_PORT_CHECK = {
 // Enough attempts that a node always reaches two peers that answer.
 const PORT_TEST = { portTestMaxAttempts: 3 };
 
-const PORTS_DOS_PREFIX = 'Ports tested not reachable from outside';
+const PORTS_DOS_PREFIX = 'Ports tested from outside failed';
 const UPNP_DOS = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
 
 const appPinnedTo = async (name, port, index) => {
@@ -419,9 +419,13 @@ describe('a port closed over UDP, under the policy that counts it and turns the 
 
   it('takes the node out of service once the failures it confirms reach the threshold', async function () {
     this.timeout(600000);
-    await waitFor(async () => (await env.clients[BLOCKED].getDOSState()).data?.dosMessage?.startsWith(PORTS_DOS_PREFIX) === true, {
-      timeout: 540000, interval: 5000, label: 'the blocked node is out of service for its ports',
-    });
+    let dosMessage;
+    await waitFor(async () => {
+      ({ dosMessage } = (await env.clients[BLOCKED].getDOSState()).data ?? {});
+      return dosMessage?.startsWith(PORTS_DOS_PREFIX) === true;
+    }, { timeout: 540000, interval: 5000, label: 'the blocked node is out of service for its ports' });
+    expect(dosMessage, 'the message states the UDP failure and nothing it did not observe').to.match(/ No answer over UDP: \[[0-9,]+\]\./)
+      .and.not.match(/TCP|DMZ|UPNP/);
     expect(await udpCheck(env.clients[BLOCKED])).to.equal('degraded');
   });
 });

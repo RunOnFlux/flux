@@ -1,7 +1,7 @@
 // Node Status Monitor - Monitors node status and uninstalls apps if node is not confirmed
 const config = require('config');
 const serviceHelper = require('../serviceHelper');
-const fluxNetworkHelper = require('../fluxNetworkHelper');
+const nodeDosState = require('../nodeDosState');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const departedLocations = require('./departedLocations');
 const appKill = require('../appLifecycle/appKill');
@@ -96,7 +96,7 @@ async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, 
  * @returns {string|null}
  */
 function outOfService() {
-  if (fluxNetworkHelper.isNodeDos()) return 'DOS state >= 100';
+  if (nodeDosState.isNodeDos()) return 'DOS state >= 100';
   if (nodeConfirmationService.isDaemonStale()) return 'daemon unreachable';
   if (!nodeConfirmationService.isConfirmed()) return 'node not confirmed';
   return null;
@@ -286,8 +286,8 @@ async function unloadOnHostStall() {
  */
 function initialize(installedAppsFn, removeAppLocallyFn) {
   deps = { installedAppsFn, removeAppLocallyFn };
-  fluxNetworkHelper.onStickyDos((owner, reason) => {
-    if (owner === fluxNetworkHelper.StickyDosOwner.HOST_STALL) {
+  nodeDosState.onStickyDos((owner, reason) => {
+    if (owner === nodeDosState.StickyDosOwner.HOST_STALL) {
       unloadOnHostStall();
       return;
     }
@@ -308,7 +308,7 @@ function initialize(installedAppsFn, removeAppLocallyFn) {
 
 async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
   try {
-    if (fluxNetworkHelper.isNodeDos()) {
+    if (nodeDosState.isNodeDos()) {
       await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'DOS state >= 100');
       await serviceHelper.delay(config.fluxapps.nodeMonitorDosRecoveryDelayMs ?? 600000);
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);

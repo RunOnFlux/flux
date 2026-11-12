@@ -39,8 +39,15 @@ const subnet = getSubnetConfig();
 // answers with a fault settles nothing: the mapping still counts as the
 // node's, the node is out of service while the router refuses to remove it,
 // and back once the router has.
+//
+// A node that keeps going out of service is held out longer each time
+// (dosRecurrenceService), so no node here goes out of service more than twice:
+// the lookup case runs on a second node behind a router of its own. In service is
+// read as the node holding no DOS of any kind, not as the router's DOS lifted.
 
 const NODE = 0;
+const LOOKUP_NODE = 1;
+const UPNP_NODES = [NODE, LOOKUP_NODE];
 const PASSED_WAIT_MS = 10 * 60 * 1000;
 const DOS_WAIT_MS = 2 * 60 * 1000;
 // the wait after a pass that counted toward the DOS
@@ -66,6 +73,7 @@ const UPNP_DOS = 'Not possible to run applications on the node, router returning
 const LISTEN_PORT = 8080;
 
 const dosOf = async (client) => (await client.getDOSState()).data ?? {};
+const inService = async (client) => ((await dosOf(client)).dosMessage ?? null) === null;
 
 describe('a node whose router refuses it is out of service until it stops', function () {
   let env;
@@ -102,23 +110,29 @@ describe('a node whose router refuses it is out of service until it stops', func
       hookCtx: this,
       nodes: 3,
       configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
-      nodeConfigOverrides: { [NODE]: { fluxapps: { appsPortCheck: APPS_PORT_CHECK } } },
+      nodeConfigOverrides: Object.fromEntries(UPNP_NODES.map((i) => [i, { fluxapps: { appsPortCheck: APPS_PORT_CHECK } }])),
     });
     node = env.clients[NODE];
     nodeIp = subnet.nodeIp(NODE + 1);
     // the first boot writes userconfig.js (its identity); a node with an api port
     // in it verifies UPnP when it starts
-    await waitForBootSettled(node);
-    await enableUpnpGateway(nodeIp);
-    await setNodeApiPort(node.container, 16127);
-    await restartFluxos(node.container);
+    await Promise.all(UPNP_NODES.map(async (i) => {
+      await waitForBootSettled(env.clients[i]);
+      await enableUpnpGateway(subnet.nodeIp(i + 1));
+      await setNodeApiPort(env.clients[i].container, 16127);
+      await restartFluxos(env.clients[i].container);
+    }));
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await pushBusybox('e2eupnprefuse', 'v1', 'busybox', {
       entrypoint: ['/bin/busybox', 'nc', '-lk', '-p', String(LISTEN_PORT), '-e', '/bin/busybox', 'echo', 'ok'],
     });
 
-    const { requests } = await gateway();
-    expect(requests.some((r) => r.action === 'AddPortMapping' && r.description === 'Flux_UPNP_Mapping_Test'), 'canary: the node verified UPnP on its gateway').to.equal(true);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const i of UPNP_NODES) {
+      // eslint-disable-next-line no-await-in-loop
+      const { requests } = await upnpGatewayState(subnet.nodeIp(i + 1));
+      expect(requests.some((r) => r.action === 'AddPortMapping' && r.description === 'Flux_UPNP_Mapping_Test'), `canary: node ${i} verified UPnP on its gateway`).to.equal(true);
+    }
   });
 
   after(async function () {
@@ -145,7 +159,7 @@ describe('a node whose router refuses it is out of service until it stops', func
     const quietFrom = Date.now();
     await new Promise((resolve) => { setTimeout(resolve, 30000); });
     expect(testMappings((await gateway()).requests, quietFrom), 'no test mapping in the long wait').to.have.length(0);
-    expect((await dosOf(node)).dosMessage ?? null).to.not.equal(UPNP_DOS);
+    expect(await inService(node), 'in service').to.equal(true);
   });
 
   it('is out of service, with no new test mapping, once its router has refused an app\'s removal for as many passes as the threshold takes', async function () {
@@ -181,7 +195,7 @@ describe('a node whose router refuses it is out of service until it stops', func
     const takenFrom = Date.now();
     await setUpnpRefuseDeletes(nodeIp, 0);
 
-    await waitFor(async () => (await dosOf(node)).dosMessage !== UPNP_DOS, {
+    await waitFor(() => inService(node), {
       timeout: RELEASED_WITHIN_MS, interval: 2000, label: 'the node back in service',
     });
 
@@ -193,7 +207,7 @@ describe('a node whose router refuses it is out of service until it stops', func
   it('is out of service once a full router refuses an app\'s mapping, sooner than its wait after a passing test', async function () {
     this.timeout(DOS_WITHIN_MS + 400000);
     // the pass that released the node passed its test: the check is in its wait after one
-    await waitFor(async () => (await dosOf(node)).dosMessage !== UPNP_DOS, { timeout: 30000, interval: 2000 });
+    await waitFor(() => inService(node), { timeout: 30000, interval: 2000, label: 'the node in service' });
     const { mappings } = await gateway();
     await setUpnpCapacity(nodeIp, mappings.length);
     const fullFrom = Date.now();
@@ -220,7 +234,7 @@ describe('a node whose router refuses it is out of service until it stops', func
     const roomFrom = Date.now();
     await setUpnpCapacity(nodeIp, null);
 
-    await waitFor(async () => (await dosOf(node)).dosMessage !== UPNP_DOS, {
+    await waitFor(() => inService(node), {
       timeout: DOS_WAIT_MS + 60000, interval: 2000, label: 'the node back in service',
     });
 
@@ -249,7 +263,7 @@ describe('a node whose router refuses it is out of service until it stops', func
     const watchedUntil = Date.now() + DOS_WITHIN_MS;
     while (Date.now() < watchedUntil) {
       // eslint-disable-next-line no-await-in-loop
-      expect((await dosOf(node)).dosMessage ?? null, 'never out of service').to.not.equal(UPNP_DOS);
+      expect(await inService(node), 'never out of service').to.equal(true);
       // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => { setTimeout(resolve, ERROR_WAIT_MS); });
     }
@@ -266,38 +280,40 @@ describe('a node whose router refuses it is out of service until it stops', func
 
   it('counts a mapping as its own while the router answers its lookup with a fault, until the router removes it', async function () {
     this.timeout(DOS_WITHIN_MS + RELEASED_WITHIN_MS + 400000);
+    const lookup = env.clients[LOOKUP_NODE];
+    const lookupIp = subnet.nodeIp(LOOKUP_NODE + 1);
     const name = `e2eupnplookup${Date.now()}`;
     const app = await buildApp(name);
     const [port] = app.spec.compose[0].ports;
-    const mark = node.getLastEventId();
-    await seedSpawnerApp(env, app, [NODE]);
-    await waitForAppInstalled(node, name, 240000, { afterId: mark });
-    expect((await gateway()).mappings.some((m) => m.externalPort === port), 'the app\'s port mapped').to.equal(true);
+    const mark = lookup.getLastEventId();
+    await seedSpawnerApp(env, app, [LOOKUP_NODE]);
+    await waitForAppInstalled(lookup, name, 240000, { afterId: mark });
+    expect((await upnpGatewayState(lookupIp)).mappings.some((m) => m.externalPort === port), 'the app\'s port mapped').to.equal(true);
 
-    await setUpnpLookupFault(nodeIp, 501);
-    await setUpnpRefuseDeletes(nodeIp, Infinity);
+    await setUpnpLookupFault(lookupIp, 501);
+    await setUpnpRefuseDeletes(lookupIp, Infinity);
     const faultFrom = Date.now();
-    const auth = await authenticate(node.url, fluxTeamKey());
-    const res = await fetch(`${node.url}/apps/appremove/${name}`, { headers: { zelidauth: auth.zelidauth } });
+    const auth = await authenticate(lookup.url, fluxTeamKey());
+    const res = await fetch(`${lookup.url}/apps/appremove/${name}`, { headers: { zelidauth: auth.zelidauth } });
     await res.text();
-    await waitForAppRemoved(node, name, 120000);
+    await waitForAppRemoved(lookup, name, 120000);
 
-    await waitFor(async () => (await dosOf(node)).dosMessage === UPNP_DOS, {
+    await waitFor(async () => (await dosOf(lookup)).dosMessage === UPNP_DOS, {
       timeout: DOS_WITHIN_MS, interval: 2000, label: 'the node out of service while the router keeps the mapping',
     });
-    let state = await gateway();
+    let state = await upnpGatewayState(lookupIp);
     const ofPort = () => state.requests.filter((r) => r.port === port && Date.parse(r.at) >= faultFrom);
     expect(ofPort().some((r) => r.action === 'GetSpecificPortMappingEntry' && r.refused === 501), 'canary: a lookup answered with a fault').to.equal(true);
     const firstLookup = ofPort().findIndex((r) => r.action === 'GetSpecificPortMappingEntry');
     expect(ofPort().slice(firstLookup).some((r) => r.action === 'DeletePortMapping'), 'the removal sent after a lookup that settled nothing').to.equal(true);
     expect(state.mappings.some((m) => m.externalPort === port), 'the mapping still on the router').to.equal(true);
 
-    await setUpnpRefuseDeletes(nodeIp, 0);
-    await waitFor(async () => (await dosOf(node)).dosMessage !== UPNP_DOS, {
+    await setUpnpRefuseDeletes(lookupIp, 0);
+    await waitFor(() => inService(lookup), {
       timeout: RELEASED_WITHIN_MS, interval: 2000, label: 'the node back in service once the router removed the mapping',
     });
-    await setUpnpLookupFault(nodeIp, null);
-    state = await gateway();
+    await setUpnpLookupFault(lookupIp, null);
+    state = await upnpGatewayState(lookupIp);
     expect(state.mappings.some((m) => m.externalPort === port), 'the mapping removed').to.equal(false);
   });
 

@@ -89,24 +89,6 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
-      - name: install flux and flux benchmark daemons
-        run: |
-          echo 'deb https://apt.runonflux.io/ '$(lsb_release -cs)' main' | sudo tee /etc/apt/sources.list.d/flux.list
-          gpg --keyserver keyserver.ubuntu.com --recv 4B69CA27A986265D
-          gpg --export 4B69CA27A986265D | sudo apt-key add -
-          sudo apt-get update
-          sudo apt-get install flux
-          sudo apt-get install fluxbench
-      - name: install syncthing
-        run: |
-          sudo curl -o /usr/share/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
-          echo 'deb [signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable' | sudo tee /etc/apt/sources.list.d/syncthing.list
-          sudo apt install ca-certificates -y > /dev/null 2>&1
-          sudo apt-get update -y
-          sudo apt-get install screen syncthing -y
-      - name: run syncthing
-        run: |
-          screen -S Bsyncthing -dm syncthing
       - name: print versions
         run: |
           node -v

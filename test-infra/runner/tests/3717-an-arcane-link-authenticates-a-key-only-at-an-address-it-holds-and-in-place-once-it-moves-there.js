@@ -111,6 +111,14 @@ describe('an Arcane link authenticates a key only at an address it holds, and in
     const toIp = fromIp.replace(/\.\d+$/, `.${lastOctet}`);
     const oldSocket = socketOf(fromIp);
     const newSocket = socketOf(toIp);
+    const others = REAL.filter((j) => j !== i);
+    // A node whose state-sync attempt is open asks each peer that connects for
+    // its app state, and the held node's app state carries its move.
+    const syncOpen = async () => (await Promise.all(others.map(async (j) => ({ j, ...(await client(j).getTestState('orchestrator')) }))))
+      .filter(({ attempt }) => attempt === 'open').map(({ j }) => j);
+    await waitFor(async () => (await syncOpen()).length === 0, {
+      timeout: 60000, interval: 1000, label: `every node but ${i} has closed its state-sync attempt`,
+    });
     await node.holdCheckpoint(BEFORE_RECONCILE, newSocket);
     const heldAnchor = node.getLastEventId();
     await moveNodeAddress(node.container, toIp, fromIp);
@@ -120,13 +128,16 @@ describe('an Arcane link authenticates a key only at an address it holds, and in
     await node.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RECONCILE && d.key === newSocket, DETECTION_MS, { afterId: heldAnchor });
 
     let refused;
+    const reopened = new Set();
     await waitFor(async () => {
-      const found = await Promise.all(REAL.filter((j) => j !== i).map(async (j) => ({ j, peer: await connectionTo(j, toIp) })));
+      (await syncOpen()).forEach((j) => reopened.add(j));
+      const found = await Promise.all(others.map(async (j) => ({ j, peer: await connectionTo(j, toIp) })));
       refused = found.find(({ peer }) => peer && !peer.handshaking && peer.linkFailed === NOT_LISTED_HERE);
       return Boolean(refused);
     }, { timeout: RECONNECT_MS, interval: 1000, label: `a node holds a connection from ${toIp} refused as ${NOT_LISTED_HERE}` });
+    expect([...reopened], 'fixture: nodes that opened a state-sync attempt while the move was held').to.deep.equal([]);
     // eslint-disable-next-line no-restricted-syntax
-    for (const j of REAL.filter((k) => k !== i)) {
+    for (const j of others) {
       // eslint-disable-next-line no-await-in-loop
       expect(await moveHeldBy(j, oldSocket, newSocket), `fixture: node ${j} heard the move before the node told it`).to.equal(undefined);
     }

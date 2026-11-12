@@ -1,14 +1,13 @@
 // The unit runner's stall watchdog, on a worker thread of its own (stallWatch.js
 // starts it). It reads the main thread's heartbeat from shared memory every
 // BEAT_MS. A heartbeat older than STALL_MS is a stall:
-//   - the watchdog itself on time means the main thread is busy, and its stack is
-//     captured through the inspector: paused, read and resumed;
+//   - the watchdog itself on time means the main thread was busy;
 //   - the watchdog late too means the whole process was held, by the host.
 // Each stall is reported once it ends, on fd 2 directly, so a stuck main thread
-// cannot hold the report back.
+// cannot hold the report back. The watchdog never touches the main thread, so a
+// stall it reports takes no longer for being watched.
 const fs = require('fs');
 const os = require('os');
-const inspector = require('inspector');
 const { workerData } = require('worker_threads');
 
 const { shared, BEAT_MS, STALL_MS } = workerData;
@@ -29,65 +28,24 @@ function report(line) {
   fs.writeSync(2, `run-unit: ${line}; load ${os.loadavg().map((l) => l.toFixed(2)).join(' ')}, rss ${Math.round(rss / 1048576)} MB\n`);
 }
 
-/**
- * The main thread's stack now, read by pausing it through the inspector.
- * @returns {Promise<string[]>}
- */
-function mainThreadStack() {
-  return new Promise((resolve) => {
-    const session = new inspector.Session();
-    let done = false;
-    const finish = (frames) => {
-      if (done) return;
-      done = true;
-      try { session.post('Debugger.resume'); } catch { /* not paused */ }
-      try { session.disconnect(); } catch { /* already gone */ }
-      resolve(frames);
-    };
-    // Enabling the debugger names every script already loaded; a frame names
-    // only its script's id.
-    const scripts = new Map();
-    try {
-      session.connectToMainThread();
-      session.on('Debugger.scriptParsed', ({ params }) => { scripts.set(params.scriptId, params.url); });
-      session.on('Debugger.paused', ({ params }) => {
-        finish(params.callFrames.slice(0, 12).map((frame) => {
-          const url = (frame.url || scripts.get(frame.location.scriptId) || '').replace(/^file:\/\//, '');
-          return `${frame.functionName || '<anonymous>'} (${url}:${frame.location.lineNumber + 1})`;
-        }));
-      });
-      session.post('Debugger.enable', () => {
-        if (done) return;
-        try { session.post('Debugger.pause'); } catch (error) { finish([`<no stack: ${error.message}>`]); }
-      });
-      setTimeout(() => finish(['<the main thread did not pause>']), 2000);
-    } catch (error) {
-      finish([`<no stack: ${error.message}>`]);
-    }
-  });
-}
-
 let lastTick = now();
-// The stall being watched: { since, test, watchdogLateMs, stack }.
+// The stall being watched: { since, test, watchdogLateMs }.
 let stall = null;
 
-setInterval(async () => {
+setInterval(() => {
   const tick = now();
   const watchdogLateMs = ms(tick - lastTick) - BEAT_MS;
   lastTick = tick;
   const mainAgeMs = ms(tick - Atomics.load(beat, 0));
 
   if (!stall && mainAgeMs >= STALL_MS) {
-    stall = {
-      since: Atomics.load(beat, 0), test: currentTest(), watchdogLateMs, stack: null,
-    };
-    if (watchdogLateMs < STALL_MS / 2) stall.stack = await mainThreadStack();
+    stall = { since: Atomics.load(beat, 0), test: currentTest(), watchdogLateMs };
     return;
   }
   if (stall && Atomics.load(beat, 0) > stall.since) {
     const heldMs = ms(Atomics.load(beat, 0) - stall.since);
-    if (stall.stack) {
-      report(`the main thread was busy ${heldMs} ms during "${stall.test}", at:\n    ${stall.stack.join('\n    ')}\n `);
+    if (stall.watchdogLateMs < STALL_MS / 2) {
+      report(`the main thread was busy ${heldMs} ms during "${stall.test}"`);
     } else {
       report(`the whole process was held ${heldMs} ms during "${stall.test}" (this watchdog's own timer ran ${stall.watchdogLateMs} ms late)`);
     }

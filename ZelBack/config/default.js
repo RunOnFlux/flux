@@ -57,6 +57,18 @@ module.exports = {
   networkState: {
     minFetchIntervalMs: 25000,
   },
+  // A node that keeps going out of service is held out longer each time. Its
+  // episodes are counted over the last windowBlocks; a 1st or 2nd keeps it from
+  // new apps for quarantineBlocks once back in service, the 3rd holds it out for
+  // shortHoldBlocks and then from new apps for heldQuarantineBlocks, and the 4th
+  // and later hold it out for longHoldBlocks. 120 blocks is one hour of 30 s blocks.
+  dosRecurrence: {
+    windowBlocks: 2880,
+    quarantineBlocks: 120,
+    heldQuarantineBlocks: 720,
+    shortHoldBlocks: 720,
+    longHoldBlocks: 2880,
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,
@@ -89,6 +101,7 @@ module.exports = {
         ipRanges: 'ipranges', // the IP location baseline, one document per allocated range, rebuilt and swapped in whole
         nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
+        dosRecurrence: 'dosrecurrence', // the heights of this node's recent DOS episodes, and the holds they put on it
         upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
         syncthingDroppedDevices: 'syncthingdroppeddevices', // each device this node took out of an app folder and has not added back
         unannouncedRemovals: 'unannouncedremovals', // removals this node could not announce when it made them, until their location row would have expired

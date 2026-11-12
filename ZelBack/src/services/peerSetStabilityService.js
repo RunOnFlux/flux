@@ -32,7 +32,7 @@
 
 const config = require('config');
 const log = require('../lib/log');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
+const nodeDosState = require('./nodeDosState');
 const fluxEventBus = require('./utils/fluxEventBus');
 
 // The prefix is the OWNERSHIP MARK on the single sticky slot, exactly as
@@ -74,14 +74,14 @@ let timerHandle = null;
 let started = false;
 let deps = null;
 
-const OWNER = fluxNetworkHelper.StickyDosOwner.PEER_SET_STABILITY;
+const OWNER = nodeDosState.StickyDosOwner.PEER_SET_STABILITY;
 
 /**
  * True while this service's own verdict holds the node out of service.
  * @returns {boolean}
  */
 function isOurDosHeld() {
-  return fluxNetworkHelper.isStickyDosHeldBy(OWNER);
+  return nodeDosState.isStickyDosHeldBy(OWNER);
 }
 
 /**
@@ -103,7 +103,7 @@ function applyDos(count) {
   if (isOurDosHeld()) return;
   const message = `${DOS_MESSAGE_PREFIX}: lost every peer ${count} times in the last `
     + `${WINDOW_MS / 60000} minutes. Check this node's network connection.`;
-  fluxNetworkHelper.setStickyDos(OWNER, message);
+  nodeDosState.setStickyDos(OWNER, message);
   fluxEventBus.publish('peerSetStability:dos', { dips: count, windowMs: WINDOW_MS });
 }
 
@@ -115,7 +115,7 @@ function applyDos(count) {
 function releaseDos(reason) {
   if (!isOurDosHeld()) return;
   log.info(`peerSetStability - clearing sticky DOS (${reason})`);
-  fluxNetworkHelper.clearStickyDos(OWNER);
+  nodeDosState.clearStickyDos(OWNER);
   fluxEventBus.publish('peerSetStability:released', { reason });
 }
 

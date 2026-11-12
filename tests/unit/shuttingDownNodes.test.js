@@ -3,9 +3,11 @@ const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const { SIGTERM_EXPIRY_MS } = require('../../ZelBack/src/services/utils/appConstants');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('registryManager.shuttingDownNodes', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const ips = ['203.0.113.11:16127', '203.0.113.12:16127', '203.0.113.13:16127'];
