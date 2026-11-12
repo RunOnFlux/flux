@@ -1244,6 +1244,9 @@ describe('syncthingService tests', () => {
       sinon.stub(fs, 'mkdir').resolves();
       sinon.stub(fs, 'writeFile').resolves();
       syncthingService.setNumericIdTablesChecked(false);
+      // no collateral yet: the identity record is left for a later pass
+      sinon.stub(generalService, 'obtainNodeCollateralInformation').rejects(new Error('daemon not answering'));
+      syncthingService.resetIdentityState();
 
       fakeMeta = sinon.stub().resolves({
         status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
