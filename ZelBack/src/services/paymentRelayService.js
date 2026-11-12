@@ -6,6 +6,7 @@ const messageHelper = require('./messageHelper');
 const { resolveClientIp } = require('./utils/ingressCapture');
 const cacheManager = require('./utils/cacheManager').default;
 const { lruRateLimit } = require('./utils/rateLimit');
+const bodyLimit = require('./utils/bodyLimit');
 
 /**
  * The meeting point between a browser and a wallet that cannot reach it.
@@ -166,23 +167,13 @@ function receivePaymentCallback(req, res) {
   }
 
   let body = '';
-  let refused = false;
 
   req.on('data', (data) => {
-    if (refused) return;
     body += data;
-    if (body.length > MAX_BODY_SIZE) {
-      refused = true;
-      // Answered before the socket goes: a write to a destroyed socket is
-      // discarded without complaint, and the caller sees a reset in place of
-      // the refusal.
-      res.status(413).json(messageHelper.createErrorMessage('Request body too large'));
-      res.on('finish', () => req.destroy());
-    }
+    bodyLimit.refuseIfTooLarge(req, res, body, MAX_BODY_SIZE);
   });
 
   req.on('end', () => {
-    if (refused) return;
     answerCallback(req, res, serviceHelper.ensureObject(body));
   });
 }

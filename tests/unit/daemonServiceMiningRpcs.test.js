@@ -5,6 +5,7 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceMiningRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiningRpcs');
+const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -414,6 +415,15 @@ describe('daemonServiceMiningRpcs tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.notCalled(daemonServiceUtilsStub);
+    });
+
+    it('asks for the node operator or the flux team, not any user', async () => {
+      verifyPrivilegeStub.returns(false);
+      const req = { params: { txid: 'ABC212345F09848', prioritydelta: '45', feedelta: '5' } };
+
+      await daemonServiceMiningRpcs.prioritiseTransaction(req, generateResponse());
+
+      expect(verifyPrivilegeStub.firstCall.args[0]).to.equal(Privilege.NODE_OPERATOR_OR_FLUX_TEAM);
     });
 
     it('should trigger rpc with dns parameter when no txid is passed, response passed', async () => {

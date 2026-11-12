@@ -26,7 +26,18 @@ function verifyAppNameAndOwner(name, owner) {
   }
 }
 
+/**
+ * A case-insensitive query on exactly this app name. The name is escaped: it
+ * comes from a request parameter, and an unescaped one is a pattern, not a name.
+ * @param {string} appName App name.
+ * @returns {RegExp}
+ */
+function appNameRegex(appName) {
+  return new RegExp(`^${String(appName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+}
+
 module.exports = {
+  appNameRegex,
   isValidAppNameAndOwner,
   verifyAppNameAndOwner,
 };

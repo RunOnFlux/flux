@@ -1,20 +1,8 @@
 # The unit suite in containers of its own, as CI runs it. Started through
 # run-unit.sh, which names each run's project, so concurrent runs share no
-# container, network or volume. Docker is a daemon of the run's own (dind):
-# the suite's Docker tests never reach the host's.
+# image, container, network or volume. No unit test asks a docker daemon, so
+# there is none.
 services:
-  dind:
-    image: docker:27.5.1-dind
-    privileged: true
-    environment:
-      DOCKER_TLS_CERTDIR: ""
-    healthcheck:
-      test: ["CMD", "docker", "info"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-    labels:
-      com.runonflux.container_type: "fluxos_test"
   mongo:
     # CI's version (.github/workflows/nodejs.yml)
     image: "mongo:7.0@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4"
@@ -31,16 +19,13 @@ services:
     labels:
       com.runonflux.container_type: "fluxos_test"
   tester:
+    # Built as this run's own image (<project>-tester), removed with the run.
     build: .
-    image: runonflux/testerimage:latest
     init: true
     depends_on:
-      dind:
-        condition: service_healthy
       mongo:
         condition: service_healthy
     environment:
-      DOCKER_HOST: tcp://dind:2375
       CI: "true"
     # not quite sure about this yet, but think it's necessary for iptables (probably should be mocked)
     cap_add:

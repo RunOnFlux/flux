@@ -37,6 +37,7 @@ const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonSer
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dockerService = require('../../ZelBack/src/services/dockerService');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const kernelService = require('../../ZelBack/src/services/kernelService');
 const packageJson = require('../../package.json');
@@ -2027,6 +2028,7 @@ describe('fluxService tests', () => {
       fluxCommunicationStub = sinon.stub(fluxCommunication, 'connectedPeersInfo');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getIncomingConnectionsInfo');
       syncthingServiceStub = sinon.stub(syncthingService, 'systemVersion');
+      sinon.stub(dockerService, 'dockerVersion').resolves({ Version: '27.5.1' });
     });
 
     afterEach(() => {
@@ -2972,6 +2974,7 @@ describe('fluxService tests', () => {
 
       daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'buildFluxdClient');
       tarPackStub = sinon.stub(tar, 'create');
+      sinon.stub(dockerService, 'getFluxDockerNetworkSubnets').resolves(['172.23.5.0/24']);
     });
 
     afterEach(() => {
@@ -3029,6 +3032,58 @@ describe('fluxService tests', () => {
       expect(res.statusMessage).to.equal('Request must be from an address on the same private network as the host.');
       sinon.assert.calledWithExactly(res.status, 403);
       sinon.assert.calledOnce(res.end);
+    });
+
+    for (const containerAddress of ['172.23.5.9', '::ffff:172.23.5.200']) {
+      it(`should return 403 if the request comes from an app container's address ${containerAddress}`, async () => {
+        const res = generateResponse();
+        const req = { socket: { remoteAddress: containerAddress } };
+
+        await fluxService.streamChain(req, res);
+
+        expect(res.statusMessage).to.equal('Request must be from an address on the same private network as the host.');
+        sinon.assert.calledWithExactly(res.status, 403);
+        sinon.assert.calledOnce(res.end);
+      });
+    }
+
+    it('should not refuse a private address in the range of the app networks that is none of them', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '172.23.200.9' } };
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.not.equal('Request must be from an address on the same private network as the host.');
+    });
+
+    it('should turn a private address away for now, not let it through, when docker cannot be asked', async () => {
+      dockerService.getFluxDockerNetworkSubnets.rejects(new Error('docker is down'));
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '172.23.5.9' } };
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.equal('Cannot tell yet whether the request comes from an app network, try again shortly.');
+      sinon.assert.calledWithExactly(res.status, 503);
+      expect(fluxService.getStreamLock()).to.equal(false);
+    });
+
+    it('should turn a private address away for now when docker does not answer in time', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        dockerService.getFluxDockerNetworkSubnets.returns(new Promise(() => {}));
+        const res = generateResponse();
+        const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+        const pending = fluxService.streamChain(req, res);
+        await clock.tickAsync(3000);
+        await pending;
+
+        sinon.assert.calledWithExactly(res.status, 503);
+        expect(fluxService.getStreamLock()).to.equal(false);
+      } finally {
+        clock.restore();
+      }
     });
 
     it('should return 500 if any chain folders are missing', async () => {

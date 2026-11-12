@@ -107,6 +107,41 @@ describe('appMessageChain tests', () => {
     });
   });
 
+  describe('registeredByAnotherAfterTerm', () => {
+    const h = fork + 1000;
+    const msg = (hash, type, owner, height, expire = 100_000) => ({
+      hash, type, height, timestamp: height, appSpecifications: { name: 'app', owner, expire },
+    });
+    const same = (a, b) => a === b;
+    const released = (messages) => appMessageChain.registeredByAnotherAfterTerm(
+      appMessageChain.messagesThatCount(messages), h, 40, 'alice', same,
+    );
+
+    it('is true for another owner registering after the installed term', () => {
+      expect(released([msg('a', 'fluxappregister', 'alice', h, 40), msg('b', 'fluxappregister', 'bob', h + 50)])).to.equal(true);
+    });
+
+    it('is true when the registrant then transferred the app on by update', () => {
+      expect(released([
+        msg('a', 'fluxappregister', 'alice', h, 40),
+        msg('c', 'fluxappregister', 'carol', h + 50),
+        msg('t', 'fluxappupdate', 'bob', h + 60),
+      ])).to.equal(true);
+    });
+
+    it('is false for a transfer by update, even when the new owner updated again after the installed term', () => {
+      expect(released([
+        msg('a', 'fluxappregister', 'alice', h, 40),
+        msg('t', 'fluxappupdate', 'bob', h + 10),
+        msg('u', 'fluxappupdate', 'bob', h + 60),
+      ])).to.equal(false);
+    });
+
+    it('is false when the log holds nothing', () => {
+      expect(released([])).to.equal(false);
+    });
+  });
+
   describe('governingMessage', () => {
     const h = fork + 1000;
     const reg = (hash, owner, height) => ({

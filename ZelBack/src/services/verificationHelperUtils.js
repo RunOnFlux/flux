@@ -9,6 +9,7 @@ const signatureVerifier = require('./signatureVerifier');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const configManager = require('./utils/configManager');
+const { appNameRegex } = require('./utils/appIdentity');
 // Removed registryManager to avoid circular dependency - will use dynamic require where needed
 
 /**
@@ -120,7 +121,7 @@ async function verifyUserSession(zelidauth) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
     const maxHours = 16 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    if (!/^\d{13}$/.test(message.substring(0, 13)) || Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }
@@ -234,7 +235,7 @@ async function verifyAppOwnerSession(zelidauth, appName) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
     const twoHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - twoHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    if (!/^\d{13}$/.test(message.substring(0, 13)) || Number(message.substring(0, 13)) < (timestamp - twoHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }
@@ -250,6 +251,27 @@ async function verifyAppOwnerSession(zelidauth, appName) {
     return true;
   }
   return false;
+}
+
+/**
+ * Whether an identity is the owner of the application as installed on this node.
+ * An app that is not installed here has no installed owner, so nothing is refused.
+ * @param {string} zelid Identity to test.
+ * @param {string} appName App name (a component name's app part is not resolved here).
+ * @returns {Promise<boolean>}
+ */
+async function ownsInstalledApp(zelid, appName) {
+  const database = dbHelper.databaseConnection().db(config.database.appslocal.database);
+  const collection = config.database.appslocal.collections.appsInformation;
+  const installed = await dbHelper.findOneInDatabase(
+    database,
+    collection,
+    // A name shaped like a legacy container identifier is matched exactly, as
+    // the registry lookup does.
+    { name: /^(flux|zel)/.test(appName) ? appName : appNameRegex(appName) },
+    { projection: { _id: 0, owner: 1 } },
+  );
+  return !installed || installed.owner === zelid;
 }
 
 /**
@@ -294,7 +316,13 @@ async function verifyAppOwnerOrFluxTeamSession(zelidauth, appName) {
   // eslint-disable-next-line global-require
   const registryManager = require('./appDatabase/registryManager');
   const ownerFluxID = await registryManager.getApplicationOwner(appName);
-  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && !isFluxSupportTeamZelid(auth.zelid)) return false;
+  const isTeam = auth.zelid === config.fluxTeamFluxID || isFluxSupportTeamZelid(auth.zelid);
+  if (auth.zelid !== ownerFluxID && !isTeam) return false;
+  // What is on THIS node belongs to whoever it was installed for. The registry
+  // answers for the name now; a name released and registered again by someone
+  // else leaves the old install here until the node removes it, and its files
+  // are not the new registrant's.
+  if (!isTeam && !await ownsInstalledApp(auth.zelid, appName)) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -307,7 +335,7 @@ async function verifyAppOwnerOrFluxTeamSession(zelidauth, appName) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
     const maxHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    if (!/^\d{13}$/.test(message.substring(0, 13)) || Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }

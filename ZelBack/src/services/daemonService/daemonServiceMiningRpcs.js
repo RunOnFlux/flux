@@ -3,6 +3,7 @@ const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
 const { Privilege, authOf } = require('../utils/privileges');
+const bodyLimit = require('../utils/bodyLimit');
 
 let response = messageHelper.createErrorMessage();
 
@@ -122,7 +123,7 @@ async function getNetworkSolPs(req, res) {
 }
 
 /**
- * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by users.
+ * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by the node operator and the flux team: it changes what this node's mempool and block producer do.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -132,7 +133,7 @@ async function prioritiseTransaction(req, res) {
   txid = txid || req.query.txid;
   prioritydelta = prioritydelta || req.query.prioritydelta;
   feedelta = feedelta || req.query.feedelta;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
@@ -189,6 +190,7 @@ async function submitBlockPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);

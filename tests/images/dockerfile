@@ -1,6 +1,6 @@
 FROM ubuntu:22.04
 
-RUN apt-get update && apt-get install -y sudo ufw curl docker.io ca-certificates make cron xz-utils git
+RUN apt-get update && apt-get install -y sudo ufw curl ca-certificates make cron xz-utils git
 
 # CI's Node (.github/workflows/nodejs.yml), the oldest the fleet runs
 ARG NODE_VERSION=20.8.0
@@ -10,7 +10,7 @@ tar -xJ -C /usr/local --strip-components=1
 RUN adduser --disabled-password \
 --gecos '' fluxtesting
 
-RUN usermod -aG sudo,docker fluxtesting
+RUN usermod -aG sudo fluxtesting
 
 COPY entrypoint.sh /home/fluxtesting/
 

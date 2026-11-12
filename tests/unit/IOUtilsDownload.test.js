@@ -168,11 +168,128 @@ describe('IOUtils downloadFileFromUrl', () => {
     expect(fs.existsSync(path.join(dir, 'backup_comp.tar.gz'))).to.equal(false);
   });
 
+  it('does not write through a link at the destination', async () => {
+    handler = (req, res) => serve(req, res);
+    const elsewhere = path.join(dir, 'elsewhere');
+    fs.writeFileSync(elsewhere, 'untouched');
+    fs.symlinkSync(elsewhere, path.join(dir, 'backup_comp.tar.gz'));
+
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, { ...fast, maxAttempts: 1 });
+
+    expect(result).to.equal(false);
+    expect(fs.readFileSync(elsewhere, 'utf8')).to.equal('untouched');
+  });
+
+  it('asks once, not once per attempt, when the destination is a link', async () => {
+    handler = (req, res) => serve(req, res);
+    fs.writeFileSync(path.join(dir, 'elsewhere'), 'untouched');
+    fs.symlinkSync(path.join(dir, 'elsewhere'), path.join(dir, 'backup_comp.tar.gz'));
+
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, fast);
+
+    expect(result).to.equal(false);
+    expect(requests).to.have.length(1);
+    expect(fs.readFileSync(path.join(dir, 'elsewhere'), 'utf8')).to.equal('untouched');
+    // the link is not a file this download made, and stays
+    expect(fs.lstatSync(path.join(dir, 'backup_comp.tar.gz')).isSymbolicLink()).to.equal(true);
+  });
+
+  it('removes nothing through a directory that has become a link when beforeOpen refuses', async () => {
+    handler = (req, res) => serve(req, res);
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxdl-target-'));
+    fs.writeFileSync(path.join(target, 'backup_comp.tar.gz'), 'someone else\'s file');
+    const linked = path.join(dir, 'remote');
+    fs.symlinkSync(target, linked);
+
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, linked, 'COMP', true, {
+      ...fast,
+      beforeOpen: async () => { throw new Error('Refused'); },
+    });
+
+    expect(result).to.equal(false);
+    expect(fs.readFileSync(path.join(target, 'backup_comp.tar.gz'), 'utf8')).to.equal('someone else\'s file');
+    fs.rmSync(target, { recursive: true, force: true });
+  });
+
+  it('stops without asking again when beforeOpen refuses, and writes nothing', async () => {
+    handler = (req, res) => serve(req, res);
+    let calls = 0;
+    const beforeOpen = async () => {
+      calls += 1;
+      throw new Error('Refused');
+    };
+
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, { ...fast, beforeOpen });
+
+    expect(result).to.equal(false);
+    expect(calls).to.equal(1);
+    expect(requests).to.have.length(1);
+    expect(fs.existsSync(path.join(dir, 'backup_comp.tar.gz'))).to.equal(false);
+  });
+
+  it('calls beforeOpen once the server has answered and before the file is opened', async () => {
+    handler = (req, res) => serve(req, res);
+    let requestsSeen;
+    let fileExisted;
+    const beforeOpen = async () => {
+      requestsSeen = requests.length;
+      fileExisted = fs.existsSync(path.join(dir, 'backup_comp.tar.gz'));
+    };
+
+    await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, { ...fast, beforeOpen });
+
+    expect(requestsSeen).to.equal(1);
+    expect(fileExisted).to.equal(false);
+    expect(saved().equals(body)).to.equal(true);
+  });
+
   it('removes the partial archive when every attempt fails', async () => {
     handler = (req, res) => serve(req, res, { stallAt: 1000, honourRange: false });
 
     await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, { ...fast, maxAttempts: 2 });
 
     expect(fs.existsSync(path.join(dir, 'backup_comp.tar.gz'))).to.equal(false);
+  });
+
+  it('refuses a destination that really lies outside containedIn, and writes nothing there', async () => {
+    handler = (req, res) => serve(req, res);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxout-'));
+    const inside = path.join(dir, 'remote');
+    fs.mkdirSync(path.join(dir, 'inner'));
+    fs.symlinkSync(outside, inside);
+    fs.writeFileSync(path.join(outside, 'backup_comp.tar.gz'), 'keep');
+    try {
+      const result = await IOUtils.downloadFileFromUrl(baseUrl, inside, 'COMP', true, { ...fast, containedIn: path.join(dir, 'inner') });
+      expect(result).to.equal(false);
+      expect(fs.readFileSync(path.join(outside, 'backup_comp.tar.gz'), 'utf8')).to.equal('keep');
+      expect(requests.length).to.equal(1);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('writes when the destination is inside containedIn', async () => {
+    handler = (req, res) => serve(req, res);
+    const inner = path.join(dir, 'inner');
+    fs.mkdirSync(inner);
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, inner, 'COMP', true, { ...fast, containedIn: inner });
+    expect(result).to.equal(true);
+    expect(fs.readFileSync(path.join(inner, 'backup_comp.tar.gz')).equals(body)).to.equal(true);
+  });
+
+  it('refuses a destination reached through a swapped directory when containedIn is the mount above it', async () => {
+    handler = (req, res) => serve(req, res);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxout-'));
+    const mount = path.join(dir, 'mount');
+    fs.mkdirSync(mount);
+    fs.symlinkSync(outside, path.join(mount, 'remote'));
+    try {
+      const result = await IOUtils.downloadFileFromUrl(baseUrl, path.join(mount, 'remote'), 'COMP', true, { ...fast, containedIn: mount });
+      expect(result).to.equal(false);
+      expect(fs.readdirSync(outside).filter((f) => fs.statSync(path.join(outside, f)).size > 0)).to.deep.equal([]);
+      expect(requests.length).to.equal(1);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

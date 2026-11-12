@@ -13,6 +13,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const mountParser = require('../utils/mountParser');
 const log = require('../../lib/log');
 const { Privilege, authOf } = require('../utils/privileges');
+const { appNameRegex } = require('../utils/appIdentity');
 
 const { globalCmdDelayMs } = config.fluxapps;
 // Guaranteed a finite non-negative integer, so a missing or malformed config
@@ -87,7 +88,7 @@ async function appLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query = { name: appNameRegex(appname) }; // case insensitive
   }
   const projection = {
     projection: {

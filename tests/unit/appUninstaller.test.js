@@ -5,6 +5,7 @@ const proxyquire = require('proxyquire').noCallThru();
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
+const { isContainerNotFound } = require('../../ZelBack/src/services/dockerService');
 
 describe('appUninstaller tests', () => {
   // The placement record is its own module with its own tests; here it is the
@@ -68,6 +69,7 @@ describe('appUninstaller tests', () => {
   let broadcastStub;
   let canSendMessagesStub;
   let runCommandStub;
+  let dockerServiceStub;
 
   beforeEach(() => {
     configStub = {
@@ -128,6 +130,15 @@ describe('appUninstaller tests', () => {
 
     runCommandStub = sinon.stub().resolves({ error: null, stdout: '', stderr: '' });
 
+    dockerServiceStub = {
+      appDockerStop: sinon.stub().resolves(),
+      appDockerRemove: sinon.stub().resolves(),
+      clearFluxRemovedContainers: sinon.stub(),
+      appDockerImageRemove: sinon.stub().resolves(),
+      getAppIdentifier: sinon.stub().returns('testapp'),
+      isContainerNotFound,
+    };
+
     appUninstaller = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
       '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
@@ -141,13 +152,7 @@ describe('appUninstaller tests', () => {
         ensureBoolean: sinon.stub().returnsArg(0),
       },
       '../dbHelper': dbHelperStub,
-      '../dockerService': {
-        appDockerStop: sinon.stub().resolves(),
-        appDockerRemove: sinon.stub().resolves(),
-        clearFluxRemovedContainers: sinon.stub(),
-        appDockerImageRemove: sinon.stub().resolves(),
-        getAppIdentifier: sinon.stub().returns('testapp'),
-      },
+      '../dockerService': dockerServiceStub,
       '../../lib/log': logStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
@@ -422,6 +427,49 @@ describe('appUninstaller tests', () => {
       await appUninstaller.softUninstallApplication(appName, appId, appSpecifications, res);
 
       expect(res.write.called).to.be.true;
+    });
+  });
+
+  // A redeploy stopped part way leaves its app with no container; the next soft
+  // uninstall finds none to remove and goes on to the image.
+  describe('a soft uninstall of a container that is not there', () => {
+    const goneError = () => Object.assign(new Error('(HTTP code 404) no such container'), { statusCode: 404 });
+    const component = { name: 'web', repotag: 'repo/web:v1' };
+
+    it('takes a component with no container as removed and removes its image', async () => {
+      dockerServiceStub.appDockerRemove.rejects(goneError());
+
+      await appUninstaller.softUninstallComponent('testapp', 'fluxweb_testapp', component, null);
+
+      sinon.assert.calledOnceWithExactly(dockerServiceStub.appDockerImageRemove, 'repo/web:v1');
+    });
+
+    it('takes an app with no container as removed and removes its image', async () => {
+      dockerServiceStub.appDockerRemove.rejects(goneError());
+
+      await appUninstaller.softUninstallApplication('testapp', 'fluxtestapp', { name: 'testapp', repotag: 'repo/app:v1' }, null);
+
+      sinon.assert.calledOnceWithExactly(dockerServiceStub.appDockerImageRemove, 'repo/app:v1');
+    });
+
+    const failure = (promise) => promise.then(() => null, (error) => error);
+
+    it('fails a component uninstall whose remove fails for another reason', async () => {
+      dockerServiceStub.appDockerRemove.rejects(new Error('(HTTP code 409) removal of container is already in progress'));
+
+      const error = await failure(appUninstaller.softUninstallComponent('testapp', 'fluxweb_testapp', component, null));
+
+      expect(error?.message).to.include('already in progress');
+      sinon.assert.notCalled(dockerServiceStub.appDockerImageRemove);
+    });
+
+    it('fails an app uninstall whose remove fails for another reason', async () => {
+      dockerServiceStub.appDockerRemove.rejects(new Error('(HTTP code 409) removal of container is already in progress'));
+
+      const error = await failure(appUninstaller.softUninstallApplication('testapp', 'fluxtestapp', { name: 'testapp', repotag: 'repo/app:v1' }, null));
+
+      expect(error?.message).to.include('already in progress');
+      sinon.assert.notCalled(dockerServiceStub.appDockerImageRemove);
     });
   });
 

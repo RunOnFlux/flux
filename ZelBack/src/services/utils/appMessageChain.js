@@ -128,6 +128,27 @@ function governingMessage(messages, positions) {
   return counted.length ? counted[counted.length - 1] : null;
 }
 
+/**
+ * Whether another owner registered the name after the term of an installed record ended: the
+ * name was released and taken afresh, as against reaching its new owner by a transfer. A
+ * transfer is an update by the holder and is never a registration, so it does not count here
+ * however many updates follow it, and a chain of owners (registration, then a transfer from
+ * that registrant) is caught by its registration. Height alone cannot tell the two apart: a
+ * transferred app updated again after the installed term ended looks the same.
+ * messagesThatCount has already dropped registrations of a name that was held.
+ * @param {object[]} counted the name's messages that count, oldest first (messagesThatCount)
+ * @param {number} installedHeight block of the record being compared
+ * @param {number} [installedExpire] its expire, in blocks
+ * @param {string} installedOwner
+ * @param {(a: string, b: string) => boolean} sameOwner
+ * @returns {boolean}
+ */
+function registeredByAnotherAfterTerm(counted, installedHeight, installedExpire, installedOwner, sameOwner) {
+  return counted.some((message) => isRegistration(message)
+    && !sameOwner(message.appSpecifications.owner, installedOwner)
+    && !isInForce(installedHeight, installedExpire, message.height));
+}
+
 module.exports = {
   appExpirationHeight,
   compareMessages,
@@ -135,4 +156,5 @@ module.exports = {
   isBefore,
   isInForce,
   messagesThatCount,
+  registeredByAnotherAfterTerm,
 };
