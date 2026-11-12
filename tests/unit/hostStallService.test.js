@@ -579,18 +579,27 @@ describe('hostStallService tests', () => {
     });
 
     it('goes out of service only once the thread has been held for the configured intervals, however often FluxOS restarts', async () => {
-      const RESTART_EVERY_MS = 15000;
       stuckMongod();
-      await read();
-      const heldSince = uptimeMs;
-      while (!outOfService()) {
-        await hostStallService.stop(); // eslint-disable-line no-await-in-loop
-        passMs(RESTART_EVERY_MS);
-        await hostStallService.start(paths); // eslint-disable-line no-await-in-loop
-        expect(uptimeMs - heldSince, 'never went out of service').to.be.below(2 * stuckIntervals * readIntervalMs);
-      }
+      // A FluxOS start takes a reading at once: a restart is a reading at its
+      // uptime, carried from what the last FluxOS kept.
+      const restartAt = async (ms) => {
+        setUptime(ms);
+        await hostStallService.start(paths);
+        await hostStallService.stop();
+        return kept().threads.map(([, thread]) => thread.intervals);
+      };
+      let countedAt = uptimeMs;
+      expect(await restartAt(countedAt)).to.deep.equal([0]);
 
-      expect(uptimeMs - heldSince).to.be.within(stuckIntervals * readIntervalMs, stuckIntervals * readIntervalMs + RESTART_EVERY_MS);
+      for (let interval = 1; interval <= stuckIntervals; interval += 1) {
+        /* eslint-disable no-await-in-loop */
+        expect(await restartAt(countedAt + 1000), `a restart just after count ${interval - 1}`).to.deep.equal([interval - 1]);
+        expect(await restartAt(countedAt + readIntervalMs - 1000), `a restart just before interval ${interval} ends`).to.deep.equal([interval - 1]);
+        countedAt += readIntervalMs;
+        expect(await restartAt(countedAt), `a restart as interval ${interval} ends`).to.deep.equal([interval]);
+        /* eslint-enable no-await-in-loop */
+        expect(outOfService(), `out of service after ${interval} intervals`).to.equal(interval >= stuckIntervals);
+      }
     });
 
     it('takes no reading while the uptime cannot be read', async () => {
