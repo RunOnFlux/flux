@@ -443,8 +443,9 @@ async function signedHoldersOf(appName, atMs) {
   };
   const naming = await dbHelper.findInDatabase(database, globalAppStateEvents, {
     type: 'apprunning',
+    dedupKey: 'v2',
     expireAt: standing,
-    $or: [{ 'data.apps.name': appName }, { dedupKey: `v1:${appName}` }],
+    'data.apps.name': appName,
   }, { projection });
   const keys = [...new Set(naming.map((event) => event.envelope?.pubKey).filter(Boolean))];
   if (!keys.length) return [];
@@ -456,7 +457,7 @@ async function signedHoldersOf(appName, atMs) {
       type: 'apprunning',
       expireAt: standing,
       'envelope.pubKey': { $in: keys },
-      dedupKey: { $in: ['v2', `v1:${appName}`] },
+      dedupKey: 'v2',
     }, { projection }),
     dbHelper.findInDatabase(database, globalAppStateEvents, {
       $or: [
@@ -481,8 +482,7 @@ async function signedHoldersOf(appName, atMs) {
 
   const holders = [];
   newest.forEach((event, key) => {
-    const names = event.dedupKey === 'v2' && (event.data?.apps ?? []).some((app) => app?.name === appName);
-    if (!names && event.dedupKey !== `v1:${appName}`) return;
+    if (!(event.data?.apps ?? []).some((app) => app?.name === appName)) return;
     if (endedAt.has(key) && endedAt.get(key) > event.broadcastedAt) return;
     holders.push({ key, ip: event.ip, expireAt: event.expireAt });
   });

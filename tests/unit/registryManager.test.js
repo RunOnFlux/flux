@@ -515,6 +515,17 @@ describe('registryManager tests', () => {
 
       expect(await holderKeys()).to.eql(['key-b']);
     });
+
+    it('reads no version 1 report, which no node sends', async () => {
+      await database.collection(events).insertMany([
+        running('key-a', '1.1.1.1:16127', AT - 1000),
+        {
+          ip: '2.2.2.2:16127', type: 'apprunning', dedupKey: 'v1:TestApp', broadcastedAt: new Date(AT - 1000), expireAt: new Date(AT + LIFE), data: { ip: '2.2.2.2:16127', name: 'TestApp', hash: 'h' }, envelope: { pubKey: 'key-b' },
+        },
+      ]);
+
+      expect(await holderKeys()).to.eql(['key-a']);
+    });
   });
 
   describe('appsListedAt', () => {
