@@ -1,4 +1,5 @@
 const { EventEmitter } = require('node:events');
+const config = require('config');
 const { FluxController } = require('./fluxController');
 const { normalizeSocketAddress, ipsMatch, extractPort } = require('./socketAddressUtils');
 
@@ -27,7 +28,10 @@ const log = require('../../lib/log');
  */
 
 class NetworkStateManager extends EventEmitter {
-  static #minFetchIntervalMs = 30_000;
+  // Under the block time. A fetch finishes a moment after its block, so the next block
+  // arrives a moment under a block time later, and a floor of a whole block time would
+  // skip every other block.
+  static #minFetchIntervalMs = config.networkState.minFetchIntervalMs;
 
   // The reporter of a link this node authenticated itself.
   static SELF_REPORTED = 'self';

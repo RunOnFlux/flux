@@ -113,6 +113,13 @@ describe('a standby that lost a delete hears the primary again', function () {
     await waitFor(async () => (await onLeaver(`${STALE}/meta.sav`)) !== null, {
       timeout: 120000, interval: 2000, label: 'the standby holds the backup',
     });
+    // The delete is lost from every device that holds it, which needs a record of
+    // each in the standby's index: every holder's index has reached it.
+    const others = HOLDERS.filter((i) => i !== leaver);
+    await waitFor(async () => (await Promise.all(others.map(async (i) => getRemoteState(env.clients[leaver], folder, await getDeviceId(env.clients[i])))))
+      .every((state) => state === 'valid'), {
+      timeout: 120000, interval: 2000, label: 'the standby holds an index from every other holder',
+    });
 
     await stopDaemon(env.clients[leaver]);
     await execInContainer(env.clients[primary].container, `rm -rf ${primaryRoot}/${STALE}`);

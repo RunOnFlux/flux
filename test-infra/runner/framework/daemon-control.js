@@ -239,6 +239,17 @@ export async function recordNodeMove(from, to) {
 }
 
 /**
+ * The address fluxd decides `node` is at, as fluxd 9.2.0 reports it in
+ * getnetworkinfo's decided_address: FluxOS takes it as the node's own address in
+ * place of FluxBench's. `address` null makes the node's fluxd one that decides none.
+ * @param {string} node The node's listed address.
+ * @param {string|null} address
+ */
+export async function setDecidedAddress(node, address) {
+  return post(`/decided-address/${String(node).split(':')[0]}`, { address });
+}
+
+/**
  * Hide a node from its peers' view of the network, so they answer "not available"
  * for it without probing anything.
  *

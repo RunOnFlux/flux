@@ -15,6 +15,7 @@ module.exports = {
     heartbeatIntervalMs: 30000,
     bootSyncTimeoutMs: 300000,
     bootDaemonTimeoutMs: 300000,
+    bootAppsReconcileTimeoutMs: 300000,
   },
   peers: {
     wsPingIntervalMs: 15000,
@@ -51,6 +52,11 @@ module.exports = {
     stuckIntervals: 6,
     stopWindowMs: 60 * 1000,
   },
+  // The least time between two fetches of the node list: under the 30 s block
+  // time, so the list refreshes on every block.
+  networkState: {
+    minFetchIntervalMs: 25000,
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,
@@ -85,6 +91,7 @@ module.exports = {
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
         upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
         syncthingDroppedDevices: 'syncthingdroppeddevices', // each device this node took out of an app folder and has not added back
+        unannouncedRemovals: 'unannouncedremovals', // removals this node could not announce when it made them, until their location row would have expired
       },
     },
     daemon: {
@@ -109,6 +116,7 @@ module.exports = {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsinstallinglocations', // stores install location of flux apps as documents containing name, ip, obtainedAt
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -665,7 +673,8 @@ module.exports = {
     // key kept the old mechanism's number for three months while nothing read
     // it. The 24h the code has actually run since is the value.
     installErrorTtlS: 86400,
-    tempMsgTtlS: 3600, // collection-level index, serviceManager.js
+    tempMsgTtlS: 3600, // from the time a temp message was signed, or was received by a node holding it for checking
+    tempCheckConcurrency: 4,
     // How many unpaid app messages a node holds, within tempMsgTtlS, from one
     // client (by its client tag) and from one admitting operator (by the key that
     // signed the frame admitting them). A message without a client tag is not
@@ -781,6 +790,8 @@ module.exports = {
     discoveryMaxIterations: 100,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
+    // how long rows at an address the chain has not listed wait on a signed move to it
+    addressMoveWaitMs: 1200000,
     // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted
     pullStallMs: 90000,
     // between a node's removals of its own apps when it goes out of service (nodeStatusMonitor)
@@ -823,8 +834,6 @@ module.exports = {
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
-    nodeMonitorCheckIntervalMs: 120000,
-    nodeMonitorCheckTimeoutMs: 10000,
     spawnDeferrals: {
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },

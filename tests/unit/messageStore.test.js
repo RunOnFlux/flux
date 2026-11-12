@@ -26,6 +26,7 @@ describe('messageStore tests', () => {
   beforeEach(() => {
     unpaidAdmissionStub = {
       admitUnpaid: sinon.stub().resolves({ fields: {} }),
+      placeOf: sinon.stub().resolves({}),
     };
 
     // Stubs
@@ -200,12 +201,59 @@ describe('messageStore tests', () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
-      dbHelperStub.insertOneToDatabase.resolves();
+      dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
 
       const result = await messageStore.storeAppTemporaryMessage(message, { furtherVerification: false });
 
       expect(result).to.be.true;
       expect(dbHelperStub.insertOneToDatabase.calledOnce).to.be.true;
+    });
+
+    describe('how long a temp message is kept', () => {
+      const HOUR = 60 * 60 * 1000;
+      const fixture = (timestamp) => ({
+        type: 'fluxappregister', version: 1, appSpecifications: { name: 'test' }, hash: 'hash123', timestamp, signature: 'sig123',
+      });
+      const storedExpiry = () => dbHelperStub.insertOneToDatabase.firstCall.args[2].expireAt.getTime();
+
+      beforeEach(() => {
+        messageVerifierStub.checkAppMessageExistence.resolves(null);
+        messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+        dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+        dbHelperStub.findOneInDatabase.resolves(null);
+        dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
+      });
+
+      it('ends an hour after it was signed, however late it reached this node', async () => {
+        const signed = Date.now() - 50 * 60 * 1000;
+        await messageStore.storeAppTemporaryMessage(fixture(signed), { furtherVerification: false });
+        expect(storedExpiry()).to.equal(signed + HOUR);
+      });
+
+      it('stores nothing past that hour', async () => {
+        const result = await messageStore.storeAppTemporaryMessage(fixture(Date.now() - HOUR - 1000), { furtherVerification: false });
+        expect(result).to.equal(false);
+        expect(dbHelperStub.insertOneToDatabase.called).to.equal(false);
+      });
+
+      it('ends no later than a message signed now, when dated ahead of this node', async () => {
+        const before = Date.now();
+        await messageStore.storeAppTemporaryMessage(fixture(before + 24 * HOUR), { furtherVerification: false });
+        expect(storedExpiry()).to.be.at.most(Date.now() + HOUR);
+      });
+
+      it('keeps a paid message for its promotion, whatever its age', async () => {
+        dbHelperStub.findOneInDatabase.resolves({ height: 5, value: 1 });
+        const before = Date.now();
+        await messageStore.storeAppTemporaryMessage(fixture(before - 5 * HOUR), { furtherVerification: false });
+        expect(storedExpiry()).to.be.at.least(before + HOUR);
+      });
+
+      it('answers false for a copy another check stored first', async () => {
+        dbHelperStub.insertOneToDatabase.resolves(undefined);
+        const result = await messageStore.storeAppTemporaryMessage(fixture(Date.now()), { furtherVerification: false });
+        expect(result).to.equal(false);
+      });
     });
 
     it('should handle database errors gracefully', async () => {
@@ -252,7 +300,7 @@ describe('messageStore tests', () => {
         messageVerifierStub.verifyAppMessageSignature = sinon.stub().resolves();
         messageVerifierStub.checkAndRequestApp = sinon.stub().resolves(true);
         dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
-        dbHelperStub.insertOneToDatabase.resolves();
+        dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
       });
 
       describe('on an Arcane node', () => {
@@ -330,6 +378,23 @@ describe('messageStore tests', () => {
 
         sinon.assert.calledOnceWithExactly(unpaidAdmissionStub.admitUnpaid, pending, { frame, daemonHeight: 1000 });
         expect(unpaidAdmissionStub.admitUnpaid.calledBefore(messageVerifierStub.verifyAppHash)).to.equal(true);
+      });
+
+      it('admits a message held with its admission no second time, and stores what it was admitted with', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+        const fields = {
+          clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin: { version: 1, timestamp: 1, pubKey: '04aa', signature: 'sig' }, originKey: '04aa',
+        };
+        const release = sinon.stub();
+        unpaidAdmissionStub.placeOf.resolves({ release });
+        unpaidAdmissionStub.admitUnpaid.resolves({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
+
+        const result = await messageStore.storeAppTemporaryMessage(pending, { admitted: fields });
+
+        expect(result).to.equal(true);
+        sinon.assert.notCalled(unpaidAdmissionStub.admitUnpaid);
+        sinon.assert.calledOnceWithExactly(unpaidAdmissionStub.placeOf, pending.hash, fields);
+        sinon.assert.calledOnce(release);
       });
 
       it('neither stores, relays nor verifies a message it refuses', async () => {
@@ -506,7 +571,7 @@ describe('messageStore tests', () => {
         fluxService.isSystemSecure.resolves(false);
         messageVerifierStub.verifyAppHash = sinon.stub().resolves(true);
         messageVerifierStub.verifyAppMessageSignature = sinon.stub().resolves(true);
-        dbHelperStub.insertOneToDatabase.resolves();
+        dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
 
         await messageStore.storeAppTemporaryMessage(enterpriseMessage({ enterprise: 'A'.repeat(MAX_ENTERPRISE_LENGTH) }));
         sinon.assert.calledOnce(dbHelperStub.insertOneToDatabase);
@@ -558,7 +623,7 @@ describe('messageStore tests', () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
-      dbHelperStub.insertOneToDatabase.resolves();
+      dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
 
       messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
         config: configStub,
@@ -599,6 +664,7 @@ describe('messageStore tests', () => {
         },
       });
 
+      dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
       // v5→v6 update should be accepted — version policy is enforced at API layer, not here
       const result = await messageStore.storeAppTemporaryMessage(message);
 
@@ -626,7 +692,7 @@ describe('messageStore tests', () => {
         messageVerifierStub.checkAndRequestApp = sinon.stub().resolves(true);
         dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
         dbHelperStub.findOneInDatabase.resolves(hashRecord);
-        dbHelperStub.insertOneToDatabase.resolves();
+        dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
         const getPrevious = sinon.stub().resolves({ owner: 'owner1', version: 6 });
 
         messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
@@ -704,7 +770,7 @@ describe('messageStore tests', () => {
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.insertOneToDatabase.resolves();
+      dbHelperStub.insertOneToDatabase.resolves({ acknowledged: true });
 
       const result = await messageStore.storeAppPermanentMessage(message);
 
@@ -740,9 +806,8 @@ describe('messageStore tests', () => {
     it('should return false for expired message', async () => {
       const message = {
         type: 'fluxapprunning',
-        version: 1,
-        name: 'testapp',
-        hash: 'hash123',
+        version: 2,
+        apps: [{ name: 'testapp', hash: 'hash123' }],
         broadcastedAt: Date.now() - (200 * 60 * 1000), // 200 minutes ago
         ip: '192.168.1.1',
       };
@@ -755,7 +820,7 @@ describe('messageStore tests', () => {
       expect(logStub.warn.called).to.be.true;
     });
 
-    it('should store valid version 1 running message', async () => {
+    it('refuses a version 1 running message, storing nothing', async () => {
       const message = {
         type: 'fluxapprunning',
         version: 1,
@@ -765,17 +830,11 @@ describe('messageStore tests', () => {
         ip: '192.168.1.1',
       };
 
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.updateOneInDatabase.resolves({ modifiedCount: 0, upsertedCount: 1 });
-      dbHelperStub.removeDocumentsFromCollection.resolves();
-
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({
-        stored: true, rebroadcast: true, written: [{ name: 'testapp', hash: 'hash123' }], refused: [], cleared: false,
-      });
-      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
+      expect(result).to.be.instanceOf(Error);
+      expect(result.message).to.include('version 1 not supported');
+      sinon.assert.notCalled(dbHelperStub.updateOneInDatabase);
     });
 
     it('should store valid version 2 running message with multiple apps', async () => {
@@ -790,7 +849,8 @@ describe('messageStore tests', () => {
         ip: '192.168.1.1',
       };
 
-      const mockDb = { db: sinon.stub().returns('database') };
+      const bulkWrite = sinon.stub().resolves();
+      const mockDb = { db: sinon.stub().returns({ collection: sinon.stub().returns({ bulkWrite }) }) };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.updateOneInDatabase.resolves({ modifiedCount: 0, upsertedCount: 1 });
       dbHelperStub.removeDocumentsFromCollection.resolves();
@@ -803,6 +863,10 @@ describe('messageStore tests', () => {
       expect(dbHelperStub.updateOneInDatabase.callCount).to.equal(2);
       // Should clean up installing records for each app (location + broadcast per app)
       expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(4);
+      // the node's rows for apps it no longer names, reported no later than this message
+      sinon.assert.calledOnceWithExactly(bulkWrite, [{
+        deleteMany: { filter: { ip: '192.168.1.1', name: { $nin: ['app1', 'app2'] }, broadcastedAt: { $lte: new Date(message.broadcastedAt) } } },
+      }], { ordered: false });
     });
 
     it('should handle version 2 message with empty apps array', async () => {
@@ -1253,11 +1317,31 @@ describe('messageStore tests', () => {
       dbHelperStub.databaseConnection.returns(mockDb);
     });
 
+    [
+      ['sigterm', { ip: '1.2.3.4', broadcastedAt: 1000 }],
+      ['appremoved', { ip: '1.2.3.4', appName: 'a', broadcastedAt: 1000 }],
+      ['ipchanged', { oldIP: '1.2.3.4', newIP: '1.2.3.5', broadcastedAt: 1000 }],
+    ].forEach(([type, message]) => {
+      it(`stores of a ${type} envelope only what signs it`, async () => {
+        const envelope = {
+          version: 1, timestamp: 1000, pubKey: 'pk', signature: 'sig', padding: 'added by a peer',
+        };
+
+        await messageStore.storeAppStateEvent(type, { message, envelope });
+
+        const written = JSON.stringify(collectionStub.updateOne.firstCall.args[1]);
+        expect(written).to.include('"signature":"sig"');
+        expect(written).to.not.include('added by a peer');
+      });
+    });
+
     it('should store apprunning v2 event with correct dedupKey', async () => {
       const payload = {
         signedBroadcast: {
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
-          data: { ip: '1.2.3.4', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: 'h' }] },
+          data: {
+            ip: '1.2.3.4', version: 2, broadcastedAt: Date.now(), apps: [{ name: 'A', hash: 'h' }, { name: 'nohash' }],
+          },
         },
       };
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
@@ -1266,19 +1350,22 @@ describe('messageStore tests', () => {
       expect(filter.ip).to.equal('1.2.3.4');
       expect(filter.type).to.equal('apprunning');
       expect(filter.dedupKey).to.equal('v2');
+      // its storable apps' names, lowercased, which a read for one app matches
+      const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
+      expect(JSON.stringify(written.appNames)).to.include('["a"]');
     });
 
-    it('should store apprunning v1 event with name in dedupKey', async () => {
+    it('stores no version 1 apprunning event', async () => {
       const payload = {
         signedBroadcast: {
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
-          data: { ip: '1.2.3.4', broadcastedAt: Date.now(), name: 'myapp', hash: 'h' },
+          data: {
+            ip: '1.2.3.4', version: 1, broadcastedAt: Date.now(), name: 'myapp', hash: 'h',
+          },
         },
       };
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
-      expect(collectionStub.updateOne.calledOnce).to.be.true;
-      const filter = collectionStub.updateOne.firstCall.args[0];
-      expect(filter.dedupKey).to.equal('v1:myapp');
+      sinon.assert.notCalled(collectionStub.updateOne);
     });
 
     it('should store sigterm event', async () => {
@@ -1301,6 +1388,8 @@ describe('messageStore tests', () => {
       const filter = collectionStub.updateOne.firstCall.args[0];
       expect(filter.type).to.equal('appremoved');
       expect(filter.dedupKey).to.equal('appremoved:myapp');
+      const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
+      expect(JSON.stringify(written.appNameLower)).to.include('"myapp"');
     });
 
     it('should store evicted event with createdAt', async () => {

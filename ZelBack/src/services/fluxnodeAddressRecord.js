@@ -180,6 +180,48 @@ async function movedBetween(collateral, from, to) {
 }
 
 /**
+ * Whether the record holds every block up to `height`.
+ * @param {number} height
+ * @returns {boolean}
+ */
+function holds(height) {
+  return recordedHeight >= height;
+}
+
+/**
+ * The highest block recorded.
+ * @returns {number}
+ */
+function highestRecorded() {
+  return recordedHeight;
+}
+
+/**
+ * Where the node last seen at `address` went, when it left: the record holds the
+ * nodes confirmed there now and those that have left it, and the latest of them
+ * by block is the one that held it last. Null when that node is still at
+ * `address`, or the record holds none.
+ * @param {string} address Socket address.
+ * @returns {Promise<{to: string, height: number}|null>} Where it is now, and the
+ *   block that moved it away from `address`. Rejects when the record cannot be read.
+ */
+async function movedAwayFrom(address) {
+  const from = normalizeSocketAddress(address);
+  const held = await collection().find(
+    { $or: [{ ip: from }, { 'changes.from': from }] },
+    { projection: { ip: 1, height: 1, changes: 1 } },
+  ).toArray();
+  const lastAt = (record) => {
+    if (record.ip === from) return { atHeight: record.height, record };
+    const [left] = record.changes.filter((change) => change.from === from).sort((a, b) => b.height - a.height);
+    return { atHeight: left.height, left, record };
+  };
+  const [last] = held.map(lastAt).sort((a, b) => b.atHeight - a.atHeight);
+  if (!last?.left) return null;
+  return { to: last.record.ip, height: last.left.height };
+}
+
+/**
  * Returns the record to the chain at `height`, after a reorg: a node first
  * confirmed above it is dropped, and one whose address changed above it is back
  * at the address it held before.
@@ -289,6 +331,8 @@ async function ensureIndexes(database, name = RECORD_COLLECTION) {
     { key: { height: 1 }, name: 'records by the block of their last confirmation' },
     { key: { firstHeight: 1 }, name: 'records by the block of their first confirmation' },
     { key: { 'changes.height': 1 }, name: 'records by the blocks of their changes' },
+    { key: { 'changes.from': 1 }, name: 'records by the addresses their nodes left' },
+    { key: { ip: 1 }, name: 'records by the address their nodes are at' },
   ]);
 }
 
@@ -297,7 +341,10 @@ module.exports = {
   collateralOf,
   recordBlock,
   whenRecorded,
+  holds,
+  highestRecorded,
   movedBetween,
+  movedAwayFrom,
   restoreToHeight,
   drop,
   isBuilt,

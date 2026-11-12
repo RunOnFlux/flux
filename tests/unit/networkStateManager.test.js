@@ -199,6 +199,32 @@ describe('networkStateManager tests', () => {
     sinon.assert.calledTwice(fetcher);
   });
 
+  describe('how often a block refreshes the list', () => {
+    const refreshesAfter = async (elapsedMs) => {
+      const blockEmitter = new EventEmitter();
+      fetcher.resolves(defaultNetworkState);
+      let now = 1_000_000_000n;
+      sinon.stub(process.hrtime, 'bigint').callsFake(() => now);
+      const nsm = new NetworkStateManager(fetcher, { stateEvent: 'blocksProcessed', stateEmitter: blockEmitter });
+      await nsm.start();
+      fetcher.resetHistory();
+
+      now += BigInt(elapsedMs) * 1_000_000n;
+      blockEmitter.emit('blocksProcessed', 1946562);
+      await new Promise((r) => { setImmediate(r); });
+      await nsm.stop();
+      return fetcher.callCount;
+    };
+
+    it('refreshes on a block arriving a moment under a block time after the last fetch ended', async () => {
+      expect(await refreshesAfter(29_600)).to.equal(1);
+    });
+
+    it('does not refresh on a block arriving inside the floor', async () => {
+      expect(await refreshesAfter(24_900)).to.equal(0);
+    });
+  });
+
   it('should return filter map when searching state by pubkey', async () => {
     const expectedResponse = new Map(
       [

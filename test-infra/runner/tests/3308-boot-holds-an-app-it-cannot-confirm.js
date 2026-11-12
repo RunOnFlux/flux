@@ -3,9 +3,10 @@
  * At boot a node reads its location record of each app whose containers are stopped,
  * which is every app a machine reboot leaves. One whose record has expired was placed
  * elsewhere while the node was down and is removed; one whose record is valid is
- * started. When the record cannot be read the node cannot tell, so the app is held:
- * not started, not elected, not announced. Boot reads the record again until it
- * answers, then starts or removes the app by the answer.
+ * started. When the record cannot be read the node cannot tell, so boot reads it
+ * again until it answers and does not settle before then: the node announces
+ * nothing, starts nothing and takes no app request until every app is decided.
+ * Past bootAppsReconcileTimeoutMs boot removes every app and settles.
  *
  * Here FluxOS is killed and held down, the apps' containers are stopped, and the
  * node's reads of the location collection are refused before FluxOS comes back. The
@@ -18,15 +19,16 @@
  * that never wrote one - decides app by app, which is the path tested here.
  *
  * The mixed app pairs an active-standby component, which only the election starts,
- * with a plain one boot starts. Its decision is held at a checkpoint once the
- * database answers, so the announcement and the election that run then can be
- * watched leaving it alone. The plain app is decided as soon as the database
- * answers: it is the canary that the announcement and the decisions run at all.
+ * with a plain one boot starts. Boot holds the first of the two it reads and reads
+ * the other only once that one is decided, so one app is held, whichever boot
+ * reaches first. Its decision is held at a checkpoint once the database answers:
+ * boot is watched not settling while an app is still undecided.
  *
  * Every app asks for as many instances as the fleet has nodes and is installed on
  * every node, the holder first so it is the mixed app's primary, before the holder
  * goes down: none is placed anew while the holder is away. A standby may take over
- * the mixed app's active-standby component in that time.
+ * the mixed app's active-standby component in that time. The deadline case runs
+ * last: it removes every app on the holder.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -48,8 +50,6 @@ import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { loadSharedConfig, BOOT_DRIFT_MS } from '../framework/coupled-knobs.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
-import { authenticate } from '../auth.js';
-import { fluxTeamKey } from '../framework/keys.js';
 
 const HOLDER = 0;
 const NODES = 3;
@@ -59,6 +59,9 @@ const BEFORE_DECISION = 'boot:beforeLocationDecision';
 const RECORD_OUTLIVES_MS = 60 * 60 * 1000;
 // Down this long, every location record of the holder has expired on every node.
 const RECORDS_EXPIRE_MS = loadSharedConfig().fluxapps.locationTtlS * 1000 + BOOT_DRIFT_MS;
+// How long boot takes to decide its apps before it removes them all: longer than the
+// valid-record case holds a read refused and a decision at its checkpoint.
+const BOOT_APPS_RECONCILE_TIMEOUT_MS = 180000;
 
 function step(what) {
   console.log(`# 3308 ${new Date().toISOString()} ${what}`);
@@ -92,14 +95,10 @@ describe('boot holds an app whose location it cannot read', function () {
   const mixedApp = `e2ebootmixed${stamp}`;
   // its record is gone
   const lapsedApp = `e2ebootlapsed${stamp}`;
-  // its record is gone, and it is uninstalled and installed again while its decision is held
-  const againApp = `e2ebootagain${stamp}`;
   const db = `db_${mixedApp}`;
   const web = `web_${mixedApp}`;
   const plain = `${plainApp}_${plainApp}`;
   const lapsed = `${lapsedApp}_${lapsedApp}`;
-  const again = `${againApp}_${againApp}`;
-  let againSpec;
   let holder;
   let holderDb;
   const activeStandby = watchGComponents(() => env, {
@@ -115,27 +114,9 @@ describe('boot holds an app whose location it cannot read', function () {
   const heardRunning = (appName, afterIds) => env.clients.some((client, i) => i !== HOLDER && client
     && client.getEventBuffer().some((e) => e.id > afterIds[i] && e.event === 'network:apprunning'
       && e.data?.ip?.startsWith(holder.ip) && (e.data?.apps ?? []).some((a) => a.name === appName)));
-  // What the reconciler did with a component it was asked about after `afterId`:
-  // deferred it or started it, resolved once it has done one of the two; null when
-  // it did neither.
-  const reconcilerAnswer = async (identifier, afterId) => {
-    let answer = null;
-    await waitFor(async () => {
-      const started = holder.getEventBuffer().some((e) => e.id > afterId && e.event === 'reconciler:actuated'
-        && e.data?.identifier === identifier && e.data?.action === 'started');
-      if (started) {
-        answer = 'started';
-        return true;
-      }
-      if (await holder.getDecisionCount('reconciler:deferred', identifier, 'managedElsewhere') > 0) {
-        answer = 'deferred';
-        return true;
-      }
-      return false;
-    }, { timeout: 120000, interval: 1000, label: `the reconciler answered for ${identifier}` }).catch(() => {});
-    return answer;
-  };
-  const cycles = async () => (await holder.getTestCounters())?.['masterSlave:cycles'] ?? 0;
+  // Whether the holder did `name` after `afterId`, read from its own events.
+  const did = (name, afterId, predicate = () => true) => holder.getEventBuffer()
+    .some((e) => e.id > afterId && e.event === name && predicate(e.data ?? {}));
 
   // Each step below records what it saw rather than throwing, so a node that does
   // not hold the app answers at the assertion that names what it did instead.
@@ -178,6 +159,7 @@ describe('boot holds an app whose location it cannot read', function () {
       tickerAutostart: false,
       configOverrides: {
         fluxapps: { minOutgoing: 1, minIncoming: 1 },
+        system: { bootAppsReconcileTimeoutMs: BOOT_APPS_RECONCILE_TIMEOUT_MS },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
@@ -190,7 +172,6 @@ describe('boot holds an app whose location it cannot read', function () {
     await pushTestApp(mixedApp, 'v1', 'bootmixed', { user: APP_UID });
     await pushImage(plainApp, 'v1');
     await pushImage(lapsedApp, 'v1');
-    await pushImage(againApp, 'v1');
     const apps = await Promise.all([
       buildSeedableApp({
         env,
@@ -200,14 +181,12 @@ describe('boot holds an app whose location it cannot read', function () {
       }),
       buildSeedableApp({ env, name: plainApp, instances: NODES, compose: [plainComponent(plainApp)] }),
       buildSeedableApp({ env, name: lapsedApp, instances: NODES, compose: [plainComponent(lapsedApp)] }),
-      buildSeedableApp({ env, name: againApp, instances: NODES, compose: [plainComponent(againApp)] }),
     ]);
-    [, , , againSpec] = apps;
     for (const app of apps) {
       // eslint-disable-next-line no-await-in-loop
       await installOnNodes(env, app, [HOLDER]);
     }
-    await waitFor(async () => (await Promise.all([db, web, plain, lapsed, again].map(isUp))).every(Boolean), {
+    await waitFor(async () => (await Promise.all([db, web, plain, lapsed].map(isUp))).every(Boolean), {
       timeout: 300000, interval: 3000, label: 'every app runs on the holder, the mixed app\'s db as its primary',
     });
     const peers = [...Array(NODES).keys()].filter((i) => i !== HOLDER);
@@ -215,7 +194,7 @@ describe('boot holds an app whose location it cannot read', function () {
       // eslint-disable-next-line no-await-in-loop
       await installOnNodes(env, app, peers);
     }
-    await waitFor(async () => (await Promise.all([mixedApp, plainApp, lapsedApp, againApp].map((appName) => installedInstanceIndices(env, appName))))
+    await waitFor(async () => (await Promise.all([mixedApp, plainApp, lapsedApp].map((appName) => installedInstanceIndices(env, appName))))
       .every((holders) => holders.length === NODES), {
       timeout: 300000, interval: 5000, label: 'every app is on every node',
     });
@@ -230,66 +209,50 @@ describe('boot holds an app whose location it cannot read', function () {
     let anchors;
     let release;
     let failedReads;
-    let stoppedAtBoot;
-    let sweptAfterBoot;
-    let webWhileUnreadable;
-    let plainWhileUnreadable;
-    let upWhileUnreadable;
-    let installedWhileUnreadable;
-    let announcement;
-    let electionCycles;
-    let evaluatedWhileHeld;
-    let skippedWhileHeld;
-    let upWhileHeld;
-    let heldAtBoot;
+    let held;
+    let whileUnreadable;
     let parkedAtDecision;
+    let whileHeld;
+    let settled;
+    let announcement;
+
+    // What the holder is doing while an app is undecided: whether boot settled, it
+    // announced, or any of the apps' containers runs, and what it has installed.
+    const undecided = async (afterId) => ({
+      settled: did('boot:settled', afterId),
+      announced: did('app:running', afterId),
+      running: (await Promise.all([db, web, plain].map(isUp))).some(Boolean),
+      installed: await installedNames(),
+    });
 
     before(async function () {
       this.timeout(900000);
       step('taking the node down, its containers stopped and its location reads refused');
       ({ anchors, release } = await rebootUnreadable([db, web, plain], { keep: [mixedApp, plainApp] }));
       // Held before boot's first read, which fails: the decision it holds comes at
-      // least one retry interval after that.
-      const holdable = await holder.holdCheckpoint(BEFORE_DECISION, mixedApp).then(() => true, () => false);
-      const settled = await holder.waitForEvent('boot:settled', () => true, 300000, { afterId: anchors[HOLDER] });
-      heldAtBoot = (await Promise.all([mixedApp, plainApp].map((appName) => heard(
-        'boot:appUnconfirmed', (d) => d.name === appName, 60000, anchors[HOLDER],
-      )))).every(Boolean);
-      stoppedAtBoot = !(await Promise.all([db, web, plain].map(isUp))).some(Boolean);
+      // least one retry interval after that. Only the app boot holds reaches it.
+      const holdable = (await Promise.all([mixedApp, plainApp].map((appName) => holder.holdCheckpoint(BEFORE_DECISION, appName)
+        .then(() => true, () => false)))).every(Boolean);
+      held = (await heard('boot:appUnconfirmed', (d) => [mixedApp, plainApp].includes(d.name), 120000, anchors[HOLDER]))?.data?.name ?? null;
+      // two read retries go by, refused
+      await sleepUnlessInfraDead(35000);
+      whileUnreadable = await undecided(anchors[HOLDER]);
 
-      step('the location records unreadable: the reconciler is asked about every component');
-      sweptAfterBoot = Boolean(await holder.waitForEvent('reconciler:swept', () => true, 120000, { afterId: settled.id })
-        .catch(() => null));
-      [webWhileUnreadable, plainWhileUnreadable] = await Promise.all([
-        reconcilerAnswer(web, settled.id), reconcilerAnswer(plain, settled.id),
-      ]);
-      upWhileUnreadable = (await Promise.all([db, web, plain].map(isUp))).some(Boolean);
-      installedWhileUnreadable = await installedNames();
-
-      step('the database answers: the plain app is decided, the mixed app held at its decision');
+      step('the database answers: the held app\'s decision held at its checkpoint');
       const answeredFrom = holder.getLastEventId();
-      const evaluatedBefore = await holder.getDecisionCount('masterSlave:decision', db, 'evaluated');
       failedReads = await release();
       release = null;
-      parkedAtDecision = holdable && Boolean(await heard(
-        'checkpoint:held', (d) => d.name === BEFORE_DECISION && d.key === mixedApp, 120000, answeredFrom,
+      parkedAtDecision = holdable && held !== null && Boolean(await heard(
+        'checkpoint:held', (d) => d.name === BEFORE_DECISION && d.key === held, 120000, answeredFrom,
       ));
-      await heard('boot:appConfirmed', (d) => d.name === plainApp && d.valid === true, 120000, answeredFrom);
-      announcement = (await heard(
-        'app:running', (d) => (d.apps ?? []).some((a) => a.name === plainApp), 120000, answeredFrom,
-      ))?.data ?? null;
-      const cyclesFrom = await cycles();
-      await waitFor(async () => (await cycles()) >= cyclesFrom + 2, {
-        timeout: 180000, interval: 2000, label: 'the election ran two passes while the mixed app was held',
-      }).catch(() => {});
-      electionCycles = (await cycles()) - cyclesFrom;
-      evaluatedWhileHeld = (await holder.getDecisionCount('masterSlave:decision', db, 'evaluated')) - evaluatedBefore;
-      skippedWhileHeld = await holder.getDecisionCount('masterSlave:decision', mixedApp, 'skippedUnconfirmed');
-      upWhileHeld = (await Promise.all([db, web].map(isUp))).some(Boolean);
+      await sleepUnlessInfraDead(15000);
+      whileHeld = await undecided(anchors[HOLDER]);
 
-      step('the mixed app\'s decision released');
-      if (holdable) await holder.releaseCheckpoint(BEFORE_DECISION, mixedApp);
-      await heard('boot:appConfirmed', (d) => d.name === mixedApp && d.valid === true, 60000, answeredFrom);
+      step('the held app\'s decision released');
+      const releasedFrom = holder.getLastEventId();
+      await holder.releaseAllCheckpoints().catch(() => {});
+      settled = Boolean(await heard('boot:settled', () => true, 120000, releasedFrom));
+      announcement = (await heard('app:running', () => true, 180000, releasedFrom))?.data ?? null;
     });
 
     after(async function () {
@@ -298,43 +261,32 @@ describe('boot holds an app whose location it cannot read', function () {
       await holder?.releaseAllCheckpoints().catch(() => {});
     });
 
-    it('boots with the apps\' containers stopped', function () {
-      expect(stoppedAtBoot, 'a container was running when FluxOS came back, so boot had nothing to check').to.equal(true);
-    });
-
     it('had its reads of the location records refused by the database', function () {
       expect(failedReads, 'the database refused none of the node\'s location reads, so nothing below was tested').to.be.at.least(1);
     });
 
-    it('keeps an app it cannot confirm installed', function () {
-      expect(installedWhileUnreadable, 'boot removed an app whose location it could not read').to.include.members([mixedApp, plainApp]);
-      expect(heldAtBoot, 'boot did not hold the apps whose location it could not read').to.equal(true);
+    it('holds the app it cannot confirm, installed and stopped, and does not settle', function () {
+      expect(held, 'boot held neither app whose location it could not read').to.not.equal(null);
+      expect(whileUnreadable.installed, 'boot removed an app whose location it could not read').to.include.members([mixedApp, plainApp]);
+      expect(whileUnreadable.running, 'a component of an app boot could not confirm is running').to.equal(false);
+      expect(whileUnreadable.settled, 'boot settled with apps it could not confirm').to.equal(false);
+      expect(whileUnreadable.announced, 'the node announced while boot could not confirm its apps').to.equal(false);
     });
 
-    it('holds the mixed app\'s decision at its checkpoint once the database answers', function () {
-      expect(parkedAtDecision, 'the mixed app\'s decision was not held, so the announcement and election below were not watched while it was undecided').to.equal(true);
+    it('does not settle while the held app is still undecided once the database answers', function () {
+      expect(parkedAtDecision, 'the held app\'s decision was not held, so boot was not watched with an app undecided').to.equal(true);
+      expect(whileHeld.settled, 'boot settled with an app undecided').to.equal(false);
+      expect(whileHeld.announced, 'the node announced with an app undecided').to.equal(false);
+      expect(whileHeld.running, 'a component ran before boot had decided every app').to.equal(false);
     });
 
-    it('starts no component of an app it cannot confirm, when the reconciler is asked to', function () {
-      expect(sweptAfterBoot, 'no reconciler sweep ran while the records were unreadable, so nothing below was tested').to.equal(true);
-      expect(webWhileUnreadable, 'the reconciler started a component of an app boot could not confirm').to.equal('deferred');
-      expect(plainWhileUnreadable, 'the reconciler started an app boot could not confirm').to.equal('deferred');
-      expect(upWhileUnreadable, 'a component of an app boot could not confirm is running').to.equal(false);
+    it('settles once every app is decided, and announces both apps', function () {
+      expect(settled, 'boot did not settle once every app was decided').to.equal(true);
+      expect(announcement, 'the node announced nothing once boot settled').to.not.equal(null);
+      expect(announcement.apps.map((a) => a.name)).to.include.members([mixedApp, plainApp]);
     });
 
-    it('leaves an app it has not confirmed out of the announcement once the database answers', function () {
-      expect(announcement, 'the node announced nothing once the database answered, so nothing below was tested').to.not.equal(null);
-      expect(announcement.apps.map((a) => a.name), 'the announcement named an app boot had not confirmed').to.not.include(mixedApp);
-    });
-
-    it('leaves an app it has not confirmed out of the election', function () {
-      expect(electionCycles, 'the election ran no pass while the app was held, so nothing below was tested').to.be.at.least(2);
-      expect(evaluatedWhileHeld, 'the election decided an app boot had not confirmed').to.equal(0);
-      expect(skippedWhileHeld, 'the election did not leave the held app alone').to.be.at.least(1);
-      expect(upWhileHeld, 'a component of an app boot had not confirmed is running').to.equal(false);
-    });
-
-    it('starts the app once its record reads valid, its active-standby component on one node', async function () {
+    it('starts the apps, the active-standby component on one node', async function () {
       this.timeout(240000);
       await waitFor(async () => (await Promise.all([web, plain].map(isUp))).every(Boolean), {
         timeout: 200000, interval: 3000, label: 'the plain components run again',
@@ -348,7 +300,7 @@ describe('boot holds an app whose location it cannot read', function () {
     it('tells the network nothing of an app it kept', async function () {
       this.timeout(120000);
       await waitFor(() => heardRunning(plainApp, anchors), {
-        timeout: 100000, interval: 2000, label: 'a peer heard the holder announce once the database answered',
+        timeout: 100000, interval: 2000, label: 'a peer heard the holder announce once boot settled',
       });
       expect(heardRemoved(mixedApp, anchors), 'a peer was told the holder gave up an app it kept').to.equal(false);
       expect(heardRemoved(plainApp, anchors), 'a peer was told the holder gave up an app it kept').to.equal(false);
@@ -359,22 +311,21 @@ describe('boot holds an app whose location it cannot read', function () {
     let anchors;
     let release;
     let failedReads;
-    let sweptAfterBoot;
-    let lapsedWhileUnreadable;
+    let heldAtBoot;
+    let settledWhileUnreadable;
     let installedWhileUnreadable;
     let removed;
+    let settled;
+    let announcement;
     let installedAfter;
-    let heldAtBoot;
 
     before(async function () {
       this.timeout(900000);
       step('taking the node down again, for longer than its records live, its boot history forgotten');
       ({ anchors, release } = await rebootUnreadable([lapsed], { expire: true }));
-      const settled = await holder.waitForEvent('boot:settled', () => true, 300000, { afterId: anchors[HOLDER] });
-      heldAtBoot = Boolean(await heard('boot:appUnconfirmed', (d) => d.name === lapsedApp, 60000, anchors[HOLDER]));
-      sweptAfterBoot = Boolean(await holder.waitForEvent('reconciler:swept', () => true, 120000, { afterId: settled.id })
-        .catch(() => null));
-      lapsedWhileUnreadable = await reconcilerAnswer(lapsed, settled.id);
+      heldAtBoot = Boolean(await heard('boot:appUnconfirmed', (d) => d.name === lapsedApp, 120000, anchors[HOLDER]));
+      await sleepUnlessInfraDead(35000);
+      settledWhileUnreadable = did('boot:settled', anchors[HOLDER]);
       installedWhileUnreadable = await installedNames();
 
       step('the database answers');
@@ -383,6 +334,8 @@ describe('boot holds an app whose location it cannot read', function () {
       release = null;
       await heard('boot:appConfirmed', (d) => d.name === lapsedApp && d.valid === false, 120000, answeredFrom);
       removed = Boolean(await heard('app:removed', (d) => d.name === lapsedApp, 120000, answeredFrom));
+      settled = Boolean(await heard('boot:settled', () => true, 120000, answeredFrom));
+      announcement = (await heard('app:running', () => true, 180000, answeredFrom))?.data ?? null;
       installedAfter = await installedNames();
     });
 
@@ -395,108 +348,66 @@ describe('boot holds an app whose location it cannot read', function () {
       expect(failedReads, 'the database refused none of the node\'s location reads, so nothing below was tested').to.be.at.least(1);
     });
 
-    it('holds the app, installed and stopped, while its record cannot be read', function () {
-      expect(sweptAfterBoot, 'no reconciler sweep ran while the records were unreadable, so nothing below was tested').to.equal(true);
-      expect(installedWhileUnreadable, 'boot removed an app whose location it could not read').to.include(lapsedApp);
+    it('holds the app, installed, and does not settle while its record cannot be read', function () {
       expect(heldAtBoot, 'boot did not hold the app whose location it could not read').to.equal(true);
-      expect(lapsedWhileUnreadable, 'the reconciler started an app boot could not confirm').to.equal('deferred');
+      expect(installedWhileUnreadable, 'boot removed an app whose location it could not read').to.include(lapsedApp);
+      expect(settledWhileUnreadable, 'boot settled with an app it could not confirm').to.equal(false);
     });
 
-    it('removes the app once its record reads expired', function () {
+    it('removes the app once its record reads expired, then settles', function () {
       expect(removed, 'the app whose record expired was not removed').to.equal(true);
       expect(installedAfter, 'the app whose record expired is still installed').to.not.include(lapsedApp);
+      expect(settled, 'boot did not settle once every app was decided').to.equal(true);
     });
 
-    it('tells the network nothing of the removal, the network having dropped the record', async function () {
+    it('announces without the app, and tells the network nothing of the removal', async function () {
       this.timeout(120000);
+      expect(announcement, 'the node announced nothing once boot settled').to.not.equal(null);
+      expect(announcement.apps.map((a) => a.name)).to.not.include(lapsedApp);
       // the plain app runs throughout, so boot does not check it and the holder names it
       await waitFor(() => heardRunning(plainApp, anchors), {
-        timeout: 100000, interval: 2000, label: 'a peer heard the holder announce once the database answered',
+        timeout: 100000, interval: 2000, label: 'a peer heard the holder announce once boot settled',
       });
       expect(heardRemoved(lapsedApp, anchors), 'a peer was told of the removal of an app whose record had expired').to.equal(false);
     });
   });
 
-  // The decision is held after boot has read the expired record. While it is held
-  // the app is uninstalled and installed again: the install is a new app, which the
-  // decision about the old one must leave alone.
-  describe('an app uninstalled and installed again while its decision is held', function () {
+  // Runs last: it removes every app on the holder.
+  describe('a record that never answers before the deadline', function () {
+    let anchors;
     let release;
-    let failedReads;
     let heldAtBoot;
-    let parkedAtDecision;
-    let installedAfterUninstall;
-    let installedAgain;
-    let decision;
-    let removedAfterDecision;
+    let settledBeforeDeadline;
+    let settled;
+    let installedAfter;
 
     before(async function () {
       this.timeout(900000);
-      step('taking the node down for longer than its records live, its location reads refused');
-      let anchors;
-      ({ anchors, release } = await rebootUnreadable([again], { expire: true }));
-      const holdable = await holder.holdCheckpoint(BEFORE_DECISION, againApp).then(() => true, () => false);
-      await holder.waitForEvent('boot:settled', () => true, 300000, { afterId: anchors[HOLDER] });
-      heldAtBoot = Boolean(await heard('boot:appUnconfirmed', (d) => d.name === againApp, 60000, anchors[HOLDER]));
-
-      step('the database answers: the expired record is read, its decision held');
-      const answeredFrom = holder.getLastEventId();
-      failedReads = await release();
-      release = null;
-      parkedAtDecision = holdable && Boolean(await heard(
-        'checkpoint:held', (d) => d.name === BEFORE_DECISION && d.key === againApp, 120000, answeredFrom,
-      ));
-
-      step('uninstalling the app and installing it again while its decision is held');
-      const auth = await authenticate(holder.url, fluxTeamKey());
-      // Asked again until it is gone: the node refuses a removal while another runs,
-      // and boot is removing the apps whose records expired with this one's.
-      await waitFor(async () => {
-        if (!(await installedNames()).includes(againApp)) return true;
-        await (await fetch(`${holder.url}/apps/appremove/${againApp}`, { headers: { zelidauth: auth.zelidauth } })).text();
-        return !(await installedNames()).includes(againApp);
-      }, { timeout: 120000, interval: 3000, label: 'the app is uninstalled' }).catch(() => {});
-      installedAfterUninstall = await installedNames();
-      await installSeededOnNodes(env, againSpec, [HOLDER]).catch((error) => step(`the install did not settle: ${error.message}`));
-      await waitFor(async () => (await installedNames()).includes(againApp), {
-        timeout: 180000, interval: 2000, label: 'the app is installed again',
+      step('taking the node down, its location reads refused for longer than boot waits');
+      ({ anchors, release } = await rebootUnreadable([plain], { keep: [plainApp] }));
+      heldAtBoot = Boolean(await heard('boot:appUnconfirmed', (d) => d.name === plainApp, 120000, anchors[HOLDER]));
+      await sleepUnlessInfraDead(BOOT_APPS_RECONCILE_TIMEOUT_MS / 2);
+      settledBeforeDeadline = did('boot:settled', anchors[HOLDER]);
+      settled = Boolean(await heard('boot:settled', () => true, BOOT_APPS_RECONCILE_TIMEOUT_MS + 300000, anchors[HOLDER]));
+      await waitFor(async () => (await installedNames()).length === 0, {
+        timeout: 300000, interval: 5000, label: 'every app removed',
       }).catch(() => {});
-      installedAgain = await installedNames();
-
-      step('the decision released');
-      const releasedFrom = holder.getLastEventId();
-      if (holdable) await holder.releaseCheckpoint(BEFORE_DECISION, againApp);
-      decision = (await heard('boot:appConfirmed', (d) => d.name === againApp, 60000, releasedFrom))?.data ?? null;
-      removedAfterDecision = Boolean(await heard('app:removed', (d) => d.name === againApp, 30000, releasedFrom));
+      installedAfter = await installedNames();
     });
 
     after(async function () {
       this.timeout(60000);
       await release?.().catch(() => {});
-      await holder?.releaseAllCheckpoints().catch(() => {});
     });
 
-    it('had its reads of the location records refused by the database', function () {
-      expect(failedReads, 'the database refused none of the node\'s location reads, so nothing below was tested').to.be.at.least(1);
-    });
-
-    it('holds the app\'s decision after reading its expired record', function () {
+    it('holds the app and does not settle before the deadline', function () {
       expect(heldAtBoot, 'boot did not hold the app whose location it could not read').to.equal(true);
-      expect(parkedAtDecision, 'the decision was not held, so the uninstall and install below did not land before it').to.equal(true);
+      expect(settledBeforeDeadline, 'boot settled before its deadline with an app undecided').to.equal(false);
     });
 
-    it('uninstalls the app and installs it again while its decision is held', function () {
-      expect(installedAfterUninstall, 'the app was not uninstalled').to.not.include(againApp);
-      expect(installedAgain, 'the app was not installed again').to.include(againApp);
-    });
-
-    it('leaves the app installed again alone when the decision about the uninstalled one is released', async function () {
-      this.timeout(240000);
-      expect(decision, 'the held decision never ran, so nothing below was tested').to.not.equal(null);
-      expect(decision.valid, 'the record boot read was not the expired one').to.equal(false);
-      expect(removedAfterDecision, 'the decision about the uninstalled app removed the app installed after it').to.equal(false);
-      expect(await installedNames(), 'the app installed again was removed').to.include(againApp);
-      await waitFor(() => isUp(again), { timeout: 200000, interval: 3000, label: 'the app installed again runs' });
+    it('removes every app at the deadline, and settles', function () {
+      expect(settled, 'boot did not settle at its deadline').to.equal(true);
+      expect(installedAfter, 'an app is still installed after boot gave up deciding').to.deep.equal([]);
     });
   });
 });

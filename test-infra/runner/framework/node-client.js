@@ -206,6 +206,9 @@ export function nodeClient(nodeNum) {
         'daemon:unreachable',
         'dos:changed',
         'explorer:ready',
+        'explorer:appPayment',
+        'app:specApplied',
+        'app:paidMessageNotHeld',
         // a block that did not follow the last processed one, and the height the records were restored to
         'explorer:reorganised',
         'explorer:paymentsDropped',

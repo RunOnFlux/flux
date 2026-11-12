@@ -34,6 +34,8 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
 const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
+const tempMessageHold = require('./appMessaging/tempMessageHold');
+const messageStore = require('./appMessaging/messageStore');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
@@ -94,7 +96,6 @@ function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 const {
   cpuCheckIntervalMs,
   forceRemovalIntervalMs,
-  tempMsgTtlS,
 } = config.fluxapps;
 
 // State objects for monitoring services
@@ -181,12 +182,21 @@ async function prepareDatabaseSchema() {
   // no need to drop temporary messages
   const databaseTemp = db.db(config.database.appsglobal.database);
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), [
-    { key: { receivedAt: 1 }, expireAfterSeconds: tempMsgTtlS },
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { receivedAt: 1 } },
     // every check of whether a pending message is held
-    { key: { hash: 1 } },
+    { key: { hash: 1 }, unique: true, recover: dbHelper.dedupeByKey },
     // the unpaid allowances, appMessaging/unpaidAdmission.js
     { key: { clientTag: 1 } },
     { key: { originKey: 1 } },
+  ]);
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsHeldMessages), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { heldAt: 1 } },
+    { key: { key: 1 }, unique: true },
+    // the allowance counts what is held, by client and by admitting operator
+    { key: { 'admission.clientTag': 1 } },
+    { key: { 'admission.originKey': 1 } },
   ]);
   log.info('Temporary database prepared');
   log.info('Preparing Flux Apps locations');
@@ -231,7 +241,13 @@ async function prepareDatabaseSchema() {
     // an app's holders by their signed announcements, and each holder's own events
     { key: { 'data.apps.name': 1 }, name: 'announcements by the apps they name', partialFilterExpression: { type: 'apprunning' } },
     { key: { 'envelope.pubKey': 1, type: 1 }, name: 'events by signing key' },
+    // the events of a type at given addresses
+    { key: { type: 1, ip: 1, expireAt: 1 }, name: 'events of a type at addresses, by expiry' },
+    // the reports and removals of one app, by its name lowercased
+    { key: { appNames: 1, expireAt: 1 }, name: 'reports by the apps they name, lowercased', partialFilterExpression: { type: 'apprunning' } },
+    { key: { appNameLower: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
   ]);
+  await messageStore.lowercaseStoredAppNames(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   log.info('App state events collection prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
@@ -251,6 +267,9 @@ async function prepareDatabaseSchema() {
     { key: { name: 1, hash: 1 }, name: 'query for getting flux app install errors location based on specs name and hash' },
     { key: { name: 1, hash: 1, ip: 1 }, name: 'query for getting flux app install errors location based on specs name and hash and node ip' },
   ]);
+  // A ttl index passes over a row whose expireAt is not a date, so such a row stays for ever.
+  await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations)
+    .deleteMany({ expireAt: { $not: { $type: 'date' } } });
   log.info('App installing errors locations prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
@@ -469,6 +488,8 @@ async function startFluxFunctions() {
     // it is the only thing that knows whether an arriving answer is still
     // wanted. The peer manager asks rather than keeping its own copy.
     peerManager.syncResponseWanted = (peerSocket) => orchestrator.isSyncResponseWanted(peerSocket);
+    peerManager.syncArrivalWanted = (peerSocket) => orchestrator.isSyncArrivalWanted(peerSocket);
+    await untilSucceeds('Held message count', () => tempMessageHold.start(fluxCommunication.settleHeldAppMessage));
 
     // The other half of the peer-gated fallback. The orchestrator stops a node
     // whose peer set keeps collapsing from ever reaching READY, which is silent;
@@ -559,9 +580,10 @@ async function startFluxFunctions() {
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it
     fluxNetworkHelper.setOnAddressChanged((apps, reason, key) => appReconciler.requestRestartOf(apps, reason, key));
-    // this node's own address moved: it records the move as its peers will, so
-    // it knows FDM naming its old IP means itself, and tells them once it has
-    // peers at the new address
+    // this node's own address moved: it records the move as its peers will
+    // before its address switches, so it knows FDM naming its old IP means
+    // itself, and tells them once it has peers at the new address
+    fluxNetworkHelper.setOnOwnAddressRecorded((oldIp, newIp, movedAt) => fluxCommunication.recordOwnAddressMoveAtSwitch(oldIp, newIp, movedAt));
     fluxNetworkHelper.setOnOwnAddressMoved((oldIp, newIp, movedAt) => fluxCommunication.handleOwnAddressMove(oldIp, newIp, movedAt));
     // whether this node ran apps at an address it has no record of leaving
     fluxNetworkHelper.setInstalledAppsListedAt((socketAddress) => appQueryService.installedAppsListedAt(socketAddress));

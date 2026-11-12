@@ -8,6 +8,7 @@
 
 * Each run is a compose project of its own, removed with its volumes when the run ends, so runs on one host never share a container, network or volume.
 * Docker is a daemon of the run's own (`docker:dind`); the suite's Docker tests never reach the host's.
+* MongoDB keeps its data in memory (tmpfs), so a busy host disk does not slow the tests that create collections and indexes.
 * The repo root is mounted at `/home/fluxtesting/flux` and the tests run as the non-root `fluxtesting` user (uid 1000). `npm install` runs in the mounted repo when `package.json` has changed since the last run.
 * The exit status is mocha's.
 

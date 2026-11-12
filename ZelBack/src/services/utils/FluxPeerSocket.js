@@ -573,7 +573,7 @@ class FluxPeerSocket {
    * @returns {boolean}
    */
   #owesCountBatchedSyncAnswer() {
-    return !this.remoteCapabilities.has(linkCrypto.CAPABILITY) && this.manager.isSyncResponseWanted(this);
+    return !this.remoteCapabilities.has(linkCrypto.CAPABILITY) && this.manager.isSyncArrivalWanted(this);
   }
 
   /**
@@ -713,7 +713,7 @@ class FluxPeerSocket {
 
     // Around the gossip pipeline: these keep their arrival order.
     if (isOrdered(msgObj.data?.type)) {
-      if (manager.syncResponseDispatcher && manager.isSyncResponseWanted(this)) {
+      if (manager.syncResponseDispatcher && manager.isSyncArrivalWanted(this)) {
         setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
         return;
       }

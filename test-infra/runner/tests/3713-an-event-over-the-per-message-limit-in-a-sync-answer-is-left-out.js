@@ -19,6 +19,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { pendingMessage, pendingVerdict } from '../framework/unpaid-messages.js';
+import { advanceBlock } from '../framework/daemon-control.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import limits from '../framework/message-limits.cjs';
@@ -64,6 +65,8 @@ describe('an event over the per-message limit in a sync answer is left out', fun
       async () => (await env.stubPeerClients.get(ANSWERING).getStats()).syncAnswersSent >= 4,
       { timeout: 240000, interval: 2000, label: 'JOINER asked the stub for all four streams, and it answered' },
     );
+    // A held message is checked once the registry is built, which a processed block starts.
+    await advanceBlock();
   });
 
   after(async function () {

@@ -361,7 +361,9 @@ module.exports = (app) => {
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxNetworkHelper.getIncomingConnectionsInfo(req, res);
   }));
-  app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), asyncRoute((req, res) => {
+  // Not cached: the answer is whether this node lists the address and reaches it
+  // now, and the nodes that ask act on it.
+  app.get('/flux/checkfluxavailability/:ip?/:port?', asyncRoute((req, res) => {
     return fluxNetworkHelper.checkFluxAvailability(req, res);
   }));
   app.post('/flux/checkappavailability', asyncRoute((req, res) => {

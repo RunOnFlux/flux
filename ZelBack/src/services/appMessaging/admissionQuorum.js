@@ -358,8 +358,8 @@ function openProposal(hash, peer) {
   const { admissionHoldMs, admissionHoldMax } = config.fluxapps;
   const entry = holds.get(hash);
   if (entry) {
+    if (!entry.committers.has(peer.connectionId)) entry.proposers.push(peer);
     entry.committers.add(peer.connectionId);
-    entry.proposers.push(peer);
     if (entry.held) sendReceipt(peer, hash, RECEIPT_STATE.HELD);
     return false;
   }

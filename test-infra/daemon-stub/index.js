@@ -132,6 +132,10 @@ function nodeBySourceIp(sourceIp) {
       return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
     }
   }
+  // A node fluxd has decided a new address for calls from it.
+  for (const [realIp, decided] of decidedAddresses) {
+    if (decided.address === clean) return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
+  }
   // Nor is it anyone else once it is told a further move: until its container
   // moves again it still arrives from the address it was moved to before.
   for (const [realIp, former] of formerReportedAddresses) {
@@ -183,6 +187,9 @@ function aliasedOwnAddress(sourceIp, node) {
 // all of them, and a per-RPC dial is how a suite comes to move an answer the
 // product never reads.
 const reportedAddresses = new Map(); // real ip -> { reported, scope }
+// real ip -> the decided_address fluxd reports for the node: { address, peers, changed }.
+// Only a node given one is beside a fluxd that decides addresses.
+const decidedAddresses = new Map();
 // The addresses each node was reported at before the one it is reported at now:
 // real ip -> Set of ips.
 const formerReportedAddresses = new Map();
@@ -357,17 +364,24 @@ const rpcHandlers = {
     errors: '',
   }),
 
-  getnetworkinfo: () => ({
-    version: DAEMON_VERSION,
-    subversion: DAEMON_SUBVERSION,
-    protocolversion: DAEMON_PROTOCOL_VERSION,
-    localservices: '0000000000000005',
-    timeoffset: 0,
-    connections: deterministicNodeList.length,
-    networks: [],
-    relayfee: 0.000001,
-    localaddresses: [],
-  }),
+  getnetworkinfo: (params, sourceIp) => {
+    const node = sourceIp ? nodeBySourceIp(sourceIp) : null;
+    const decided = node ? decidedAddresses.get(node.ip.split(':')[0]) : undefined;
+    return {
+      version: DAEMON_VERSION,
+      subversion: DAEMON_SUBVERSION,
+      protocolversion: DAEMON_PROTOCOL_VERSION,
+      localservices: '0000000000000005',
+      timeoffset: 0,
+      connections: deterministicNodeList.length,
+      networks: [],
+      relayfee: 0.000001,
+      localaddresses: [],
+      // A fluxd that decides addresses (9.2.0) reports the one its peers see the
+      // node at; one that does not reports no such field.
+      ...(decided ? { decided_address: decided } : {}),
+    };
+  },
 
   getpeerinfo: () => [],
 
@@ -1364,6 +1378,24 @@ control.delete('/rpc-hold/:ip', (req, res) => {
   return res.json({ ip: req.params.ip, held: false, released });
 });
 
+// -- Decided addresses --
+
+// The address fluxd decides one node is at, as fluxd 9.2.0 reports it in
+// getnetworkinfo's decided_address; `address: null` makes it a fluxd that decides
+// none.
+control.post('/decided-address/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  if (!deterministicNodeList.some((n) => n.ip.split(':')[0] === key)) return res.status(404).json({ error: `no node in the list at ${key}` });
+  const { address } = req.body || {};
+  if (address === null || address === undefined) {
+    decidedAddresses.delete(key);
+    return res.json({ node: key, decided: null });
+  }
+  const decided = { address: String(address).split(':')[0], peers: 8, changed: Math.floor(Date.now() / 1000) };
+  decidedAddresses.set(key, decided);
+  return res.json({ node: key, decided });
+});
+
 // -- Logins --
 
 // The login fluxd accepts from one node: its cookie, `user:password`.
@@ -1483,6 +1515,7 @@ control.post('/reset', (req, res) => {
   // hangs whatever made it.
   for (const ip of [...rpcHolds.keys()]) releaseHolds(ip);
   for (const ip of [...refusalHolds.keys()]) releaseRefusals(ip);
+  decidedAddresses.clear();
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];
   forkedHashes.clear();

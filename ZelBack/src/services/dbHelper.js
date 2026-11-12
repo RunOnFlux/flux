@@ -245,9 +245,9 @@ async function dedupeByKey(collection, spec, options = {}) {
 /**
  * Assert one index, healing the failures that are recoverable.
  *
- *   - a pre-existing index that conflicts is dropped and recreated: the index on
- *     the same KEY when its options differ (IndexOptionsConflict), the index of
- *     the same NAME when its key differs (IndexKeySpecsConflict);
+ *   - on a conflict (IndexOptionsConflict, IndexKeySpecsConflict) every index holding
+ *     the requested key or the requested name is dropped, and the index is built. A
+ *     name left out is generated from the key, so such an index collides by its key;
  *   - a unique build blocked by DUPLICATE ROWS runs the caller's `recover`
  *     strategy (see dedupeByKey) and rebuilds, so the node ends up WITH the
  *     index rather than running degraded without it. Every build goes this way,
@@ -298,12 +298,11 @@ async function ensureIndex(collection, spec, options = {}, recover = null) {
     if (!conflict) throw err;
     const specKeys = JSON.stringify(spec);
     const indexes = await collection.listIndexes().toArray();
-    const match = err.codeName === 'IndexKeySpecsConflict'
-      ? indexes.find((idx) => idx.name === options.name)
-      : indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
-    if (match?.name) {
-      log.warn(`ensureIndex - conflicting index '${match.name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
-      await collection.dropIndex(match.name);
+    const colliding = indexes.filter((idx) => idx.name === options.name || JSON.stringify(idx.key) === specKeys);
+    for (const { name } of colliding) {
+      log.warn(`ensureIndex - conflicting index '${name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
+      // eslint-disable-next-line no-await-in-loop
+      await collection.dropIndex(name);
     }
     await buildIndex(collection, spec, options, recover);
   }

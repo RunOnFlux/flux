@@ -97,6 +97,42 @@ describe('the location table and the event-derived view agree', () => {
     });
   });
 
+  describe('an app name compared without case', () => {
+    const ip = '203.0.113.160:16127';
+    let now;
+    beforeEach(() => { now = Date.now(); });
+
+    it('is stored lowercased on the report naming the app and on its removal, and read in any case', async () => {
+      ips.push(ip);
+      await reportRunning(ip, 'CaseApp', now - 120000);
+      await remove(ip, 'OtherApp', now - 60000);
+
+      expect((await events.findOne({ ip, type: 'apprunning' })).appNames).to.deep.equal(['caseapp']);
+      expect((await events.findOne({ ip, type: 'appremoved' })).appNameLower).to.equal('otherapp');
+      expect((await registryManager.appLocationFromEvents({ appname: 'caseAPP' })).map((row) => [row.name, row.ip])).to.deep.equal([['CaseApp', ip]]);
+    });
+
+    it('is given to an event stored before events carried it', async () => {
+      ips.push(ip);
+      await events.insertMany([
+        {
+          ip, type: 'apprunning', dedupKey: 'v2', broadcastedAt: new Date(now - 120000), expireAt: new Date(now + 3600000),
+          data: { type: 'fluxapprunning', version: 2, ip, broadcastedAt: now - 120000, apps: [{ name: 'OldApp', hash: 'h' }, { name: 'nohash' }] },
+        },
+        {
+          ip, type: 'appremoved', dedupKey: 'appremoved:Gone', broadcastedAt: new Date(now - 60000), expireAt: new Date(now + 3600000),
+          data: { type: 'fluxappremoved', version: 1, ip, appName: 'Gone', broadcastedAt: now - 60000 },
+        },
+      ]);
+
+      await messageStore.lowercaseStoredAppNames(events);
+
+      expect((await events.findOne({ ip, type: 'apprunning' })).appNames).to.deep.equal(['oldapp']);
+      expect((await events.findOne({ ip, type: 'appremoved' })).appNameLower).to.equal('gone');
+      expect((await registryManager.appLocationFromEvents({ appname: 'oldapp' })).map((row) => row.ip)).to.deep.equal([ip]);
+    });
+  });
+
   describe('when a node moves', () => {
     const A = '203.0.113.150:16127';
     const B = '203.0.113.151:16127';
@@ -308,6 +344,52 @@ describe('the location table and the event-derived view agree', () => {
       expect((await registryManager.appLocation(`${appName}gone`)).map((row) => row.ip)).to.deep.equal([]);
       expect((await registryManager.appLocationFromEvents({ appname: `${appName}gone` })).map((row) => row.ip)).to.deep.equal([]);
       expect((await registryManager.appLocation(appName)).map((row) => row.ip)).to.deep.equal([B]);
+    });
+
+    describe('a report heard by gossip', () => {
+      // taken as each test starts: a report older than gossip's window is refused
+      let now;
+      beforeEach(() => { now = Date.now(); });
+      // as fluxCommunication takes one: the event, then the location rows
+      async function gossip(ip, apps, broadcastedAt) {
+        const data = {
+          type: 'fluxapprunning', version: 2, ip, broadcastedAt, osUptime: 1, staticIp: false,
+          apps: apps.map((name) => ({ name, hash: `hash-${name}`, runningSince: new Date(now - 300000).toISOString() })),
+        };
+        await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: { ...envelope, data } });
+        await messageStore.storeAppRunningMessage(data);
+      }
+      const inBothViews = async (name) => ({
+        table: (await registryManager.appLocation(name)).map((row) => row.ip),
+        events: (await registryManager.appLocationFromEvents({ appname: name })).map((row) => row.ip),
+      });
+
+      it('removes what its node stopped running', async () => {
+        ips.push(A);
+        await gossip(A, [appName, `${appName}gone`], now - 280000);
+        await gossip(A, [appName], now - 240000);
+
+        expect(await inBothViews(`${appName}gone`)).to.deep.equal({ table: [], events: [] });
+        expect(await inBothViews(appName)).to.deep.equal({ table: [A], events: [A] });
+      });
+
+      it('removes nothing reported after it, when it arrives late', async () => {
+        ips.push(A);
+        await gossip(A, [appName, `${appName}new`], now - 120000);
+        await gossip(A, [appName], now - 240000);
+
+        expect(await inBothViews(`${appName}new`)).to.deep.equal({ table: [A], events: [A] });
+      });
+
+      it('at its node\'s new address, removes what the move carried and the node no longer runs', async () => {
+        ips.push(A, B);
+        await gossip(A, [appName, `${appName}static`], now - 280000);
+        await move(A, B, now - 160000);
+        await gossip(B, [appName], now - 60000);
+
+        expect(await inBothViews(`${appName}static`)).to.deep.equal({ table: [], events: [] });
+        expect(await inBothViews(appName)).to.deep.equal({ table: [B], events: [B] });
+      });
     });
 
     it('a move leaves what was reported at the old address after it', async () => {

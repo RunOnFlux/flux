@@ -360,6 +360,24 @@ export function assertSigtermOrdering(fluxapps) {
   }
 }
 
+// The daemon stub's block interval: test-env.js starts the stub with it.
+export const HARNESS_BLOCK_MS = 5000;
+
+/**
+ * The node list refreshes on every block: its least time between fetches is under
+ * the block interval, as production's 25 s is under its 30 s block. A floor at or
+ * over the block skips blocks, and a node that must see a list update before it can
+ * be heard (one that moved, one just listed) waits several blocks for it.
+ * @param {{minFetchIntervalMs: number}} networkState Effective networkState config.
+ * @param {number} [blockMs] The fleet's block interval.
+ * @throws {Error} When the floor is not under the block interval.
+ */
+export function assertListRefreshesEveryBlock(networkState, blockMs = HARNESS_BLOCK_MS) {
+  if (!(networkState?.minFetchIntervalMs < blockMs)) {
+    throw new Error(`coupled knobs: networkState.minFetchIntervalMs (${networkState?.minFetchIntervalMs} ms) must be under the block interval (${blockMs} ms), or the node list skips blocks`);
+  }
+}
+
 /**
  * Every coupled-knob rule this harness enforces, in one call.
  * @param {object} fluxapps Effective fluxapps config for the fleet.

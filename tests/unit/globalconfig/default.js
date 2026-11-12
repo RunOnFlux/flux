@@ -8,6 +8,7 @@ module.exports = {
     heartbeatIntervalMs: 30000,
     bootSyncTimeoutMs: 300000,
     bootDaemonTimeoutMs: 300000,
+    bootAppsReconcileTimeoutMs: 300000,
   },
   peers: {
     wsPingIntervalMs: 15000,
@@ -33,6 +34,11 @@ module.exports = {
     readIntervalMs: 5 * 60 * 1000,
     stuckIntervals: 6,
     stopWindowMs: 60 * 1000,
+  },
+  // The least time between two fetches of the node list: under the 30 s block
+  // time, so the list refreshes on every block.
+  networkState: {
+    minFetchIntervalMs: 25000,
   },
   database: {
     url: database,
@@ -63,6 +69,7 @@ module.exports = {
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
         upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
         syncthingDroppedDevices: 'syncthingdroppeddevices', // each device this node took out of an app folder and has not added back
+        unannouncedRemovals: 'unannouncedremovals', // removals this node could not announce when it made them, until their location row would have expired
       },
     },
     daemon: {
@@ -88,6 +95,7 @@ module.exports = {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsInstallingLocations',
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -394,6 +402,7 @@ module.exports = {
     discoveryFailRetryMs: 120000,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
+    addressMoveWaitMs: 1200000,
     spawnDeferrals: {
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },
@@ -442,7 +451,6 @@ module.exports = {
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
-    nodeMonitorCheckTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,
     imageUpdateInitialDelayMinMs: 600000,
     imageUpdateInitialDelayMaxMs: 1800000,

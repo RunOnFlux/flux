@@ -131,6 +131,16 @@ function networkState(options = {}) {
 }
 
 /**
+ * The highest block any listed node last confirmed at: how far the chain has
+ * reached in what this node's list holds.
+ * @returns {number}
+ */
+function highestConfirmedHeight() {
+  if (!stateManager) return 0;
+  return stateManager.state().reduce((highest, node) => Math.max(highest, Number(node.last_confirmed_height) || 0), 0);
+}
+
+/**
  * Whether the node list has been fetched and indexed.
  *
  * The bulk accessors - networkState(), nodeCount() - answer an unknown state
@@ -324,6 +334,7 @@ if (require.main === module) {
 module.exports = {
   getFluxnodeBySocketAddress,
   getFluxnodesByPubkey,
+  highestConfirmedHeight,
   getRandomSocketAddress,
   markArcane,
   unmarkArcane,

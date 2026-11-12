@@ -330,7 +330,9 @@ describe('peerCodec', () => {
     });
     const nonce = { type: 'fluxlinknonce', version: 1, nonce: 'ab'.repeat(32) };
     const confirm = { type: 'fluxlinkconfirm', version: 1, mac: 'cd'.repeat(32) };
-    const noConfirm = { type: 'fluxlinkconfirm', version: 1, mac: null };
+    const noConfirm = {
+      type: 'fluxlinkconfirm', version: 1, mac: null, nonce: 'ef'.repeat(32),
+    };
 
     [['a nonce', nonce], ['a confirm', confirm], ['a confirm with no MAC', noConfirm]].forEach(([name, data]) => {
       it(`decodes ${name} to the broadcast that was signed, key order included`, () => {

@@ -7,7 +7,7 @@ const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
 const unpaidAdmission = require('./unpaidAdmission');
-const { insertTemporaryMessage } = require('./temporaryMessageRecord');
+const { insertTemporaryMessage, temporaryMessageExpiry } = require('./temporaryMessageRecord');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
@@ -16,7 +16,10 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
+const { envelopeOf } = require('../utils/fluxBroadcastHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
+const fluxnodeAddressRecord = require('../fluxnodeAddressRecord');
+const networkStateService = require('../networkStateService');
 const {
   globalAppsMessages,
   globalAppsLocations,
@@ -25,6 +28,8 @@ const {
   globalAppsInstallingErrorsBroadcasts,
   globalAppStateEvents,
   appsHashesCollection,
+  ADDRESS_MOVE_GRACE_BLOCKS,
+  ADDRESS_MOVE_WAIT_MS,
 } = require('../utils/appConstants');
 const { appsInstallingBroadcasts } = config.database.appsglobal.collections;
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -61,12 +66,33 @@ const APP_STATE_EVENT_TYPES = Object.freeze({
   IPCHANGED: 'ipchanged',
 });
 
+/**
+ * A value a message carries, as an update pipeline takes it.
+ * @param {*} value
+ * @returns {{$literal: *}}
+ */
+function asData(value) {
+  return { $literal: value };
+}
+
+/**
+ * The expression for a field of a row a report writes: the report's value when it
+ * is newer than the row, otherwise the row's, or the report's when the row has none.
+ * @param {object} isNewer Expression: the report is newer than the row.
+ * @param {string} field
+ * @param {*} value The report's value.
+ * @returns {object} Aggregation expression.
+ */
+function newerOrHeld(isNewer, field, value) {
+  return { $cond: [isNewer, asData(value), { $ifNull: [`$${field}`, asData(value)] }] };
+}
+
 function buildConditionalUpsert(broadcastedAt, conditionalFields, options = {}) {
   const alwaysSetFields = options.alwaysSetFields ?? {};
   const incomingDate = new Date(broadcastedAt);
   const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
   const set = Object.fromEntries(
-    Object.entries(conditionalFields).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
+    Object.entries(conditionalFields).map(([k, v]) => [k, newerOrHeld(isNewer, k, v)]),
   );
   Object.assign(set, alwaysSetFields);
   return [{ $set: set }];
@@ -93,6 +119,8 @@ async function getPreviousOwner(appName, currentOwner) {
  *   link; on an Arcane node an unpaid message is taken only when it did
  * @param {function(): Promise<boolean>} [options.beforeWrite] - Called once every check has
  *   passed, before the write; the message is written only when it answers true
+ * @param {object} [options.admitted] - The admission an unpaid message was taken with as it
+ *   arrived (tempMessageHold), used in place of admitting it here
  * @param {function(string): void} [options.onRefusal] - Told why a message that is not
  *   stored was refused by admission, or is queued behind its registration
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
@@ -156,13 +184,20 @@ async function storeAppTemporaryMessage(message, options = {}) {
     appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED, message.hash);
   }
 
+  // A message past its signed hour is held by no node that keeps time. A paid one waits
+  // for its promotion, whatever its age.
+  if (!isAppRequested && temporaryMessageExpiry(messageTimestamp) <= Date.now()) return false;
+
   // A paid message is taken whatever it carries; an unpaid one only within its
   // sender's allowance, decided before the verification below.
   let admission = { fields: {} };
   // A taken message holds its place in its sender's allowance until it is
   // written or let go.
   try {
-    if (!result) {
+    if (!result && options.admitted) {
+      // Admitted as it arrived (tempMessageHold): its place is held again for the check.
+      admission = { fields: options.admitted, ...await unpaidAdmission.placeOf(message.hash, options.admitted) };
+    } else if (!result) {
       // Only an Arcane node can put a tagged unpaid message into the network, and
       // only over an authenticated link does one reach an Arcane node. One without
       // a tag is from a release that does not tag, from any peer: the version
@@ -268,7 +303,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
     if (options.beforeWrite && !(await options.beforeWrite())) return false;
 
     // message does not exist anywhere and is ok, store it
-    await insertTemporaryMessage({
+    const inserted = await insertTemporaryMessage({
       appSpecifications: appSpecFormatted,
       type: message.type, // shall be fluxappregister, fluxappupdate
       version: messageVersion,
@@ -276,7 +311,9 @@ async function storeAppTemporaryMessage(message, options = {}) {
       timestamp: messageTimestamp,
       signature: message.signature,
       arcaneSender: message.arcaneSender,
-    }, admission.fields);
+    }, admission.fields, { paid: isAppRequested });
+    // Another copy passed its checks alongside this one and was stored first.
+    if (!inserted) return false;
     // it is stored and rebroadcasted
     if (isAppRequested) {
       if (result && result.txid && result.height) {
@@ -368,15 +405,13 @@ function logRefusedEntries(caller, refusals) {
 async function storeAppRunningMessage(message) {
   /* message object
   * @param type string
-  * @param version number
-  * @param hash string
+  * @param version number, 2
   * @param broadcastedAt number
-  * @param name string
   * @param ip string
   * @param osUptime number (optional)
   * @param staticIp string (optional)
   * @param runningSince number (optional)
-  * @param apps array (for version 2)
+  * @param apps array
   */
   const appsMessages = [];
   // What this message did here, for the caller to report: the entries written,
@@ -387,40 +422,27 @@ async function storeAppRunningMessage(message) {
     return new Error('Invalid Flux App Running message for storing');
   }
 
-  if (message.version !== 1 && message.version !== 2) {
+  if (message.version !== 2) {
     return new Error(`Invalid Flux App Running message for storing version ${message.version} not supported`);
   }
 
-  if (message.version === 1) {
-    if (typeof message.hash !== 'string' || typeof message.name !== 'string') {
-      return new Error('Invalid Flux App Running message for storing');
-    }
-    const app = {
-      name: message.name,
-      hash: message.hash,
+  if (!message.apps || !Array.isArray(message.apps)) {
+    return new Error('Invalid Flux App Running message for storing');
+  }
+  if (message.apps.length > config.fluxapps.maxAppsPerNode) {
+    return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
+  }
+  const { stored, refused } = appRunningEntries(message.apps);
+  refusedNames = refused.map((app) => app?.name ?? null);
+  if (refused.length) {
+    logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
+  }
+  if (message.apps.length && !stored.length) {
+    return {
+      stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
     };
-    appsMessages.push(app);
   }
-
-  if (message.version === 2) {
-    if (!message.apps || !Array.isArray(message.apps)) {
-      return new Error('Invalid Flux App Running message for storing');
-    }
-    if (message.apps.length > config.fluxapps.maxAppsPerNode) {
-      return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
-    }
-    const { stored, refused } = appRunningEntries(message.apps);
-    refusedNames = refused.map((app) => app?.name ?? null);
-    if (refused.length) {
-      logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
-    }
-    if (message.apps.length && !stored.length) {
-      return {
-        stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
-      };
-    }
-    appsMessages.push(...stored);
-  }
+  appsMessages.push(...stored);
 
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
@@ -452,7 +474,7 @@ async function storeAppRunningMessage(message) {
       staticIp: message.staticIp,
     };
     const conditionalSet = Object.fromEntries(
-      Object.entries(incoming).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
+      Object.entries(incoming).map(([k, v]) => [k, newerOrHeld(isNewer, k, v)]),
     );
     conditionalSet.runningSince = runningSinceOf(isNewer, runningSince, ip !== message.ip);
 
@@ -469,7 +491,16 @@ async function storeAppRunningMessage(message) {
     }
   }
 
-  if (message.version === 2 && appsMessages.length === 0) {
+  // A version 2 message names every app its node announces: a row of that node
+  // reported before it, for an app it does not name, is one the node no longer
+  // runs. The same rule a sync answer and the event-derived view apply.
+  if (appsMessages.length > 0) {
+    await pruneAppRunningLocations(new Map([[message.ip, {
+      names: appsMessages.map((app) => app.name), broadcastedAt: message.broadcastedAt,
+    }]]));
+  }
+
+  if (appsMessages.length === 0) {
     const result = await dbHelper.findInDatabase(database, globalAppsLocations, { ip }, { projection: { _id: 0, runningSince: 1 } });
     if (result.length > 0) {
       const broadcastDate = new Date(message.broadcastedAt);
@@ -498,7 +529,7 @@ async function storeAppRunningMessage(message) {
     rebroadcast: anyStored,
     written,
     refused: refusedNames,
-    cleared: message.version === 2 && appsMessages.length === 0 && anyStored,
+    cleared: appsMessages.length === 0 && anyStored,
   };
 }
 
@@ -894,20 +925,21 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     if (validTill < Date.now()) continue;
     const ip = addresses[index];
 
-    const { stored: apps, refused } = appRunningEntries(data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }]);
+    if (data.version !== 2 || !Array.isArray(data.apps)) continue;
+    const { stored: apps, refused } = appRunningEntries(data.apps);
     if (refused.length) refusals.push({ ip: data.ip, broadcastedAt: data.broadcastedAt, refused });
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
     for (const app of apps) {
       const setFields = {
-        name: app.name,
-        ip,
-        hash: { $cond: [isNewer, app.hash, { $ifNull: ['$hash', app.hash] }] },
+        name: asData(app.name),
+        ip: asData(ip),
+        hash: newerOrHeld(isNewer, 'hash', app.hash),
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
         expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
-        osUptime: { $cond: [isNewer, data.osUptime, { $ifNull: ['$osUptime', data.osUptime] }] },
-        staticIp: { $cond: [isNewer, data.staticIp ?? null, { $ifNull: ['$staticIp', data.staticIp ?? null] }] },
+        osUptime: newerOrHeld(isNewer, 'osUptime', data.osUptime),
+        staticIp: newerOrHeld(isNewer, 'staticIp', data.staticIp ?? null),
       };
       const runningSince = data.runningSince ? new Date(data.runningSince) : (app.runningSince ? new Date(app.runningSince) : null);
       if (runningSince) {
@@ -944,15 +976,16 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 }
 
 /**
- * Drop location rows a node no longer reports.
+ * Drop location rows a node no longer reports: each node's rows reported no
+ * later than its broadcast, for apps the broadcast does not name. A row reported
+ * after it stays, so an older broadcast arriving late removes nothing newer.
  *
- * Only the newest broadcast from a node says which apps it still runs, so this
- * cannot be done from part of a sync response - a slice holding an older
- * broadcast would prune against a stale app list, and one holding a newer
- * broadcast would leave rows an earlier slice had already written. The caller
- * passes the newest broadcast seen per node across the whole response.
+ * A sync response passes the newest broadcast it holds per node, across the
+ * whole response: a slice holding an older broadcast would prune against a stale
+ * app list, and one holding a newer broadcast would leave rows an earlier slice
+ * had already written. A gossiped broadcast passes itself.
  *
- * @param {Map<string, {names: Array<string>, broadcastedAt: number}>} newestByIp Newest broadcast per node.
+ * @param {Map<string, {names: Array<string>, broadcastedAt: number}>} newestByIp A broadcast per node.
  * @returns {Promise<void>}
  */
 async function pruneAppRunningLocations(newestByIp) {
@@ -995,6 +1028,37 @@ async function pruneAppRunningLocations(newestByIp) {
  * @param {object} data The message's data.
  * @returns {boolean}
  */
+/**
+ * The names a report's storable entries give, lowercased: what a read for one app
+ * matches, since app names compare without case.
+ * @param {Array<*>} apps A version 2 report's apps.
+ * @returns {string[]}
+ */
+function appNamesOf(apps) {
+  return appRunningEntries(apps).stored.map((app) => app.name.toLowerCase());
+}
+
+/**
+ * Gives every stored report and removal its app names lowercased (appNames,
+ * appNameLower), as the stores write them: the field a read for one app matches.
+ * Each event that lacks it takes it in one update on the server.
+ * @param {object} collection The app state events collection.
+ * @returns {Promise<void>}
+ */
+async function lowercaseStoredAppNames(collection) {
+  const storable = {
+    $and: [{ $eq: [{ $type: '$$app.name' }, 'string'] }, { $eq: [{ $type: '$$app.hash' }, 'string'] }],
+  };
+  await collection.updateMany(
+    { type: APP_STATE_EVENT_TYPES.APPRUNNING, appNames: { $exists: false }, 'data.apps': { $type: 'array' } },
+    [{ $set: { appNames: { $map: { input: { $filter: { input: '$data.apps', as: 'app', cond: storable } }, as: 'app', in: { $toLower: '$$app.name' } } } } }],
+  );
+  await collection.updateMany(
+    { type: APP_STATE_EVENT_TYPES.APPREMOVED, appNameLower: { $exists: false }, 'data.appName': { $type: 'string' } },
+    [{ $set: { appNameLower: { $toLower: '$data.appName' } } }],
+  );
+}
+
 function namesOnlyRefusedApps(data) {
   return data.version === 2 && Array.isArray(data.apps) && data.apps.length > 0
     && appRunningEntries(data.apps).stored.length === 0;
@@ -1009,12 +1073,13 @@ async function handleAppRunningEvent({ signedBroadcast }) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  if (data.version === 2 && (!data.apps || data.apps.length === 0)) {
+  if (data.version !== 2 || !Array.isArray(data.apps)) return;
+  if (data.apps.length === 0) {
     const existing = await database.collection(globalAppStateEvents).findOne({ ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING });
     if (!existing) return;
   }
 
-  const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
+  const dedupKey = 'v2';
   const envelope = { version: signedBroadcast.version, timestamp: signedBroadcast.timestamp, pubKey: signedBroadcast.pubKey, signature: signedBroadcast.signature };
 
   await database.collection(globalAppStateEvents).updateOne(
@@ -1023,6 +1088,7 @@ async function handleAppRunningEvent({ signedBroadcast }) {
       ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey,
       broadcastedAt: new Date(data.broadcastedAt),
       expireAt: new Date(data.broadcastedAt + RUNNING_EXPIRY_MS),
+      appNames: appNamesOf(data.apps),
       data, envelope,
     }, { alwaysSetFields: { receivedAt: new Date() } }),
     { upsert: true },
@@ -1047,7 +1113,7 @@ async function handleSigtermEvent({ message, envelope }) {
 }
 
 async function handleAppRemovedStateEvent({ message, envelope }) {
-  if (!message || !message.ip || !message.appName || !message.broadcastedAt) return;
+  if (!message || !message.ip || typeof message.appName !== 'string' || !message.appName || !message.broadcastedAt) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await database.collection(globalAppStateEvents).updateOne(
@@ -1056,6 +1122,7 @@ async function handleAppRemovedStateEvent({ message, envelope }) {
       ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}`,
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
+      appNameLower: message.appName.toLowerCase(),
       envelope, data: message,
     }, { alwaysSetFields: { receivedAt: new Date() } }),
     { upsert: true },
@@ -1104,10 +1171,57 @@ async function handleEvictedEvent({ ip, evictedAt }) {
 }
 
 /**
+ * Whether a node has told of a move to `ip` that the chain has not reached: a
+ * recorded move here, made within ADDRESS_MOVE_WAIT_MS, from an address the node
+ * list still holds under the move's signer. The chain lists a node at a new address
+ * only once it has confirmed there, and rows are carried on its word before that.
+ * @param {string} ip Socket address.
+ * @returns {Promise<boolean>}
+ */
+async function moveHereAwaitsChain(ip) {
+  const moves = await registryManager.addressMovesTo(ip);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [from, { at, signer }] of moves) {
+    // eslint-disable-next-line no-await-in-loop
+    const node = await networkStateService.getFluxnodeBySocketAddress(from);
+    if (Date.now() - at < ADDRESS_MOVE_WAIT_MS && node && (!signer || node.pubkey === signer)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the rows at an address the node list does not hold wait on a move, in
+ * place of being evicted:
+ * - the node there told of a move here that the chain has not reached
+ *   (moveHereAwaitsChain);
+ * - the node that held it has moved, not left: the chain moved it to an address
+ *   the list holds, within ADDRESS_MOVE_GRACE_BLOCKS. Its rows wait for its signed
+ *   move, the only thing that can say which apps it kept. Past the blocks they do
+ *   not: a node that keeps its collateral and starts empty sends no move.
+ * While the chain's record is behind the node list, or cannot be read, the address
+ * is not judged.
+ * @param {string} ip Socket address.
+ * @returns {Promise<boolean>}
+ */
+async function rowsAwaitMove(ip) {
+  if (!fluxnodeAddressRecord.holds(networkStateService.highestConfirmedHeight())) return true;
+  let moved;
+  try {
+    if (await moveHereAwaitsChain(ip)) return true;
+    moved = await fluxnodeAddressRecord.movedAwayFrom(ip);
+  } catch (error) {
+    log.warn(`rowsAwaitMove - the moves of ${ip} cannot be read: ${error.message}`);
+    return true;
+  }
+  if (!moved || fluxnodeAddressRecord.highestRecorded() - moved.height >= ADDRESS_MOVE_GRACE_BLOCKS) return false;
+  return networkStateService.socketAddressInNetworkState(moved.to);
+}
+
+/**
  * Applies a node's eviction: records it, and removes the node's location rows
  * broadcast before it. A row from a broadcast after the eviction is the node
  * back on the network and stays. An eviction older than a location lifetime
- * changes nothing.
+ * changes nothing, and neither does one of a node whose rows await its move.
  *
  * @param {string} ip - The evicted node's socket address
  * @param {number} [evictedAt] - When the eviction was made, ms; now when absent
@@ -1117,6 +1231,11 @@ async function applyEviction(ip, evictedAt) {
   if (!ip) return;
   const at = evictionTime(evictedAt);
   if (at + EVICTED_EXPIRY_MS <= Date.now()) return;
+  if (await rowsAwaitMove(ip)) {
+    fluxEventBus.count('location:awaitingMove', ip);
+    return;
+  }
+  log.info(`Evicting ${ip}: removing its rows from globalAppsLocations`);
   await handleEvictedEvent({ ip, evictedAt: at });
   const [evicted] = await registryManager.currentAddressesOf([{ ip, at }]);
   const db = dbHelper.databaseConnection();
@@ -1144,7 +1263,8 @@ async function handleIPChangedEvent({ message, envelope }) {
   );
 }
 
-function storeAppStateEvent(type, payload) {
+function storeAppStateEvent(type, received) {
+  const payload = received.envelope ? { ...received, envelope: envelopeOf(received.envelope) } : received;
   switch (type) {
     case APP_STATE_EVENT_TYPES.APPRUNNING: return handleAppRunningEvent(payload);
     case APP_STATE_EVENT_TYPES.SIGTERM: return handleSigtermEvent(payload);
@@ -1168,8 +1288,9 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
     const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
     if (namesOnlyRefusedApps(data)) continue;
+    if (data.version !== 2 || !Array.isArray(data.apps)) continue;
 
-    const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
+    const dedupKey = 'v2';
     const envelope = { version: broadcast.version, timestamp: broadcast.timestamp, pubKey: broadcast.pubKey, signature: broadcast.signature };
 
     ops.push({
@@ -1179,6 +1300,7 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
           ip: data.ip, type: 'apprunning', dedupKey,
           broadcastedAt: new Date(data.broadcastedAt),
           expireAt: new Date(validTill),
+          appNames: appNamesOf(data.apps),
           data, envelope,
         }),
         upsert: true,
@@ -1286,8 +1408,8 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
       updateOne: {
         filter: { name: data.name, ip: data.ip },
         update: [{ $set: {
-          name: data.name,
-          ip: data.ip,
+          name: asData(data.name),
+          ip: asData(data.ip),
           broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
           expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
         } }],
@@ -1400,10 +1522,10 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
       updateOne: {
         filter: { name: data.name, hash: data.hash, ip: data.ip },
         update: [{ $set: {
-          name: data.name,
-          hash: data.hash,
-          ip: data.ip,
-          error: { $cond: [isNewer, data.error, { $ifNull: ['$error', data.error] }] },
+          name: asData(data.name),
+          hash: asData(data.hash),
+          ip: asData(data.ip),
+          error: newerOrHeld(isNewer, 'error', data.error),
           broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
           expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
         } }],
@@ -1427,6 +1549,7 @@ module.exports = {
   storeAppTemporaryMessage,
   storeAppPermanentMessage,
   storeAppRunningMessage,
+  lowercaseStoredAppNames,
   storeBatchAppRunningMessages,
   pruneAppRunningLocations,
   storeAppStateEvent,

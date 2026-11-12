@@ -32,6 +32,9 @@ const { RemovalOutcome } = require('../utils/removalOutcome');
 const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
 
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
+// How long boot takes to decide the apps it finds stopped, start to end; past it
+// every app is removed.
+const BOOT_APPS_RECONCILE_TIMEOUT_MS = config.system.bootAppsReconcileTimeoutMs ?? 300000;
 
 // The router taking this node's ports ends the hold boot put on it for not taking them.
 routerEvents.on('upnpReady', () => {
@@ -160,35 +163,55 @@ function startAtBoot(componentsToStart) {
 }
 
 /**
- * Whether this node holds an unexpired location record for an app.
+ * Boot did not decide every app it found stopped within
+ * BOOT_APPS_RECONCILE_TIMEOUT_MS.
+ */
+class BootAppsReconcileTimeout extends Error {
+  constructor() {
+    super(`boot did not decide its apps within ${BOOT_APPS_RECONCILE_TIMEOUT_MS / 1000}s`);
+  }
+}
+
+/**
+ * Whether this node holds an unexpired location record for an app, read every
+ * BOOT_STEP_RETRY_MS until it answers.
  * @param {string} appName
  * @param {string} localSocketAddr
+ * @param {number} deadline When boot's app step ends (ms).
  * @returns {Promise<boolean>}
- * @throws {Error} When the records cannot be read.
+ * @throws {BootAppsReconcileTimeout} When the record has not answered by `deadline`.
  */
-async function readLocation(appName, localSocketAddr) {
-  const valid = await appHasValidLocationOnNode(appName, localSocketAddr);
-  if (valid === null) throw new Error(`the location record of ${appName} could not be read`);
-  return valid;
+async function readLocationBefore(appName, localSocketAddr, deadline) {
+  for (;;) {
+    const waitMs = Math.min(BOOT_STEP_RETRY_MS, deadline - Date.now());
+    if (waitMs <= 0) throw new BootAppsReconcileTimeout();
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(waitMs);
+    // eslint-disable-next-line no-await-in-loop
+    const valid = await appHasValidLocationOnNode(appName, localSocketAddr);
+    if (valid !== null) return valid;
+    log.warn(`appStartupManager - App ${appName}: its location record could not be read, reading it again`);
+  }
 }
 
 /**
  * Decides an app held in globalState.unconfirmedApps once its location record can
- * be read, reading it every BOOT_STEP_RETRY_MS until then. A valid record releases
- * the app and starts the components boot starts; any other answer removes it, the
- * app held until the removal has finished or holds it as departing. An app whose
- * hold has ended by then - uninstalled meanwhile, perhaps installed again since -
- * is not this check's to decide, and it does nothing.
+ * be read; boot waits for it. A valid record releases the app and starts the
+ * components boot starts; any other answer removes it, the app held until the
+ * removal has finished or holds it as departing. An app whose hold has ended by
+ * then - uninstalled meanwhile, perhaps installed again since - is not this
+ * check's to decide, and it does nothing.
  * @param {string} appName
  * @param {string[]} componentsToStart
  * @param {string} localSocketAddr
  * @param {symbol} hold The hold this check decides, as boot set it.
+ * @param {number} deadline When boot's app step ends (ms).
  * @returns {Promise<void>}
+ * @throws {BootAppsReconcileTimeout} When the record has not answered by `deadline`.
  */
-async function confirmHeldApp(appName, componentsToStart, localSocketAddr, hold) {
+async function confirmHeldApp(appName, componentsToStart, localSocketAddr, hold, deadline) {
   const isHeld = () => globalState.unconfirmedApps.get(appName) === hold;
-  await serviceHelper.delay(BOOT_STEP_RETRY_MS);
-  const valid = await untilSucceeds(`Location check of ${appName}`, () => readLocation(appName, localSocketAddr));
+  const valid = await readLocationBefore(appName, localSocketAddr, deadline);
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BOOT_BEFORE_LOCATION_DECISION, appName);
   // Nothing awaits between this check and the decision below, so the hold cannot
   // end in between.
@@ -233,6 +256,7 @@ async function reconcileAppsOnBoot() {
     appsFailed: [],
   };
 
+  const deadline = Date.now() + BOOT_APPS_RECONCILE_TIMEOUT_MS;
   try {
     log.info('appStartupManager - Starting boot reconciliation check');
 
@@ -271,6 +295,7 @@ async function reconcileAppsOnBoot() {
     // Process each app
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsWithStoppedContainers) {
+      if (Date.now() >= deadline) throw new BootAppsReconcileTimeout();
       results.appsChecked += 1;
 
       log.info(`appStartupManager - Checking app ${appName}`);
@@ -325,14 +350,16 @@ async function reconcileAppsOnBoot() {
         const hasValidLocation = await appHasValidLocationOnNode(appName, localSocketAddr);
         if (hasValidLocation === null) {
           // Whether the network placed it elsewhere while this node was down is not
-          // known, so it is neither started nor removed until it is.
+          // known, so it is neither started nor removed until it is, and boot does
+          // not settle before then: the node announces nothing until every app it
+          // found stopped is decided.
           log.warn(`appStartupManager - App ${appName}: its location record could not be read, held stopped until it can be`);
           const hold = Symbol(appName);
           globalState.unconfirmedApps.set(appName, hold);
           fluxEventBus.publish('boot:appUnconfirmed', { name: appName });
-          confirmHeldApp(appName, componentsToStart, localSocketAddr, hold)
-            .catch((error) => log.error(`appStartupManager - App ${appName}: the location check stopped: ${error.message}`));
           results.appsUnconfirmed.push(appName);
+          // eslint-disable-next-line no-await-in-loop
+          await confirmHeldApp(appName, componentsToStart, localSocketAddr, hold, deadline);
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -386,6 +413,7 @@ async function reconcileAppsOnBoot() {
 
     return results;
   } catch (error) {
+    if (error instanceof BootAppsReconcileTimeout) throw error;
     log.error(`appStartupManager - Critical error during recovery: ${error.message}`);
   }
 }
@@ -502,6 +530,7 @@ async function manageAppsOnBoot(bootContext) {
 
     // A UPnP node is ready once its router has taken its own ports, as it is once
     // its database is: both within the one deadline.
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BOOT_BEFORE_SYNC_WAIT);
     const upnpNode = upnpService.isUPNP();
     try {
       if (await awaitWithin(unlessTakenOut(Promise.all([globalState.waitForDbReady(), upnpNode ? upnpService.whenUPNPReady() : null])), SYNC_TIMEOUT_MS, 'sync_timeout') === OUT_OF_SERVICE) {
@@ -529,7 +558,13 @@ async function manageAppsOnBoot(bootContext) {
     // app, whose removal then releases them; the apps start without waiting on
     // the mappings, which follow in the background.
     await portManager.declareInstalledAppsPorts();
-    await reconcileAppsOnBoot();
+    try {
+      await reconcileAppsOnBoot();
+    } catch (error) {
+      if (!(error instanceof BootAppsReconcileTimeout)) throw error;
+      log.error(`appStartupManager - ${error.message}, removing all apps`);
+      await removeAllApps('Apps not decided at boot');
+    }
   } finally {
     stopWatching();
     globalState.bootContainerStateSettled = true;

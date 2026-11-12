@@ -15,25 +15,28 @@ import { deliverAppByBlock } from '../framework/app-delivery.js';
 import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
 // A second machine starts on the collateral of a node running a single-instance
 // app. Whatever the second machine is, the collateral serves from one node and the
-// app runs on one node: every node of the fleet is watched from the second
-// machine's start until the network has settled, and a moment the app runs on two
-// fails the case.
+// app ends on one node.
 //
 // A machine installed afresh on the collateral finds the listed node answering,
 // holds itself out of service and runs nothing, and the app stays where it is.
 // When the listed node's machine dies, the collateral goes to the second machine,
 // the app comes back on exactly one node, and no move is announced: a second
-// machine taking a collateral over is not the listed node moving.
+// machine taking a collateral over is not the listed node moving. Every node of
+// the fleet is watched from the second machine's start, and a moment the app runs
+// on two fails these cases.
 //
-// A machine started from a clone of the listed node's disk holds the app and reads
-// its new address as the node having moved: it confirms there, the chain lists the
-// collateral there, and the listed node holds itself out of service and gives the
-// app up, which the network places again.
+// A machine started from a clone of the listed node's disk holds the app, its data
+// and its stopped container, and reads its new address as the node having moved: it
+// confirms there, the chain lists the collateral there, it starts the app, and the
+// listed node holds itself out of service and gives the app up. The two are not
+// ordered, so the app may run on both until the listed node has given it up; from
+// then on it runs on the clone alone.
 
 // Three nodes start together, so the fleet peers past the threshold and holds
 // policy, which an install needs; the second machine starts after them.
@@ -42,6 +45,7 @@ const BYSTANDER = 1;
 const OTHER = 2;
 const COPY = 3;
 const SPAWNER_BEFORE_PASS = 'spawner:beforePass';
+const BOOT_BEFORE_SYNC_WAIT = 'boot:beforeSyncWait';
 // The collision check's grace and the confirmation's block, from the death.
 const COLLATERAL_MS = 6 * 60 * 1000;
 // The dead node's location lifetime (63s in this fleet), then a spawn and a start.
@@ -56,16 +60,20 @@ const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:16127`)
  * the second machine not yet started.
  * @param {object} hookCtx
  * @param {string} appName
+ * @param {object} [overrides]
+ * @param {object} [overrides.fluxapps] The fleet's app config, over its peer floors.
+ * @param {object} [overrides.copy] The second machine's own config.
  * @returns {Promise<{env: object, app: object}>}
  */
-async function fleetRunningTheApp(hookCtx, appName) {
+async function fleetRunningTheApp(hookCtx, appName, { fluxapps = {}, copy = {} } = {}) {
   const env = await createTestEnv({
     hookCtx,
     nodes: 4,
     deferredNodes: 1,
     collateralOf: { [COPY + 1]: LISTED + 1 },
     tickerAutostart: false,
-    configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
+    configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, ...fluxapps } },
+    nodeConfigOverrides: { [COPY]: copy },
   });
   await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   await pushImage(appName, 'v1');
@@ -250,9 +258,18 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
   dumpLogsOnFailure(() => env);
   const appName = `e2ecloneapp${Date.now()}`;
 
+  // The clone's boot is judged by timers the harness compresses below the work in
+  // front of them: its downtime and the listed node's location record against the
+  // location lifetime, and its database against the boot sync wait, which runs
+  // from finding peers. The fleet keeps production's location lifetimes, which no
+  // part of this case comes near, and the clone boots held before its sync wait,
+  // released once it can be heard, when its database is moments away.
   before(async function () {
     this.timeout(600000);
-    ({ env, app } = await fleetRunningTheApp(this, appName));
+    ({ env, app } = await fleetRunningTheApp(this, appName, {
+      fluxapps: PRODUCTION_LOCATION_EXPIRIES,
+      copy: { testCheckpointsHeldAtStart: [BOOT_BEFORE_SYNC_WAIT] },
+    }));
     await waitFor(() => isUp(env, appName, LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
   });
 
@@ -261,28 +278,33 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
     await env?.teardown();
   });
 
-  it('takes the collateral over, the listed node stands aside, and the app runs on one node', async function () {
-    this.timeout(COLLATERAL_MS + (2 * RESPAWN_MS) + 120000);
-    await dbClient(COPY + 1).cloneFrom(LISTED + 1, env.clients[LISTED]);
+  it('takes the collateral over, the listed node stands aside, and the app runs on the clone alone', async function () {
+    this.timeout(COLLATERAL_MS + (2 * RESPAWN_MS) + 240000);
+    await env.cloneNodeDisk(LISTED, COPY);
     const watch = watchRunsOnce(env, appName);
     try {
-      await env.startNode(COPY);
+      const clone = await env.startNode(COPY);
+      await clone.waitForEvent('checkpoint:held', (d) => d.name === BOOT_BEFORE_SYNC_WAIT, 180000);
+      await clone.waitForEvent('messageCapability:changed', (d) => d.capable === true, 180000);
+      await clone.releaseCheckpoint(BOOT_BEFORE_SYNC_WAIT);
       expect((await dbClient(COPY + 1).globalAppSpec(appName))?.hash, 'fixture: the clone holds the app').to.equal(app.hash);
+      await waitFor(async () => (await getAppContainerStatus(env.clients[COPY].container, appName, { all: true })) !== null, {
+        timeout: 120000, interval: 3000, label: 'fixture: the clone holds the app\'s container',
+      });
 
       await waitFor(async () => (await collateralAt(env)) === listedAt(COPY)
         && (await dosStateOf(env, LISTED)) >= OUT_OF_SERVICE, {
         timeout: COLLATERAL_MS, interval: 5000, label: 'the collateral at the clone and the listed node out of service',
       });
-      // A node out of service gives its apps up, so the app is placed again.
       await waitFor(async () => !(await isUp(env, appName, LISTED)), {
         timeout: 120000, interval: 3000, label: 'the listed node gave the app up',
       });
-      await waitFor(async () => (await watch.runningOn()).length === 1, {
-        timeout: RESPAWN_MS, interval: 5000, label: 'the app running on one node again',
+      await waitFor(() => isUp(env, appName, COPY), {
+        timeout: RESPAWN_MS, interval: 5000, label: 'the app running on the clone',
       });
-      await runsOnOneThroughout(watch, RESPAWN_MS);
+      expect(await runsOnOneThroughout(watch, RESPAWN_MS), 'the node running the app').to.equal(COPY);
     } finally {
-      expect(await watch.stop(), 'the app ran on two nodes').to.equal(null);
+      await watch.stop();
     }
   });
 });

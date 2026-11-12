@@ -26,6 +26,7 @@ const { RemovalOutcome } = require('./utils/removalOutcome');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
+const globalState = require('./utils/globalState');
 const configManager = require('./utils/configManager');
 const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
 const ufw = require('./utils/ufw');
@@ -51,10 +52,18 @@ function setOnAddressChanged(callback) {
   onAddressChanged = callback;
 }
 
-// Fired once with this node's old and new socket address when its public IP has
-// moved, before anything else reacts to the move. serviceManager wires it to
-// fluxCommunication, which owns telling the network; a seam for the same reason
-// as onAddressChanged.
+// Called with this node's old and new socket address and when it moved, to
+// record its own move as its peers record it - the signed move, and its location
+// rows carried to the new address - before its address switches. serviceManager
+// wires it to fluxCommunication; a seam for the same reason as onAddressChanged.
+let onOwnAddressRecorded = null;
+function setOnOwnAddressRecorded(callback) {
+  onOwnAddressRecorded = callback;
+}
+
+// Called with the same, once the apps the move cannot keep are removed, to tell
+// the network of the move. serviceManager wires it to fluxCommunication, which
+// owns telling the network; a seam for the same reason as onAddressChanged.
 let onOwnAddressMoved = null;
 function setOnOwnAddressMoved(callback) {
   onOwnAddressMoved = callback;
@@ -152,6 +161,7 @@ let storedFluxBenchAllowed = null;
 let maxNumberOfIpChanges = 0;
 const { lruRateLimit } = require('./utils/rateLimit');
 const { AsyncGate } = require('./utils/asyncGate');
+const { AsyncLock } = require('./utils/asyncLock');
 const { Privilege, authOf } = require('./utils/privileges');
 
 // This node's socket address (ip:port) from benchmark
@@ -172,6 +182,14 @@ const EGRESS_TARGET = '203.0.113.1';
 // The last address this node learned. A benchmark that does not answer clears
 // localSocketAddress but gives the node no new address, so this keeps it.
 let lastKnownSocketAddress = null;
+// A reported address this node has not yet switched to.
+let reportedMoveTo = null;
+// The reported address last handed to the own-address watch: a move is handed
+// over once, and again only after handling it failed (handleOwnAddress).
+let reportedMoveHandedOver = null;
+// A move of this node's own is under way: from the report of the new address
+// until the network has been told, which drops every peer it held.
+let ownMoveInProgress = false;
 // Emits 'change' with the new address when the node learns one that differs
 // from lastKnownSocketAddress, and 'known' with it when the node has an address
 // after having none.
@@ -1036,6 +1054,10 @@ async function keepUPNPPortsOpen(req, res) {
 function setLocalSocketAddress(value) {
   const wasKnown = localSocketAddressGate.ready;
   localSocketAddress = value ? normalizeSocketAddress(value) : null;
+  if (!localSocketAddress || socketAddressesMatch(localSocketAddress, reportedMoveTo)) {
+    reportedMoveTo = null;
+    reportedMoveHandedOver = null;
+  }
   // (Re)set the freshness deadline whenever the value changes, so getLocalSocketAddress
   // serves it without a benchmark RPC until it goes stale (cleared when set to null).
   localSocketAddressFreshUntil = localSocketAddress ? process.hrtime.bigint() + LOCAL_SOCKET_ADDRESS_TTL_NS : 0n;
@@ -1101,6 +1123,24 @@ function offLocalSocketAddressChange(listener) {
  */
 function onLocalSocketAddressKnown(listener) {
   localSocketAddressEvents.on('known', listener);
+}
+
+/**
+ * @param {function(): void} listener Called each time a read of this node's
+ *   address finds it has none.
+ * @returns {void}
+ */
+function onLocalSocketAddressUnresolved(listener) {
+  localSocketAddressEvents.on('unresolved', listener);
+}
+
+/**
+ * @param {function(boolean): void} listener Called when a move of this node's
+ *   own comes under way, and when it no longer is.
+ * @returns {void}
+ */
+function onOwnMoveUnderwayChange(listener) {
+  localSocketAddressEvents.on('moveUnderway', listener);
 }
 
 /**
@@ -1416,10 +1456,7 @@ async function getLocalSocketAddress(options = {}) {
     return localSocketAddress;
   }
   const decided = await getDecidedAddress();
-  if (decided) {
-    setLocalSocketAddress(`${decided}:${userconfig.initial.apiport || config.server.apiport}`);
-    return localSocketAddress;
-  }
+  if (decided) return reportLocalSocketAddress(`${decided}:${userconfig.initial.apiport || config.server.apiport}`);
   const benchmarkResponse = await benchmarkService.getBenchmarks();
   const { status, data: { ipaddress = null } = {} } = benchmarkResponse;
   // The benchmark IP can be a bare IP or ip:port depending on the node's API port,
@@ -1432,8 +1469,63 @@ async function getLocalSocketAddress(options = {}) {
     localSocketAddressEvents.emit('unresolved');
     return null;
   }
-  setLocalSocketAddress(ipaddress);
+  return reportLocalSocketAddress(ipaddress);
+}
+
+/**
+ * What fluxd or FluxBench reports as this node's address, taken as its own. A node
+ * that holds an address and has adopted one stays at it when a different one is
+ * reported: an address it has moved away from is a report that lags its move, and
+ * any other is a move, which switches the node's address once it is recorded and
+ * its location rows carried (adjustExternalIp). Its address and its rows therefore
+ * change together.
+ * @param {string} reported
+ * @returns {string|null} This node's socket address.
+ */
+function reportLocalSocketAddress(reported) {
+  const address = normalizeSocketAddress(reported);
+  if (!localSocketAddress || !adoptedOwnAddress || socketAddressesMatch(address, localSocketAddress)) {
+    setLocalSocketAddress(address);
+    return localSocketAddress;
+  }
+  localSocketAddressFreshUntil = process.hrtime.bigint() + LOCAL_SOCKET_ADDRESS_TTL_NS;
+  if (!ownAddressesLeft.has(address)) {
+    reportedMoveTo = address;
+    setOwnMoveInProgress(true);
+    if (!socketAddressesMatch(address, reportedMoveHandedOver)) {
+      reportedMoveHandedOver = address;
+      localSocketAddressEvents.emit('reported', address);
+    }
+  }
   return localSocketAddress;
+}
+
+/**
+ * @param {boolean} inProgress Whether a move of this node's own is under way.
+ * @returns {void}
+ */
+function setOwnMoveInProgress(inProgress) {
+  if (ownMoveInProgress === inProgress) return;
+  ownMoveInProgress = inProgress;
+  localSocketAddressEvents.emit('moveUnderway', inProgress);
+}
+
+/**
+ * Whether a move of this node's own is under way: from the report of its new
+ * address until the network has been told of it.
+ * @returns {boolean}
+ */
+function ownMoveUnderway() {
+  return ownMoveInProgress;
+}
+
+/**
+ * The address fluxd or FluxBench reports for this node that it has not yet
+ * switched to: a move under way.
+ * @returns {string|null}
+ */
+function pendingOwnMove() {
+  return reportedMoveTo;
 }
 
 /**
@@ -2056,6 +2148,58 @@ async function adjustExternalIp(previous, current, { announceMove = true } = {})
 }
 
 /**
+ * Switches this node's address to the move its own address record holds, once
+ * per move. A move the network is told of is first recorded the way peers record
+ * it - the signed move, and this node's location rows carried to the new address -
+ * so nothing reads the new address beside rows still at the old one. Holds the
+ * announcement cycle while it does, so an announcement takes this node's address
+ * and its report time on one side of the switch.
+ * @returns {Promise<void>}
+ */
+async function switchToOwnMove() {
+  const record = await ownAddressRecord();
+  if (!record?.socketAddress || !record.movedAt || record.movedAt === switchedMoveAt) return;
+  const cycle = globalState.announceCycle;
+  await cycle.enable();
+  await ownAddressSwitch.enable();
+  try {
+    if (record.movedFrom && record.announce && onOwnAddressRecorded) {
+      await onOwnAddressRecorded(record.movedFrom, record.socketAddress, record.movedAt);
+    }
+    noteOwnAddress(record.socketAddress, record.movedFrom);
+    setLocalSocketAddress(record.socketAddress);
+    switchedMoveAt = record.movedAt;
+  } finally {
+    ownAddressSwitch.disable();
+    cycle.disable();
+  }
+}
+
+// Held while this node's address switches with its location rows.
+const ownAddressSwitch = new AsyncLock();
+// The move this process switched this node's address to, by its movedAt: a move
+// switches once, and a later pass of it carries no rows at the address it left,
+// which are whoever holds that address now.
+let switchedMoveAt = null;
+
+/**
+ * Runs `read` while this node's address cannot switch, and hands it the address:
+ * whatever `read` takes from the location table is on the same side of a move
+ * as the address.
+ * @template T
+ * @param {function(string|null): Promise<T>} read Called with this node's address.
+ * @returns {Promise<T>}
+ */
+async function withSteadyOwnAddress(read) {
+  await ownAddressSwitch.enable();
+  try {
+    return await read(getKnownLocalSocketAddress());
+  } finally {
+    ownAddressSwitch.disable();
+  }
+}
+
+/**
  * Writes `ip` as this node's configured IP, keeping every other setting.
  * @param {string} ip
  * @returns {Promise<void>}
@@ -2197,19 +2341,6 @@ function noteOwnAddress(current, previous) {
 }
 
 /**
- * Where this node is, for an address benchmark reports as its own: the address
- * it adopted when the reported one is an address it has moved away from - a move
- * is recorded, and its rows carried, before benchmark reports the new address -
- * and the reported one otherwise.
- * @param {string} reported
- * @returns {string|null}
- */
-function ownAddressFor(reported) {
-  const address = normalizeSocketAddress(reported);
-  return address && adoptedOwnAddress && ownAddressesLeft.has(address) ? adoptedOwnAddress : address;
-}
-
-/**
  * Adopts `socketAddress` as this node's own without a move.
  * @param {string} socketAddress
  * @returns {Promise<void>}
@@ -2246,7 +2377,6 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
   const recorded = record?.ipChangeHeights ?? [];
   const ipChangeHeights = height ? ipChangesInWindow(recorded, height) : [...recorded];
   if (ipChanged) ipChangeHeights.push(height || null);
-  noteOwnAddress(currentSocket, previousSocket);
   await ownAddressCollection().updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
     {
@@ -2296,8 +2426,9 @@ async function confirmOwnAddress(record) {
 
 /**
  * Brings this node to the move its own address record holds, doing only what
- * is not yet so: its configured IP rewritten, the apps the move cannot keep
- * removed and the rest restarted, the move recorded and told to the network,
+ * is not yet so: the move recorded and the node's address switched to it
+ * (switchToOwnMove), its configured IP rewritten, the apps the move cannot keep
+ * removed and the rest restarted, the move told to the network,
  * its address confirmed on chain, its geolocation refreshed. Each step either
  * reads what is so before acting or is keyed to the move, so a pass repeated -
  * on each change of this node's address, each node list refresh, and boot -
@@ -2312,13 +2443,13 @@ async function reconcileOwnMove() {
   const {
     socketAddress: to, movedFrom: from, movedAt, ipChanged, announce,
   } = record;
+  await switchToOwnMove();
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.OWN_ADDRESS_BEFORE_RECONCILE, to);
   const ip = extractIp(to);
   if (ipChanged && ip !== userconfig.initial.ipaddress) await writeConfiguredIp(ip);
   const appsDue = ipChanged && record.appsHandledAt !== movedAt;
-  // Before the move is recorded: until then this node's own rows are at the old
-  // address, which is what keeps them from reading as another instance at the
-  // new one.
+  // This node's own rows are at the new address by now, and are told apart from
+  // another instance there by the full socket address.
   const apps = appsDue ? await appsStayingThroughIpMove(from, to) : null;
   // The seam records and tells a move once whatever this node's record says,
   // so a pass that told it and stopped before writing announcedAt repeats
@@ -2327,6 +2458,7 @@ async function reconcileOwnMove() {
     await onOwnAddressMoved(from, to, movedAt);
     await updateOwnAddressRecord({ announcedAt: movedAt });
   }
+  if (!reportedMoveTo) setOwnMoveInProgress(false);
   let appsHandled = !ipChanged || !appsDue;
   if (appsDue) {
     let restarted = true;
@@ -2495,38 +2627,54 @@ let ownAddressRetry = null;
  * the collision check judges it; once it is, it adopts the reported address in
  * place of the configured one, told as a move only when it ran apps there.
  * While whether it ran apps there cannot be read it adopts nothing, and acts on
- * the address it knows again after OWN_ADDRESS_RETRY_MS.
+ * the address it knows again after OWN_ADDRESS_RETRY_MS. A pass that fails
+ * leaves a reported move to be handed over again on its next report; a move
+ * that is recorded is finished by the node list refresh (onNetworkListUpdated).
  * @param {string} current The reported socket address.
  * @returns {Promise<void>}
  */
 function handleOwnAddress(current) {
   return serialiseOwnAddressWork(async () => {
-    const reported = normalizeSocketAddress(current);
-    if (!reported) return;
-    const record = await ownAddressRecord();
-    if (record) noteOwnAddress(record.socketAddress, record.movedFrom);
-    const previous = record ? record.socketAddress : await configuredFormerAddress(reported);
-    if (!socketAddressesMatch(previous, reported)) {
-      if (!record && !await fluxGoneFrom(previous)) {
-        log.warn(`own address - a Flux node is at ${previous}, the configured address, so ${reported} is not a move from it`);
-        await writeOwnAddressRecord(reported);
-        return;
-      }
-      const announceMove = record ? true : await ranAppsAt(previous);
-      if (announceMove === null) {
-        ownAddressRetry ??= setTimeout(() => {
-          ownAddressRetry = null;
-          handleOwnAddress(getKnownLocalSocketAddress() || reported);
-        }, OWN_ADDRESS_RETRY_MS);
-        return;
-      }
-      await adjustExternalIp(previous, reported, { announceMove });
-    } else if (!record) {
-      await writeOwnAddressRecord(reported);
-    } else {
-      await reconcileOwnMove();
+    try {
+      await handleOwnAddressPass(current);
+    } catch (error) {
+      reportedMoveHandedOver = null;
+      throw error;
     }
   });
+}
+
+/**
+ * One pass of handleOwnAddress, on the own-address queue.
+ * @param {string} current The reported socket address.
+ * @returns {Promise<void>}
+ */
+async function handleOwnAddressPass(current) {
+  const reported = normalizeSocketAddress(current);
+  if (!reported) return;
+  const record = await ownAddressRecord();
+  if (record) noteOwnAddress(record.socketAddress, record.movedFrom);
+  const previous = record ? record.socketAddress : await configuredFormerAddress(reported);
+  if (!socketAddressesMatch(previous, reported)) {
+    if (!record && !await fluxGoneFrom(previous)) {
+      log.warn(`own address - a Flux node is at ${previous}, the configured address, so ${reported} is not a move from it`);
+      await writeOwnAddressRecord(reported);
+      return;
+    }
+    const announceMove = record ? true : await ranAppsAt(previous);
+    if (announceMove === null) {
+      ownAddressRetry ??= setTimeout(() => {
+        ownAddressRetry = null;
+        handleOwnAddress(getKnownLocalSocketAddress() || reported);
+      }, OWN_ADDRESS_RETRY_MS);
+      return;
+    }
+    await adjustExternalIp(previous, reported, { announceMove });
+  } else if (!record) {
+    await writeOwnAddressRecord(reported);
+  } else {
+    await reconcileOwnMove();
+  }
 }
 
 // The listener watching this node's own address, while one is.
@@ -2536,20 +2684,26 @@ let ownAddressListener = null;
  * Acts on every change of this node's own address from here on, and on the one
  * it already knows. Watches once however often it is called: a boot that is run
  * again does not add a second watcher.
- * @returns {function(): void} Stops the watch.
+ * @returns {function(): Promise<void>} Stops the watch, and settles once the
+ *   work it queued has finished.
  */
 function startOwnAddressWatch() {
   if (!ownAddressListener) {
     ownAddressListener = (address) => { handleOwnAddress(address); };
     onLocalSocketAddressChange(ownAddressListener);
+    localSocketAddressEvents.on('reported', ownAddressListener);
     const known = getKnownLocalSocketAddress();
     if (known) handleOwnAddress(known);
   }
   return () => {
-    if (ownAddressListener) offLocalSocketAddressChange(ownAddressListener);
+    if (ownAddressListener) {
+      offLocalSocketAddressChange(ownAddressListener);
+      localSocketAddressEvents.off('reported', ownAddressListener);
+    }
     ownAddressListener = null;
     clearTimeout(ownAddressRetry);
     ownAddressRetry = null;
+    return ownAddressWork;
   };
 }
 
@@ -2992,11 +3146,11 @@ async function checkDeterministicNodesCollisions() {
         const nodeCollateralDifferentIp = nodeList.find((node) => node.collateral === myCollateral && !socketAddressesMatch(node.ip, localSocketAddr));
         // A listing elsewhere is judged against this node's address as benchmark
         // reports it now, not as cached: the list can name a new address of this
-        // node before the cache does. One that has moved on judges nothing here -
-        // the change runs this check again, and the move, from the new address.
+        // node before the node switches to it. One with a move under way judges
+        // nothing here - the switch runs this check again, from the new address.
         if (nodeCollateralDifferentIp) {
           const current = await getLocalSocketAddress({ fresh: true });
-          if (!current || !socketAddressesMatch(current, localSocketAddr)) return;
+          if (!current || !socketAddressesMatch(current, localSocketAddr) || pendingOwnMove()) return;
         }
         if (result.length > 1) {
           log.warn('Multiple Flux Node instances detected');
@@ -4113,9 +4267,14 @@ module.exports = {
   enforceIpChangeHold,
   setIpChangeHold,
   setOnAddressChanged,
+  setOnOwnAddressRecorded,
+  withSteadyOwnAddress,
+  pendingOwnMove,
+  ownMoveUnderway,
+  onOwnMoveUnderwayChange,
+  onLocalSocketAddressUnresolved,
   setOnOwnAddressMoved,
   setInstalledAppsListedAt,
-  ownAddressFor,
   allowPort,
   isFirewallActive: ufw.isFirewallActive,
   // Exports for testing purposes

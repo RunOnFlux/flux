@@ -154,27 +154,31 @@ function inTurn(task) {
 }
 
 /**
- * The hashes of the unpaid messages the temporary store holds that match a query.
- * @param {object} query
+ * The hashes of the unpaid messages that match a query, stored in the temporary
+ * store or held for checking (tempMessageHold) under the admission they were
+ * taken with. A message both held and stored is one hash.
+ * @param {{clientTag?: string, originKey?: string}} query
  * @returns {Promise<string[]>}
  */
 async function storedUnpaid(query) {
   const db = dbHelper.databaseConnection();
-  const held = await dbHelper.findInDatabase(
-    db.db(config.database.appsglobal.database),
-    globalAppsTempMessages,
-    query,
-    { projection: { _id: 0, hash: 1 } },
-  );
-  if (held.length === 0) return [];
+  const appsGlobal = db.db(config.database.appsglobal.database);
+  const heldQuery = Object.fromEntries(Object.entries(query).map(([field, value]) => [`admission.${field}`, value]));
+  const [stored, held] = await Promise.all([
+    dbHelper.findInDatabase(appsGlobal, globalAppsTempMessages, query, { projection: { _id: 0, hash: 1 } }),
+    dbHelper.findInDatabase(appsGlobal, config.database.appsglobal.collections.appsHeldMessages, heldQuery, { projection: { _id: 0, 'message.hash': 1 } }),
+  ]);
+  const hashes = [...new Set([...stored.map((doc) => doc.hash), ...held.map((doc) => doc.message?.hash)])]
+    .filter((hash) => typeof hash === 'string');
+  if (hashes.length === 0) return [];
   const paid = await dbHelper.findInDatabase(
     db.db(config.database.daemon.database),
     appsHashesCollection,
-    { hash: { $in: held.map((doc) => doc.hash) } },
+    { hash: { $in: hashes } },
     { projection: { _id: 0, hash: 1 } },
   );
   const paidHashes = new Set(paid.map((doc) => doc.hash));
-  return held.map((doc) => doc.hash).filter((hash) => !paidHashes.has(hash));
+  return hashes.filter((hash) => !paidHashes.has(hash));
 }
 
 /**
@@ -246,28 +250,65 @@ async function overAllowance(sender) {
 function reserve(hash, sender) {
   return inTurn(async () => {
     const stored = await storedFor(sender);
-    let entry = inFlight.get(hash);
-    if (!entry) {
+    // A hash already counted, stored, held or in flight, takes no further place.
+    const counted = inFlight.has(hash) || stored.byTag.includes(hash) || stored.byKey.includes(hash);
+    if (!counted) {
       const refused = allowanceRefusal(sender, stored);
       if (refused) return { refused };
-      entry = { ...sender, holders: 0 };
-      inFlight.set(hash, entry);
     }
-    // One holder's release: gives its share back once, in turn.
-    const hold = () => {
-      entry.holders += 1;
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        inTurn(() => {
-          entry.holders -= 1;
-          if (entry.holders === 0) inFlight.delete(hash);
-        });
-      };
-    };
-    return { release: hold(), keep: hold };
+    return placeIn(hash, sender);
   });
+}
+
+/**
+ * The in-flight place of `hash`, taken now. Called in turn.
+ * @param {string} hash
+ * @param {{clientTag?: string, originKey?: string, clientTagCap?: number}} sender
+ * @returns {{release: function(): void, keep: function(): function(): void}}
+ */
+function placeIn(hash, sender) {
+  let entry = inFlight.get(hash);
+  if (!entry) {
+    entry = { ...sender, holders: 0 };
+    inFlight.set(hash, entry);
+  }
+  // One holder's release: gives its share back once, in turn.
+  const hold = () => {
+    entry.holders += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      inTurn(() => {
+        entry.holders -= 1;
+        if (entry.holders === 0) inFlight.delete(hash);
+      });
+    };
+  };
+  return { release: hold(), keep: hold };
+}
+
+/**
+ * Who a taken message counts against: its client and its operator on an Arcane
+ * node, its operator alone on a node that cannot verify a client tag.
+ * @param {{clientTag?: string, originKey?: string, clientTagCap?: number}} fields
+ * @returns {{clientTag?: string, originKey?: string, clientTagCap?: number}}
+ */
+function countedAgainst({ clientTag, originKey, clientTagCap }) {
+  return process.env.FLUXOS_PATH ? { clientTag, originKey, clientTagCap } : { originKey };
+}
+
+/**
+ * The place of a message admitted earlier (admitUnpaid), held again from now as
+ * a reservation holds one, without asking the allowance: it was counted when it
+ * was admitted. An untagged message holds no place.
+ * @param {string} hash
+ * @param {object} fields The admission's fields, as admitUnpaid gave them.
+ * @returns {Promise<{release?: function(): void, keep?: function(): function(): void}>}
+ */
+function placeOf(hash, fields) {
+  if (!fields?.originKey) return Promise.resolve({});
+  return inTurn(async () => placeIn(hash, countedAgainst(fields)));
 }
 
 /**
@@ -300,10 +341,7 @@ async function admitUnpaid(message, { frame, daemonHeight }) {
   const resolved = await resolveOrigin(message, frame);
   if (resolved.refused) return { refused: resolved.refused };
 
-  const counted = process.env.FLUXOS_PATH
-    ? { clientTag, originKey: resolved.originKey, clientTagCap }
-    : { originKey: resolved.originKey };
-  const place = await reserve(message.hash, counted);
+  const place = await reserve(message.hash, countedAgainst({ clientTag, originKey: resolved.originKey, clientTagCap }));
   if (place.refused) return { refused: place.refused };
 
   return {
@@ -341,6 +379,7 @@ async function tagSubmission(client, daemonHeight) {
 
 module.exports = {
   admitUnpaid,
+  placeOf,
   untaggedRefused,
   admittedMessage,
   overAllowance,

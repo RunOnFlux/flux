@@ -168,6 +168,15 @@ describe('route wiring', () => {
     });
   });
 
+  describe('whether this node reaches a Flux node at an address', () => {
+    it('answers from its node list and the address as they are now, never from a cache', () => {
+      const get = table.find((entry) => entry.path === '/flux/checkfluxavailability/:ip?/:port?' && entry.method === 'get');
+
+      expect(get, '/flux/checkfluxavailability is not registered').to.not.equal(undefined);
+      expect(get.chain.some((fn) => fn && fn.name === 'cache')).to.equal(false);
+    });
+  });
+
   describe('which node this is', () => {
     // Every answer is to one caller's challenge. A cached answer is a recording,
     // and refusing a recording is what the challenge is for.

@@ -96,6 +96,32 @@ describe('explorerService tests', () => {
     });
   });
 
+  describe('appPaymentDecision tests', () => {
+    const hash = 'a'.repeat(64);
+    const paid = (overrides) => explorerService.appPaymentDecision({
+      txid: 'tx1', height: config.fluxapps.epochstart + 10, message: hash, valueSat: 2e8, minPrice: 1, ...overrides,
+    });
+
+    it('takes a transaction carrying a hash, paying the floor, after epochstart as a payment', () => {
+      expect(paid()).to.deep.equal({
+        txid: 'tx1', height: config.fluxapps.epochstart + 10, hash, valueSat: 2e8, minPriceSat: 1e8, reason: 'payment',
+      });
+      expect(paid({ valueSat: 1e8 }).reason, 'the floor itself').to.equal('payment');
+    });
+
+    it('declines one paying under the floor of its height', () => {
+      expect(paid({ valueSat: 1e8 - 1 }).reason).to.equal('belowMinPrice');
+    });
+
+    it('declines one whose message is not a hash', () => {
+      expect(paid({ message: 'short' }).reason).to.equal('notAMessage');
+    });
+
+    it('declines one before epochstart', () => {
+      expect(paid({ height: config.fluxapps.epochstart - 1 }).reason).to.equal('beforeEpoch');
+    });
+  });
+
   describe('processInsight tests', () => {
     let dbStubFind;
     let dbStubInsert;

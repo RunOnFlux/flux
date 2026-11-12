@@ -7,6 +7,7 @@ const generalService = require('../generalService');
 const signatureVerifier = require('../signatureVerifier');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const serviceHelper = require('../serviceHelper');
+const fluxEventBus = require('../utils/fluxEventBus');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 // Removed messageStore require to avoid circular dependency - will import locally where needed
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
@@ -1065,6 +1066,7 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
         return checkAndRequestApp(hash, txid, height, valueSat, i + 1);
         // additional requesting of missing app messages is done on rescans
       }
+      fluxEventBus.publish('app:paidMessageNotHeld', { hash, txid, height });
       return false;
     }
     // Stored already: it follows this node's payment record.

@@ -13,6 +13,12 @@ import { getSubnetConfig } from './subnet-config.js';
 
 export const socketAddr = (nodeNum) => `${getSubnetConfig().nodeIp(nodeNum)}:16127`;
 
+// The names a report's storable entries give, lowercased, as a node stores them
+// beside the report (appNames): a read for one app matches them.
+export const appNamesOf = (apps) => apps
+  .filter((app) => app && typeof app.name === 'string' && typeof app.hash === 'string')
+  .map((app) => app.name.toLowerCase());
+
 async function envelopeFor(nodeNum, data, broadcastedAt, signedBy) {
   const version = 1;
   const payload = String(version) + JSON.stringify(data) + String(broadcastedAt);
@@ -49,6 +55,7 @@ export async function apprunningEvent({
     ip,
     broadcastedAt: new Date(broadcastedAt),
     ...(expireAt === undefined ? {} : { expireAt: new Date(expireAt) }),
+    appNames: appNamesOf(data.apps),
     envelope: await envelopeFor(nodeNum, data, broadcastedAt, signedBy),
     data,
   };
@@ -70,19 +77,20 @@ export async function sigtermEvent({ nodeNum, broadcastedAt, signedBy = nodeNum 
   };
 }
 
-// The node announced it removed appName, at broadcastedAt.
+// The node announced it removed appName, at broadcastedAt. `extra` is signed with it.
 export async function appRemovedEvent({
-  nodeNum, appName, broadcastedAt, signedBy = nodeNum,
+  nodeNum, appName, broadcastedAt, signedBy = nodeNum, extra = {},
 }) {
   const ip = socketAddr(nodeNum);
   const data = {
-    type: 'fluxappremoved', version: 1, appName, ip, broadcastedAt,
+    type: 'fluxappremoved', version: 1, appName, ip, broadcastedAt, ...extra,
   };
   return {
     type: 'appremoved',
     dedupKey: `appremoved:${appName}`,
     ip,
     broadcastedAt: new Date(broadcastedAt),
+    appNameLower: appName.toLowerCase(),
     envelope: await envelopeFor(nodeNum, data, broadcastedAt, signedBy),
     data,
   };

@@ -103,6 +103,47 @@ describe('appInspector tests', () => {
     sinon.restore();
   });
 
+  describe('checkStorageSpaceForApps', () => {
+    const LIMIT_BYTES = (1 + 1) * 1000 * 1024 * 1024;
+
+    // an app over its storage limit for the fourth time running
+    async function overItsLimit(app, containerName) {
+      const removeAppLocally = sinon.stub().resolves();
+      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        config: { fluxapps: { hddFileSystemMinimum: 1, defaultSwap: 1 } },
+        '../utils/globalState': globalStateStub,
+        '../dockerService': {
+          dockerGetUsage: sinon.stub().resolves({ Containers: [{ Names: [containerName], SizeRootFs: LIMIT_BYTES * 2 }] }),
+          getAppDockerNameIdentifier: (identifier) => `/flux${identifier}`,
+        },
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': {
+          decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
+        },
+        '../serviceHelper': { ensureString: sinon.stub().returnsArg(0), delay: sinon.stub().resolves() },
+      });
+      await inspector.checkStorageSpaceForApps(
+        sinon.stub().resolves({ status: 'success', data: [app] }),
+        removeAppLocally,
+        sinon.stub().resolves(),
+        [app.name, app.name, app.name],
+      );
+      return removeAppLocally;
+    }
+
+    it('removes an app over its limit and tells the network', async () => {
+      const removeAppLocally = await overItsLimit({ name: 'bigapp', version: 4, compose: [{ name: 'web' }] }, '/fluxweb_bigapp');
+
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'bigapp', null, false, true, true);
+    });
+
+    it('removes a single-container app over its limit and tells the network', async () => {
+      const removeAppLocally = await overItsLimit({ name: 'oldapp', version: 3 }, '/fluxoldapp');
+
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'oldapp', null, false, true, true);
+    });
+  });
+
   describe('ensureAppMonitoring', () => {
     let clock;
 

@@ -59,6 +59,11 @@ module.exports = {
     daemonStaleMs: 300000,
     daemonExpiredMs: 600000,
   },
+  // Under the stub's 5 s block, as production's 25 s is under its 30 s block, so the
+  // list refreshes on every block (coupled-knobs.js assertListRefreshesEveryBlock).
+  networkState: {
+    minFetchIntervalMs: 4000,
+  },
   github: {
     apiBaseUrl: 'http://25.192.0.6:3000',
   },
@@ -168,7 +173,6 @@ module.exports = {
     nodeMonitorDosRecoveryDelayMs: 10000,
     nodeMonitorConfirmationLossDelayMs: 10000,
     nodeMonitorErrorRecoveryDelayMs: 5000,
-    nodeMonitorCheckTimeoutMs: 5000,
     bootDelayMultiplier: 0.01,
     spawnDelayMs: 10000,
     removalSpacingMs: 1000,

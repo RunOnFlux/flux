@@ -1327,6 +1327,106 @@ describe('appUninstaller tests', () => {
         sinon.assert.notCalled(broadcastStub);
       });
 
+      describe('a removal peers would not accept now', () => {
+        const ADDRESS = '10.0.0.1:16127';
+        let updateOneStub;
+        const rowsHere = (rows) => sinon.stub().callsFake(async (database, collection) => (collection === 'appsLocations' ? rows : []));
+
+        // the node at ADDRESS, and peers not accepting its messages; set once the
+        // uninstaller is built, which makes these stubs afresh
+        const cannotSend = (uninstaller) => {
+          getLocalSocketAddressStub.resolves(ADDRESS);
+          canSendMessagesStub.returns(false);
+          return uninstaller;
+        };
+
+        beforeEach(() => {
+          configStub.database.local = { database: 'local', collections: { unannouncedRemovals: 'unannouncedRemovals' } };
+          updateOneStub = sinon.stub().resolves();
+        });
+
+        afterEach(() => {
+          delete configStub.database.local;
+        });
+
+        it('is kept until this node\'s own row of the app expires', async () => {
+          const expireAt = new Date(Date.now() + 600000);
+          const uninstaller = cannotSend(buildUninstaller(v2Spec, {}, { findInDatabase: rowsHere([{ expireAt }]), updateOneInDatabase: updateOneStub }));
+
+          await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          sinon.assert.called(canSendMessagesStub);
+          sinon.assert.notCalled(broadcastStub);
+          const keeps = updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals');
+          expect(keeps.map((call) => call.args.slice(2))).to.deep.equal([[{ appName: 'testapp' }, { $set: { appName: 'testapp' }, $max: { expireAt } }, { upsert: true }]]);
+        });
+
+        it('is not kept when no unexpired row of the app is left on this node to cancel', async () => {
+          const findStub = rowsHere([{ expireAt: new Date(Date.now() - 1000) }]);
+          const uninstaller = cannotSend(buildUninstaller(v2Spec, {}, { findInDatabase: findStub, updateOneInDatabase: updateOneStub }));
+
+          await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          // the canary: the row of the app on this node was read
+          sinon.assert.calledWithMatch(findStub, sinon.match.any, 'appsLocations', { name: 'testapp', ip: ADDRESS });
+          expect(updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals')).to.have.length(0);
+          sinon.assert.notCalled(broadcastStub);
+        });
+      });
+
+      describe('announcing the removals kept', () => {
+        const ADDRESS = '10.0.0.2:16127';
+        let removeStub;
+        const kept = (rows) => sinon.stub().callsFake(async (database, collection) => (collection === 'unannouncedRemovals' ? rows : []));
+
+        beforeEach(() => {
+          configStub.database.local = { database: 'local', collections: { unannouncedRemovals: 'unannouncedRemovals' } };
+          removeStub = sinon.stub().resolves();
+        });
+
+        afterEach(() => {
+          delete configStub.database.local;
+        });
+
+        it('sends each from this node\'s address now, and forgets every one, the expired and the installed again unsent', async () => {
+          const future = new Date(Date.now() + 600000);
+          const uninstaller = buildUninstaller(v2Spec, {}, {
+            findInDatabase: kept([{ appName: 'gone', expireAt: future }, { appName: 'lapsed', expireAt: new Date(Date.now() - 1000) }, { appName: 'back', expireAt: future }]),
+            removeDocumentsFromCollection: removeStub,
+          });
+
+          await uninstaller.announceKeptRemovals(new Set(['back']), ADDRESS);
+
+          sinon.assert.calledOnceWithMatch(broadcastStub, { type: 'fluxappremoved', appName: 'gone', ip: ADDRESS });
+          expect(removeStub.getCalls().map((call) => call.args[2].appName)).to.deep.equal(['gone', 'lapsed', 'back']);
+        });
+
+        it('sends and forgets nothing while peers would not accept this node\'s messages', async () => {
+          const findStub = kept([{ appName: 'gone', expireAt: new Date(Date.now() + 600000) }]);
+          const uninstaller = buildUninstaller(v2Spec, {}, { findInDatabase: findStub, removeDocumentsFromCollection: removeStub });
+          canSendMessagesStub.returns(false);
+
+          await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
+
+          sinon.assert.notCalled(broadcastStub);
+          sinon.assert.notCalled(removeStub);
+        });
+
+        it('keeps the rest when one cannot be sent', async () => {
+          const future = new Date(Date.now() + 600000);
+          const uninstaller = buildUninstaller(v2Spec, {}, {
+            findInDatabase: kept([{ appName: 'first', expireAt: future }, { appName: 'second', expireAt: future }]),
+            removeDocumentsFromCollection: removeStub,
+          });
+          broadcastStub.rejects(new Error('no peers'));
+
+          const outcome = await uninstaller.announceKeptRemovals(new Set(), ADDRESS).then(() => null, (error) => error);
+
+          expect(outcome?.message).to.equal('no peers');
+          sinon.assert.notCalled(removeStub);
+        });
+      });
+
       // Whether the node can be heard is read as the message goes out, not when
       // the removal starts: a removal can wait for a cycle, and the answer changes.
       it('tells the network once this node can be heard by the time the message goes out', async () => {

@@ -1,11 +1,24 @@
 import { afterEach, after } from 'mocha';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { activeTestEnvs } from './test-env.js';
 import { execInContainer } from './container.js';
 import { SYNCTHING_HOME } from './syncthing-real.js';
 import { thawEveryNode } from './host-stall.js';
 import failedHooksModule from './failed-hooks.cjs';
+
+// DUMP_LOGS=always dumps per-node logs after every test (pass or fail), not just
+// failures, to measure timing on green runs. DUMP_LOGS_SUITES=507,1503 does the
+// same for the named suites only, so a gate can carry the node logs of every test
+// of a suite under study while the others dump on failure as usual.
+const ALWAYS = process.env.DUMP_LOGS === 'always';
+const ALWAYS_SUITES = new Set((process.env.DUMP_LOGS_SUITES || '').split(',').map((s) => s.trim()).filter(Boolean));
+
+function dumpsEveryTest(test) {
+  if (ALWAYS) return true;
+  if (!ALWAYS_SUITES.size || !test?.file) return false;
+  return ALWAYS_SUITES.has(basename(test.file).split('-')[0]);
+}
 
 const { failedHooks } = failedHooksModule;
 
@@ -270,12 +283,8 @@ export function dumpLogsOnFailure(getEnv) {
     }
   }
 
-  // DUMP_LOGS=always dumps per-node logs after every test (pass or fail), not just
-  // failures — used to measure timing on green runs while investigating flakes.
-  const always = process.env.DUMP_LOGS === 'always';
-
   afterEach(async function () {
-    if (always || this.currentTest.state === 'failed') await dump(this.currentTest.fullTitle());
+    if (dumpsEveryTest(this.currentTest) || this.currentTest.state === 'failed') await dump(this.currentTest.fullTitle());
   });
 
   // afterEach never fires for a failed hook, which is when setup blew up and the

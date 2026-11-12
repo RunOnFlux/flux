@@ -19,6 +19,10 @@ services:
     # CI's version (.github/workflows/nodejs.yml)
     image: "mongo:7.0@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4"
     init: true
+    # Its data in memory: a collection or index the suite creates does not wait on
+    # the host's disk, however busy the host is.
+    tmpfs:
+      - /data/db
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
       interval: 2s

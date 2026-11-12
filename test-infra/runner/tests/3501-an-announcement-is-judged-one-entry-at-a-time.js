@@ -131,33 +131,32 @@ describe('an announcement is judged one entry at a time', function () {
 
   // An empty v2 message deletes the sender's rows. A message whose entries were
   // all refused named apps: it stores nothing, goes no further, and is never
-  // read as one that named none.
+  // read as one that named none. A report is the sender's whole list, so the
+  // marker after it names both apps the stub runs.
   it('stores and relays nothing of a message whose every entry is refused, and keeps the sender\'s rows', async function () {
     this.timeout(180000);
     const held = `e2eentryheld${stamp}`;
     const refusedOnly = `e2eentryrefusedonly${stamp}`;
     const marker = `e2eentrymarker${stamp}`;
+    const runningSince = new Date().toISOString();
+    const heldEntry = { name: held, hash: `hash-${held}`, runningSince };
     let afterIds = marks();
-    await stub.runApp(held, { hash: `hash-${held}` });
+    await stub.broadcast(message([heldEntry]));
     await everyNodeStored(afterIds, stubIp(), held);
 
     afterIds = marks();
     await stub.broadcast(message([{ name: refusedOnly }]));
-    // A node handles one peer's messages in the order they were sent, so a node
-    // that stored this has handled the refused message before it.
-    await stub.runApp(marker, { hash: `hash-${marker}` });
-    await everyNodeStored(afterIds, stubIp(), marker);
-
     const [onNodeZero] = await handledBy([0], afterIds, stubIp(), refusedOnly);
     expect(onNodeZero).to.deep.include({ apps: [], refused: [refusedOnly], cleared: false, relayed: false });
+    expect(await rowNamesAt(0, stubIp()), 'node 0 deleted the sender\'s rows').to.include(held);
+
+    // A node handles one peer's messages in the order they were sent, so a node
+    // that stored this has handled the refused message before it.
+    await stub.broadcast(message([heldEntry, { name: marker, hash: `hash-${marker}`, runningSince }]));
+    await everyNodeStored(afterIds, stubIp(), marker);
     // Relayed, it would have reached them before the marker did.
     await Promise.all(BEHIND_RELAY.map((i) => assertNoEvent(env.clients[i], 'network:apprunning',
       (d) => d.refused?.includes(refusedOnly), 0, { afterId: afterIds[i] })));
-    // eslint-disable-next-line no-restricted-syntax
-    for (const i of realNodes) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(await rowNamesAt(i, stubIp()), `node ${i} deleted the sender's rows`).to.include(held);
-    }
   });
 
   // What the case above guards against is real: a message naming no apps does

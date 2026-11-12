@@ -22,7 +22,7 @@ import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import {
   getSubnetConfig, setIpGroups, SLOT_WIDTH, REGISTRY_ALIAS, STORAGE_HOST,
 } from './subnet-config.js';
-import { closeDb } from './db-client.js';
+import { closeDb, dbClient } from './db-client.js';
 import { FLUXD_PUBLISHED_PORT, newFluxdLogin, setFluxdLogin } from './fluxd-control.js';
 import {
   clearInfraDeath, infraDeathError, reportInfraDeath, sleepUnlessInfraDead,
@@ -41,7 +41,9 @@ import { fluxTeamKey, nodeKey } from './keys.js';
 // pins and the key the stub signs with from drifting apart.
 import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
-import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
+import {
+  HARNESS_BLOCK_MS, assertCoupledRatios, assertListRefreshesEveryBlock, loadSharedConfig,
+} from './coupled-knobs.js';
 import { startSyncedDataKeeper } from './synced-data-keeper.js';
 import { startSyncthingTrace, tracedPackages } from './syncthing-trace.js';
 
@@ -182,6 +184,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // The baseline a suite's overrides merge onto - read once, so the ratio check
 // sees what the node will actually run rather than only what the suite set.
 const sharedFluxapps = loadSharedConfig().fluxapps ?? {};
+const sharedNetworkState = loadSharedConfig().networkState ?? {};
 const fixturesDir = join(__dirname, '..', '..', 'fixtures');
 const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json'), 'utf-8'));
 // Identity for the fake-blockchain node list (collateral/pubkey/tier). Base-independent;
@@ -1294,8 +1297,12 @@ export async function createTestEnv({
       ?? configOverrides?.fluxapps?.appSyncPeerThreshold
       ?? readiness.appSyncPeerThreshold;
     if (reachablePeers >= threshold) continue;
+    // A node with nobody to carry its messages meets a threshold of none, or it
+    // could never be heard. A suite that declares a threshold keeps what it asked for.
+    const declaredThreshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
+      ?? configOverrides?.fluxapps?.appSyncPeerThreshold;
     peerlessOverrides[index] = mergeConfigs(
-      { fluxapps: { appSyncFallbackMinutes: 0 } },
+      { fluxapps: { appSyncFallbackMinutes: 0, ...(declaredThreshold === undefined ? { appSyncPeerThreshold: 0, appSyncDegradedThreshold: 0 } : {}) } },
       nodeConfigOverrides[index] ?? null,
     );
   }
@@ -1310,10 +1317,6 @@ export async function createTestEnv({
   // does, and it cannot be wrong. Twenty-seven fleets in this suite set are one or two
   // nodes and have no opinion about policy at all; their authors should not have to know
   // this wait exists.
-  //
-  // A threshold of zero would not rescue them: FluxPeerManager sets #aboveThreshold only
-  // inside addPeer, so a node with no peers never flips the latch whatever the threshold
-  // is set to.
   //
   // DOES IT WANT TO is intent, and only the fixture knows. A source can answer perfectly
   // and serve a bundle the node is right to refuse - a signer the fleet does not pin, a
@@ -1465,8 +1468,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // this one mongod at boot, and on disk each creation waits on a sync, which
   // makes a ten-node fleet's setup take about a minute; on tmpfs, a few seconds.
   // The data lives as long as the container, which is the fleet's lifetime.
+  // FluxOS runs no server-side JavaScript, so a fleet's mongod holds none.
   const mongo = await new StaticIpContainer('mongo:8@sha256:a706cb4e493bcd0262f345b3b0c78732ca0e54301f0d7bbe2b66f26313ce7ccb')
-    .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
+    .withCommand(['--noscripting', '--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withUlimits({ nofile: { soft: 65536, hard: 65536 } })
     .withTmpFs({ '/data/db': 'rw,size=4g' })
     .withStaticIp(networkName, MONGO_IP)
@@ -1489,6 +1493,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       BENCHD_PORT: '16224',
       CONTROL_PORT: '18232',
       TICKER_AUTOSTART: tickerAutostart ? 'true' : 'false',
+      BLOCK_INTERVAL_MS: String(HARNESS_BLOCK_MS),
       NODE_COUNT: String(nodes),
       INITIAL_HEIGHT: String(initialHeight),
       CONFIRMATION_INTERVAL_BLOCKS: String(confirmationIntervalBlocks),
@@ -1956,6 +1961,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // whose ratio has inverted still runs and still goes green, having quietly
     // stopped testing the thing the suite is named after.
     assertCoupledRatios({ ...sharedFluxapps, ...(nodeConfig.fluxapps ?? {}) });
+    assertListRefreshesEveryBlock({ ...sharedNetworkState, ...(nodeConfig.networkState ?? {}) });
     // Handed over as a file rather than as NODE_CONFIG. The config package merges
     // that variable over every file, which is a redirect no hash can see, so the
     // entry points delete it - production has no environment path into config at
@@ -2200,6 +2206,36 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       env.syncedDataKeeper?.watch(client);
       deferredBuilders.delete(index);
       return client;
+    },
+
+    // Makes deferred node `to`, not yet started, a machine started from a copy of
+    // node `from`'s disk: its databases, and its volume, which holds its apps'
+    // data, their volume images and docker's data root with the apps' containers
+    // and images. The volume is copied with `from` paused, so the copy is one
+    // moment of it, as a disk snapshot is.
+    async cloneNodeDisk(from, to) {
+      if (!deferredBuilders.has(to)) throw new Error(`cloneNodeDisk: node ${to} is not a deferred node yet to start`);
+      await dbClient(to + 1).cloneFrom(from + 1, clients[from]);
+      const { dockerode } = (await getContainerRuntimeClient()).container;
+      const source = dockerode.getContainer(clients[from].container.getId());
+      const copy = await dockerode.createContainer({
+        Image: image('flux-e2e-fluxos-01'),
+        Entrypoint: ['bash', '-c', 'set -o pipefail; tar --xattrs --xattrs-include="*" --acls -S -C /from -cpf - . | tar --xattrs --xattrs-include="*" --acls -C /to -xpf -'],
+        HostConfig: { Binds: [`${volumeNames[from]}:/from:ro`, `${volumeNames[to]}:/to`] },
+        Labels: runLabels(),
+      });
+      await source.pause();
+      try {
+        await copy.start();
+        const { StatusCode } = await copy.wait();
+        if (StatusCode !== 0) {
+          const output = (await copy.logs({ stdout: true, stderr: true })).toString();
+          throw new Error(`cloneNodeDisk: copying node ${from}'s volume exited ${StatusCode}: ${output.slice(-2000)}`);
+        }
+      } finally {
+        await source.unpause();
+        await copy.remove({ force: true }).catch(() => {});
+      }
     },
 
     // Starts the FluxOS of a node created held (fluxosHeldNodes).
