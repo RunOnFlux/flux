@@ -56,8 +56,8 @@ async function requireMongo() {
 
 /**
  * Closes the connection requireMongo or `dbHelper.initiateDB()` opened. Every file
- * that opens the database closes it in its last top-level `after` (tests/init.js
- * fails the run naming any file that does not).
+ * that opens the database closes it in its last top-level `after`
+ * (databaseLeftovers.js fails the run naming any file that does not).
  *
  * Usage:
  *   after(releaseMongo);
