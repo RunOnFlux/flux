@@ -7,8 +7,10 @@
  * removed while FluxOS is down, so the process that comes back holds no verdict for it,
  * and its sync pass cannot form one about a container Docker does not have.
  *
- * Docker is the harness's own per-node dockerd; the container is removed with
- * `docker rm -f`, the state a node is in after its Docker storage was switched.
+ * Docker is the harness's own per-node dockerd. The standby's container is removed
+ * while Docker restarts and FluxOS is held before it watches Docker's events again,
+ * the state a node is in after its Docker storage was switched: nothing reconciles
+ * until it watches again, and the reconnect sweep is what rebuilds the container.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -16,13 +18,13 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import {
-  getAppContainerStatus, killAppContainer, crashFluxos, releaseFluxos,
+  getAppContainerStatus, killAppContainer, crashFluxos, releaseFluxos, restartDockerd,
 } from '../framework/container.js';
 import { resetFdm } from '../framework/fdm-control.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
-  waitFor, waitForUp, waitForReconcileActuated, assertNoEvent,
+  waitFor, waitForUp, waitForReconcileActuated, waitForReconcileSwept, assertNoEvent,
 } from '../framework/wait.js';
 import {
   bootAndPeer, installOnNodes, seedSyncScopedData, seedSyncthingApp,
@@ -32,6 +34,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
+const RESUBSCRIBE = 'dockerEvents:beforeResubscribe';
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -40,6 +43,7 @@ async function isUp(client, appName) {
 
 describe("a synced app's missing container is rebuilt whatever its run decision", function () {
   let env;
+  let heldOn = null;
   dumpLogsOnFailure(() => env);
   const stamp = Date.now();
 
@@ -57,6 +61,7 @@ describe("a synced app's missing container is rebuilt whatever its run decision"
 
   after(async function () {
     this.timeout(60000);
+    await heldOn?.releaseCheckpoint(RESUBSCRIBE, 'docker').catch(() => {});
     await resetFdm().catch(() => {});
     await resetSyncState().catch(() => {});
     await env?.teardown();
@@ -87,9 +92,17 @@ describe("a synced app's missing container is rebuilt whatever its run decision"
     expect(await getAppContainerStatus(standby.container, appName, { all: true }), 'the standby holds a stopped container').to.not.equal(null);
 
     const beforeRemoval = standby.getLastEventId();
+    await standby.holdCheckpoint(RESUBSCRIBE, 'docker');
+    heldOn = standby;
+    await restartDockerd(standby.container);
+    await standby.waitForEvent('checkpoint:held', (d) => d.name === RESUBSCRIBE && d.key === 'docker', 60000, { afterId: beforeRemoval });
     const removed = await killAppContainer(standby.container, appName);
     expect(removed.exitCode, removed.output).to.equal(0);
+    await assertNoEvent(standby, 'reconciler:actuated', (d) => d.identifier === identifier && d.action === 'recreated', 10000, { afterId: beforeRemoval });
 
+    await standby.releaseCheckpoint(RESUBSCRIBE, 'docker');
+    heldOn = null;
+    await waitForReconcileSwept(standby, 'reconnect', 120000, { afterId: beforeRemoval });
     await waitForReconcileActuated(standby, identifier, 'recreated', 120000, { afterId: beforeRemoval });
     const rebuilt = await getAppContainerStatus(standby.container, appName, { all: true });
     expect(rebuilt, 'the rebuilt container is in Docker').to.not.equal(null);
