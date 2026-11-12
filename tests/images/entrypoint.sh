@@ -3,11 +3,6 @@
 USER=fluxtesting
 HASH_LOCATION=tests/images/.package_hash
 
-if ! docker ps >/dev/null 2>&1; then
-  echo "Docker not available at ${DOCKER_HOST:-/var/run/docker.sock}... exiting"
-  exit 1
-fi
-
 npm config set update-notifier false
 
 # The working dir will have files if flux repo has been mounted, if not

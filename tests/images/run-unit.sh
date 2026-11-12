@@ -7,7 +7,7 @@
 #   tests/images/run-unit.sh -g 'some test' tests/unit/x.test.js
 #
 # Each run is its own compose project, removed with its volumes on exit, so
-# runs on one host never touch each other's containers or the host's Docker.
+# runs on one host never touch each other's image or containers.
 # A failing run keeps its MongoDB's log, which names every operation that took
 # over 100 ms and what it waited on, and prints where. Exits with mocha's status.
 
@@ -20,7 +20,7 @@ compose() {
   docker compose -p "$project" -f "$here/compose.yaml" --profile auto "$@"
 }
 
-trap 'compose down -v --remove-orphans >/dev/null 2>&1' EXIT
+trap 'compose down -v --rmi local --remove-orphans >/dev/null 2>&1' EXIT
 
 compose run --build --rm tester "$@"
 rc=$?
