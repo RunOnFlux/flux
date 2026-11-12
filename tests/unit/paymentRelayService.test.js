@@ -1,5 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
+const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
 const qs = require('qs');
 
@@ -76,7 +77,7 @@ describe('paymentRelayService tests', () => {
 
   afterEach(() => {
     sinon.restore();
-    pending.clear();
+    cacheManager.resetCaches();
   });
 
   describe('paymentRequest', () => {
@@ -287,6 +288,7 @@ describe('paymentRelayService tests', () => {
         const res = generateResponse();
         const req = new PassThrough();
         req.query = { paymentid: paymentId };
+        req.socket = new EventEmitter();
         req.destroy = sinon.fake();
 
         paymentRelayService.receivePaymentCallback(req, res);
