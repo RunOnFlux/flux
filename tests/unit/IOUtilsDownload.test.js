@@ -180,6 +180,20 @@ describe('IOUtils downloadFileFromUrl', () => {
     expect(fs.readFileSync(elsewhere, 'utf8')).to.equal('untouched');
   });
 
+  it('lets go of the connection when the destination is a link', async () => {
+    let connectionClosed;
+    handler = (req, res) => {
+      connectionClosed = new Promise((resolve) => { req.socket.once('close', resolve); });
+      serve(req, res);
+    };
+    fs.writeFileSync(path.join(dir, 'elsewhere'), 'untouched');
+    fs.symlinkSync(path.join(dir, 'elsewhere'), path.join(dir, 'backup_comp.tar.gz'));
+
+    expect(await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, { ...fast, maxAttempts: 1 })).to.equal(false);
+
+    await connectionClosed;
+  });
+
   it('asks once, not once per attempt, when the destination is a link', async () => {
     handler = (req, res) => serve(req, res);
     fs.writeFileSync(path.join(dir, 'elsewhere'), 'untouched');

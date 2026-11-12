@@ -573,7 +573,11 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
       // leaves the file it opened untouched.
       const { O_WRONLY, O_CREAT, O_APPEND, O_NOFOLLOW, O_NONBLOCK } = fs2.constants;
       // eslint-disable-next-line no-await-in-loop
-      const handle = await fs.open(filepath, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK | (resumed ? O_APPEND : 0));
+      const handle = await fs.open(filepath, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK | (resumed ? O_APPEND : 0))
+        .catch((error) => {
+          response.data.destroy();
+          throw error;
+        });
       try {
         // eslint-disable-next-line no-await-in-loop
         const stats = await handle.stat();
