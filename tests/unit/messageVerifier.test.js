@@ -1,4 +1,8 @@
+const http = require('node:http');
+const net = require('node:net');
+const { once } = require('node:events');
 const { expect } = require('chai');
+const express = require('express');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -794,6 +798,93 @@ describe('messageVerifier tests', () => {
       expect(result).to.be.true;
       expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledOnce).to.be.true;
       expect(appUtilitiesStub.specificationFormatter.calledOnce).to.be.true;
+    });
+  });
+
+  describe('getAppsPermanentMessages, to a reader that takes nothing', () => {
+    // 40 MB of answer: more than the socket buffers at both ends hold, so a reader that stops
+    // reading leaves the server waiting for it.
+    const PADDING = 'x'.repeat(10 * 1024);
+    const ANSWER_MESSAGES = 4000;
+    const answer = Array.from({ length: ANSWER_MESSAGES }, (_, i) => ({ hash: `h${i}`, padding: PADDING }));
+    let server;
+
+    afterEach(() => {
+      server?.closeAllConnections();
+      server?.close();
+      server = null;
+    });
+
+    /**
+     * Serves the route with the given reader limit, its messages read after `readMs`, and resolves
+     * `responseClosed` with how long after the request the response closed.
+     */
+    async function serveAnswer(readerIdleMs, readMs = 0) {
+      const findInDatabase = sinon.stub().callsFake(async () => {
+        await new Promise((resolve) => { setTimeout(resolve, readMs); });
+        return answer;
+      });
+      const verifier = proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
+        config: { ...configStub, fluxapps: { messageReaderIdleMs: readerIdleMs } },
+        '../dbHelper': { databaseConnection: () => ({ db: () => ({}) }), findInDatabase },
+        '../../lib/log': logStub,
+      });
+      let closed;
+      const responseClosed = new Promise((resolve) => { closed = resolve; });
+      const app = express();
+      app.get('/apps/permanentmessages', (req, res) => {
+        const at = Date.now();
+        res.once('close', () => closed(Date.now() - at));
+        verifier.getAppsPermanentMessages(req, res);
+      });
+      server = http.createServer(app);
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      return { port: server.address().port, responseClosed };
+    }
+
+    async function readWhole(port) {
+      const res = await new Promise((resolve, reject) => {
+        http.get(`http://127.0.0.1:${port}/apps/permanentmessages`, resolve).on('error', reject);
+      });
+      const chunks = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for await (const chunk of res) chunks.push(chunk);
+      return JSON.parse(Buffer.concat(chunks).toString());
+    }
+
+    it('closes the connection of a reader that takes nothing for messageReaderIdleMs', async function () {
+      this.timeout(10000);
+      const { port, responseClosed } = await serveAnswer(200);
+
+      const reader = net.connect(port, '127.0.0.1');
+      reader.on('error', () => {});
+      reader.write('GET /apps/permanentmessages HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');
+      reader.pause();
+
+      const closedAfterMs = await responseClosed;
+      reader.destroy();
+
+      expect(closedAfterMs, 'closed before the reader had been waited on for the limit').to.be.at.least(200);
+    });
+
+    it('answers in full a reader that keeps reading', async function () {
+      this.timeout(20000);
+      const { port } = await serveAnswer(500);
+
+      const body = await readWhole(port);
+
+      expect(body.status).to.equal('success');
+      expect(body.data).to.have.lengthOf(ANSWER_MESSAGES);
+    });
+
+    it('does not count the time this node spends reading the messages against the reader', async function () {
+      this.timeout(20000);
+      const { port } = await serveAnswer(200, 600);
+
+      const body = await readWhole(port);
+
+      expect(body.data).to.have.lengthOf(ANSWER_MESSAGES);
     });
   });
 });

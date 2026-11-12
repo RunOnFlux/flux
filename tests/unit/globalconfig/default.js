@@ -442,6 +442,7 @@ module.exports = {
     hashSyncPeersPerRound: 3,
     hashSyncEphemeralPeers: 5,
     hashSyncFallbackRecheckBlocks: 100,
+    messageReaderIdleMs: 30000,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,

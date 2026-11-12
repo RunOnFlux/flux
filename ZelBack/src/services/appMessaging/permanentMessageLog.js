@@ -24,6 +24,9 @@ const WRITE_PIECE_BYTES = 64 * 1024;
 
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
 
+// A reader that takes nothing of the log for this long has its connection closed.
+const READER_IDLE_MS = config.fluxapps.messageReaderIdleMs;
+
 /**
  * @param {unknown} value a query parameter
  * @param {string} name
@@ -63,24 +66,35 @@ function messagesByHeight({ fromHeight, toHeight }) {
 /**
  * A wait for a response to take more, listening once for the whole response: the compression
  * middleware hands a response's drain listeners to its compressor but not their removal, so a
- * listener added for each wait stays until the response ends.
+ * listener added for each wait stays until the response ends. A wait the reader leaves for
+ * READER_IDLE_MS destroys the response's connection, which closes the response and ends the wait.
+ * Only these waits are timed: the time this node spends reading the log is never the reader's.
  * @param {import('http').ServerResponse} res
  * @returns {() => Promise<void>} resolves when the response can take more, or when its
  *   connection has closed
  */
 function writableWaiter(res) {
   let wake = null;
+  let stalled = null;
   function onWritable() {
+    clearTimeout(stalled);
+    stalled = null;
     if (!wake) return;
     const resolve = wake;
     wake = null;
     resolve();
+  }
+  function closeStalledReader() {
+    stalled = null;
+    log.info(`permanentMessageLog - ${res.socket?.remoteAddress} took nothing for ${READER_IDLE_MS / 1000}s; closing its connection`);
+    res.destroy();
   }
   res.on('drain', onWritable);
   res.once('close', onWritable);
   return function untilWritable() {
     return new Promise((resolve) => {
       wake = resolve;
+      stalled = setTimeout(closeStalledReader, READER_IDLE_MS);
     });
   };
 }

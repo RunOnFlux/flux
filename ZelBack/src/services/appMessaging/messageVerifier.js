@@ -719,6 +719,9 @@ async function getAppsPermanentMessages(req, res) {
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
+    // The answer is built; from here every wait is the reader's. One that takes nothing of it for
+    // messageReaderIdleMs has its connection closed.
+    res.setTimeout(config.fluxapps.messageReaderIdleMs, () => res.destroy());
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);

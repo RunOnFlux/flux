@@ -894,6 +894,9 @@ module.exports = {
     hashSyncBulkIdleMs: 120000,
     // apps whose messages a bulk hash sync verifies at once
     hashSyncVerifyConcurrency: 4,
+    // a reader of this node's permanent messages that takes nothing of the answer for this long has
+    // its connection closed; a healthy reader pauses only to store each 1000 messages it receives
+    messageReaderIdleMs: 30000,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,

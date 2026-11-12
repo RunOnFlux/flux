@@ -1,4 +1,5 @@
 const http = require('node:http');
+const net = require('node:net');
 const { Readable } = require('node:stream');
 const zlib = require('node:zlib');
 const { once, EventEmitter } = require('node:events');
@@ -372,6 +373,100 @@ describe('permanentMessageLog tests', () => {
         expect(read.map((entry) => entry.height)).to.deep.equal([1000, 1003, 1005]);
         expect(read[0]).to.deep.equal(message(3, 1000));
       });
+    });
+  });
+
+  describe('a reader that takes nothing', () => {
+    // 40 MB of log, uncompressed: more than the socket buffers at both ends hold, so a reader that
+    // stops reading leaves the server waiting for it.
+    const PADDING = 'x'.repeat(10 * 1024);
+    const LOG_MESSAGES = 4000;
+    let server;
+
+    afterEach(() => {
+      server?.closeAllConnections();
+      server?.close();
+      server = null;
+    });
+
+    /**
+     * Serves a log read from `messages` with the given reader limit, and resolves `closed` with
+     * how long after the request each response closed.
+     */
+    async function serveLog(messages, readerIdleMs) {
+      const log = { info: sinon.stub(), error: sinon.stub() };
+      const cursor = {
+        [Symbol.asyncIterator]: messages,
+        async close() {},
+      };
+      const find = sinon.stub().returns({ sort: sinon.stub().returns(cursor) });
+      const logModule = proxyquire('../../ZelBack/src/services/appMessaging/permanentMessageLog', {
+        config: { ...config, fluxapps: { ...config.fluxapps, messageReaderIdleMs: readerIdleMs } },
+        '../dbHelper': { databaseConnection: () => ({ db: () => ({ collection: () => ({ find }) }) }) },
+        '../../lib/log': log,
+      });
+      let closed;
+      const responseClosed = new Promise((resolve) => { closed = resolve; });
+      const served = await serve((req, res) => {
+        const at = Date.now();
+        res.once('close', () => closed(Date.now() - at));
+        return logModule.getPermanentMessagesByHeightAPI(req, res);
+      });
+      ({ server } = served);
+      return { url: `${served.url}?fromHeight=1000&toHeight=99999`, log, responseClosed };
+    }
+
+    async function* paddedLog() {
+      for (let i = 0; i < LOG_MESSAGES; i += 1) yield { ...message(i), padding: PADDING };
+    }
+
+    it('closes the connection of a reader that takes nothing for messageReaderIdleMs', async function () {
+      this.timeout(10000);
+      const { url, log, responseClosed } = await serveLog(paddedLog, 200);
+      const { port } = server.address();
+
+      const reader = net.connect(port, '127.0.0.1');
+      reader.on('error', () => {});
+      reader.write(`GET ${new URL(url).pathname}${new URL(url).search} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`);
+      reader.pause();
+
+      const closedAfterMs = await responseClosed;
+      reader.destroy();
+
+      expect(closedAfterMs, 'closed before the reader had been waited on for the limit').to.be.at.least(200);
+      sinon.assert.calledOnce(log.info);
+      expect(log.info.firstCall.args[0]).to.include('took nothing for 0.2s');
+    });
+
+    it('serves the whole log to a reader that keeps reading', async function () {
+      this.timeout(20000);
+      const { url, log } = await serveLog(paddedLog, 500);
+
+      const res = await new Promise((resolve, reject) => { http.get(url, resolve).on('error', reject); });
+      const read = await collect(readMessageLog(res));
+
+      expect(read).to.have.lengthOf(LOG_MESSAGES);
+      sinon.assert.notCalled(log.info);
+    });
+
+    it('does not count the time this node spends reading the log against the reader', async function () {
+      this.timeout(20000);
+      // Each message fills a piece by itself, and the node takes three limits to read each one.
+      const BIG = 'x'.repeat(64 * 1024);
+      async function* slowLog() {
+        for (let i = 0; i < 3; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { setTimeout(resolve, 600); });
+          yield { ...message(i), padding: BIG };
+        }
+      }
+      const { url, log } = await serveLog(slowLog, 200);
+
+      const res = await new Promise((resolve, reject) => { http.get(url, resolve).on('error', reject); });
+      const read = await collect(readMessageLog(res));
+
+      expect(read).to.have.lengthOf(3);
+      sinon.assert.notCalled(log.info);
     });
   });
 });
