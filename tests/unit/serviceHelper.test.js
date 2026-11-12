@@ -11,7 +11,7 @@ const { expect } = chai;
 
 const log = require('../../ZelBack/src/lib/log');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const adminConfig = {
   initial: {
@@ -30,6 +30,8 @@ const serviceHelper = proxyquire(
 );
 
 describe('serviceHelper tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   describe('ensureBoolean function tests', () => {

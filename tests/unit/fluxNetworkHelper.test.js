@@ -41,7 +41,7 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
@@ -87,6 +87,8 @@ const decidedNetworkInfo = (address) => ({
 const FLUXBENCH_WITHOUT_PROBE = { status: 'error', data: { code: -32601, name: 'Error', message: 'Method not found' } };
 
 describe('fluxNetworkHelper tests', () => {
+  after(releaseMongo);
+
   let getNetworkInfoStub;
 
   // Global beforeEach to mock UPnP service for all tests

@@ -26,7 +26,7 @@ const verificationHelperUtils = proxyquire(
 );
 
 const { signMessage } = require('../../ZelBack/src/services/verificationHelper');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const insertUsers = [
   {
@@ -63,6 +63,8 @@ const insertApp = {
 };
 
 describe('verificationHelperUtils tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   describe('nodeOperatorZelid tests', () => {

@@ -2,10 +2,12 @@ const { expect } = require('chai');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 // On a real Mongo, so what is asserted is what the server stored.
 describe('what a message carries reaches an update pipeline as data', () => {
+  after(releaseMongo);
+
   const { appsglobal } = config.database;
   const ip = '1.2.3.4:16127';
   // Fields of the shapes a stored value must come back in.

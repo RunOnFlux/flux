@@ -15,7 +15,7 @@ const appQueryService = require('../../ZelBack/src/services/appQuery/appQuerySer
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const nodeDosState = require('../../ZelBack/src/services/nodeDosState');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const OWN = '129.3.3.3:16127';
 const COLLATERAL = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
@@ -30,6 +30,8 @@ const reachable = { data: { status: 'success', data: { message: 'Asking Flux is 
 const unreachable = { data: { status: 'error', data: { message: 'Asking Flux is not available' } } };
 
 describe('fluxNetworkHelper own standing tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   let clock;

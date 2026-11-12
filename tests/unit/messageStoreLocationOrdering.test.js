@@ -8,12 +8,14 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { ADDRESS_MOVE_GRACE_BLOCKS, ADDRESS_MOVE_WAIT_MS } = require('../../ZelBack/src/services/utils/appConstants');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 // A shutdown or a removal speaks only for the location rows its node broadcast
 // before it. Peer sync replays every unexpired event after a restart, so these
 // arrive out of order in normal operation.
 describe('messageStore location ordering', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const ip = '203.0.113.7:16127';

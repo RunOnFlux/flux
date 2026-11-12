@@ -20,9 +20,11 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const log = require('../../ZelBack/src/lib/log');
 const { Collection } = require('mongodb');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('fluxNetworkHelper own address tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const PEERS = ['203.0.113.201:16127', '203.0.113.202:16127', '203.0.113.203:16127'];

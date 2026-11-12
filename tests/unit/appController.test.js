@@ -13,9 +13,11 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const bootGateAtStart = globalState.bootContainerStateSettled;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('appController tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
 

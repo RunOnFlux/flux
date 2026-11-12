@@ -54,4 +54,16 @@ async function requireMongo() {
   await dbHelper.initiateDB();
 }
 
-module.exports = { requireMongo, isMongoReachable };
+/**
+ * Closes the connection requireMongo or `dbHelper.initiateDB()` opened. Every file
+ * that opens the database closes it in its last top-level `after` (tests/init.js
+ * fails the run naming any file that does not).
+ *
+ * Usage:
+ *   after(releaseMongo);
+ */
+async function releaseMongo() {
+  await dbHelper.closeDbConnection();
+}
+
+module.exports = { requireMongo, releaseMongo, isMongoReachable };

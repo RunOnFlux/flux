@@ -19,7 +19,7 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/localRemovalQueue');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const unpaidAdmission = require('../../ZelBack/src/services/appMessaging/unpaidAdmission');
 
 chai.use(chaiAsPromised);
@@ -2245,6 +2245,8 @@ describe('registryManager tests', () => {
 });
 
 describe('registryManager registerAppGlobalyApi tests', () => {
+  after(releaseMongo);
+
   const spec = {
     version: 8,
     name: 'registertest',

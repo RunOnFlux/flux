@@ -7,9 +7,11 @@ const sinon = require('sinon');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('fluxnodeAddressRecord', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const A = { txhash: 'cc'.repeat(32), outidx: '0' };

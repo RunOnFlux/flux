@@ -2,9 +2,11 @@ const { expect } = require('chai');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('the temporary messages route', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const hash = 'c'.repeat(64);

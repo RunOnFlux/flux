@@ -5,7 +5,7 @@ const proxyquire = require('proxyquire');
 const log = require('../../ZelBack/src/lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dockerService = require('../../ZelBack/src/services/dockerService');
@@ -23,6 +23,8 @@ const generateResponse = () => {
 };
 
 describe('nodeHealthService tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   describe('confirmNodeTierHardware tests', () => {

@@ -4,7 +4,7 @@ const { ObjectId, MongoClient } = require('mongodb');
 const sinon = require('sinon');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
@@ -31,6 +31,8 @@ const testInsert = [{
 }];
 
 describe('dbHelper tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   describe('connectMongoDb tests', async () => {

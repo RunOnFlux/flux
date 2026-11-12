@@ -15,7 +15,7 @@ const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const { MongoNetworkTimeoutError } = require('mongodb');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -29,6 +29,8 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('explorerService tests', () => {
+  after(releaseMongo);
+
   beforeEach(() => {
     explorerService.resetBlockCadenceForTests();
     explorerService.forgetScannedBlockForTests();

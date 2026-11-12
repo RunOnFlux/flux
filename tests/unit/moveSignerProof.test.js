@@ -13,7 +13,7 @@ const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { MongoNetworkTimeoutError } = require('mongodb');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const { VerifyResult } = fluxCommunicationUtils;
 
@@ -21,6 +21,8 @@ const { VerifyResult } = fluxCommunicationUtils;
 // new address only. It is accepted when the chain moved that node - its
 // collateral - from the address the move left to the one it names.
 describe('the proof a move\'s signer spoke for the address it left', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';

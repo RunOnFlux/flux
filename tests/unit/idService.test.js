@@ -12,7 +12,7 @@ const config = require('config');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
@@ -54,6 +54,8 @@ const generateResponse = () => {
 };
 
 describe('idService tests', () => {
+  after(releaseMongo);
+
   // The modules idService calls read the user config from globalThis. Set for
   // these tests only: mocha loads every file before running any.
   let originalUserConfig;
