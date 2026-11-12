@@ -105,11 +105,16 @@ describe('appInspector tests', () => {
 
   describe('checkStorageSpaceForApps', () => {
     const LIMIT_BYTES = (1 + 1) * 1000 * 1024 * 1024;
+    let inspector;
+
+    afterEach(() => {
+      inspector.stopStorageSpaceChecks();
+    });
 
     // an app over its storage limit for the fourth time running
     async function overItsLimit(app, containerName) {
       const removeAppLocally = sinon.stub().resolves();
-      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+      inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
         config: { fluxapps: { hddFileSystemMinimum: 1, defaultSwap: 1 } },
         '../utils/globalState': globalStateStub,
         '../dockerService': {

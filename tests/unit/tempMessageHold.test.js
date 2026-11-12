@@ -33,11 +33,17 @@ describe('tempMessageHold', () => {
   let hold;
   let rows;
   let relay;
+  // Every copy of the module loaded, each stopped after every test.
+  const loaded = [];
 
-  const loadHold = () => proxyquire('../../ZelBack/src/services/appMessaging/tempMessageHold', {
-    './messageStore': { storeAppTemporaryMessage: (...args) => store(...args) },
-    './unpaidAdmission': { admitUnpaid: (...args) => admit(...args) },
-  });
+  const loadHold = () => {
+    const loadedHold = proxyquire('../../ZelBack/src/services/appMessaging/tempMessageHold', {
+      './messageStore': { storeAppTemporaryMessage: (...args) => store(...args) },
+      './unpaidAdmission': { admitUnpaid: (...args) => admit(...args) },
+    });
+    loaded.push(loadedHold);
+    return loadedHold;
+  };
 
   before(async () => {
     await requireMongo();
@@ -58,7 +64,8 @@ describe('tempMessageHold', () => {
     await hold.start(relay);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(loaded.map((loadedHold) => loadedHold.stop()));
     globalState.dbReady = false;
     sinon.restore();
   });
@@ -255,7 +262,6 @@ describe('tempMessageHold', () => {
     await database.collection(hashes).deleteMany({ hash: { $in: ['paid', 'stored'] } });
   });
 
-  // Last: its retry timer outlives the test.
   it('keeps a row the database could not check, and removes one that failed its checks', async () => {
     store.withArgs(sinon.match({ hash: 'down' })).rejects(new MongoNetworkTimeoutError('timed out'));
     store.withArgs(sinon.match({ hash: 'bad' })).rejects(new Error('Invalid'));

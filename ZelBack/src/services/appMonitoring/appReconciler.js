@@ -86,6 +86,7 @@ const dirty = new Set(); // ids re-requested while in flight -> reconcile again
 const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
 const unhandledFailures = new Map(); // id -> consecutive passes that threw
+let stopped = false; // set by stop(): nothing is enqueued or retried until start()
 
 // The boot-drain gate: opens once every boot-held component has completed ONE
 // reconcile pass (started, backoff-deferred, awaiting-controller, or failed
@@ -1210,6 +1211,7 @@ async function reconcile(rawIdentifier) {
 // --- workqueue (per-key single-flight, boot-gated) -----------------------
 
 function scheduleRetry(identifier, delayMs) {
+  if (stopped) return;
   if (backoffTimers.has(identifier)) clearTimeout(backoffTimers.get(identifier));
   const timer = setTimeout(() => {
     backoffTimers.delete(identifier);
@@ -1263,9 +1265,11 @@ function runReconcile(identifier) {
 /**
  * Schedule a reconcile of one component. Coalesces: if a reconcile for the
  * same identifier is in flight, it re-runs once when that finishes. Held until
- * the boot gate opens so nothing actuates before daemon/DB are ready.
+ * the boot gate opens so nothing actuates before daemon/DB are ready. Does
+ * nothing once the reconciler is stopped.
  */
 function enqueue(rawIdentifier) {
+  if (stopped) return null;
   const identifier = canonical(rawIdentifier);
   if (!globalState.bootContainerStateSettled) {
     bootPending.add(identifier);
@@ -1748,6 +1752,7 @@ let started = false;
 async function start() {
   if (started) return;
   started = true;
+  stopped = false;
   await globalState.waitForBootContainerStateSettled();
   // drain everything enqueued during boot now that daemon/DB are ready
   const pending = [...bootPending];
@@ -1765,8 +1770,13 @@ async function start() {
   pending.forEach((id) => enqueue(id));
 }
 
+/**
+ * Stop reconciling: nothing is enqueued or retried until the next start(). A pass
+ * already running finishes, and schedules nothing.
+ */
 function stop() {
   started = false;
+  stopped = true;
   backoffTimers.forEach((t) => clearTimeout(t));
   backoffTimers.clear();
   unhandledFailures.clear();
