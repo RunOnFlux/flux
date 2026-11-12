@@ -2473,23 +2473,25 @@ describe('volumeExecutor tests', () => {
     // Sends `bytes` bytes and then ends the input, or never ends it; returns what
     // the upload settled with (null when it resolved).
     // The first byte goes once the executor pipes the input into the container,
-    // which it does with its ticker already running.
+    // which it does with its ticker already running. Each step also gives the
+    // process one real turn, for the I/O the executor waits on between ticks;
+    // only mocha's timeout bounds the wait.
     const trickleOnTheClock = async (clock, trickle, uploading, { bytes = Infinity } = {}) => {
       let settled = false;
       let piped = false;
       socket.once('pipe', () => { piped = true; });
       const outcome = uploading.then(() => null, (error) => error);
       outcome.then(() => { settled = true; });
-      for (let turn = 0; !piped && !settled && turn < 1000; turn += 1) {
-        await clock.tickAsync(0); // eslint-disable-line no-await-in-loop
-      }
-      if (!piped) throw new Error('the executor never piped the input into the container');
-      for (let sent = 0; !settled && sent < 500; sent += 1) {
+      const step = async (ms) => {
+        await clock.tickAsync(ms);
+        await new Promise((resolve) => { setImmediate(resolve); });
+      };
+      while (!piped && !settled) await step(0); // eslint-disable-line no-await-in-loop
+      for (let sent = 0; !settled; sent += 1) {
         if (sent < bytes) trickle.push('.');
         if (sent === bytes) trickle.push(null);
-        await clock.tickAsync(40); // eslint-disable-line no-await-in-loop
+        await step(40); // eslint-disable-line no-await-in-loop
       }
-      if (!settled) throw new Error('the upload never settled');
       return outcome;
     };
     const executorClock = () => sinon.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'hrtime'] });
