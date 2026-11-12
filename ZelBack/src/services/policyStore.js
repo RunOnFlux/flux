@@ -116,6 +116,9 @@ const claimants = new Map();
 // routes to the same bundle, and a chase reads the map as it goes, so a claim arriving while
 // one is running is picked up by it rather than starting a second.
 let chasingClaim = false;
+// The wait that paces the chase between asks: {timer, resolve}, or null. stop() ends it, and
+// the chase with it.
+let claimPace = null;
 
 // How long a refresh waits for a peer to answer before going to the backstop. Peers are on
 // the local network and answer in milliseconds; this is the bound on how long a refresh is
@@ -813,6 +816,22 @@ function setPeerTransport({
 }
 
 /**
+ * Wait PEER_WINDOW_MS between the asks of a claim chase.
+ * @returns {Promise<boolean>} false when stop() ended the wait.
+ */
+function paceClaim() {
+  return new Promise((resolve) => {
+    claimPace = {
+      timer: setTimeout(() => {
+        claimPace = null;
+        resolve(true);
+      }, PEER_WINDOW_MS),
+      resolve,
+    };
+  });
+}
+
+/**
  * A peer says it holds a sequence. It cannot be checked, so it is a prompt to ask rather than
  * something to believe -- and what comes back is a signed bundle, which can be. A peer
  * claiming a sequence it cannot produce costs one request.
@@ -856,7 +875,7 @@ async function pursueClaim() {
       // peer going quiet. One on this build answers in milliseconds, so the window is the
       // deadline for a peer that has stopped rather than the cost of asking one.
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(PEER_WINDOW_MS);
+      if (!await paceClaim()) return;
     }
   } finally {
     chasingClaim = false;
@@ -937,7 +956,13 @@ async function start() {
   refreshInterval = refreshInterval || phaseTimer;
 }
 
+/** Stop the refresh tick and any claim chase in progress. */
 function stop() {
+  if (claimPace) {
+    clearTimeout(claimPace.timer);
+    claimPace.resolve(false);
+    claimPace = null;
+  }
   if (phaseTimer) {
     clearTimeout(phaseTimer);
     phaseTimer = null;

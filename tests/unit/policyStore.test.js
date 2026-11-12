@@ -44,9 +44,7 @@ function load(overrides = {}) {
     axiosGet: sinon.stub().rejects(new Error('offline')),
     // noCallThru, so this object IS serviceHelper as the store sees it: a member left out
     // here is undefined at the call site, and the store's own catch reports it as the step
-    // failing rather than as the stub being short. delay is real because the walk after an
-    // unanswered claim is paced by it.
-    delay: (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
+    // failing rather than as the stub being short.
     ...(overrides.serviceHelper || {}),
   };
 
@@ -1482,7 +1480,7 @@ describe('policyStore', () => {
       module.notePeerSeq(3, PEER);
       await drain();
       expect(settled, 'an announcement ended an ask it never answered').to.equal(false);
-      module.stop();
+      module.reset();
     });
   });
 

@@ -26,6 +26,11 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxCommunicationMessagesSender tests', () => {
+  after(() => {
+    peerManager.reset();
+    cacheManager.resetCaches();
+  });
+
   describe('relay tests', () => {
     const generateWebsocket = (ip, port, readyState, source = { source: PEER_SOURCE.RANDOM }) => {
       const ws = {};
