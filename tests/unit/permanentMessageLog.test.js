@@ -12,7 +12,7 @@ const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const permanentMessageLog = require('../../ZelBack/src/services/appMessaging/permanentMessageLog');
 const { FluxServer } = require('../../ZelBack/src/lib/fluxServer');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const { readMessageLog, writeMessageLog, MESSAGE_LOG_CONTENT_TYPE } = permanentMessageLog;
 
@@ -358,6 +358,7 @@ describe('permanentMessageLog tests', () => {
 
       after(async () => {
         await collection?.deleteMany({ hash: /^log-hash-/ });
+        await releaseMongo();
       });
 
       it('serves the messages paid within the range, inclusive, in height order, without their ids', async () => {

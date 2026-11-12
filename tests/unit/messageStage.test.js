@@ -3,7 +3,7 @@ const config = require('config');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { MessageStage } = require('../../ZelBack/src/services/appMessaging/messageStage');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const { appsMessagesStaging } = config.database.appsglobal.collections;
 
@@ -35,6 +35,8 @@ describe('MessageStage tests', () => {
     await stage?.discard();
     stage = null;
   });
+
+  after(releaseMongo);
 
   it('takes a message only when its hash is missing and not staged yet', async () => {
     stage = await MessageStage.open(new Map([['a', record('a', 10)], ['b', record('b', 20)]]));

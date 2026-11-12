@@ -4,7 +4,7 @@ const proxyquire = require('proxyquire').noCallThru();
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const repository = require('../../ZelBack/src/services/appDatabase/policyArtifactRepository');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const MODULE_PATH = '../../ZelBack/src/services/appDatabase/policyArtifactRepository';
 const POLICY_DOCUMENTS = 'policydocuments';
@@ -138,7 +138,10 @@ describe('policyArtifactRepository - the stored bundle against a database', () =
 
   before(requireMongo);
   beforeEach(clear);
-  after(clear);
+  after(async () => {
+    await clear();
+    await releaseMongo();
+  });
 
   it('keeps the newer when the older is written after it', async () => {
     expect(await repository.writeBundle('{"b":40}', 40)).to.equal(true);
