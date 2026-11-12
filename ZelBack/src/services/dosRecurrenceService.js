@@ -206,8 +206,10 @@ fluxEventBus.snapshot('dosRecurrence', () => ({ judgedHeight, record }));
  * Restores the record and the holds it states, then follows the node's DOS
  * state and the chain. A DOS standing before this starts is not counted: it
  * cannot be told apart from one this node was already in before a restart.
- * A counted episode still awaiting its exit, on a node in service when this
- * starts, ended across the restart: its quarantine starts here.
+ * A counted episode still awaiting its exit, on a node not in DOS when this
+ * starts, takes its exit here and its quarantine starts. This runs before the
+ * node's checks do, so a failure that persists across the restart is counted
+ * again as a new episode once a check takes the node out.
  * @returns {Promise<void>}
  */
 async function start() {
