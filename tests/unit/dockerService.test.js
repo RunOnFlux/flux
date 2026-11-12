@@ -202,100 +202,72 @@ describe('dockerService tests', () => {
     });
   });
 
+  // A network as dockerode hands one back: its calls are on the prototype, so a
+  // test stubs what it asks of it without a daemon.
+  const networkProto = Object.getPrototypeOf(new Dockerode().getNetwork('proto'));
+  // The container firewall reads docker's networks before it applies the rules.
+  const noAppNetworks = () => sinon.stub(Dockerode.prototype, 'listNetworks').resolves([]);
+
   describe('dockerCreateNetwork tests', () => {
-    let network;
-    const options = {
-      name: 'Testnetwork',
-    };
-    let firewallStub;
+    let egress;
 
-    // The container firewall is applied on the host only by the code that owns it.
-    before(() => {
-      firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+    beforeEach(() => {
+      egress = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      noAppNetworks();
     });
 
-    after(() => {
-      firewallStub.restore();
+    afterEach(() => {
+      sinon.restore();
     });
 
-    afterEach(async () => {
-      await dockerService.dockerRemoveNetwork(network);
-    });
+    it('creates the network docker is asked for, then applies the container firewall', async () => {
+      const created = new Dockerode().getNetwork('3f2c');
+      const create = sinon.stub(Dockerode.prototype, 'createNetwork').resolves(created);
 
-    it('Should create a network object', async () => {
-      network = await dockerService.dockerCreateNetwork(options);
+      const network = await dockerService.dockerCreateNetwork({ name: 'Testnetwork' });
 
-      expect(network).to.be.an('object');
-      expect(network.id).to.be.a('string');
+      expect(network).to.equal(created);
+      sinon.assert.calledOnceWithExactly(create, { name: 'Testnetwork' });
+      sinon.assert.calledOnce(egress);
+      expect(egress.calledAfter(create), 'the firewall was applied before the network existed').to.equal(true);
     });
   });
 
   describe('dockerRemoveNetwork tests', () => {
-    let network;
-    const options = {
-      name: 'Testnetwork',
-    };
-    let firewallStub;
+    let egress;
 
-    // The container firewall is applied on the host only by the code that owns it.
-    before(() => {
-      firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+    beforeEach(() => {
+      egress = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      noAppNetworks();
     });
 
-    after(() => {
-      firewallStub.restore();
+    afterEach(() => {
+      sinon.restore();
     });
 
-    beforeEach(async () => {
-      network = await dockerService.dockerCreateNetwork(options);
-    });
+    it('removes the network and applies the container firewall again', async () => {
+      // docker answers a removal with an empty body
+      const remove = sinon.stub(networkProto, 'remove').resolves(Buffer.alloc(0));
 
-    afterEach(async () => {
-      try {
-        await dockerService.dockerRemoveNetwork(network);
-      } catch {
-        // already removed by test
-      }
-    });
-
-    it('should remove a network', async () => {
-      const result = await dockerService.dockerRemoveNetwork(network);
+      const result = await dockerService.dockerRemoveNetwork(new Dockerode().getNetwork('Testnetwork'));
 
       expect(result).to.be.instanceOf(Buffer);
       expect(result).to.be.empty;
+      sinon.assert.calledOnce(remove);
+      expect(egress.calledAfter(remove), 'the firewall was applied before the network was gone').to.equal(true);
     });
   });
 
   describe('dockerNetworkInspect tests', () => {
-    let network;
-    const options = {
-      name: 'Testnetwork',
-    };
-    let firewallStub;
-
-    // The container firewall is applied on the host only by the code that owns it.
-    before(() => {
-      firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+    afterEach(() => {
+      sinon.restore();
     });
 
-    after(() => {
-      firewallStub.restore();
-    });
+    it('returns what docker reports of the network', async () => {
+      const reported = { Name: 'Testnetwork', Id: '3f2c', EnableIPv6: false };
+      sinon.stub(networkProto, 'inspect').resolves(reported);
 
-    beforeEach(async () => {
-      network = await dockerService.dockerCreateNetwork(options);
-    });
-
-    afterEach(async () => {
-      await dockerService.dockerRemoveNetwork(network);
-    });
-
-    it('should return an inspect network object', async () => {
-      const result = await dockerService.dockerNetworkInspect(network);
-
-      expect(result.Name).to.equal(options.name);
-      expect(result.Id).to.be.a('string');
-      expect(result.EnableIPv6).to.be.false;
+      expect(await dockerService.dockerNetworkInspect(new Dockerode().getNetwork('Testnetwork'))).to.equal(reported);
     });
   });
 
@@ -1881,89 +1853,52 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe('createFluxDockerNetwork tests', () => {
-    let network;
-    const docker = new Dockerode();
-    const fluxNetworkOptions = {
-      Name: 'fluxDockerNetwork',
-      IPAM: {
-        Config: [{
-          Subnet: '172.23.0.0/24',
-          Gateway: '172.23.0.1',
-        }],
-      },
-    };
+  // Both flux networks are made the same way: asked for by name, created with
+  // their own range only when docker does not know them.
+  [
+    {
+      title: 'createFluxDockerNetwork tests',
+      create: () => dockerService.createFluxDockerNetwork(),
+      options: { Name: 'fluxDockerNetwork', IPAM: { Config: [{ Subnet: '172.23.0.0/24', Gateway: '172.23.0.1' }] } },
+      exists: 'Flux Network already exists.',
+    },
+    {
+      title: 'createFluxAppDockerNetwork tests',
+      create: () => dockerService.createFluxAppDockerNetwork('MyAppName', 52),
+      options: { Name: 'fluxDockerNetwork_MyAppName', IPAM: { Config: [{ Subnet: '172.23.52.0/24', Gateway: '172.23.52.1' }] } },
+      exists: 'Flux App Network of MyAppName already exists.',
+    },
+  ].forEach(({ title, create, options, exists }) => {
+    describe(title, () => {
+      let inspected;
+      let created;
 
-    afterEach(async () => {
-      try {
-        await dockerService.dockerRemoveNetwork(network);
-      } catch {
-        console.log('Network does not exist');
-      }
-    });
+      beforeEach(() => {
+        sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+        noAppNetworks();
+        inspected = sinon.stub(networkProto, 'inspect');
+        created = sinon.stub(Dockerode.prototype, 'createNetwork').callsFake(async () => new Dockerode().getNetwork(options.Name));
+      });
 
-    it('should create flux docker network if it does not exist', async () => {
-      const createNetworkResponse = await dockerService.createFluxDockerNetwork();
-      network = docker.getNetwork(fluxNetworkOptions.Name);
-      const inspectResult = await dockerService.dockerNetworkInspect(network);
+      afterEach(() => {
+        sinon.restore();
+      });
 
-      expect(createNetworkResponse.id).to.be.a('string');
-      expect(createNetworkResponse.modem).to.be.an('object');
-      expect(inspectResult.Name).to.equal(fluxNetworkOptions.Name);
-      expect(inspectResult.Id).to.be.a('string');
-      expect(inspectResult.IPAM.Config).to.eql(fluxNetworkOptions.IPAM.Config);
-    });
+      it('creates the network with its own range when docker does not know it', async () => {
+        inspected.rejects(Object.assign(new Error('network not found'), { statusCode: 404 }));
 
-    it('should return a message if the network does exist', async () => {
-      // Call the function twice to make sure it exists
-      await dockerService.createFluxDockerNetwork();
+        const response = await create();
 
-      const createNetworkResponse = await dockerService.createFluxDockerNetwork();
+        sinon.assert.calledOnceWithExactly(created, options);
+        expect(response.id).to.equal(options.Name);
+      });
 
-      expect(createNetworkResponse).to.equal('Flux Network already exists.');
-    });
-  });
+      it('leaves a network docker already knows', async () => {
+        inspected.resolves({ Name: options.Name, Id: '3f2c' });
 
-  describe('createFluxAppDockerNetwork tests', () => {
-    let network;
-    const docker = new Dockerode();
-    const fluxNetworkOptions = {
-      Name: 'fluxDockerNetwork_MyAppName',
-      IPAM: {
-        Config: [{
-          Subnet: '172.23.52.0/24',
-          Gateway: '172.23.52.1',
-        }],
-      },
-    };
-
-    afterEach(async () => {
-      try {
-        await dockerService.dockerRemoveNetwork(network);
-      } catch {
-        console.log('Network does not exist');
-      }
-    });
-
-    it('should create flux app docker network if it does not exist', async () => {
-      const createNetworkResponse = await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
-      network = docker.getNetwork(fluxNetworkOptions.Name);
-      const inspectResult = await dockerService.dockerNetworkInspect(network);
-
-      expect(createNetworkResponse.id).to.be.a('string');
-      expect(createNetworkResponse.modem).to.be.an('object');
-      expect(inspectResult.Name).to.equal(fluxNetworkOptions.Name);
-      expect(inspectResult.Id).to.be.a('string');
-      expect(inspectResult.IPAM.Config).to.eql(fluxNetworkOptions.IPAM.Config);
-    });
-
-    it('should return a message if the flux app network does exist', async () => {
-      // Call the function twice to make sure it exists
-      await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
-
-      const createNetworkResponse = await dockerService.createFluxAppDockerNetwork('MyAppName', 52);
-
-      expect(createNetworkResponse).to.equal('Flux App Network of MyAppName already exists.');
+        expect(await create()).to.equal(exists);
+        sinon.assert.notCalled(created);
+      });
     });
   });
 
@@ -2150,6 +2085,11 @@ describe('dockerService tests', () => {
     };
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.prototype, 'createContainer').returns(Promise.resolve('created'));
+      // Docker as an empty node answers: the app's network has its range and no
+      // container yet, and the storage driver needs no quota.
+      sinon.stub(networkProto, 'inspect').resolves({ IPAM: { Config: [{ Subnet: '172.23.50.0/24', Gateway: '172.23.50.1' }] }, Containers: {} });
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
+      sinon.stub(Dockerode.prototype, 'info').resolves({ CgroupDriver: 'systemd', DriverStatus: [['Backing Filesystem', 'extfs']] });
     });
 
     afterEach(() => {
@@ -2436,7 +2376,7 @@ describe('dockerService tests', () => {
       };
       const created = () => dockerStub.firstCall.args[0];
       it('puts the container in its app\'s slice', async () => {
-        sinon.stub(Dockerode.prototype, 'info').resolves({ CgroupDriver: 'systemd', DriverStatus: [] });
+        Dockerode.prototype.info.resolves({ CgroupDriver: 'systemd', DriverStatus: [] });
 
         await dockerService.appDockerCreate(nodeApp, 'my-app', true);
 

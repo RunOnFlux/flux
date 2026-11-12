@@ -3,6 +3,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const Dockerode = require('dockerode');
 const { performance } = require('perf_hooks');
 const { resetGlobalState } = require('./fixtures/globalState');
 const axios = require('axios');
@@ -58,6 +59,12 @@ const GIVE_UP_PASS = {
 };
 
 describe('advancedWorkflows tests', () => {
+  // Docker as a node with no app containers answers, for every path a test
+  // does not stub itself.
+  beforeEach(() => {
+    sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
+  });
+
   afterEach(() => {
     sinon.restore();
   });
@@ -8389,6 +8396,8 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
   }
 
   beforeEach(() => {
+    // Docker as a node with no app containers answers.
+    sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
     sinon.stub(generalService, 'checkSynced').resolves(true);
     sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(LOCAL);
     sinon.stub(appUninstaller, 'removeAppLocally').resolves(RemovalOutcome.REMOVED);

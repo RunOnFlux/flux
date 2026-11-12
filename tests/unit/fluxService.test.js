@@ -2028,6 +2028,7 @@ describe('fluxService tests', () => {
       fluxCommunicationStub = sinon.stub(fluxCommunication, 'connectedPeersInfo');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getIncomingConnectionsInfo');
       syncthingServiceStub = sinon.stub(syncthingService, 'systemVersion');
+      sinon.stub(dockerService, 'dockerVersion').resolves({ Version: '27.5.1' });
     });
 
     afterEach(() => {
