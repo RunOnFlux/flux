@@ -9,15 +9,38 @@ describe('dosRecurrenceService tests', () => {
   let placementHolds;
   let stored;
   let heightListener;
+  let afterRead;
+
+  const copy = (value) => JSON.parse(JSON.stringify(value));
 
   function load() {
     nodeDosState = proxyquire('../../ZelBack/src/services/nodeDosState', {
       './utils/fluxEventBus': { publish: () => {} },
       '../lib/log': { error: () => {}, info: () => {}, warn: () => {} },
     });
+    // Mongo's answers to a filtered upsert: a match replaces the record, no
+    // record inserts one, and a record the filter misses refuses the insert
+    // on its _id.
     const collection = {
-      findOne: async () => (stored ? { ...stored } : null),
-      updateOne: async (filter, update) => { stored = JSON.parse(JSON.stringify(update.$set)); },
+      findOne: async () => {
+        const read = stored ? copy(stored) : null;
+        const write = afterRead;
+        afterRead = null;
+        if (write) write();
+        return read;
+      },
+      updateOne: async (filter, update) => {
+        let matches = Boolean(stored);
+        if (stored && 'revision' in filter) {
+          matches = typeof filter.revision === 'object'
+            ? stored.revision === undefined
+            : stored.revision === filter.revision;
+        }
+        if (stored && !matches) throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+        const upserted = !stored;
+        stored = copy(update.$set);
+        return { matchedCount: upserted ? 0 : 1, upsertedCount: upserted ? 1 : 0 };
+      },
     };
     const daemonServiceMiscRpcs = {
       chainHeight: () => height,
@@ -61,6 +84,7 @@ describe('dosRecurrenceService tests', () => {
     height = 1000;
     placementHolds = new Map();
     stored = null;
+    afterRead = null;
     service = load();
     await service.start();
   });
@@ -186,6 +210,20 @@ describe('dosRecurrenceService tests', () => {
     await service.settled();
     expect(stored.placementHold).to.deep.equal({ fromHeight: 1100, blocks: service.QUARANTINE_BLOCKS });
     expect(stored.episodeHeights).to.deep.equal([1000]);
+  });
+
+  it('reads the record again when it changed after it was read, and stores the episode on top of the change', async () => {
+    await service.settled();
+    afterRead = () => {
+      stored = {
+        episodeHeights: [900], dosHold: null, placementHold: null, lastEpisodeHeld: false, awaitingExit: false, revision: 1,
+      };
+    };
+    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    await service.settled();
+
+    expect(stored.episodeHeights).to.deep.equal([900, 1000]);
+    expect(stored.revision).to.equal(2);
   });
 
   it('keeps a hold taken with no chain height until a height is known, and counts it from there', async () => {

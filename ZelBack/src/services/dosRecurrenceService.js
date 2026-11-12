@@ -35,6 +35,7 @@ const LONG_HOLD_EPISODES = 4;
 const LONG_HOLD_BLOCKS = config.dosRecurrence.longHoldBlocks;
 
 const RECORD_ID = 'dosRecurrence';
+const DUPLICATE_KEY = 11000;
 const OWNER = nodeDosState.StickyDosOwner.DOS_RECURRENCE;
 const PLACEMENT_OWNER = fluxNetworkHelper.PlacementHoldOwner.DOS_RECURRENCE;
 const FAILURE_OWNERS = [
@@ -98,11 +99,30 @@ async function load() {
   return { ...emptyRecord(), ...stored, awaitingExit };
 }
 
+/**
+ * Stores the record while it is still the one read. Each store counts its
+ * `revision` up, and a record with no revision yet is stored only while none
+ * has been stored.
+ * @param {object} before The record as read.
+ * @param {object} after The record to store.
+ * @returns {Promise<boolean>} False when the stored record changed since it was read.
+ */
 async function save(before, after) {
-  if (JSON.stringify(before) !== JSON.stringify(after)) {
-    await collection().updateOne({ _id: RECORD_ID }, { $set: after }, { upsert: true });
-    fluxEventBus.publish('dosRecurrence:changed', { ...after });
+  if (JSON.stringify(before) === JSON.stringify(after)) return true;
+  const revision = before.revision ?? 0;
+  const stored = { ...after, revision: revision + 1 };
+  try {
+    const { matchedCount, upsertedCount } = await collection().updateOne(
+      { _id: RECORD_ID, revision: before.revision ?? { $exists: false } },
+      { $set: stored },
+      { upsert: true },
+    );
+    if (!matchedCount && !upsertedCount) return false;
+  } catch (error) {
+    if (error.code === DUPLICATE_KEY) return false;
+    throw error;
   }
+  fluxEventBus.publish('dosRecurrence:changed', { ...stored });
   return true;
 }
 
