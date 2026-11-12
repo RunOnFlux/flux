@@ -305,6 +305,28 @@ export async function restartDockerd(container, { readyTimeoutMs = 40000, interv
   throw new Error(`restartDockerd: dockerd did not cycle down and back up within ${readyTimeoutMs}ms`);
 }
 
+/**
+ * Turn the node's dockerd user namespace remapping (userns-remap "default") on or
+ * off, keeping the rest of its daemon.json, and restart dockerd, which reads the
+ * setting only when it starts. Returns once dockerd is back and reports the
+ * setting asked for.
+ */
+export async function setDockerUsernsRemap(container, remap, restartOptions) {
+  const script = `const fs = require('fs');
+const file = '/etc/docker/daemon.json';
+const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+if (${remap ? 'true' : 'false'}) config['userns-remap'] = 'default'; else delete config['userns-remap'];
+fs.writeFileSync(file, JSON.stringify(config, null, 2));`;
+  const wrote = await execInContainer(container, `echo ${Buffer.from(script).toString('base64')} | base64 -d | node`);
+  if (wrote.exitCode !== 0) throw new Error(`setDockerUsernsRemap: daemon.json not written: ${wrote.output}`);
+  await restartDockerd(container, restartOptions);
+  const info = await execInContainer(container, "docker info --format '{{json .SecurityOptions}}'");
+  const remapped = (info.stdout || '').includes('name=userns');
+  if (remapped !== remap) {
+    throw new Error(`setDockerUsernsRemap: dockerd reports userns remapping ${remapped ? 'on' : 'off'} after asking for it ${remap ? 'on' : 'off'}: ${info.output}`);
+  }
+}
+
 // The node's FluxOS runs as the fluxos unit (test-infra/systemd/fluxos.service), which
 // systemd restarts whenever its process exits. A held node is one whose unit carries a
 // runtime drop-in turning the restart off: its FluxOS stays down after it exits, as a

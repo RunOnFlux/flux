@@ -21,6 +21,7 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
+const generalService = require('./generalService');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
@@ -1560,6 +1561,80 @@ async function syncthingExitsWithin(timeoutMs) {
   return true;
 }
 
+// The node a syncthing identity was made for, recorded beside it in the
+// syncthing home. A copy of the home carries the record to another node, whose
+// collateral then differs from it.
+const IDENTITY_RECORD_FILE = 'flux-identity.json';
+// However many reasons arrive, the identity is replaced at most once in this
+// window: each replacement costs every peer a re-pairing.
+const IDENTITY_REGENERATION_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let identityRegenerationReason = null;
+let lastIdentityRegenerationAt = null;
+let identityRecordChecked = false;
+
+/**
+ * Ask for this node's syncthing identity to be replaced on the sentinel's next
+ * pass. Only where FluxOS runs syncthing itself.
+ * @param {string} reason
+ * @returns {boolean} Whether the replacement was taken up.
+ */
+function requestIdentityRegeneration(reason) {
+  if (!fluxosSupervisesSyncthing) return false;
+  if (lastIdentityRegenerationAt !== null
+    && monotonicMs() - lastIdentityRegenerationAt < IDENTITY_REGENERATION_MIN_INTERVAL_MS) return false;
+  if (identityRegenerationReason === null) log.warn(`Syncthing identity to be replaced: ${reason}`);
+  identityRegenerationReason = reason;
+  return true;
+}
+
+/**
+ * Replace this node's syncthing identity: syncthing is stopped and its key pair
+ * removed, and the start that follows generates a new one.
+ * @returns {Promise<void>}
+ */
+async function regenerateIdentity() {
+  const reason = identityRegenerationReason;
+  identityRegenerationReason = null;
+  lastIdentityRegenerationAt = monotonicMs();
+  await stopSyncthing();
+  const home = syncthingHomeDir();
+  const { error } = await serviceHelper.runCommand('rm', {
+    runAsRoot: true,
+    params: ['-f', path.join(home, 'cert.pem'), path.join(home, 'key.pem')],
+  });
+  if (error) throw error;
+  identityRecordChecked = false;
+  log.warn(`Syncthing identity removed (${reason}); syncthing starts with a new one`);
+  fluxEventBus.publish('syncthing:identityRegenerated', { reason });
+}
+
+/**
+ * Check the running identity against the node it was made for, once per process
+ * and after each replacement. An identity recorded for another collateral, and
+ * still the one syncthing runs, came with a copy of another node's syncthing
+ * home, and is replaced. Any other difference is recorded as it now stands.
+ * Waits, unrecorded, for syncthing's device ID and the node's collateral.
+ * @param {?string} deviceId The device ID syncthing runs, or null before it has
+ *   answered.
+ * @returns {Promise<void>}
+ */
+async function checkIdentityRecord(deviceId) {
+  if (identityRecordChecked || !deviceId) return;
+  const collateral = await generalService.obtainNodeCollateralInformation()
+    .then(({ txhash, txindex }) => `${txhash}:${txindex}`, () => null);
+  if (!collateral) return;
+  const file = path.join(syncthingHomeDir(), IDENTITY_RECORD_FILE);
+  const record = await fs.readFile(file, 'utf8').then(JSON.parse).catch(() => null);
+  if (record?.deviceId === deviceId && record.collateral !== collateral) {
+    if (requestIdentityRegeneration(`it was made for the node with collateral ${record.collateral}`)) identityRecordChecked = true;
+    return;
+  }
+  if (record?.deviceId !== deviceId || record.collateral !== collateral) {
+    await fs.writeFile(file, JSON.stringify({ deviceId, collateral }));
+  }
+  identityRecordChecked = true;
+}
+
 /**
  * Stops syncthing if it is running, and returns once it has exited: a syncthing
  * started while the last one still holds its lock exits at once.
@@ -1880,6 +1955,7 @@ async function runSyncthingSentinel() {
 
   try {
     if (fluxosSupervisesSyncthing) {
+      if (identityRegenerationReason !== null) await regenerateIdentity();
       await ensureSyncthingRunning(installed);
       fluxEventBus.count('syncthing:supervisionPass');
     }
@@ -1889,6 +1965,8 @@ async function runSyncthingSentinel() {
     await refreshSyncthingHealth();
 
     if (stc.aborted) return 0;
+
+    if (fluxosSupervisesSyncthing) await checkIdentityRecord(cachedDeviceId);
 
     // every 8 minutes call adjustSyncthing to check service folders
     // this will also run on first iteration
@@ -2766,9 +2844,22 @@ async function getPeerSyncDiagnosticsApi(req, res) {
   }
 }
 
+/**
+ * Test helper: forgets every identity request, replacement and check.
+ */
+function resetIdentityState() {
+  identityRegenerationReason = null;
+  lastIdentityRegenerationAt = null;
+  identityRecordChecked = false;
+}
+
 module.exports = {
   startSyncthingSentinel,
   stopSyncthingSentinel,
+  requestIdentityRegeneration,
+  regenerateIdentity,
+  checkIdentityRecord,
+  resetIdentityState,
   getDeviceId,
   getSystemStatus,
   getDeviceIdApi,

@@ -20,6 +20,8 @@ const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const unregisteredEnterpriseCleanup = require('./appLifecycle/unregisteredEnterpriseCleanup');
 const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
+const lostVolumeRecovery = require('./appLifecycle/lostVolumeRecovery');
+const volumeUnmountWatch = require('./utils/volumeUnmountWatch');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
@@ -355,6 +357,7 @@ async function startFluxFunctions() {
     // version found and the version required.
     fluxNetworkHelper.checkDockerVersionAllowed(await dockerService.dockerVersion().then((version) => version.Version, () => null));
     await fluxNetworkHelper.checkCgroupsAllowed(dockerInfo?.CgroupDriver ?? null);
+    fluxNetworkHelper.checkDockerUserNamespace(dockerInfo?.SecurityOptions ?? null);
     // Before any work that a restart would cut short: a registration that
     // needs its kill timeout raised restarts FluxOS, and this waits for it.
     await fluxService.ensurePm2KillTimeout();
@@ -586,6 +589,13 @@ async function startFluxFunctions() {
     appUninstaller.setOnComponentRemoved((id) => appReconciler.forgetDesiredState(id));
     // an app the registry stops listing is removed here and its removal told to peers
     localRemovalQueue.setRemover((appName) => appUninstaller.removeAppLocally(appName, null, true, false, true));
+    // an installed component whose volume is gone is rebuilt or its app given up
+    lostVolumeRecovery.setRebuilder(({ appName, componentName, specifications }) => (componentName
+      ? advancedWorkflows.hardRedeployComponent(appName, componentName)
+      : advancedWorkflows.hardRedeploy(specifications)));
+    appReconciler.setOnVolumeUnavailable((component) => lostVolumeRecovery.recover(component));
+    // a volume unmounted under a running node is reconciled as it goes
+    volumeUnmountWatch.setOnUnmount((appId) => appReconciler.enqueue(appId));
     // the node's address moved, so every app that survived it has to come up on
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it

@@ -240,6 +240,7 @@ export function nodeClient(nodeNum) {
         'app:softRedeployed',
         'reinstall:passEnded',
         'app:componentRedeployed',
+        'app:lostVolume',
         'app:specStored',
         'app:running',
         // what this node records of when it took each app it holds
@@ -326,6 +327,9 @@ export function nodeClient(nodeNum) {
         'syncthing:localChangesKept',
         'syncthing:localChangesChecked',
         'syncthing:devicesResumed',
+        'syncthing:identityClash',
+        'syncthing:identityRegenerated',
+        'syncthing:sharedIdentitySeen',
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',
         'pm2:killTimeoutRaiseUnanswered',

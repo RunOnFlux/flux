@@ -32,6 +32,7 @@ const StickyDosOwner = Object.freeze({
   PEER_SET_STABILITY: 'peerSetStability',
   NODEJS_FLOOR: 'nodejsFloor',
   DOCKER_FLOOR: 'dockerFloor',
+  DOCKER_USERNS_REMAP: 'dockerUsernsRemap',
   MONGODB_FLOOR: 'mongodbFloor',
   CGROUP_FLOOR: 'cgroupFloor',
   INSIGHT_EXPLORER: 'insightExplorer',

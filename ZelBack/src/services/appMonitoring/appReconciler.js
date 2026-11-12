@@ -15,7 +15,6 @@ const containerHealthMonitor = require('./containerHealthMonitor');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { localAppsInformation } = require('../utils/appConstants');
-const { AsyncGate } = require('../utils/asyncGate');
 
 // The single, level-based actuator for app containers. Every trigger (docker
 // die event, stream reconnect, hourly tick, boot, post-install, and the
@@ -87,27 +86,16 @@ const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
 const unhandledFailures = new Map(); // id -> consecutive passes that threw
 
-// The boot-drain gate: opens once every boot-held component has completed ONE
-// reconcile pass (started, backoff-deferred, awaiting-controller, or failed
-// loudly) - NOT "all containers running". The first apprunning broadcast waits
-// on it so the snapshot doesn't race the boot starts (rows the snapshot misses
-// expire on the ~7min sigterm TTL and the app respawns elsewhere). Capped so a
-// wedged reconcile can never suppress the node's network presence.
-const BOOT_DRAIN_SETTLE_CAP_MS = 2 * 60 * 1000;
-const bootDrainGate = new AsyncGate();
-const bootDraining = new Set(); // boot-held ids still on their first pass
-let bootDrainCapTimer = null;
+// False from the loss of FluxOS's Docker event stream until its reconnect. The
+// stream is a local socket that drops only when Docker stops, so the Docker that
+// answers after a loss is one FluxOS has not yet checked; the reconnect checks
+// it, opens this, and reconciles every component.
+let dockerWatched = true;
 
-function settleBootDrain(reason) {
-  if (bootDrainGate.ready) return;
-  if (bootDrainCapTimer) {
-    clearTimeout(bootDrainCapTimer);
-    bootDrainCapTimer = null;
-  }
-  bootDraining.clear();
-  bootDrainGate.open();
-  log.info(`appReconciler - boot drain settled (${reason})`);
-}
+// Told of a component whose volume could not be mounted (lostVolumeRecovery):
+// set by serviceManager, as what it does depends on the redeploy code, which
+// depends on this module.
+let onVolumeUnavailable = null;
 
 // while an install/remove/redeploy/backup/restore or a deliberate stop owns a
 // container, defer and re-check shortly (the operation also re-enqueues on
@@ -758,6 +746,10 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
 
 async function reconcile(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
+  if (!dockerWatched) {
+    fluxEventBus.count('reconciler:deferred', identifier, 'dockerUnwatched');
+    return;
+  }
   if (isManagedElsewhere(identifier)) {
     fluxEventBus.count('reconciler:deferred', identifier, 'managedElsewhere');
     scheduleRetry(identifier, MANAGED_RETRY_MS);
@@ -850,6 +842,15 @@ async function reconcile(rawIdentifier) {
       }
     }
     log.error(`appReconciler - ${identifier} data volume not mounted (${volumeMount.reason}); deferring all actuation`);
+    if (onVolumeUnavailable) {
+      onVolumeUnavailable({
+        identifier,
+        appName: mainAppName,
+        version: spec.appSpec.version,
+        synced: spec.isG || spec.isR,
+        reason: volumeMount.reason,
+      }).catch((error) => log.error(`appReconciler - the unavailable volume of ${identifier} was not handled: ${error.message}`));
+    }
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeUnavailable', reason: volumeMount.reason });
     // A mount fault is recorded under the same name the boot sweep uses, so a
     // fleet query for an event sees a node whether the fault was there at boot
@@ -941,6 +942,47 @@ async function reconcile(rawIdentifier) {
   // would otherwise divert a later, genuine disappearance away from the vanished path.
   if (actual.exists && !dockerService.isContainerDetachedFromNetwork(actual.attachment)) {
     await clearNetworkHealState(identifier);
+  }
+
+  // An installed component has a container whether or not it is meant to run, so
+  // a missing one is rebuilt, created and not started, before any run decision.
+  if (!actual.exists) {
+    // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
+    // container to clear a stale endpoint, its absence is not tampering. Keep
+    // recreating it - paced on the heal ladder, never escalating to the vanished
+    // path's uninstall-on-failure. Only a container that vanished by other means
+    // takes that path.
+    let healRemoved;
+    try {
+      healRemoved = await appsRuntimeState.isNetworkHealRemoval(identifier);
+    } catch (err) {
+      // We cannot tell whether we removed this container ourselves. Guessing "no" is
+      // the destructive guess: it records a false tampering event and can uninstall
+      // the whole app on a failed recreate. Defer until the state is readable.
+      log.warn(`appReconciler - cannot read the heal state of the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
+    if (healRemoved) {
+      const wait = await appsRuntimeState.networkHealWaitMs(identifier);
+      if (wait > 0) {
+        log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
+        scheduleRetry(identifier, wait);
+        return;
+      }
+      try {
+        await appsRuntimeState.recordNetworkHealAttempt(identifier);
+      } catch (err) {
+        // unpaced retries would hammer the recreate; defer instead
+        log.error(`appReconciler - cannot pace the heal recreate of ${identifier} (${err.message}); will retry`);
+        scheduleRetry(identifier, MANAGED_RETRY_MS);
+        return;
+      }
+      await recreateForNetworkHeal(identifier);
+      return;
+    }
+    await recreateMissing(identifier);
+    return;
   }
 
   // Pending data wipe: the sync layer flagged this component's local appdata as
@@ -1069,45 +1111,6 @@ async function reconcile(rawIdentifier) {
       return; // running and properly attached (heal state was cleared above)
     }
     await healDetachedNetwork(identifier, mainAppName, spec);
-    return;
-  }
-
-  if (!actual.exists) {
-    // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
-    // container to clear a stale endpoint, its absence is not tampering. Keep
-    // recreating it - paced on the heal ladder, never escalating to the vanished
-    // path's uninstall-on-failure. Only a container that vanished by other means
-    // takes that path.
-    let healRemoved;
-    try {
-      healRemoved = await appsRuntimeState.isNetworkHealRemoval(identifier);
-    } catch (err) {
-      // We cannot tell whether we removed this container ourselves. Guessing "no" is
-      // the destructive guess: it records a false tampering event and can uninstall
-      // the whole app on a failed recreate. Defer until the state is readable.
-      log.warn(`appReconciler - cannot read the heal state of the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
-      scheduleRetry(identifier, MANAGED_RETRY_MS);
-      return;
-    }
-    if (healRemoved) {
-      const wait = await appsRuntimeState.networkHealWaitMs(identifier);
-      if (wait > 0) {
-        log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
-        scheduleRetry(identifier, wait);
-        return;
-      }
-      try {
-        await appsRuntimeState.recordNetworkHealAttempt(identifier);
-      } catch (err) {
-        // unpaced retries would hammer the recreate; defer instead
-        log.error(`appReconciler - cannot pace the heal recreate of ${identifier} (${err.message}); will retry`);
-        scheduleRetry(identifier, MANAGED_RETRY_MS);
-        return;
-      }
-      await recreateForNetworkHeal(identifier);
-      return;
-    }
-    await recreateMissing(identifier);
     return;
   }
 
@@ -1245,10 +1248,6 @@ function runReconcile(identifier) {
     })
     .finally(() => {
       inFlight.delete(identifier);
-      // one completed pass (actuated or deferred) is all the boot drain needs
-      if (bootDraining.delete(identifier) && bootDraining.size === 0) {
-        settleBootDrain('all boot reconciles completed a pass');
-      }
       if (dirty.has(identifier)) {
         dirty.delete(identifier);
         setImmediate(() => enqueue(identifier));
@@ -1741,6 +1740,29 @@ function committedIdentifiers() {
   return [...ids];
 }
 
+/**
+ * @param {(component: object) => Promise<void>} fn Told of every component
+ *   whose volume could not be mounted.
+ */
+function setOnVolumeUnavailable(fn) {
+  onVolumeUnavailable = fn;
+}
+
+/**
+ * FluxOS's Docker event stream was lost: no pass acts until it is back.
+ */
+function dockerUnwatched() {
+  dockerWatched = false;
+}
+
+/**
+ * The event stream is back and the Docker behind it has been checked. Passes act
+ * again; the caller reconciles every component.
+ */
+function dockerWatchedAgain() {
+  dockerWatched = true;
+}
+
 // --- lifecycle -----------------------------------------------------------
 
 let started = false;
@@ -1752,16 +1774,6 @@ async function start() {
   // drain everything enqueued during boot now that daemon/DB are ready
   const pending = [...bootPending];
   bootPending.clear();
-  if (pending.length === 0) {
-    settleBootDrain('nothing to drain');
-    return;
-  }
-  pending.forEach((id) => bootDraining.add(id));
-  bootDrainCapTimer = setTimeout(() => {
-    log.warn(`appReconciler - boot drain cap reached with ${bootDraining.size} reconcile(s) still in flight: ${[...bootDraining].join(', ')}`);
-    settleBootDrain('cap reached');
-  }, BOOT_DRAIN_SETTLE_CAP_MS);
-  if (bootDrainCapTimer.unref) bootDrainCapTimer.unref();
   pending.forEach((id) => enqueue(id));
 }
 
@@ -1770,11 +1782,7 @@ function stop() {
   backoffTimers.forEach((t) => clearTimeout(t));
   backoffTimers.clear();
   unhandledFailures.clear();
-  if (bootDrainCapTimer) {
-    clearTimeout(bootDrainCapTimer);
-    bootDrainCapTimer = null;
-  }
-  bootDraining.clear();
+  dockerWatched = true;
   inFlight.clear();
   dirty.clear();
   bootPending.clear();
@@ -1799,7 +1807,9 @@ module.exports = {
   requestStopAndClearData,
   dataClearPending,
   dataEvents,
-  waitForBootDrainSettled: () => bootDrainGate.wait(),
+  dockerUnwatched,
+  dockerWatchedAgain,
+  setOnVolumeUnavailable,
   start,
   stop,
   // The one answer to "what is this container actually doing" - it probes the

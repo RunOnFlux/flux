@@ -1444,6 +1444,48 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('checkDockerUserNamespace tests', () => {
+    const { DOCKER_USERNS_REMAP } = nodeDosState.StickyDosOwner;
+    const plain = ['name=apparmor,profile=default', 'name=seccomp,profile=builtin', 'name=cgroupns'];
+    const remapped = [...plain.slice(0, 2), 'name=userns', 'name=cgroupns'];
+
+    afterEach(() => {
+      nodeDosState.clearStickyDos(DOCKER_USERNS_REMAP);
+      nodeDosState.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
+    });
+
+    it('allows a Docker that runs containers in the host user namespace', () => {
+      expect(fluxNetworkHelper.checkDockerUserNamespace(plain)).to.equal(true);
+      expect(nodeDosState.isStickyDosHeldBy(DOCKER_USERNS_REMAP)).to.equal(false);
+    });
+
+    it('takes a node whose Docker remaps container users out of service, and says what to do', () => {
+      expect(fluxNetworkHelper.checkDockerUserNamespace(remapped)).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosState).to.equal(100);
+      expect(reported.dosMessage).to.include('userns-remap');
+      expect(reported.dosMessage).to.include('restart Docker');
+    });
+
+    it('returns the node to service once Docker no longer remaps', () => {
+      fluxNetworkHelper.checkDockerUserNamespace(remapped);
+      expect(fluxNetworkHelper.checkDockerUserNamespace(plain)).to.equal(true);
+      expect(nodeDosState.isStickyDosHeldBy(DOCKER_USERNS_REMAP)).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+    });
+
+    it('gives no verdict when the options could not be read', () => {
+      fluxNetworkHelper.checkDockerUserNamespace(remapped);
+      expect(fluxNetworkHelper.checkDockerUserNamespace(null)).to.equal(true);
+      expect(nodeDosState.isStickyDosHeldBy(DOCKER_USERNS_REMAP), 'an unread answer releases nothing').to.equal(true);
+    });
+
+    it('reads the option name, not a prefix of another option', () => {
+      expect(fluxNetworkHelper.checkDockerUserNamespace([...plain, 'name=usernsx'])).to.equal(true);
+    });
+  });
+
   describe('checkDockerVersionAllowed tests', () => {
     // minimumDockerAllowedVersion = '28.1.1'
     const { DOCKER_FLOOR, RESIDENTIAL_DOS } = nodeDosState.StickyDosOwner;

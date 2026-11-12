@@ -1595,6 +1595,36 @@ async function checkCgroupsAllowed(cgroupDriver, { cgroupRoot = '/sys/fs/cgroup'
 }
 
 /**
+ * Whether Docker runs containers in the host's user namespace. Under
+ * userns-remap a container's user ids are shifted on the host, so a synced
+ * app's files carry different owners on this node than on every other: a copy
+ * received from a peer is unreadable to the app here, and a copy written here
+ * is unreadable to the app on a peer.
+ *
+ * Docker applies the setting only when it starts, so this is asked at startup
+ * and after every Docker restart, and each answer sets or releases the verdict.
+ * Options that could not be read give no verdict.
+ * @param {?string[]} securityOptions Docker's SecurityOptions, or null when
+ *   they could not be read.
+ * @returns {boolean} False when Docker is known to remap.
+ */
+function checkDockerUserNamespace(securityOptions) {
+  if (!Array.isArray(securityOptions)) {
+    log.error('checkDockerUserNamespace - Docker did not report its security options, no verdict');
+    return true;
+  }
+  if (!securityOptions.some((option) => option.split(',')[0] === 'name=userns')) {
+    nodeDosState.clearStickyDos(StickyDosOwner.DOCKER_USERNS_REMAP);
+    return true;
+  }
+  nodeDosState.setStickyDos(
+    StickyDosOwner.DOCKER_USERNS_REMAP,
+    'Docker Configuration Error. Docker remaps container users (userns-remap), under which synced app data cannot be shared with other nodes. Remove userns-remap from the Docker daemon configuration and restart Docker',
+  );
+  return false;
+}
+
+/**
  * Whether fluxd keeps the address index (insightexplorer=1), which FluxOS reads
  * to order app payments and to bootstrap the explorer.
  *
@@ -4062,6 +4092,7 @@ module.exports = {
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
   checkCgroupsAllowed,
+  checkDockerUserNamespace,
   checkInsightExplorerAllowed,
   checkMongoDbVersionAllowed,
   checkMyFluxAvailability,

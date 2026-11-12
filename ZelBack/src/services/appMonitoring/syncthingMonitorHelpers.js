@@ -14,59 +14,8 @@ const {
 } = require('./syncthingMonitorConstants');
 
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
-
-const DEVICE_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-
-/**
- * The Luhn mod 32 check character syncthing appends to each 13-character group
- * of a device ID.
- * @param {string} group
- * @returns {string}
- */
-function deviceIdCheckCharacter(group) {
-  let factor = 1;
-  let sum = 0;
-  for (const character of group) {
-    const addend = factor * DEVICE_ID_ALPHABET.indexOf(character);
-    factor = factor === 2 ? 1 : 2;
-    sum += Math.floor(addend / 32) + (addend % 32);
-  }
-  return DEVICE_ID_ALPHABET[(32 - (sum % 32)) % 32];
-}
-
-/**
- * `value` as syncthing writes a device ID - upper case, each 13-character group
- * followed by its check character, a dash after every 7 - when it is one as
- * syncthing reads one: base32, dashes and spaces aside and 0, 1 and 8 read as
- * O, I and B, either 56 characters whose every 14th is the check character of
- * the 13 before it, or 52 without them. Syncthing refuses a configuration that
- * names any other device, and with it every device the same write configures,
- * and it holds every device under this form, so an ID compared with its
- * configuration is compared in it.
- * @param {unknown} value
- * @returns {string|null} null when `value` is not a device ID
- */
-function canonicalSyncthingDeviceId(value) {
-  if (typeof value !== 'string') return null;
-  const id = value.replace(/[-\s]/g, '').toUpperCase()
-    .replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B');
-  if (![...id].every((character) => DEVICE_ID_ALPHABET.includes(character))) return null;
-  let checked;
-  if (id.length === 52) {
-    checked = [0, 13, 26, 39].map((start) => {
-      const group = id.slice(start, start + 13);
-      return group + deviceIdCheckCharacter(group);
-    }).join('');
-  } else if (id.length === 56) {
-    for (let start = 0; start < 56; start += 14) {
-      if (id[start + 13] !== deviceIdCheckCharacter(id.slice(start, start + 13))) return null;
-    }
-    checked = id;
-  } else {
-    return null;
-  }
-  return checked.match(/.{7}/g).join('-');
-}
+const { canonicalSyncthingDeviceId } = require('../utils/syncthingDeviceId');
+const syncthingIdentityClash = require('../syncthingIdentityClash');
 
 /**
  * Helper function to get device ID from remote node with retry capability
@@ -234,6 +183,24 @@ function peerSyncthingAddresses(ip, port) {
   return [`tcp://${ip}:${port + 2}`];
 }
 
+const sharedIdentitiesNoted = new Set();
+
+/**
+ * Two peers report one syncthing device ID. This node reaches only one of them
+ * under it; they settle it between themselves (syncthingIdentityClash). Said
+ * once per pair.
+ * @param {string} first
+ * @param {string} second
+ * @param {string} deviceID
+ */
+function noteSharedIdentity(first, second, deviceID) {
+  const key = `${first} ${second} ${deviceID}`;
+  if (sharedIdentitiesNoted.has(key)) return;
+  sharedIdentitiesNoted.add(key);
+  log.warn(`buildDeviceConfiguration - ${first} and ${second} report the same syncthing device ID ${deviceID}`);
+  fluxEventBus.publish('syncthing:sharedIdentitySeen', { peers: [first, second], deviceId: deviceID });
+}
+
 /**
  * Build device configuration from locations
  * @param {Array} locations - App locations
@@ -291,10 +258,18 @@ async function buildDeviceConfiguration(
 
     // Add to folder devices if not already present and not my ID
     if (deviceID !== myDeviceId) {
+      const sharer = resolvedDevices.find((other) => other && other.deviceID === deviceID && other.name < name);
+      if (sharer) noteSharedIdentity(sharer.name, name, deviceID);
       const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
       if (!folderDeviceExists) {
         devices.push({ deviceID });
       }
+    } else if (!socketAddressesMatch(name, localSocketAddr)) {
+      // Not awaited: the test is a TLS handshake, and the folder pass does not
+      // wait on it.
+      syncthingIdentityClash.noteClaimOfOwnDeviceId(name, myDeviceId).catch((error) => {
+        log.error(`buildDeviceConfiguration - testing ${name}'s claim to this node's device ID failed: ${error.message}`);
+      });
     }
 
     // Add to global devices configuration if not already configured
@@ -479,7 +454,6 @@ function folderNeedsUpdate(existingFolder, newFolder) {
 
 module.exports = {
   OWNED_FOLDER_SETTINGS,
-  canonicalSyncthingDeviceId,
   getDeviceID,
   getDeviceIDCached,
   sortAndFilterLocations,
