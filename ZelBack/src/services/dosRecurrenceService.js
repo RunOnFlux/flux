@@ -186,6 +186,8 @@ fluxEventBus.snapshot('dosRecurrence', () => ({ judgedHeight, record }));
  * Restores the record and the holds it states, then follows the node's DOS
  * state and the chain. A DOS standing before this starts is not counted: it
  * cannot be told apart from one this node was already in before a restart.
+ * A counted episode still awaiting its exit, on a node in service when this
+ * starts, ended across the restart: its quarantine starts here.
  * @returns {Promise<void>}
  */
 async function start() {
@@ -201,6 +203,7 @@ async function start() {
     nodeDosState.onNodeDosCleared(() => { onCleared(); }),
     rule.watch((error) => log.error(`dosRecurrence - ${error.message}`)),
   ];
+  if (record.awaitingExit && !nodeDosState.isNodeDos()) await onCleared();
 }
 
 /**

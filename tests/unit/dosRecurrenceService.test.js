@@ -166,6 +166,28 @@ describe('dosRecurrenceService tests', () => {
     expect(stored.placementHold.blocks).to.equal(service.HELD_QUARANTINE_BLOCKS);
   });
 
+  it('quarantines the node from its restart when an episode was open across it, and no later policy exit quarantines it again', async () => {
+    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    await service.settled();
+    await service.stop();
+
+    height = 1100;
+    service = load();
+    await service.start();
+    expect(placementHeld(), 'the episode open across the restart got no quarantine').to.equal(true);
+    expect(stored.awaitingExit).to.equal(false);
+    expect(stored.placementHold).to.deep.equal({ fromHeight: 1100, blocks: service.QUARANTINE_BLOCKS });
+
+    height = 1150;
+    const { RESIDENTIAL_DOS } = nodeDosState.StickyDosOwner;
+    nodeDosState.setStickyDos(RESIDENTIAL_DOS, 'residential node not running ArcaneOS');
+    await service.settled();
+    nodeDosState.clearStickyDos(RESIDENTIAL_DOS);
+    await service.settled();
+    expect(stored.placementHold).to.deep.equal({ fromHeight: 1100, blocks: service.QUARANTINE_BLOCKS });
+    expect(stored.episodeHeights).to.deep.equal([1000]);
+  });
+
   it('keeps a hold taken with no chain height until a height is known, and counts it from there', async () => {
     height = 0;
     await episode();
