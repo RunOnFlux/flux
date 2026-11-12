@@ -56,6 +56,10 @@ class NetworkStateManager extends EventEmitter {
 
   #started = false;
 
+  // Counts the calls to stop(): a fetch or a start() that began before a stop
+  // populates and arms nothing.
+  #stops = 0;
+
   #fetchQueued = false;
 
   #lastFetchTime = BigInt(0);
@@ -550,6 +554,7 @@ class NetworkStateManager extends EventEmitter {
   async fetchNetworkState(blockHeight = null) {
     // always use monotonic clock for any elapsed times
     const start = process.hrtime.bigint();
+    const stops = this.#stops;
     const populated = Boolean(this.#state.length);
 
     let state = [];
@@ -595,7 +600,7 @@ class NetworkStateManager extends EventEmitter {
       }
     } while (!populated && !state.length);
 
-    if (state.length) {
+    if (state.length && this.#stops === stops) {
       this.#state = state;
 
       const indexStart = process.hrtime.bigint();
@@ -685,16 +690,14 @@ class NetworkStateManager extends EventEmitter {
   }
 
   async start() {
+    const stops = this.#stops;
     await this.fetchNetworkState();
     await this.waitStarted;
 
-    // Only a manager that got its list runs a loop to keep it fresh. A stop
-    // landing during that first fetch breaks the loop without populating and
-    // then releases everything waiting - this included - so without this the
-    // updater is armed on a manager that has just been torn down. The abort
-    // flag cannot be read for it: abort() installs a fresh AbortController on
-    // its way out, so by here it may already say it was never aborted.
-    if (!this.#started) return;
+    // Only a manager that got its list, and has not been stopped since this
+    // start began, runs a loop to keep it fresh. The abort flag cannot be read
+    // for it: abort() installs a fresh AbortController on its way out.
+    if (this.#stops !== stops || !this.#started) return;
 
     const updater = this.#stateEmitter && this.stateEvent
       ? this.#startEventEmitter
@@ -704,6 +707,7 @@ class NetworkStateManager extends EventEmitter {
   }
 
   async stop() {
+    this.#stops += 1;
     await this.#controller.abort();
 
     this.#releaseWaiters();
