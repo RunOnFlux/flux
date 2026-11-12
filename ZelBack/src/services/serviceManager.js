@@ -165,6 +165,10 @@ async function prepareDatabaseSchema() {
     { key: { lastSeen: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'lastSeen_ttl' }, // 30 days
     { key: { appName: 1, eventType: 1, lastSeen: -1 }, name: 'appName_eventType_lastSeen' },
   ]);
+  // a kept removal goes when its app's location row on this node would have expired
+  await dbHelper.ensureIndexes(database.collection(config.database.local.collections.unannouncedRemovals), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+  ]);
   // The unique incident-rollup index lives with its owner: duplicate rollups
   // must have their counts SUMMED, not one dropped, so the merge needs the
   // collection's own knowledge rather than a generic dedupe. See

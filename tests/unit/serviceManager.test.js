@@ -101,6 +101,12 @@ describe('serviceManager prepareDatabaseSchema, temp messages and install errors
     expect(specs.find((s) => s.key.receivedAt === 1).expireAfterSeconds, 'a ttl on receipt still runs').to.equal(undefined);
   });
 
+  it('keeps an unannounced removal until its expireAt', async () => {
+    const { indexes } = await prepared();
+    const specs = specsOf(indexes, 'unannouncedremovals');
+    expect(specs.find((s) => s.key.expireAt === 1).expireAfterSeconds).to.equal(0);
+  });
+
   it('holds one row per message for checking, ended by its expireAt', async () => {
     const { indexes } = await prepared();
     const specs = specsOf(indexes, 'zelappsheldmessages');
