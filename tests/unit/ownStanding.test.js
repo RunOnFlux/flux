@@ -308,13 +308,13 @@ describe('fluxNetworkHelper own standing tests', () => {
     });
 
     it('ends no DOS of another check\'s once reachable', async () => {
-      nodeDosState.setDosMessage('Ports tested not reachable from outside');
+      nodeDosState.setDosMessage('Ports tested from outside failed. No answer over TCP: [49521].');
       nodeDosState.setDosStateValue(100);
       fluxCommunicationUtils.getNodeCount.resolves(1);
 
       expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
 
-      expect(dos()).to.deep.equal({ dosState: 100, dosMessage: 'Ports tested not reachable from outside' });
+      expect(dos()).to.deep.equal({ dosState: 100, dosMessage: 'Ports tested from outside failed. No answer over TCP: [49521].' });
     });
 
     it('leaves another check\'s DOS standing, with the score that check counted', async () => {

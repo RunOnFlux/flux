@@ -66,7 +66,7 @@ describe('dosRecurrenceService tests', () => {
 
   // One DOS episode from another check: in, then out of service.
   async function episode() {
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     nodeDosState.setDos(0, null);
     await service.settled();
@@ -94,7 +94,7 @@ describe('dosRecurrenceService tests', () => {
   });
 
   it('holds a node back from new apps for an hour after a first episode, and lets it go after', async () => {
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     expect(held(), 'one episode held the node out of service').to.equal(false);
     expect(placementHeld(), 'held placement while the node was still out of service').to.equal(false);
@@ -114,7 +114,7 @@ describe('dosRecurrenceService tests', () => {
     await advanceTo(1200);
     await episode();
     await advanceTo(1400);
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     expect(held()).to.equal(true);
 
@@ -140,7 +140,7 @@ describe('dosRecurrenceService tests', () => {
     await service.settled();
     expect(held()).to.equal(false);
 
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     expect(held()).to.equal(true);
     expect(stored.dosHold.blocks).to.equal(service.LONG_HOLD_BLOCKS);
@@ -150,7 +150,7 @@ describe('dosRecurrenceService tests', () => {
     await episode();
     await episode();
     await advanceTo(1000 + service.WINDOW_BLOCKS);
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     expect(held(), 'episodes a day old counted toward the hold').to.equal(false);
     expect(stored.episodeHeights).to.deep.equal([1000 + service.WINDOW_BLOCKS]);
@@ -159,7 +159,7 @@ describe('dosRecurrenceService tests', () => {
   it('restores a hold across a restart, and does not count its own hold as an episode', async () => {
     await episode();
     await episode();
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     expect(held()).to.equal(true);
     await service.stop();
@@ -174,7 +174,7 @@ describe('dosRecurrenceService tests', () => {
   it('quarantines the node once a hold that outlived a restart ends', async () => {
     await episode();
     await episode();
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     await service.stop();
 
@@ -191,7 +191,7 @@ describe('dosRecurrenceService tests', () => {
   });
 
   it('quarantines the node from its restart when an episode was open across it, and no later policy exit quarantines it again', async () => {
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     await service.stop();
 
@@ -219,7 +219,7 @@ describe('dosRecurrenceService tests', () => {
         episodeHeights: [900], dosHold: null, placementHold: null, lastEpisodeHeld: false, awaitingExit: false, revision: 1,
       };
     };
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
 
     expect(stored.episodeHeights).to.deep.equal([900, 1000]);
@@ -230,7 +230,7 @@ describe('dosRecurrenceService tests', () => {
     height = 0;
     await episode();
     await episode();
-    nodeDosState.setDos(100, 'Ports tested not reachable from outside');
+    nodeDosState.setDos(100, 'Ports tested from outside failed. No answer over TCP: [49521].');
     await service.settled();
     expect(held()).to.equal(true);
     expect(stored.dosHold.fromHeight).to.equal(null);

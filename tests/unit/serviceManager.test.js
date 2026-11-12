@@ -128,9 +128,9 @@ describe('serviceManager apps availability DOS state', () => {
   });
 
   it('writes its message as the node\'s own', () => {
-    dosState.dosMessage = 'Ports tested not reachable from outside';
+    dosState.dosMessage = 'Ports tested from outside failed. No answer over TCP: [49521].';
 
-    chai.expect(nodeDosState.getDosMessage()).to.equal('Ports tested not reachable from outside');
+    chai.expect(nodeDosState.getDosMessage()).to.equal('Ports tested from outside failed. No answer over TCP: [49521].');
   });
 
   it('reads the node\'s own message, whoever set it', () => {
