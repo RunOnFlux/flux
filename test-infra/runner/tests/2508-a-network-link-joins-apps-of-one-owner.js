@@ -19,7 +19,8 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { appOwnerKey, otherOwnerKeys } from '../framework/keys.js';
 import { appId } from '../framework/volume-fixture.js';
 import { PRODUCTION } from '../framework/coupled-knobs.js';
@@ -109,7 +110,7 @@ describe('a network link joins apps of one owner', function () {
       // eslint-disable-next-line no-await-in-loop
       const update = await buildSeedableUpdate(apps[name], (spec) => { spec.description = `${spec.description} ${token}`; }, { signer });
       // eslint-disable-next-line no-await-in-loop
-      await seedSpecUpdate(env, update, everyNode);
+      await deliverApp(env, update, everyNode);
     }
     await waitFor(async () => {
       const records = await Promise.all(linked.map(([name]) => installedRecord(name)));

@@ -11,7 +11,8 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { bootAndPeer, seedGlobalSpec } from '../framework/reconciler-suite.js';
+import { bootAndPeer } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { fluxosPid } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
@@ -73,7 +74,7 @@ describe('a frame a peer cannot mean is dropped', function () {
 
     // An app the claims can name.
     const app = await buildSeedableApp({ env, name: appName, instances: 1 });
-    await seedGlobalSpec(env, app, REAL);
+    await deliverApp(env, app, REAL);
 
     await stubConnectedToEveryNode();
     pids = await pidsNow();
