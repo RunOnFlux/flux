@@ -2467,6 +2467,33 @@ describe('volumeExecutor tests', () => {
       });
     };
 
+    // A caller sending one byte every 40ms, on a clock the test moves. The
+    // executor's ticker and its idle measure run on the same clock, so the rate
+    // it judges is exactly this one, however slowly the process itself runs.
+    // Sends `bytes` bytes and then ends the input, or never ends it; returns what
+    // the upload settled with (null when it resolved).
+    // The first byte goes once the executor pipes the input into the container,
+    // which it does with its ticker already running.
+    const trickleOnTheClock = async (clock, trickle, uploading, { bytes = Infinity } = {}) => {
+      let settled = false;
+      let piped = false;
+      socket.once('pipe', () => { piped = true; });
+      const outcome = uploading.then(() => null, (error) => error);
+      outcome.then(() => { settled = true; });
+      for (let turn = 0; !piped && !settled && turn < 1000; turn += 1) {
+        await clock.tickAsync(0); // eslint-disable-line no-await-in-loop
+      }
+      if (!piped) throw new Error('the executor never piped the input into the container');
+      for (let sent = 0; !settled && sent < 500; sent += 1) {
+        if (sent < bytes) trickle.push('.');
+        if (sent === bytes) trickle.push(null);
+        await clock.tickAsync(40); // eslint-disable-line no-await-in-loop
+      }
+      if (!settled) throw new Error('the upload never settled');
+      return outcome;
+    };
+    const executorClock = () => sinon.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'hrtime'] });
+
     it('is not stopped while the caller is still sending, however slowly', async () => {
       // A client trickling a small file over a slow link moves no whole
       // filesystem block for minutes, so the volume says nothing is happening
@@ -2474,26 +2501,23 @@ describe('volumeExecutor tests', () => {
       // they are exact where a block is rounded.
       configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
       // Scaled with the window, the same thousandfold as 120ms stands in for
-      // ten minutes: this sender manages ~200 bit/s, comfortably over.
+      // ten minutes: one byte per 40ms is 200 bit/s, over the floor.
       configStub.fluxapps.volumeOperations.minUploadBitsPerSecond = 64;
       // The volume never moves: too little has arrived to fill a block.
       fsStub.statfs = sinon.stub().resolves({ bsize: 4096, blocks: 100000, bfree: 99500 });
 
-      const trickle = new Readable({ read() {} });
-      // Sends past the window for as many ticks as the assertion below needs, however
-      // few a loaded box gives it in any given time.
-      const sendingSlowly = setInterval(() => {
-        trickle.push('.');
-        if (fsStub.statfs.callCount > 3) {
-          clearInterval(sendingSlowly);
-          trickle.push(null);
-        }
-      }, 40);
-
       const vol = await openSession();
-      await upload(vol, trickle);
+      const clock = executorClock();
+      const trickle = new Readable({ read() {} });
+      let outcome;
+      try {
+        // 20 bytes over 800ms: six windows of 120ms.
+        outcome = await trickleOnTheClock(clock, trickle, upload(vol, trickle), { bytes: 20 });
+      } finally {
+        clock.restore();
+      }
 
-      clearInterval(sendingSlowly);
+      expect(outcome, 'the upload failed').to.equal(null);
       // Without ticks past the window, "not stopped" would say nothing.
       expect(fsStub.statfs.callCount, 'FIXTURE: the ticker never polled').to.be.above(3);
       expect(containerStub.stop.called, 'a caller that was still sending was stopped').to.equal(false);
@@ -2506,20 +2530,25 @@ describe('volumeExecutor tests', () => {
       // hours later - and four of those take every file operation slot the node
       // has. The same trickle as above, against a floor it cannot keep.
       configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
-      // 1000 bit/s over a 120ms window asks for 15 bytes. The sender manages ~3.
+      // 1000 bit/s over a 120ms window asks for 15 bytes. The sender manages 3.
       configStub.fluxapps.volumeOperations.minUploadBitsPerSecond = 1000;
       // The volume never moves either, so the bytes are the only thing that
       // could have spoken for this transfer.
       fsStub.statfs = sinon.stub().resolves({ bsize: 4096, blocks: 100000, bfree: 99500 });
 
-      const trickle = new Readable({ read() {} });
-      const sendingSlowly = setInterval(() => trickle.push('.'), 40);
-      setTimeout(() => { clearInterval(sendingSlowly); trickle.push(null); }, 500);
-
       const vol = await openSession();
-      await expect(upload(vol, trickle)).to.be.rejectedWith('under the 1000 bit/s');
+      const clock = executorClock();
+      // The sender never finishes: only the floor can end this transfer.
+      const trickle = new Readable({ read() {} });
+      let outcome;
+      try {
+        outcome = await trickleOnTheClock(clock, trickle, upload(vol, trickle));
+      } finally {
+        clock.restore();
+        trickle.push(null);
+      }
 
-      clearInterval(sendingSlowly);
+      expect(outcome?.message).to.include('under the 1000 bit/s');
       expect(containerStub.stop.called, 'a caller under the floor was left running').to.equal(true);
     });
 
