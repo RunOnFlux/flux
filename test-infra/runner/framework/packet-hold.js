@@ -92,3 +92,22 @@ export async function releaseAll(client) {
   await execInContainer(client.container, Object.values(CHAINS)
     .map((chain) => `iptables -F ${chain} 2>/dev/null`).join('; ') + '; true');
 }
+
+/**
+ * Whether a TCP connection from inside a node to an address reaches it: the
+ * check that a hold took effect, and that the node otherwise reaches what it
+ * names. A dropped SYN is a timeout, so the answer takes up to `timeoutMs`.
+ *
+ * @param {object} client The node to connect from.
+ * @param {string} address
+ * @param {number} port
+ * @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+export async function reaches(client, address, port, timeoutMs = 3000) {
+  const script = `const s = require('net').connect(${Number(port)}, '${address}');`
+    + ` s.setTimeout(${Number(timeoutMs)}, () => process.exit(2));`
+    + ' s.on(\'connect\', () => process.exit(0)); s.on(\'error\', () => process.exit(1));';
+  const res = await execInContainer(client.container, ['node', '-e', script]);
+  return res.exitCode === 0;
+}
