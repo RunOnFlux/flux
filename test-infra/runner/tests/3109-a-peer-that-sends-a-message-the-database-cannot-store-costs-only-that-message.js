@@ -81,11 +81,13 @@ describe('a peer that sends a message the database cannot store costs only that 
 
     const client = await startJoiner(env, JOINER);
     await env.startDiscovery([JOINER]);
-    await stub.dialLinks([`${subnet.nodeIp(JOINER + 1)}:16127`]);
+    // A node refuses a peer's link until it takes inbound peers, so the stub dials until it holds one.
     await waitFor(async () => {
       askable = await askablePeers(client);
-      return askable.includes(stubKey);
-    }, { timeout: 120000, interval: 2000, label: 'the joiner holding the stub\'s link as a peer a bulk fetch may ask' });
+      if (askable.includes(stubKey)) return true;
+      await stub.dialLinks([`${subnet.nodeIp(JOINER + 1)}:16127`]);
+      return false;
+    }, { timeout: 300000, interval: 5000, label: 'the joiner holding the stub\'s link as a peer a bulk fetch may ask' });
     await waitForOrchestratorState(client, 'READY', 600000);
 
     await stopTicker();
