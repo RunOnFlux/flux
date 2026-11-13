@@ -542,6 +542,8 @@ async function enterMasterApi(req, res) {
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   try {
     await enterMaster();
@@ -577,6 +579,8 @@ async function enterDevelopmentApi(req, res) {
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   try {
     await enterDevelopment();
