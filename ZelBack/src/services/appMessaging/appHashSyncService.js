@@ -149,8 +149,9 @@ const BULK_FETCH_IDLE_MS = config.fluxapps.hashSyncBulkIdleMs ?? 120000;
 // payments this node already holds lie between them.
 const RANGE_GAP_PAYMENTS = 2000;
 // Apps whose messages are verified at once. Each enterprise message is decrypted through
-// fluxbenchd, which serves about as many decrypts at once as the node has cores; a decrypt it
-// refuses leaves that message stored without its contents checked.
+// fluxbenchd, which takes 20 calls at once from all its callers together. A decrypt it refuses
+// as busy is asked again (enterpriseHelper); one that still fails leaves that message stored
+// without its contents checked.
 const VERIFY_CONCURRENCY = config.fluxapps.hashSyncVerifyConcurrency ?? 4;
 // Enterprise apps whose latest decrypted spec a hash sync keeps.
 const DECRYPTED_SPECS_KEPT = 1000;
