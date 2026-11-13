@@ -77,8 +77,12 @@ module.exports = {
     // over four times the slowest healthy round trip seen on the fleet.
     // maintenanceCallTimeoutMs bounds the client for the named long operations:
     // index builds, the explorer restore's deletes and the registry rebuild.
+    // quickCallTimeoutMs bounds every step of a call on the client for callers
+    // that cannot wait long (dbHelper.onQuickClient), finding the server
+    // included. A local write takes milliseconds.
     callTimeoutMs: 60 * 1000,
     maintenanceCallTimeoutMs: 15 * 60 * 1000,
+    quickCallTimeoutMs: 5 * 1000,
     // The database is suspect, and the node takes on no new apps, once
     // suspectRoundTrips round trips have run out within suspectWindowMs. It stops
     // being suspect suspectWindowMs after the last one.
@@ -186,10 +190,6 @@ module.exports = {
     // How long one turn on the router may run (portReconciler.onRouter): a turn
     // is a few requests, each answered in milliseconds by nearly every router.
     turnLimitMs: 60 * 1000,
-    // How long a write of a mapping's record may take (upnpMappingRecord): a turn
-    // waits on it, and a turn cut off at turnLimitMs still finishes it before
-    // the next turn starts. A local write takes milliseconds.
-    recordWriteLimitMs: 5 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',

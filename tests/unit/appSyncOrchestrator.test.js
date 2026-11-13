@@ -148,6 +148,7 @@ describe('AppSyncOrchestrator', () => {
     findOneAndUpdateStub = sinon.stub().resolves();
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+      onQuickClient: sinon.stub().callsFake((database) => ({ ...database, client: 'quick' })),
       findOneInDatabase: sinon.stub().resolves(null),
       findOneAndUpdateInDatabase: findOneAndUpdateStub,
     };
@@ -2796,13 +2797,14 @@ describe('AppSyncOrchestrator', () => {
   });
 
   describe('writeShutdownReason', () => {
-    it('should write shutdown reason to heartbeat doc', async () => {
+    it('writes the shutdown reason to the heartbeat doc on the quick client', async () => {
       await AppSyncOrchestrator.writeShutdownReason('sigterm');
 
       const call = findOneAndUpdateStub.getCalls().find(
         (c) => c.args[2]?._id === 'heartbeat',
       );
       expect(call).to.not.be.undefined;
+      expect(call.args[0].client, 'a stalled database would hold the shutdown for the main client\'s limit').to.equal('quick');
       expect(call.args[3]).to.deep.equal({ $set: { shutdownReason: 'sigterm' } });
     });
 

@@ -1296,21 +1296,25 @@ class AppSyncOrchestrator {
     this.#heartbeatInterval = setInterval(writeHeartbeat, config.system.heartbeatIntervalMs ?? 30000);
   }
 
+  /**
+   * Records why this process is stopping, for the next boot to read. Made on the
+   * quick client, so a stalled database holds the shutdown for at most
+   * config.database.quickCallTimeoutMs.
+   * @param {string} reason
+   * @returns {Promise<void>}
+   */
   static async writeShutdownReason(reason) {
     try {
       const db = dbHelper.databaseConnection();
       if (!db) return;
-      const database = db.db(config.database.local.database);
-      await Promise.race([
-        dbHelper.findOneAndUpdateInDatabase(
-          database,
-          config.database.local.collections.nodeStartupTracker,
-          { _id: 'heartbeat' },
-          { $set: { shutdownReason: reason } },
-          { upsert: true },
-        ),
-        new Promise((_, reject) => { setTimeout(() => reject(new Error('shutdown write timeout')), 3000); }),
-      ]);
+      const database = dbHelper.onQuickClient(db.db(config.database.local.database));
+      await dbHelper.findOneAndUpdateInDatabase(
+        database,
+        config.database.local.collections.nodeStartupTracker,
+        { _id: 'heartbeat' },
+        { $set: { shutdownReason: reason } },
+        { upsert: true },
+      );
     } catch (error) {
       log.error(`Failed to write shutdown reason: ${error.message}`);
     }
