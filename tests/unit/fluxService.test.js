@@ -399,7 +399,8 @@ describe('fluxService tests', () => {
       sinon.restore();
     });
 
-    ['updateFlux', 'softUpdateFluxApi', 'softUpdateFluxInstallApi', 'hardUpdateFlux'].forEach((handler) => {
+    ['updateFlux', 'softUpdateFluxApi', 'softUpdateFluxInstallApi', 'hardUpdateFlux', 'enterMasterApi',
+      'enterDevelopmentApi'].forEach((handler) => {
       it(`${handler} refuses, and changes nothing`, async () => {
         const res = generateResponse();
 
