@@ -82,9 +82,8 @@ let promotedFolders = { ready: true, folders: [] };
 const promotedFolderRequests = [];
 
 // The permanent message log this peer serves, one line of text per message, as a suite gave it:
-// null until a suite gives one, and this peer then answers neither log route, nor that its
-// explorer is synced, so no node asks it for messages. Lines are served as written, so a suite can
-// serve what no real node stores. A node asking for a height range gets every line whose message
+// null until a suite gives one, and this peer then answers neither log route. Lines are served
+// as written, so a suite can serve what no real node stores. A node asking for a height range gets every line whose message
 // is paid in that range, and every line that names no height; the whole log is every line.
 // `closing` false leaves the log by height without its closing line, as a log cut short. Each ask
 // is recorded with what it was answered.
@@ -675,11 +674,6 @@ const wsServer = http.createServer(async (req, res) => {
       // syncthing accepts: a node writes it into its syncthing configuration.
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'success', data: 'PEERSTU-BAAAAAT-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }));
-      return;
-    }
-    if (messageLog && req.url === '/explorer/issynced') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'success', data: true }));
       return;
     }
     if (messageLog && req.url.startsWith('/apps/permanentmessagesbyheight')) {

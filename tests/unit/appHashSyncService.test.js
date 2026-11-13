@@ -433,16 +433,12 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findInDatabase.resolves([]);
       dbHelperStub.findOneInDatabase.resolves(null);
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse([]));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse([])));
 
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
       await appHashSyncService.syncMissingHashes();
 
-      // Should have attempted bulk fetch (axiosGet called for explorer sync check + permanent messages)
       expect(serviceHelperStub.axiosGet.called).to.be.true;
       expect(logStub.info.calledWith(sinon.match('using bulk fetch'))).to.be.true;
     });
@@ -457,7 +453,6 @@ describe('appHashSyncService tests', () => {
       });
       const lines = (messages) => messages.map((message) => `${JSON.stringify(message)}\n`).join('');
       const closing = (count) => `${JSON.stringify({ status: 'success', data: { count } })}\n`;
-      const synced = { data: { status: 'success', data: true } };
 
       // A body that delivers `text` and then fails as a connection torn down mid-body does.
       function cutOff(text) {
@@ -500,8 +495,7 @@ describe('appHashSyncService tests', () => {
         const firstHalf = Array(300).fill(null).map((_, i) => registration(i));
         const secondHalf = Array(300).fill(null).map((_, i) => registration(300 + i));
         let byHeight = 0;
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+        serviceHelperStub.axiosGet.callsFake(() => {
           byHeight += 1;
           if (byHeight === 1) return Promise.resolve(cutOff(lines(firstHalf)));
           return Promise.resolve(makeStreamResponse(secondHalf));
@@ -522,8 +516,7 @@ describe('appHashSyncService tests', () => {
 
       it('treats a log that ends without its closing line as incomplete', async () => {
         let byHeight = 0;
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+        serviceHelperStub.axiosGet.callsFake(() => {
           byHeight += 1;
           const all = missingRecords.map((_, i) => registration(i));
           if (byHeight === 1) return Promise.resolve({ data: Readable.from([Buffer.from(lines(all.slice(0, 100)))]), request: { setTimeout: sinon.stub() } });
@@ -542,8 +535,7 @@ describe('appHashSyncService tests', () => {
       it('counts each message the stage does not take, and asks the next peer for its hash', async () => {
         MemoryStage.untakeable = new Set(['hash599']);
         let byHeight = 0;
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+        serviceHelperStub.axiosGet.callsFake(() => {
           byHeight += 1;
           const all = missingRecords.map((_, i) => registration(i));
           if (byHeight === 1) all[599] = { ...all[599], untakeable: true };
@@ -565,7 +557,6 @@ describe('appHashSyncService tests', () => {
         let wholeLog = 0;
         serviceHelperStub.axiosGet.callsFake((url) => {
           if (url.includes('/apps/permanentmessagesbyheight')) return notFound();
-          if (!url.endsWith('/apps/permanentmessages')) return Promise.resolve(synced);
           wholeLog += 1;
           const all = missingRecords.map((_, i) => registration(i));
           if (wholeLog > 1) return Promise.resolve(makeWholeLogResponse(all.slice(300)));
@@ -588,8 +579,7 @@ describe('appHashSyncService tests', () => {
       it('takes the whole log from a peer that does not serve it by height', async () => {
         serviceHelperStub.axiosGet.callsFake((url) => {
           if (url.includes('/apps/permanentmessagesbyheight')) return notFound();
-          if (url.endsWith('/apps/permanentmessages')) return Promise.resolve(makeWholeLogResponse(missingRecords.map((_, i) => registration(i))));
-          return Promise.resolve(synced);
+          return Promise.resolve(makeWholeLogResponse(missingRecords.map((_, i) => registration(i))));
         });
 
         await appHashSyncService.syncMissingHashes();
@@ -598,10 +588,21 @@ describe('appHashSyncService tests', () => {
         expect(bulkFetchedEvent().processed).to.equal(600);
       });
 
+      it('asks a peer whose explorer is still catching up for what it holds', async () => {
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.endsWith('/explorer/issynced')) return Promise.resolve({ data: { status: 'success', data: false } });
+          return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(bulkFetchedEvent().peers.map(({ route, staged }) => ({ route, staged }))).to.deep.equal([{ route: 'byHeight', staged: 600 }]);
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
       it('reads every peer\'s log to its end before it verifies anything', async () => {
         const order = [];
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+        serviceHelperStub.axiosGet.callsFake(() => {
           const body = makeStreamResponse(missingRecords.map((_, i) => registration(i)));
           body.data.on('end', () => order.push('log read'));
           return Promise.resolve(body);
@@ -628,8 +629,7 @@ describe('appHashSyncService tests', () => {
           ...Array(2000).fill(null).map((_, i) => ({ height: 10000 + i })),
         ];
         dbHelperStub.findInDatabase.callsFake(async (db, collection, query) => (query.notOnChain && !('message' in query) ? payments : []));
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+        serviceHelperStub.axiosGet.callsFake(() => {
           return Promise.resolve(makeStreamResponse([]));
         });
 
@@ -649,8 +649,7 @@ describe('appHashSyncService tests', () => {
           silent.push(Buffer.from(lines(first)));
           const request = { setTimeout: sinon.stub() };
           let byHeight = 0;
-          serviceHelperStub.axiosGet.callsFake((url) => {
-            if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          serviceHelperStub.axiosGet.callsFake(() => {
             byHeight += 1;
             if (byHeight === 1) return Promise.resolve({ data: silent, request });
             return Promise.resolve(makeStreamResponse(missingRecords.slice(300).map((_, i) => registration(300 + i))));
@@ -682,8 +681,7 @@ describe('appHashSyncService tests', () => {
         const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         try {
           let byHeight = 0;
-          serviceHelperStub.axiosGet.callsFake((url) => {
-            if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          serviceHelperStub.axiosGet.callsFake(() => {
             byHeight += 1;
             if (byHeight === 1) return Promise.resolve({ data: new Readable({ read() {} }), request: { setTimeout: sinon.stub() } });
             return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
@@ -714,8 +712,7 @@ describe('appHashSyncService tests', () => {
           return add.wrappedMethod.call(this, message);
         });
         try {
-          serviceHelperStub.axiosGet.callsFake((url) => {
-            if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          serviceHelperStub.axiosGet.callsFake(() => {
             return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
           });
 
@@ -734,8 +731,7 @@ describe('appHashSyncService tests', () => {
       });
 
       it('discards the stage when verifying fails', async () => {
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+        serviceHelperStub.axiosGet.callsFake(() => {
           return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
         });
         dbHelperStub.appPaymentFacts.rejects(new Error('database gone'));
@@ -838,10 +834,7 @@ describe('appHashSyncService tests', () => {
         return Promise.resolve([]);
       });
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkFetchResult)));
 
       await appHashSyncService.syncMissingHashes();
 
@@ -889,11 +882,7 @@ describe('appHashSyncService tests', () => {
       });
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      // Bulk fetch: 3 peers × 2 calls each (explorer check + permanent messages)
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkFetchResult)));
 
       await appHashSyncService.syncMissingHashes();
 
@@ -940,10 +929,7 @@ describe('appHashSyncService tests', () => {
       });
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkFetchResult)));
 
       const insertError = new Error('write concern timeout');
       insertError.result = { insertedCount: 2 };
@@ -1284,10 +1270,7 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findInDatabase.resolves([recentRetry, oldRetry]);
       dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse([]));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse([])));
 
       advanceDateOnDelay();
       try {
@@ -1454,10 +1437,7 @@ describe('appHashSyncService tests', () => {
         return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       await localModule.syncMissingHashes();
 
@@ -1482,10 +1462,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
         });
         localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-          return Promise.resolve({ data: { status: 'success', data: true } });
-        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
       };
       // the write that marks a hash's message as held
       const hashMarks = () => localCollectionStub.bulkWrite.getCalls()
@@ -1528,10 +1505,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
         });
         localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-          return Promise.resolve({ data: { status: 'success', data: true } });
-        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
         const partial = new Error('duplicate key');
         partial.result = { insertedCount: 1 };
         localCollectionStub.insertMany.rejects(partial);
@@ -1568,10 +1542,7 @@ describe('appHashSyncService tests', () => {
         return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
       localCollectionStub.find.returns({
         project: sinon.stub().returns({
           sort: sinon.stub().returns({
@@ -1625,12 +1596,7 @@ describe('appHashSyncService tests', () => {
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
       // Bulk fetch returns our two update messages from all peers
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) {
-          return Promise.resolve(makeStreamResponse(bulkMessages));
-        }
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       // Previous spec for the app (before first update) — from DB
       localCollectionStub.find.returns({
@@ -1686,10 +1652,7 @@ describe('appHashSyncService tests', () => {
         return Promise.resolve([]);
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       await localModule.syncMissingHashes();
 
@@ -1719,10 +1682,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve([]);
         });
         localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-          return Promise.resolve({ data: { status: 'success', data: true } });
-        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
         await localModule.syncMissingHashes();
       };
@@ -1770,12 +1730,7 @@ describe('appHashSyncService tests', () => {
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) {
-          return Promise.resolve(makeStreamResponse(bulkMessages));
-        }
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       // Previous spec is enterprise v8 with encrypted data
       const prevSpec = {
@@ -1844,12 +1799,7 @@ describe('appHashSyncService tests', () => {
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) {
-          return Promise.resolve(makeStreamResponse(bulkMessages));
-        }
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       // Previous spec is enterprise v8 with encrypted data
       const prevSpec = {
@@ -1907,10 +1857,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
         });
         localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-          return Promise.resolve({ data: { status: 'success', data: true } });
-        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
         await localModule.syncMissingHashes();
       };

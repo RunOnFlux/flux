@@ -235,20 +235,6 @@ function planRanges(missingHeights, paymentHeights) {
 }
 
 /**
- * Whether a peer's explorer has synced, so that its message log is whole.
- * @param {{ip: string, port: string|number}} peer
- * @returns {Promise<boolean>}
- */
-async function peerExplorerSynced(peer) {
-  const response = await serviceHelper.axiosGet(`http://${peer.ip}:${peer.port}/explorer/issynced`, { timeout: 5000 })
-    .catch((error) => {
-      log.warn(`syncMissingHashes - explorer sync check on ${peer.key}: ${error.message}`);
-      return null;
-    });
-  return response?.data?.status === 'success' && response.data.data === true;
-}
-
-/**
  * The body of a peer's streamed response, failing once the peer has sent nothing for
  * BULK_FETCH_IDLE_MS. Only time spent waiting on the peer counts. The request's own timeout bounds
  * the wait for the response's headers and ends with them.
@@ -335,8 +321,8 @@ async function stageWholeLogFromPeer(peer, stage, outcome) {
 /**
  * Stages the missing messages from peers in turn. Each peer is asked for the height ranges of
  * what is still unstaged, worked out from this node's own payment records; a peer that does not
- * serve the log by height is asked for its whole log instead. A peer that fails part way keeps
- * what it delivered, and the next peer is asked only for the rest.
+ * serve the log by height is asked for its whole log instead. A peer that fails part way, or holds
+ * only part of what is asked, keeps what it delivered, and the next peer is asked only for the rest.
  * @param {{ip: string, port: string|number, key: string}[]} peers
  * @param {MessageStage} stage
  * @param {number[]} paymentHeights ascending
@@ -348,8 +334,6 @@ async function stageFromPeers(peers, stage, paymentHeights) {
   for (const peer of peers) {
     const ranges = planRanges(stage.unstagedHeights(), paymentHeights);
     if (ranges.length === 0) break;
-    // eslint-disable-next-line no-await-in-loop
-    if (!await peerExplorerSynced(peer)) continue;
 
     const before = stage.size;
     const startedAt = process.hrtime.bigint();
