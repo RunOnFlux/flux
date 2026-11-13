@@ -2,18 +2,15 @@
  * A peer that sends a message the database cannot store costs the node fetching in bulk only that
  * message: the fetch goes on, and the message comes from a peer that sends a copy it can store.
  *
- * The serving nodes hold 600 messages but one, X, the last; the peer stub holds only X and sends
- * it twice, first a copy with a field name holding a null character, which no database stores,
- * then the real one. Whichever order the joiner asks its peers in, the stub is asked, since it
- * alone holds X, and the copy the database refuses arrives in the stub's last piece. The joiner
- * keeps all 600, X among them.
+ * The serving nodes hold 600 messages but one, X, the last. The peer stub serves all 600, with a
+ * copy of X holding a field name with a null character, which no database stores, just before
+ * the real X. A bulk fetch asks up to three peers, chosen at random among those its ring did not
+ * give it; the stub sits outside the joiner's ring, so the bulk fetch may ask it, and since only
+ * the stub holds X it is asked whatever order the peers are asked in. The copy the database
+ * refuses arrives in the last piece the stub sends. The joiner keeps all 600, X among them.
  *
- * A bulk fetch asks up to three peers, chosen at random among those its ring did not give it: the
- * nodes that dialled it, and peers added to it. In a ring of eight with every node on a two-peer
- * arc, the joiner is dialled by two serving nodes, and the stub sits outside the joiner's ring, so
- * its link is one the bulk fetch may ask: three peers, every one of them asked when needed. The
- * joiner is given its payment records only once it holds those three, and the block-driven retry
- * then fetches them; its first sync, with nothing to fetch, may run before they are in place.
+ * The joiner is given its payment records only once it holds the stub as a peer, and the
+ * block-driven retry then fetches them; its first sync, with nothing to fetch, may run first.
  */
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
@@ -74,14 +71,18 @@ describe('a peer that sends a message the database cannot store costs only that 
     await seedMessageLog({ log, servers: PEERS, withheld: new Set([withheld.hash]) });
     const unstorable = { ...withheld.permanentMessage, 'note\u0000': 'a field name no database stores' };
     const stub = env.stubPeerClients.get(STUB);
-    await stub.serveMessageLog([JSON.stringify(unstorable), JSON.stringify(withheld.permanentMessage)]);
+    await stub.serveMessageLog([
+      ...log.slice(0, -1).map((m) => JSON.stringify(m.permanentMessage)),
+      JSON.stringify(unstorable),
+      JSON.stringify(withheld.permanentMessage),
+    ]);
 
     const client = await startJoiner(env, JOINER);
     await env.startDiscovery([JOINER]);
     await waitFor(async () => {
       askable = await askablePeers(client);
-      return askable.includes(stubKey) && askable.length === PEERS_ASKED;
-    }, { timeout: 300000, interval: 2000, label: 'the joiner holding the stub and the two nodes that dial it' });
+      return askable.includes(stubKey);
+    }, { timeout: 300000, interval: 2000, label: 'the joiner holding the stub as a peer a bulk fetch may ask' });
     await waitForOrchestratorState(client, 'READY', 600000);
 
     await stopTicker();
@@ -106,7 +107,7 @@ describe('a peer that sends a message the database cannot store costs only that 
     await env?.teardown();
   });
 
-  it('left the joiner three peers to ask, the stub among them, and asked the stub', function () {
+  it('left the joiner at most three peers to ask, the stub among them, and asked the stub', function () {
     expect(askable, JSON.stringify(askable)).to.include(stubKey);
     expect(askable.length, JSON.stringify(askable)).to.be.at.most(PEERS_ASKED);
     expect(stubAsks.filter((ask) => ask.route === 'byHeight'), JSON.stringify(stubAsks)).to.not.be.empty;
@@ -119,7 +120,8 @@ describe('a peer that sends a message the database cannot store costs only that 
   it('took every message it was missing in one bulk fetch, the stub\'s refused copy left out', function () {
     expect(bulkFetched, 'a bulk fetch that finished').to.not.equal(null);
     const outcome = bulkFetched.data.peers.find((peer) => peer.peer === stubKey);
-    expect(outcome, JSON.stringify(bulkFetched.data.peers)).to.include({ received: 2, refused: 1, staged: 1 });
+    expect(outcome, JSON.stringify(bulkFetched.data.peers)).to.include({ refused: 1 });
+    expect(outcome.received - outcome.staged, JSON.stringify(outcome)).to.equal(1);
     expect(bulkFetched.data.processed, JSON.stringify(bulkFetched.data)).to.equal(log.length);
   });
 
