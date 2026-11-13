@@ -81,6 +81,16 @@ const requestLog = [];
 let promotedFolders = { ready: true, folders: [] };
 const promotedFolderRequests = [];
 
+// The permanent message log this peer serves, one line of text per message, as a suite gave it:
+// null until a suite gives one, and this peer then answers neither log route, nor that its
+// explorer is synced, so no node asks it for messages. Lines are served as written, so a suite can
+// serve what no real node stores. A node asking for a height range gets every line whose message
+// is paid in that range, and every line that names no height; the whole log is every line.
+// `closing` false leaves the log by height without its closing line, as a log cut short. Each ask
+// is recorded with what it was answered.
+let messageLog = null;
+const messageLogRequests = [];
+
 // The status this peer answers that question with. 200 is a peer that can answer
 // it; anything else is a peer that cannot, and the one that matters is 404 -
 // /apps/promotedfolders is new, so every node in the fleet answers 404 until it
@@ -667,6 +677,38 @@ const wsServer = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ status: 'success', data: 'PEERSTU-BAAAAAT-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }));
       return;
     }
+    if (messageLog && req.url === '/explorer/issynced') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success', data: true }));
+      return;
+    }
+    if (messageLog && req.url.startsWith('/apps/permanentmessagesbyheight')) {
+      const asked = new URL(req.url, 'http://peer').searchParams;
+      const fromHeight = Number(asked.get('fromHeight'));
+      const toHeight = Number(asked.get('toHeight'));
+      const lines = messageLog.lines.filter((line) => {
+        let height;
+        try {
+          ({ height } = JSON.parse(line));
+        } catch {
+          return true;
+        }
+        return typeof height !== 'number' || (height >= fromHeight && height <= toHeight);
+      });
+      messageLogRequests.push({
+        at: Date.now(), route: 'byHeight', fromHeight, toHeight, lines: lines.length,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+      const closing = messageLog.closing ? `${JSON.stringify({ status: 'success', data: { count: lines.length } })}\n` : '';
+      res.end(lines.map((line) => `${line}\n`).join('') + closing);
+      return;
+    }
+    if (messageLog && req.url === '/apps/permanentmessages') {
+      messageLogRequests.push({ at: Date.now(), route: 'wholeLog', lines: messageLog.lines.length });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(`{"status":"success","data":[${messageLog.lines.join(',')}]}`);
+      return;
+    }
     if (req.url === '/apps/promotedfolders') {
       // Recorded before the status is applied: a peer that answers 404 was still
       // asked, and a suite proving the asker kept asking needs to see that.
@@ -835,6 +877,26 @@ const controlServer = http.createServer(async (req, res) => {
       syncAnswers = JSON.parse(await readBody(req));
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', types: Object.keys(syncAnswers) }));
+      return;
+    }
+
+    // The message log this peer serves: { lines: [text], closing = true } (see messageLog).
+    if (req.method === 'POST' && req.url === '/message-log') {
+      const { lines, closing = true } = JSON.parse(await readBody(req));
+      if (!Array.isArray(lines) || lines.some((line) => typeof line !== 'string' || line.includes('\n'))) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'error', data: { message: 'lines must be an array of strings, each one line' } }));
+        return;
+      }
+      messageLog = { lines, closing: Boolean(closing) };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', lines: lines.length }));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/message-log') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ lines: messageLog?.lines.length ?? null, requests: messageLogRequests }));
       return;
     }
 
@@ -1021,6 +1083,8 @@ const controlServer = http.createServer(async (req, res) => {
       policyAnswer = { answers: false, seq: null };
       policyAsksAnswered = 0;
       policyAnnouncementsReceived = 0;
+      messageLog = null;
+      messageLogRequests.length = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
       return;

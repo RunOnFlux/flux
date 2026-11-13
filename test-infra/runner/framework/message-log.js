@@ -7,7 +7,8 @@
  *
  * seedMessageLog writes it the way a node's own scan and its peers would have left it: each
  * serving node holds the messages and the chain's payment records for them; the joiner holds the
- * payment records, resolved for the messages it already has and unresolved for the rest.
+ * payment records, resolved for the messages it already has and unresolved for the rest. A
+ * withheld message is one no serving node has received: they hold its payment record, unresolved.
  */
 import { randomBytes } from 'node:crypto';
 import { buildSeedableApp, buildSeedableUpdate } from './seed-helper.js';
@@ -56,15 +57,18 @@ export async function buildMessageLog({
 }
 
 /**
- * @param {{log: object[], servers: number[], joiner: number, held?: Set<string>}} options
- *   `servers` and `joiner` are node indices; `held` names the hashes the joiner already holds
+ * @param {{log: object[], servers: number[], joiner: number, held?: Set<string>,
+ *   withheld?: Set<string>}} options
+ *   `servers` and `joiner` are node indices; `held` names the hashes the joiner already holds,
+ *   `withheld` those whose message no serving node holds
  */
 export async function seedMessageLog({
-  log, servers, joiner, held = new Set(),
+  log, servers, joiner, held = new Set(), withheld = new Set(),
 }) {
-  const entries = log.map((m) => m.hashEntry);
+  const served = log.filter((m) => !withheld.has(m.hash));
+  const entries = log.map((m) => (withheld.has(m.hash) ? { ...m.hashEntry, message: false } : m.hashEntry));
   await Promise.all(servers.map(async (index) => {
-    await dbClient(index + 1).seedPermanentMessages(log.map((m) => m.permanentMessage));
+    await dbClient(index + 1).seedPermanentMessages(served.map((m) => m.permanentMessage));
     await dbClient(index + 1).seedAppHashes(entries);
   }));
   const joinerHolds = log.filter((m) => held.has(m.hash));

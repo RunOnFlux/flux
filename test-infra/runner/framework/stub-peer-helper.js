@@ -17,6 +17,24 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Serves `lines` as this peer's permanent message log, one line of text per message, served as
+    // written: by height range, as the whole log, and its explorer then answers synced. `closing`
+    // false leaves the log by height without its closing line.
+    async serveMessageLog(lines, { closing = true } = {}) {
+      const res = await controlFetch(`${controlUrl}/message-log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lines, closing }),
+      });
+      return res.json();
+    },
+
+    // Each ask for this peer's message log: { at, route, fromHeight, toHeight, lines }.
+    async messageLogRequests() {
+      const res = await controlFetch(`${controlUrl}/message-log`);
+      return (await res.json()).requests;
+    },
+
     async getStats() {
       const res = await controlFetch(`${controlUrl}/stats`);
       return res.json();
