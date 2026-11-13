@@ -1946,14 +1946,14 @@ function safeSetResponseStatus(res, status, message) {
 }
 
 /**
- * Refuses a chain stream request on ArcaneOS, where flux-chain-stream serves both routes and the
- * watchdog alone stops and starts fluxd.
+ * Refuses a chain stream request behind the front proxy, which hands both routes to
+ * flux-chainstreamd.
  * @param {Response} res HTTP response
  * @returns {boolean} true when the request was refused
  */
-function refuseStreamChainOnArcane(res) {
-  if (!isArcane) return false;
-  safeSetResponseStatus(res, 404, 'On ArcaneOS the chain is streamed by flux-chain-stream.');
+function refuseStreamChainBehindProxy(res) {
+  if (!socketPath()) return false;
+  safeSetResponseStatus(res, 404, 'Behind the front proxy the chain is streamed by flux-chainstreamd.');
   return true;
 }
 
@@ -1963,8 +1963,7 @@ function refuseStreamChainOnArcane(res) {
 * @returns {Promise<void>}
 */
 async function streamChainPreparation(req, res) {
-  if (refuseStreamChainOnArcane(res)) return;
-
+  if (refuseStreamChainBehindProxy(res)) return;
   if (streamChainDisabled) {
     safeSetResponseStatus(res, 422, 'Failed minimium throughput criteria. Disabled.');
     return;
@@ -2050,25 +2049,32 @@ async function streamChainPreparation(req, res) {
       return;
     }
 
-    // stop services: each stop is checked, as the node may run neither pm2 nor zelcash
-    const { error: watchdogError } = await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
-    if (watchdogError) {
-      safeSetResponseStatus(res, 503, 'Error: unable to stop watchdog');
-      return;
+    // on non Arcane, we check if the stop commands return successfully, as there is no guarantee that the
+    // node is running using zelcash or pm2 etc
+
+    // stop services
+    if (isArcane) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
+    } else {
+      const { error: watchdogError } = await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
+      if (watchdogError) {
+        safeSetResponseStatus(res, 503, 'Error: unable to stop watchdog');
+        return;
+      }
+
+      log.info('pm2 watchdog service has been stopped');
+
+      const { error: zelcashError } = await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
+
+      if (zelcashError) {
+        safeSetResponseStatus(res, 503, 'Error: unable to stop zelcash service');
+        // if zelcash failed, it means watchdog was successful, we need to restart (no await)
+        serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        return;
+      }
+
+      log.info('zelcash service has been stopped');
     }
-
-    log.info('pm2 watchdog service has been stopped');
-
-    const { error: zelcashError } = await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
-
-    if (zelcashError) {
-      safeSetResponseStatus(res, 503, 'Error: unable to stop zelcash service');
-      // if zelcash failed, it means watchdog was successful, we need to restart (no await)
-      serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
-      return;
-    }
-
-    log.info('zelcash service has been stopped');
 
     daemonStartRequired = true;
     const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
@@ -2079,8 +2085,12 @@ async function streamChainPreparation(req, res) {
       if (!lock && daemonStartRequired) {
         daemonStartRequired = false;
         log.info('Stream chain prep timeout hit: restarting services');
-        serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
-        serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        if (isArcane) {
+          serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+        } else {
+          serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+          serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        }
       } else {
         log.info('Stream chain prep timeout hit: services already restarted or stream in progress');
       }
@@ -2141,8 +2151,7 @@ async function streamChainPreparation(req, res) {
  */
 
 async function streamChain(req, res) {
-  if (refuseStreamChainOnArcane(res)) return;
-
+  if (refuseStreamChainBehindProxy(res)) return;
   if (streamChainDisabled) {
     safeSetResponseStatus(res, 422, 'Failed minimium throughput criteria. Disabled.');
     return;
@@ -2330,8 +2339,12 @@ async function streamChain(req, res) {
     if (daemonStartRequired) {
       daemonStartRequired = false;
 
-      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
-      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+      if (isArcane) {
+        await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+      } else {
+        await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+        await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+      }
     }
 
     lock = false;
