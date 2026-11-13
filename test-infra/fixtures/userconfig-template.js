@@ -4,7 +4,6 @@ module.exports = {
     zelid: process.env.FLUX_ADMIN_ZELID || '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: '',
     network: 'mainnet',
-    development: false,
     apiport: Number(process.env.FLUX_API_PORT) || 16127,
     routerIP: process.env.FLUX_ROUTER_IP || '',
     pgpPrivateKey: '',
