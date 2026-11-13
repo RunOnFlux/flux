@@ -1,4 +1,5 @@
 const config = require('config');
+const { BSON, MongoBulkWriteError } = require('mongodb');
 const dbHelper = require('../dbHelper');
 
 const stagingCollection = config.database.appsglobal.collections.appsMessagesStaging;
@@ -6,11 +7,19 @@ const stagingCollection = config.database.appsglobal.collections.appsMessagesSta
 // Messages are written to the stage in pieces of this many.
 const INSERT_PIECE = 1000;
 
+const DUPLICATE_KEY = 11000;
+
 /**
  * Messages fetched from peers and held until this node has verified them, so that fetching runs
  * at the speed of the network and verifying at its own. The stage takes a message only when its
  * hash is one this node is missing and has not staged yet, and keeps it exactly as the peer sent
  * it, placed at the height of this node's own payment record for the hash.
+ *
+ * A message the database cannot store (a field name holding a null character), or one over
+ * config.fluxapps.gossipMessageMaxBytes, the largest a node takes from a peer, is not taken: no
+ * valid app message is either, and its hash is left for the next peer. A hash counts as staged
+ * once its message is written; a piece the database refuses leaves the hashes it did not store
+ * unstaged.
  *
  * One stage exists at a time: opening one discards whatever an earlier one left.
  */
@@ -20,11 +29,14 @@ class MessageStage {
   /** @type {Map<string, {hash: string, height: number}>} */
   #missing;
 
-  /** @type {Set<string>} */
+  /** @type {Set<string>} hashes whose message is written */
   #staged = new Set();
 
-  /** @type {object[]} */
+  /** @type {object[]} documents taken and not yet written */
   #unwritten = [];
+
+  /** @type {Set<string>} the hashes of #unwritten */
+  #pending = new Set();
 
   /**
    * @param {import('mongodb').Collection} collection
@@ -46,6 +58,8 @@ class MessageStage {
     const collection = db.db(config.database.appsglobal.database).collection(stagingCollection);
     await collection.drop().catch(ignoreMissingCollection);
     await collection.createIndex({ height: 1 });
+    // A message written by a piece whose write failed part way is refused when it is taken again.
+    await collection.createIndex({ hash: 1 }, { unique: true });
     return new MessageStage(collection, missing);
   }
 
@@ -57,21 +71,47 @@ class MessageStage {
   /**
    * Stages a message a peer sent, when this node is missing it and has not staged it yet.
    * @param {object} message
+   * @returns {Promise<boolean>} false when the message is one the stage does not take: one the
+   *   database cannot store, or one over the largest a node takes from a peer
    */
   async add(message) {
     const record = this.#missing.get(message?.hash);
-    if (!record || this.#staged.has(message.hash)) return;
-    this.#staged.add(message.hash);
-    this.#unwritten.push({ hash: message.hash, height: record.height, message });
+    if (!record || this.#staged.has(message.hash) || this.#pending.has(message.hash)) return true;
+    const document = { hash: message.hash, height: record.height, message };
+    try {
+      if (BSON.serialize(document).length > config.fluxapps.gossipMessageMaxBytes) return false;
+    } catch {
+      return false;
+    }
+    this.#pending.add(message.hash);
+    this.#unwritten.push(document);
     if (this.#unwritten.length >= INSERT_PIECE) await this.flush();
+    return true;
   }
 
-  /** Writes the messages staged since the last write. */
+  /**
+   * Writes the messages taken since the last write. A message the database stored, or holds
+   * already, is staged; one it refused is not, and is taken again from the next peer that sends
+   * it. Rejects when the database refused any message of the piece.
+   */
   async flush() {
     if (this.#unwritten.length === 0) return;
     const documents = this.#unwritten;
     this.#unwritten = [];
-    await this.#collection.insertMany(documents, { ordered: false });
+    this.#pending.clear();
+    let refused = new Set();
+    try {
+      await this.#collection.insertMany(documents, { ordered: false });
+    } catch (error) {
+      refused = error instanceof MongoBulkWriteError
+        ? new Set([].concat(error.writeErrors ?? []).filter((writeError) => writeError.code !== DUPLICATE_KEY).map((writeError) => writeError.index))
+        : new Set(documents.keys());
+      if (refused.size > 0) throw error;
+    } finally {
+      documents.forEach((document, index) => {
+        if (!refused.has(index)) this.#staged.add(document.hash);
+      });
+    }
   }
 
   /**
@@ -82,7 +122,7 @@ class MessageStage {
     const heights = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const record of this.#missing.values()) {
-      if (!this.#staged.has(record.hash)) heights.push(record.height);
+      if (!this.#staged.has(record.hash) && !this.#pending.has(record.hash)) heights.push(record.height);
     }
     return heights.sort((a, b) => a - b);
   }
@@ -113,6 +153,7 @@ class MessageStage {
   /** Removes the stage and everything in it. */
   async discard() {
     this.#unwritten = [];
+    this.#pending.clear();
     await this.#collection.drop().catch(ignoreMissingCollection);
   }
 }

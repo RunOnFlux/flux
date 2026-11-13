@@ -111,6 +111,31 @@ describe('permanentMessageLog tests', () => {
       );
     });
 
+    it('yields the messages before a line longer than any message a node takes, then throws without reading on', async () => {
+      const longest = config.fluxapps.gossipMessageMaxBytes;
+      const padding = 'x'.repeat(64 * 1024);
+      let piecesRead = 0;
+      // a line twice as long as the limit, never ended
+      async function* endless() {
+        yield Buffer.from(`${JSON.stringify(message(1))}\n{"hash":"log-hash-2","pad":"`);
+        while (piecesRead * padding.length < 2 * longest) {
+          piecesRead += 1;
+          yield Buffer.from(padding);
+        }
+      }
+      const read = [];
+      let error;
+      try {
+        // eslint-disable-next-line no-restricted-syntax
+        for await (const entry of readMessageLog(endless())) read.push(entry);
+      } catch (e) {
+        error = e;
+      }
+      expect(read).to.deep.equal([message(1)]);
+      expect(error.message).to.equal(`message log line 2 runs past ${longest} characters`);
+      expect(piecesRead, 'pieces read past the limit').to.equal(Math.ceil(longest / padding.length));
+    });
+
     it('throws the server\'s reason for a request it refused', async () => {
       const refusal = JSON.stringify({ status: 'error', data: { code: undefined, name: 'Error', message: 'fromHeight must be a block height' } });
       await collect(readMessageLog(body(refusal))).then(

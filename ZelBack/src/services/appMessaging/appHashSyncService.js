@@ -85,7 +85,16 @@ async function getMissingHashes(options = {}) {
   });
 }
 
+/**
+ * Reads the `data` array of a JSON envelope written in pieces, handing each object in it to
+ * `onObject` as soon as it is complete. `write` throws once an object still incomplete runs past
+ * config.fluxapps.gossipMessageMaxBytes characters, longer than any message a node takes from a
+ * peer.
+ * @param {function(object): void} onObject
+ * @returns {{write: function(string): void}}
+ */
 function createJsonArrayExtractor(onObject) {
+  const longestObject = config.fluxapps.gossipMessageMaxBytes;
   let buffer = '';
   let scanPos = 0;
   let inDataArray = false;
@@ -135,6 +144,7 @@ function createJsonArrayExtractor(onObject) {
         buffer = buffer.slice(objStart);
         scanPos -= objStart;
         objStart = 0;
+        if (buffer.length > longestObject) throw new Error(`a message in the log runs past ${longestObject} characters`);
       } else {
         buffer = '';
         scanPos = 0;
@@ -270,7 +280,8 @@ async function* bodyWithIdleLimit(response, peer) {
  * @param {{ip: string, port: string|number}} peer
  * @param {{fromHeight: number, toHeight: number}} range
  * @param {MessageStage} stage
- * @param {{received: number}} outcome counts each message the peer sent
+ * @param {{received: number, refused: number}} outcome counts each message the peer sent, and
+ *   each the stage did not take
  */
 async function stageRangeFromPeer(peer, range, stage, outcome) {
   const response = await serviceHelper.axiosGet(
@@ -282,7 +293,7 @@ async function stageRangeFromPeer(peer, range, stage, outcome) {
     for await (const message of readMessageLog(bodyWithIdleLimit(response, peer))) {
       outcome.received += 1;
       // eslint-disable-next-line no-await-in-loop
-      await stage.add(message);
+      if (!await stage.add(message)) outcome.refused += 1;
     }
   } finally {
     response.data.destroy();
@@ -294,7 +305,8 @@ async function stageRangeFromPeer(peer, range, stage, outcome) {
  * version serves.
  * @param {{ip: string, port: string|number}} peer
  * @param {MessageStage} stage
- * @param {{received: number}} outcome counts each message the peer sent
+ * @param {{received: number, refused: number}} outcome counts each message the peer sent, and
+ *   each the stage did not take
  */
 async function stageWholeLogFromPeer(peer, stage, outcome) {
   const response = await serviceHelper.axiosGet(
@@ -312,7 +324,7 @@ async function stageWholeLogFromPeer(peer, stage, outcome) {
       for (const message of received.splice(0)) {
         outcome.received += 1;
         // eslint-disable-next-line no-await-in-loop
-        await stage.add(message);
+        if (!await stage.add(message)) outcome.refused += 1;
       }
     }
   } finally {
@@ -328,7 +340,7 @@ async function stageWholeLogFromPeer(peer, stage, outcome) {
  * @param {{ip: string, port: string|number, key: string}[]} peers
  * @param {MessageStage} stage
  * @param {number[]} paymentHeights ascending
- * @returns {Promise<{peer: string, route: string, ranges: number, received: number, staged: number, error?: string}[]>}
+ * @returns {Promise<{peer: string, route: string, ranges: number, received: number, refused: number, staged: number, error?: string}[]>}
  */
 async function stageFromPeers(peers, stage, paymentHeights) {
   const fetched = [];
@@ -342,7 +354,7 @@ async function stageFromPeers(peers, stage, paymentHeights) {
     const before = stage.size;
     const startedAt = process.hrtime.bigint();
     const outcome = {
-      peer: peer.key, route: 'byHeight', ranges: ranges.length, received: 0, staged: 0,
+      peer: peer.key, route: 'byHeight', ranges: ranges.length, received: 0, refused: 0, staged: 0,
     };
     try {
       // eslint-disable-next-line no-restricted-syntax
@@ -364,6 +376,7 @@ async function stageFromPeers(peers, stage, paymentHeights) {
     outcome.staged = stage.size - before;
     const seconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
     log.info(`syncMissingHashes - Staged ${outcome.staged} of ${outcome.received} messages from ${peer.key} (${outcome.route}, ${ranges.length} ranges) in ${seconds.toFixed(1)}s`
+      + `${outcome.refused ? `, ${outcome.refused} not taken (not storable or over ${config.fluxapps.gossipMessageMaxBytes} bytes)` : ''}`
       + `${outcome.error ? `, then: ${outcome.error}` : ''}`);
     fetched.push(outcome);
   }

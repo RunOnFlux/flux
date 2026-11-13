@@ -179,13 +179,15 @@ async function getPermanentMessagesByHeightAPI(req, res) {
 
 /**
  * Reads a permanent message log, yielding each message as it arrives. Throws once the body ends
- * if it was incomplete: the messages yielded before that are still the peer's own, in height
- * order.
+ * if it was incomplete, and as soon as a line runs past config.fluxapps.gossipMessageMaxBytes
+ * characters, longer than any message a node takes from a peer: the messages yielded before that
+ * are still the peer's own, in height order.
  * @param {AsyncIterable<Buffer>} body the decoded response body
  * @returns {AsyncGenerator<object>}
  */
 async function* readMessageLog(body) {
   const decoder = new StringDecoder('utf8');
+  const longestLine = config.fluxapps.gossipMessageMaxBytes;
   let carry = '';
   let count = 0;
   let closing = null;
@@ -205,6 +207,7 @@ async function* readMessageLog(body) {
         yield entry;
       }
     }
+    if (carry.length > longestLine) throw new Error(`message log line ${count + 1} runs past ${longestLine} characters`);
   }
   // A body that is a bare envelope, with no line break, is the server's answer to a request it
   // refused before the log began.

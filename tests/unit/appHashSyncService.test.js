@@ -22,9 +22,12 @@ function makeWholeLogResponse(data) {
   return { data: Readable.from([Buffer.from(JSON.stringify({ status: 'success', data }))]), headers: {}, request: { setTimeout: sinon.stub() } };
 }
 
-// The stage, in memory: what a peer sent, placed at this node's record height for its hash.
+// The stage, in memory: what a peer sent, placed at this node's record height for its hash. A
+// message whose hash is in MemoryStage.untakeable is one the stage does not take.
 class MemoryStage {
   static opened = [];
+
+  static untakeable = new Set();
 
   constructor(missing) {
     this.missing = missing;
@@ -44,8 +47,10 @@ class MemoryStage {
 
   async add(message) {
     const record = this.missing.get(message?.hash);
-    if (!record || this.staged.has(message.hash)) return;
+    if (!record || this.staged.has(message.hash)) return true;
+    if (MemoryStage.untakeable.has(message.hash) && message.untakeable) return false;
     this.staged.set(message.hash, { height: record.height, message });
+    return true;
   }
 
   async flush() {}
@@ -213,6 +218,7 @@ describe('appHashSyncService tests', () => {
       './messageStage': { MessageStage: MemoryStage },
     });
     MemoryStage.opened = [];
+    MemoryStage.untakeable = new Set();
   });
 
   afterEach(() => {
@@ -530,6 +536,52 @@ describe('appHashSyncService tests', () => {
         expect(first.staged).to.equal(100);
         expect(first.error).to.match(/without its closing line/);
         expect(byHeightCalls()[1].args[1].params).to.deep.equal({ fromHeight: 1100, toHeight: 1599 });
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('counts each message the stage does not take, and asks the next peer for its hash', async () => {
+        MemoryStage.untakeable = new Set(['hash599']);
+        let byHeight = 0;
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          byHeight += 1;
+          const all = missingRecords.map((_, i) => registration(i));
+          if (byHeight === 1) all[599] = { ...all[599], untakeable: true };
+          return Promise.resolve(makeStreamResponse(byHeight === 1 ? all : all.slice(599)));
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(bulkFetchedEvent().peers.map(({ received, refused, staged }) => ({ received, refused, staged }))).to.deep.equal([
+          { received: 600, refused: 1, staged: 599 },
+          { received: 1, refused: 0, staged: 1 },
+        ]);
+        expect(byHeightCalls()[1].args[1].params).to.deep.equal({ fromHeight: 1599, toHeight: 1599 });
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('gives up a peer whose whole log holds a message longer than any a node takes, and asks the next for the rest', async () => {
+        const longest = config.fluxapps.gossipMessageMaxBytes;
+        let wholeLog = 0;
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('/apps/permanentmessagesbyheight')) return notFound();
+          if (!url.endsWith('/apps/permanentmessages')) return Promise.resolve(synced);
+          wholeLog += 1;
+          const all = missingRecords.map((_, i) => registration(i));
+          if (wholeLog > 1) return Promise.resolve(makeWholeLogResponse(all.slice(300)));
+          // the first 300 messages, then one that opens and never closes
+          const pieces = [`${JSON.stringify({ status: 'success', data: all.slice(0, 300) }).slice(0, -2)},{"hash":"hash300","pad":"`];
+          const padding = 'x'.repeat(64 * 1024);
+          for (let sent = 0; sent <= longest; sent += padding.length) pieces.push(padding);
+          return Promise.resolve({ data: Readable.from(pieces.map((piece) => Buffer.from(piece))), headers: {}, request: { setTimeout: sinon.stub() } });
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        const [first, second] = bulkFetchedEvent().peers;
+        expect(first).to.include({ route: 'wholeLog', staged: 300 });
+        expect(first.error).to.match(/runs past/);
+        expect(second).to.include({ route: 'wholeLog', staged: 300 });
         expect(bulkFetchedEvent().processed).to.equal(600);
       });
 

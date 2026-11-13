@@ -96,6 +96,63 @@ describe('MessageStage tests', () => {
     expect(stage.unstagedHeights()).to.deep.equal([]);
   });
 
+  it('does not take a message the database cannot store, and stores the rest of its piece', async () => {
+    stage = await MessageStage.open(new Map([['a', record('a', 10)], ['b', record('b', 20)], ['c', record('c', 30)]]));
+    const unstorable = JSON.parse('{"type":"fluxappregister","hash":"b","bad\\u0000key":1}');
+
+    expect(await stage.add(sent('a', 10))).to.equal(true);
+    expect(await stage.add(unstorable), 'a field name holding a null character').to.equal(false);
+    expect(await stage.add(sent('c', 30))).to.equal(true);
+    await stage.flush();
+
+    expect(stage.size).to.equal(2);
+    expect((await collection.find({}, { projection: { _id: 0, hash: 1 } }).toArray()).map((doc) => doc.hash).sort()).to.deep.equal(['a', 'c']);
+    expect(stage.unstagedHeights(), 'left for the next peer').to.deep.equal([20]);
+  });
+
+  it('does not take a message over the largest a node takes from a peer', async () => {
+    stage = await MessageStage.open(new Map([['a', record('a', 10)], ['b', record('b', 20)]]));
+    const oversized = { ...sent('b', 20), pad: 'x'.repeat(config.fluxapps.gossipMessageMaxBytes) };
+
+    expect(await stage.add(oversized)).to.equal(false);
+    expect(await stage.add(sent('a', 10))).to.equal(true);
+    await stage.flush();
+
+    expect(stage.size).to.equal(1);
+    expect(stage.unstagedHeights()).to.deep.equal([20]);
+  });
+
+  it('counts a hash staged only once the database stored its message, and rejects a piece it refused', async () => {
+    stage = await MessageStage.open(new Map([['a', record('a', 10)], ['b', record('b', -1)], ['c', record('c', 30)]]));
+    // a database that refuses one document of the piece
+    await dbHelper.databaseConnection().db(config.database.appsglobal.database).command({
+      collMod: appsMessagesStaging, validator: { height: { $gte: 0 } }, validationAction: 'error',
+    });
+    await stage.add(sent('a', 10));
+    await stage.add(sent('b', -1));
+    await stage.add(sent('c', 30));
+
+    const error = await stage.flush().catch((caught) => caught);
+
+    expect(error, 'the piece was refused').to.be.instanceOf(Error);
+    expect(stage.size).to.equal(2);
+    expect(stage.unstagedHeights(), 'the refused hash is asked for again').to.deep.equal([-1]);
+  });
+
+  it('counts a hash the database already holds as staged', async () => {
+    stage = await MessageStage.open(new Map([['a', record('a', 10)], ['b', record('b', 20)]]));
+    // what a piece whose write failed part way had already written
+    await collection.insertOne({ hash: 'a', height: 10, message: sent('a', 10) });
+
+    await stage.add(sent('a', 10));
+    await stage.add(sent('b', 20));
+    await stage.flush();
+
+    expect(stage.size).to.equal(2);
+    expect(await collection.countDocuments()).to.equal(2);
+    expect(stage.unstagedHeights()).to.deep.equal([]);
+  });
+
   it('opens empty, whatever an earlier stage left', async () => {
     const earlier = await MessageStage.open(new Map([['old', record('old', 1)]]));
     await earlier.add(sent('old', 1));
