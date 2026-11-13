@@ -5,12 +5,14 @@
  * The serving nodes hold 600 messages but one, X, the last. The peer stub serves all 600, with a
  * copy of X holding a field name with a null character, which no database stores, just before
  * the real X. A bulk fetch asks up to three peers, chosen at random among those its ring did not
- * give it; the stub sits outside the joiner's ring, so the bulk fetch may ask it, and since only
- * the stub holds X it is asked whatever order the peers are asked in. The copy the database
- * refuses arrives in the last piece the stub sends. The joiner keeps all 600, X among them.
+ * give it, which are the peers that dialled it: a node it dialled, whether by its ring or because
+ * that node asked to be dialled, is a ring peer. So the stub dials the joiner, as any peer reaches
+ * another's bulk fetch, and since only the stub holds X it is asked whatever order the peers are
+ * asked in. The copy the database refuses arrives in the last piece the stub sends. The joiner
+ * keeps all 600, X among them.
  *
- * The joiner is given its payment records only once it holds the stub as a peer, and the
- * block-driven retry then fetches them; its first sync, with nothing to fetch, may run first.
+ * The joiner is given its payment records only once the stub's link is up, and the block-driven
+ * retry then fetches them; its first sync, with nothing to fetch, may run first.
  */
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
@@ -59,7 +61,7 @@ describe('a peer that sends a message the database cannot store costs only that 
   before(async function () {
     this.timeout(1800000);
     env = await createTestEnv({
-      hookCtx: this, nodes: 8, deferredNodes: 1, stubPeers: [STUB], stubPeeredWith: { [STUB]: [JOINER] },
+      hookCtx: this, nodes: 8, deferredNodes: 1, stubPeers: [STUB], stubPeeredWith: { [STUB]: [] },
     });
     await bootAndPeer(env);
     stubKey = `${subnet.nodeIp(STUB + 1)}:16127`;
@@ -79,10 +81,11 @@ describe('a peer that sends a message the database cannot store costs only that 
 
     const client = await startJoiner(env, JOINER);
     await env.startDiscovery([JOINER]);
+    await stub.dialLinks([`${subnet.nodeIp(JOINER + 1)}:16127`]);
     await waitFor(async () => {
       askable = await askablePeers(client);
       return askable.includes(stubKey);
-    }, { timeout: 300000, interval: 2000, label: 'the joiner holding the stub as a peer a bulk fetch may ask' });
+    }, { timeout: 120000, interval: 2000, label: 'the joiner holding the stub\'s link as a peer a bulk fetch may ask' });
     await waitForOrchestratorState(client, 'READY', 600000);
 
     await stopTicker();
