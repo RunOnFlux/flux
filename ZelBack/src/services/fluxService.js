@@ -1,7 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
-const { promisify } = require('node:util');
 const childProcess = require('node:child_process');
 
 const config = require('config');
@@ -41,9 +40,8 @@ const { answerDaemonUnavailable } = require('./utils/routeGuards');
 // for streamChain endpoint
 const zlib = require('node:zlib');
 const tar = require('tar/create');
-// use non promises stream for node 14.x compatibility
-// const stream = require('node:stream/promises');
 const stream = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const { Privilege, authOf } = require('./utils/privileges');
 const fluxEventBus = require('./utils/fluxEventBus');
 
@@ -95,31 +93,6 @@ const REPO_ROOT = path.join(__dirname, '../../../');
 
 // Cache for OS distribution information
 let cachedOSDistInfo = null;
-
-// remove this when nodes are off 14.18.1
-function promiseAnyPolyfill(promisesArray) {
-  const promiseErrors = new Array(promisesArray.length);
-
-  return new Promise((resolve, reject) => {
-    promisesArray.forEach((promise, index) => {
-      Promise.resolve(promise)
-        .then(resolve)
-        .catch((error) => {
-          promiseErrors[index] = error;
-
-          if (index === promisesArray.length - 1) {
-            reject(promiseErrors);
-          }
-        });
-    });
-  });
-}
-
-if (typeof Promise.any === 'undefined') {
-  // polyfill for nodeJS 14.18.1
-  // eslint-disable-next-line global-require
-  globalThis.Promise.any = promiseAnyPolyfill;
-}
 
 /**
  * Stream chain lock, so only one request at a time
@@ -2325,8 +2298,6 @@ async function streamChain(req, res) {
     }
 
     workflow.push(res);
-
-    const pipeline = promisify(stream.pipeline);
 
     const error = await pipeline(...workflow).catch((err) => err);
 
