@@ -4008,6 +4008,7 @@ describe('fluxService tests', () => {
   });
 
   describe('chain streaming on ArcaneOS', () => {
+    const socketBefore = process.env.FLUXOS_API_SOCKET;
     let runCommandStub;
     let clock;
     // A request every check of the preparation passes: a private caller, a synced
@@ -4024,29 +4025,42 @@ describe('fluxService tests', () => {
     });
 
     afterEach(async () => {
-      // the preparation's timer starts the legacy services again and frees the next preparation
+      if (socketBefore === undefined) delete process.env.FLUXOS_API_SOCKET;
+      else process.env.FLUXOS_API_SOCKET = socketBefore;
+      // the preparation's timer starts the services again and frees the next preparation
       await clock.tickAsync(30_000);
       clock.restore();
       sinon.restore();
     });
 
-    it('the preparation is refused, and neither stops nor starts a service', async () => {
+    it('without the proxy the preparation stops the watchdog and fluxd through their units', async () => {
+      delete process.env.FLUXOS_API_SOCKET;
+      const res = generateResponse();
+      await fluxServiceOnArcane.streamChainPreparation(preparationRequest(), res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['stop', 'flux-watchdog.service', 'fluxd.service'] }));
+    });
+
+    it('behind the proxy the preparation is refused, and neither stops nor starts a service', async () => {
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
       const res = generateResponse();
       await fluxServiceOnArcane.streamChainPreparation(preparationRequest(), res);
       await clock.tickAsync(30_000);
 
       sinon.assert.calledWithExactly(res.status, 404);
-      expect(res.statusMessage).to.include('flux-chain-stream');
+      expect(res.statusMessage).to.include('flux-chainstreamd');
       sinon.assert.notCalled(runCommandStub);
       sinon.assert.notCalled(daemonServiceBlockchainRpcs.getBlockchainInfo);
     });
 
-    it('the stream is refused, and neither reads the chain nor starts a service', async () => {
+    it('behind the proxy the stream is refused, and neither reads the chain nor starts a service', async () => {
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
       const res = generateResponse();
       await fluxServiceOnArcane.streamChain({ socket: { remoteAddress: '10.20.30.40' }, body: {} }, res);
 
       sinon.assert.calledWithExactly(res.status, 404);
-      expect(res.statusMessage).to.include('flux-chain-stream');
+      expect(res.statusMessage).to.include('flux-chainstreamd');
       sinon.assert.notCalled(runCommandStub);
       sinon.assert.notCalled(daemonServiceUtils.buildFluxdClient);
       expect(fluxServiceOnArcane.getStreamLock()).to.equal(false);
