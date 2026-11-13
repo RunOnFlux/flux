@@ -74,7 +74,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04]
         # The oldest Node the fleet runs, so a feature newer than it fails here first.
-        node-version: [20.8.0]
+        node-version: [24.14.1]
         mongodb-version: ['7.0']
 
     services:

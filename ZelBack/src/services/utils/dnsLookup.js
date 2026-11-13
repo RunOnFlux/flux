@@ -63,10 +63,9 @@
  * random. One probe per server is in flight at a time; lookups that meet the server meanwhile
  * share its result.
  *
- * What a lookup costs. A query or probe that is not answered waits about QUERY_TIMEOUT_MS, up to
- * 1.5 times that on the c-ares of Node 20.8 and 20.9, and down to half of it once c-ares 1.32 or
- * later has learnt the server's response time. The public servers are one resolver of three
- * servers, each tried once. Waits below are Node 24 / Node 20.8.
+ * What a lookup costs. A query or probe that is not answered waits about QUERY_TIMEOUT_MS, down
+ * to half of it once c-ares has learnt the server's response time. The public servers are one
+ * resolver of three servers, each tried once.
  *
  *   State                                          Lookup waits                  Result
  *   ---------------------------------------------  ----------------------------  ------------------
@@ -77,10 +76,10 @@
  *   AAAA never answered, A answered                RESOLUTION_DELAY_MS           IPv4 addresses
  *   AAAA answered first, A answered later          the A answer                  IPv4 and IPv6
  *   AAAA answered SERVFAIL, A answered             the server's answer           IPv4 addresses
- *   A not answered, AAAA answered SERVFAIL or      a query wait, 1-2 s / 2 s,    public's addresses
+ *   A not answered, AAAA answered SERVFAIL or      a query wait, 1-2 s,          public's addresses
  *   with no records, by a working server           a probe, the public servers
- *   a server that answers no A query and fails     a query + a probe, 2 s /      public's addresses
- *   every AAAA query: the lookup that finds it     4-5 s; later lookups as down
+ *   a server that answers no A query and fails     a query + a probe, 2 s;       public's addresses
+ *   every AAAA query: the lookup that finds it     later lookups as down
  *   name does not exist (/etc/hosts not read)      the server's answer           ENOTFOUND
  *   A answered name does not exist, AAAA failed    the server's answers          ENOTFOUND
  *   A answered name does not exist, AAAA not       RESOLUTION_DELAY_MS           ENOTFOUND
@@ -89,19 +88,18 @@
  *   with no records
  *   AAAA answered name does not exist, A failed    the server's answers, then    public's addresses
  *                                                  the public servers
- *   AAAA answered name does not exist, A not       a query wait, 1-2 s / 2 s,    public's addresses
+ *   AAAA answered name does not exist, A not       a query wait, 1-2 s,          public's addresses
  *   answered                                       a probe, the public servers
- *   name a working system server does not answer   a query wait, 1 s / 3 s,      public's addresses
+ *   name a working system server does not answer   a query wait, 1 s,            public's addresses
  *   within the query wait                          then the public servers
  *   name a system server answers SERVFAIL          the public servers' answer    public's addresses
- *   system server down: the lookup that finds it   a query + a probe, 2-4 s /    public's addresses
- *                                                  5-6 s
+ *   system server down: the lookup that finds it   a query + a probe, 2-4 s      public's addresses
  *   system server down: every lookup after         the public servers' answer    public's addresses
  *   unbound whose upstream is gone, while it       its SERVFAIL, then the        public's addresses
  *   still answers SERVFAIL                         public servers
  *   system server down, name does not exist        the public servers' answer    ENOTFOUND
- *   system server down, public servers silent      5 s / 6-8 s                   ETIMEOUT
- *   name a system server never answers, public     6 s / 9 s                     ETIMEOUT
+ *   system server down, public servers silent      5 s                           ETIMEOUT
+ *   name a system server never answers, public     6 s                           ETIMEOUT
  *   servers silent
  *   system server back                             as down, until the first      the server's answer
  *                                                  lookup REPROBE_MS after the

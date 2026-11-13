@@ -161,7 +161,7 @@ module.exports = {
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.0.0',
-  minimumNodeJsAllowedVersion: '20.8.0',
+  minimumNodeJsAllowedVersion: '24.14.1',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '28.1.1',
   minimumMongoDbAllowedVersion: '6.0.27',

@@ -3,7 +3,7 @@ FROM ubuntu:22.04
 RUN apt-get update && apt-get install -y sudo ufw curl ca-certificates make cron xz-utils git
 
 # CI's Node (.github/workflows/nodejs.yml), the oldest the fleet runs
-ARG NODE_VERSION=20.8.0
+ARG NODE_VERSION=24.14.1
 RUN curl -fsSL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz | \
 tar -xJ -C /usr/local --strip-components=1
 

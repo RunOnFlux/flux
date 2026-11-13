@@ -46,7 +46,7 @@
   ],
   "license": "AGPL-3.0-or-later",
   "engines": {
-    "node": ">=20.8.0"
+    "node": ">=24.14.1"
   },
   "bugs": {
     "url": "https://github.com/runonflux/flux/issues"

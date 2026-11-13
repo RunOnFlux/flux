@@ -213,7 +213,7 @@ module.exports = {
   // paths need what the runtime lacks, one at a time and silently, instead of
   // reporting itself unfit. Unset allows: the check runs bare in
   // startFluxFunctions, whose catch re-enters it.
-  minimumNodeJsAllowedVersion: '20.8.0',
+  minimumNodeJsAllowedVersion: '24.14.1',
   minimumSyncthingAllowedVersion: '2.0.10',
   // The Docker a node runs: the oldest release FluxOS supports. 28.0 rewrote
   // Docker's networking rules and its patch releases fixed them; 28.1.1 is the
