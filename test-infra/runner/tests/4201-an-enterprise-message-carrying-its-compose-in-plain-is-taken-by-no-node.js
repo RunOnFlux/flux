@@ -1,6 +1,6 @@
 // weight: medium
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -13,6 +13,7 @@ import { dbClient } from '../framework/db-client.js';
 import { waitFor } from '../framework/wait.js';
 import { execInContainer } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An enterprise specification carries its compose and contacts only encrypted,
 // inside `enterprise`. A peer's message whose enterprise specification also
@@ -72,8 +73,7 @@ describe('an enterprise message carrying its compose in plain is taken by no nod
     canaryMessage = await buildAppMessage(buildAppSpec({ name: canaryName, enterprise: true }));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

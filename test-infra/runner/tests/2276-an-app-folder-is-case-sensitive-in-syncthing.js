@@ -11,7 +11,7 @@
  *
  * Real syncthing; run it on both of test-infra/syncthing-versions.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, listAppContainers } from '../framework/container.js';
@@ -25,6 +25,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const WRITTEN = 'appdata/written-after-the-restart.txt';
 
@@ -95,8 +96,7 @@ describe('an app folder is case-sensitive in syncthing', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

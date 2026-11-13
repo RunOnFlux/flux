@@ -17,7 +17,7 @@
  * Not here: a copy that runs again after its scan, which needs a start and an exit
  * inside the attempt. That is unit-tested.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { listAppContainers, execInContainer } from '../framework/container.js';
@@ -28,6 +28,7 @@ import { waitFor } from '../framework/wait.js';
 import { isDaemonUp, getFolderConfig, readPath } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const GIVEUP_BEFORE_PASS = 'giveUp:beforePass';
 const BEFORE_SCAN = 'leavingCopy:beforeScan';
@@ -109,8 +110,7 @@ describe('a copy leaving an r: or s: app takes its last writes with it', functio
     await Promise.all([leavingApp, stayingApp, sharedApp, stayingSharedApp].map((name) => pushTestApp(name, 'v1', name, { user: 1000 })));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -1,5 +1,5 @@
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import { assertNoEvent, waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node moves and tells its peers while the chain still lists it at the address
 // it left, as on mainnet, where the chain lists a node only once it has confirmed
@@ -86,8 +87,7 @@ describe('a node the chain lists after its move announces once it is listed', fu
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (moved) await clearNodeAddress(moved).catch(() => {});
     await env?.teardown();
   });

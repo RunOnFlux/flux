@@ -9,7 +9,7 @@
  * request from node 0 names an address that holds A, and B's folder is asked about by
  * a holder of B.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -19,6 +19,7 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { signedNodeBody, postFromNode } from '../framework/signed-node-request.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const BEFORE_READ = 'folderRecords:beforeRead';
 
@@ -78,8 +79,7 @@ describe('folder records answer a holder of the app, one request at a time', fun
     expect(await listedAt(appA, STRANGER), 'fixture: the stranger holds app A').to.equal(false);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

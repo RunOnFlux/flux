@@ -27,7 +27,7 @@
  *     is the only thing that can.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -39,6 +39,7 @@ import {
 import { dbClient } from '../framework/db-client.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const REAL = [0, 1, 2, 3];
 const SHARED = 4;
@@ -181,8 +182,7 @@ describe('an Arcane link authenticates a key only at an address it holds, and in
     }))).every(Boolean), { timeout: 120000, interval: 1000, label: 'every node holds a settled connection with both stubs' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await Promise.all(moved.map((ip) => clearNodeAddress(ip).catch(() => {})));
     await env?.teardown();
   });

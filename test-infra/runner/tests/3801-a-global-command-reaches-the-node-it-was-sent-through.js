@@ -14,7 +14,7 @@
  * The app is a plain one, so every holder runs it and acts on each command
  * itself; no election decides which of them may.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -26,6 +26,7 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const API_PORT = 16127;
 // Node 0 is outside the app: every backward arc of the ring wraps onto it.
@@ -101,8 +102,7 @@ describe('a global command reaches the node it was sent through', function () {
     expect(await reaches(client(1), client(VIA).ip, API_PORT), `node 1 reaches node ${VIA}`).to.equal(true);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env) await releaseAll(client(VIA)).catch(() => {});
     await env?.teardown();
   });

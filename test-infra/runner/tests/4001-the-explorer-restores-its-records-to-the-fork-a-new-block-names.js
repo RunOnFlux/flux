@@ -15,7 +15,7 @@
  * The daemon stub is not fluxd: the fork is a control call, and fluxd's choice of
  * branch (most work) is not exercised.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { randomBytes } from 'node:crypto';
 import { createTestEnv } from '../framework/test-env.js';
@@ -26,6 +26,7 @@ import {
 import { dbClient } from '../framework/db-client.js';
 import { waitFor, assertNoEvent } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 3;
 // The middle of the ring: every backward arc wraps onto index 0.
@@ -47,8 +48,7 @@ describe('the explorer restores its records to the fork a new block names, and o
     db = dbClient(NODE + 1);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -17,7 +17,7 @@
  * The ticker is stopped and the chain is moved to the start of a tag epoch
  * first, so no client's tag changes mid-test.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { appOwnerKey, nodeKey } from '../framework/keys.js';
@@ -31,6 +31,7 @@ import {
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 4;
 const STUB = 3;
@@ -114,8 +115,7 @@ describe('the network policy sets the unpaid allowances, and grants a submitter 
     await startTagEpoch(realClients());
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

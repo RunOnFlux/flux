@@ -25,7 +25,7 @@
  * removalQueue:beforeRemoval, as a node with removals queued ahead of it would hold it. Its
  * reinstall pass then finds Alice's install under a name Bob registered afresh.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { appOwnerKey, otherOwnerKeys, nodeKey, fluxTeamKey } from '../framework/keys.js';
@@ -47,6 +47,7 @@ import {
 } from '../framework/volume-fixture.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -195,8 +196,7 @@ describe('a name past its installed term is kept for a buyer and removed for a n
     expect((await height()) % EXPIRY_PERIOD, 'an expiry-pass block').to.equal(0);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

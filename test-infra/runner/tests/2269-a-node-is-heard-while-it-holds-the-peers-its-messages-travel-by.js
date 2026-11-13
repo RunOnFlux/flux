@@ -1,5 +1,5 @@
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -10,6 +10,7 @@ import { assertNoEvent, waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node can send only while it holds the peers its messages travel by: the same
 // two thresholds the app sync reads, so it stays heard as peers fall to the lower
@@ -76,8 +77,7 @@ describe('a node is heard while it holds the peers its messages travel by', func
     await untilPeers(4, 'fixture: the node holds its four peers');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

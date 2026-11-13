@@ -19,7 +19,7 @@
  * moment it passes its check, so exactly the allowance is taken, and no node
  * holds more than that under C's tag.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { appOwnerKey, nodeKey } from '../framework/keys.js';
@@ -32,6 +32,7 @@ import {
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 4;
 // Never index 0: every backward arc wraps onto it.
@@ -92,8 +93,7 @@ describe('one client is held to its allowance of unpaid app messages, whichever 
     tagHeight = await startTagEpoch(env.clients);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -17,7 +17,7 @@
  *
  * Real syncthing; run it on both of test-infra/syncthing-versions.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -33,6 +33,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const API_PORT = 16127;
 const IDENTITY_TTL_MS = 5000;
@@ -132,8 +133,7 @@ describe('a device added back to a folder on one side gets what it missed', func
     expect(await sharesWith(standby, primaryDevice), 'fixture: the standby shares the folder with the primary').to.equal(true);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

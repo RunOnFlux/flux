@@ -13,7 +13,7 @@
  * Not here: a copy holding data the index does not show, which needs a node stopped
  * between its volume and its first monitor pass. Those are unit-tested.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { listAppContainers } from '../framework/container.js';
@@ -24,6 +24,7 @@ import { waitFor } from '../framework/wait.js';
 import { isDaemonUp, getFolderConfig, getFolderStatus } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('a folder the cluster holds nothing of has no sync to wait for', function () {
   let env;
@@ -77,8 +78,7 @@ describe('a folder the cluster holds nothing of has no sync to wait for', functi
     }), HOLDERS);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

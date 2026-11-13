@@ -22,7 +22,7 @@
  * Out of reach: fluxbench's real AES-key unwrap. The daemon stub answers every
  * decryptrsamessage with one fixed key.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -32,6 +32,7 @@ import { pendingMessage, pendingMessageOn, pendingVerdict } from '../framework/u
 import { waitFor, waitForFirstEvent } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import limits from '../framework/message-limits.cjs';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const {
   GOSSIP_MESSAGE_MAX_BYTES, PEER_FRAME_MAX_BYTES, MAX_ENTERPRISE_LENGTH, INSTALL_ERROR_MAX_LENGTH,
@@ -82,8 +83,7 @@ describe('a peer sending what no node takes is refused at every node and relayed
     }, { timeout: 120000, interval: 2000, label: 'the stub connected to both nodes it reaches, its link with ENTRY authenticated' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

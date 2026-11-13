@@ -1,6 +1,6 @@
 // weight: light
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -11,6 +11,7 @@ import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -69,9 +70,7 @@ describe('a router turn maps its port while the database holds the record', func
       { timeout: REFRESHED_WITHIN_MS, interval: 1000, label: 'a refresh asking the router for every core port' });
   });
 
-  after(async function () {
-    // a release, then the teardown every suite gives 60 s
-    this.timeout(HOLD_MS + 60000);
+  afterTeardown(async function () {
     if (held) await releaseCommands().catch(() => {});
     await env?.teardown();
   });

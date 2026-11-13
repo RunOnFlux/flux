@@ -11,7 +11,7 @@
  * The daemon is the harness's stub, which answers the address index whatever
  * flux.conf says: what is under test is FluxOS's reading of flux.conf, not fluxd.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -21,6 +21,7 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { removeFluxdConfKey } from '../framework/fluxd-conf.js';
 import { assertNoEvent, waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const UNINDEXED = 'fluxd is running without insightexplorer=1';
 
@@ -62,8 +63,7 @@ describe('a node whose fluxd keeps no address index is held out of service', fun
     expect(held.getEventBuffer().some((e) => e.event === 'explorer:ready'), 'the explorer was ready at the first start').to.equal(true);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

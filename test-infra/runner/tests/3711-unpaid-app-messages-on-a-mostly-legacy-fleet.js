@@ -6,12 +6,13 @@
  * reports its authenticated peers, node 0 marks them and dials them. Then the
  * same checks as 3709 (framework/mixed-network.js).
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { mixedFleet, mixedNetworkChecks, QUORUM } from '../framework/mixed-network.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // node 0's ring: 1-4 and 10-11; 5, 6 and 7 sit outside it, each in its own /16
 const MIX = {
@@ -30,8 +31,7 @@ describe('unpaid app messages on a mostly legacy fleet', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

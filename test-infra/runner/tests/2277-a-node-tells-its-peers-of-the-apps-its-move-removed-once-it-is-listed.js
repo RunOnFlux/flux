@@ -1,5 +1,5 @@
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import { assertNoEvent, waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node's move removes the apps that cannot follow it, a static-IP app among them.
 // It cannot tell its peers while the chain lists it at the address it left, and
@@ -92,8 +93,7 @@ describe('a node tells its peers of the apps its move removed once it is listed'
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (moved) await clearNodeAddress(moved).catch(() => {});
     await env?.teardown();
   });

@@ -14,7 +14,7 @@
  * message with the same full client tag. Every node takes it and promotes it, and
  * no node asks the allowance about it.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -25,6 +25,7 @@ import {
 } from '../framework/unpaid-messages.js';
 import { waitFor, waitForBlockProcessed, assertNoEvent } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 4;
 const STUB = 3;
@@ -75,8 +76,7 @@ describe('an untagged unpaid message is taken uncapped, and a paid message is ne
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

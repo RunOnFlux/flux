@@ -10,7 +10,7 @@
  * Not here: a primary whose peers cannot take over, and a placement that cannot be read.
  * Those are unit-tested.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -30,6 +30,7 @@ import { PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING } from '../framework/re
 import {
   keysOf, nextOwnedTurn, turnOf, turnOwner,
 } from '../framework/handback-turns.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 const NODES = 4;
@@ -157,8 +158,7 @@ describe('a misplaced primary hands the app over and leaves', function () {
     await stopTicker();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await fetch(`${env?.stubControl}/iplocation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

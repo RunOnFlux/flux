@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -9,6 +9,7 @@ import { waitFor, waitForOrchestratorState } from '../framework/wait.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A registry rebuild builds a fresh copy of the app registry from the message log
 // and swaps it in. An app delivered while a rebuild has built its copy and not yet
@@ -31,8 +32,7 @@ describe('a delivered app survives a registry rebuild', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await node()?.releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });
