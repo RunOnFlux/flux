@@ -5,6 +5,7 @@ const log = require('../../lib/log');
 const messageHelper = require('../messageHelper');
 const policyStore = require('../policyStore');
 const { isTrustedBalancer, resolveClientIp } = require('../utils/ingressCapture');
+const { callerAddress } = require('../utils/apiSocket');
 const { policyRange } = require('../utils/policyRanges');
 
 // The addresses whose app messages no node takes: the `client` entries of the
@@ -82,7 +83,7 @@ function isBannedCaller({ remoteAddress, headers }) {
  * @returns {*}
  */
 function refuseBannedCaller(req, res, next) {
-  if (!isBannedCaller({ remoteAddress: req.socket?.remoteAddress, headers: req.headers })) return next();
+  if (!isBannedCaller({ remoteAddress: callerAddress(req), headers: req.headers })) return next();
   return res.status(403).json(messageHelper.createErrorMessage('App messages from this address are not accepted', 'Forbidden', 403));
 }
 

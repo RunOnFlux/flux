@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
+const systemdSockets = require('./utils/systemdSockets');
 const { decodeWIF, privKeyToPubKey } = require('./utils/fluxCryptoUtils');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
@@ -11,6 +12,8 @@ const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const log = require('../lib/log');
+const { callerAddress, socketPath } = require('./utils/apiSocket');
+const publicPorts = require('./utils/publicPorts');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
@@ -732,7 +735,7 @@ const MAX_KEEPALIVE_PORTS = config.fluxapps.maxAppsPerNode * MAX_TESTABLE_PORTS 
  * @returns {string} the address, or '' when there is none to act on
  */
 function addressToProbe(req, namedAddress, mayName) {
-  const remoteIp = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
+  const remoteIp = (callerAddress(req) || '').replace(/^::ffff:/i, '');
   return mayName === true ? (namedAddress || remoteIp) : remoteIp;
 }
 
@@ -1287,7 +1290,7 @@ async function getLocalSocketAddress(options = {}) {
     return localSocketAddress;
   }
   const decided = await getDecidedAddress();
-  if (decided) return reportLocalSocketAddress(`${decided}:${userconfig.initial.apiport || config.server.apiport}`);
+  if (decided) return reportLocalSocketAddress(`${decided}:${publicPorts.getApiPort()}`);
   const benchmarkResponse = await benchmarkService.getBenchmarks();
   const { status, data: { ipaddress = null } = {} } = benchmarkResponse;
   // The benchmark IP can be a bare IP or ip:port depending on the node's API port,
@@ -2219,7 +2222,10 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
 async function confirmOwnAddress(record) {
   const status = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
   const listed = status?.status === 'success' ? status.data?.ip : null;
-  if (listed && socketAddressesMatch(listed, record.socketAddress)) return true;
+  if (listed && socketAddressesMatch(listed, record.socketAddress)) {
+    await publicPorts.setConfirmedApiPort(extractPort(record.socketAddress));
+    return true;
+  }
   if (record.confirmationAcceptedAt === record.movedAt) return false;
   const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
   if (result?.status === 'success' && result.data?.status !== 'Fail to send') {
@@ -2246,6 +2252,9 @@ async function confirmOwnAddress(record) {
  */
 async function reconcileOwnMove() {
   const record = await ownAddressRecord();
+  if (record?.socketAddress && (!record.movedFrom || record.settledAt === record.movedAt)) {
+    await publicPorts.setConfirmedApiPort(extractPort(record.socketAddress));
+  }
   if (!record?.movedFrom || !record.movedAt || record.settledAt === record.movedAt) return;
   const {
     socketAddress: to, movedFrom: from, movedAt, ipChanged, announce,
@@ -2484,6 +2493,53 @@ async function handleOwnAddressPass(current) {
   }
 }
 
+/**
+ * The ports behind one API port: the UI's, the API's, HTTPS and syncthing's.
+ * @param {number} apiPort
+ * @returns {number[]}
+ */
+function portsOfApiPort(apiPort) {
+  return [apiPort - 1, apiPort, apiPort + 1, apiPort + 2];
+}
+
+/**
+ * What a change of the proxy's ports does to the firewall.
+ * @param {{apiPort: number, alsoServing: number[]}} ports
+ * @param {{apiPort: number, alsoServing: number[]}|null} previous
+ * @returns {{open: number[], close: number[]}}
+ */
+function firewallChanges({ apiPort, alsoServing }, previous) {
+  const served = [apiPort, ...alsoServing].flatMap(portsOfApiPort);
+  const before = previous ? [previous.apiPort, ...previous.alsoServing].flatMap(portsOfApiPort) : [];
+  return {
+    open: served.filter((port) => !before.includes(port)),
+    close: before.filter((port) => !served.includes(port)),
+  };
+}
+
+/**
+ * Follows the ports the proxy serves. Each one served is open in the firewall, a port kept through
+ * a move included, and a port no longer served is closed. A new API port drops the peers this node
+ * dialled, so they meet it at the new port, and reports the new address, which runs the
+ * own-address move.
+ * @param {{apiPort: number, alsoServing: number[]}} ports
+ * @param {{apiPort: number, alsoServing: number[]}|null} previous - the ports before this change,
+ *   null at the first
+ * @returns {Promise<void>}
+ */
+async function followPublicPorts({ apiPort, alsoServing }, previous) {
+  if (await ufw.isFirewallActive()) {
+    const { open, close } = firewallChanges({ apiPort, alsoServing }, previous);
+    await Promise.all(open.map((port) => allowPort(port)));
+    await Promise.all(close.map((port) => deleteAllowPortRule(port)));
+  }
+  if (apiPort === previous?.apiPort) return;
+  log.info(`own address - the proxy now serves the API on ${apiPort}`);
+  peerManager.dropOutboundConnections();
+  const known = getKnownLocalSocketAddress();
+  if (known) reportLocalSocketAddress(`${extractIp(known)}:${apiPort}`);
+}
+
 // The listener watching this node's own address, while one is.
 let ownAddressListener = null;
 
@@ -2499,6 +2555,7 @@ function startOwnAddressWatch() {
     ownAddressListener = (address) => { handleOwnAddress(address); };
     onLocalSocketAddressChange(ownAddressListener);
     localSocketAddressEvents.on('reported', ownAddressListener);
+    publicPorts.onChange(followPublicPorts);
     const known = getKnownLocalSocketAddress();
     if (known) handleOwnAddress(known);
   }
@@ -2507,6 +2564,7 @@ function startOwnAddressWatch() {
       offLocalSocketAddressChange(ownAddressListener);
       localSocketAddressEvents.off('reported', ownAddressListener);
     }
+    publicPorts.offChange(followPublicPorts);
     ownAddressListener = null;
     clearTimeout(ownAddressRetry);
     ownAddressRetry = null;
@@ -3681,7 +3739,7 @@ function reportUfwLocked() {
  * @returns {Promise<string[][]>}
  */
 async function nodeFirewallRules() {
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const apiPort = publicPorts.getApiPort();
   const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, config.daemon.port, ...config.server.allowedPorts];
   const rules = [['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']];
   // this should also be limit, but existing nodes use allow (needs to be updated)
@@ -3700,6 +3758,8 @@ async function nodeFirewallRules() {
   // app containers reach the fluxnode service; the rest of loopback is refused
   // by allowOnlyDockerNetworksToFluxNodeService, as ufw does not filter loopback
   rules.push(['allow', 'from', fluxAppDockerNetworks, 'proto', 'tcp', 'to', `${config.server.fluxNodeServiceAddress}/32`, 'port', '16101']);
+  // and, on ArcaneOS, flux-shutdownd's termination API, where an app reads why it is stopped
+  if (isArcane) rules.push(['allow', 'from', fluxAppDockerNetworks, 'proto', 'tcp', 'to', `${config.server.fluxNodeServiceAddress}/32`, 'port', '16102']);
   return rules;
 }
 
@@ -3937,6 +3997,8 @@ async function applyContainerEgressRules(bridges) {
  * Allow Node to bind to privileged without sudo
  */
 async function allowNodeToBindPrivilegedPorts() {
+  // Behind the front proxy FluxOS binds no port.
+  if (socketPath()) return;
   try {
     const cmdAsync = util.promisify(nodecmd.run);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
@@ -3977,9 +4039,14 @@ async function allowOnlyDockerNetworksToFluxNodeService() {
 }
 
 /**
- * Adds the 169.254 adddress to the loopback interface for use with the flux node service.
+ * Adds the 169.254 address to the loopback interface for use with the flux node service. An
+ * image that passes the node service's socket owns the address, and it is left to it.
  */
 async function addFluxNodeServiceIpToLoopback() {
+  if (systemdSockets.fd(systemdSockets.NODE_SERVICE) !== undefined) {
+    log.info(`fluxNodeService IP: ${config.server.fluxNodeServiceAddress} is the image's`);
+    return;
+  }
   const cmdAsync = util.promisify(nodecmd.run);
 
   // could also check exists first with:
@@ -4048,6 +4115,7 @@ module.exports = {
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
+  firewallChanges,
   allowAppPorts,
   allowTestPort,
   deleteAppPortRules,

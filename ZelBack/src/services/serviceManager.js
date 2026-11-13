@@ -23,6 +23,8 @@ const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
+const publicPorts = require('./utils/publicPorts');
+const { socketPath } = require('./utils/apiSocket');
 const appInspector = require('./appManagement/appInspector');
 const availabilityChecker = require('./appMonitoring/availabilityChecker');
 const nodeStatusMonitor = require('./appMonitoring/nodeStatusMonitor');
@@ -89,7 +91,6 @@ const { version: fluxVersion } = require('../../../package.json');
 // Initialize globalState caches with cacheManager
 globalState.initializeCaches(cacheManager);
 
-const apiPort = userconfig.initial.apiport || config.server.apiport;
 
 const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
@@ -319,6 +320,7 @@ function startRouterAddressUpkeep() {
 
 async function startFluxFunctions() {
   try {
+    const apiPort = publicPorts.getApiPort();
     if (!config.server.allowedPorts.includes(+apiPort)) {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit(systemdNotify.EXIT_CONFIG);
@@ -402,11 +404,15 @@ async function startFluxFunctions() {
     // redeploy it performs needs to pull an image again. This pass runs ONCE per
     // boot and has nothing that retries it, so firing it into a closed gate loses
     // the fix until the node next restarts.
-    setTimeout(() => {
-      globalState.waitForPolicyReady().then(() => volumeValidationService.checkAndFixIncorrectVolumeMounts()).catch((error) => {
-        log.error(`Volume validation service error: ${error.message}`);
-      });
-    }, bootDelay(45 * 1000)); // Run after 45 seconds to allow system to stabilize
+    // It repairs legacy mounts recorded in the crontab, which the image running FluxOS from its
+    // own extension never had.
+    if (!socketPath()) {
+      setTimeout(() => {
+        globalState.waitForPolicyReady().then(() => volumeValidationService.checkAndFixIncorrectVolumeMounts()).catch((error) => {
+          log.error(`Volume validation service error: ${error.message}`);
+        });
+      }, bootDelay(45 * 1000)); // Run after 45 seconds to allow system to stabilize
+    }
 
     // Validate hardware requirements and remove non-compliant apps FIRST
     log.info('Scheduling hardware validation check...');

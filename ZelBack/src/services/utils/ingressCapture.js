@@ -2,6 +2,7 @@
 
 const net = require('net');
 const config = require('config');
+const { forwardedChain } = require('./apiSocket');
 
 // What a node can honestly say about where a request came from.
 //
@@ -64,7 +65,7 @@ function resolveClientIp(connectingIp, headers) {
 
   if (!isTrustedBalancer(peer)) return socketAnswer;
 
-  const raw = headers && headers['x-forwarded-for'];
+  const raw = forwardedChain(headers);
   const joined = Array.isArray(raw) ? raw.join(',') : raw;
   if (typeof joined !== 'string' || !joined) return socketAnswer;
 

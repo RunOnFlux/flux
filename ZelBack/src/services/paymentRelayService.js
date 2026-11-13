@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const qs = require('qs');
 const log = require('../lib/log');
+const { callerAddress } = require('./utils/apiSocket');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const { resolveClientIp } = require('./utils/ingressCapture');
@@ -65,7 +66,7 @@ function paymentRequest(req, res) {
     // limits below cannot be stepped around by setting one. Nodes are reached
     // through the domain proxy as well as directly, and keying on the socket
     // peer alone spends one allowance on everyone arriving that way.
-    const ip = resolveClientIp(req.socket && req.socket.remoteAddress, req.headers).ip || '';
+    const ip = resolveClientIp(callerAddress(req), req.headers).ip || '';
     if (!lruRateLimit(ip, PAYMENT_REQUEST_RATE_PER_SEC)) {
       res.status(429).json(messageHelper.createErrorMessage('Too many payment requests'));
       return;

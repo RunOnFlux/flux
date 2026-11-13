@@ -17,6 +17,7 @@ const {
   passwdTable, groupTable, tablesSha256, TABLES_SHA256,
 } = require('./utils/numericIdTables');
 const volumeService = require('./utils/volumeService');
+const publicPorts = require('./utils/publicPorts');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
@@ -1328,8 +1329,19 @@ async function installSyncthingIdempotently() {
  */
 function syncthingListenPort() {
   // use env so can run this module as standalone for testing
-  const apiPort = process.env.FLUX_APIPORT || userconfig?.initial.apiport || config.server?.apiport;
+  const apiPort = process.env.FLUX_APIPORT || publicPorts.getApiPort();
   return +apiPort + 2;
+}
+
+/**
+ * Every address syncthing listens on: its port, and through a move the port kept with each API
+ * port the proxy still serves, since a peer checking this node tests the port two above the API
+ * port it reached.
+ * @returns {string[]}
+ */
+function syncthingListenAddresses() {
+  const kept = publicPorts.getAlsoServing().map((apiPort) => apiPort + 2);
+  return [syncthingListenPort(), ...kept].map((port) => `tcp://:${port}`);
 }
 
 /**
@@ -1402,15 +1414,13 @@ async function adjustSyncthing() {
     // alone and the next pass retries, rather than abandoning the whole adjust
     const currentConfigOptions = await getConfigOptions().catch(() => null);
     const currentDefaultsFolderOptions = await getConfigDefaultsFolder().catch(() => null);
-    // use env so can run this module as standalone for testing
-    const myPort = syncthingListenPort();
     // adjust configuration
     const newConfig = {
       globalAnnounceEnabled: false,
       localAnnounceEnabled: false,
       natEnabled: false, // let flux handle upnp and nat port mapping
       // TCP alone - see syncthingMonitorHelpers.peerSyncthingAddresses.
-      listenAddresses: [`tcp://:${myPort}`],
+      listenAddresses: syncthingListenAddresses(),
     };
     const newConfigDefaultFolders = {
       syncOwnership: true,
@@ -1448,6 +1458,8 @@ async function adjustSyncthing() {
     log.error(error);
   }
 }
+
+publicPorts.onChange(() => adjustSyncthing());
 
 /**
  * Sets up syncthing directory so current user can use it.
@@ -1755,6 +1767,7 @@ async function sharedAppVolumesMount() {
   if (!mount || isShared(mount)) return mount;
   const { error } = await serviceHelper.runCommand('mount', {
     runAsRoot: true,
+    hostMountNamespace: true,
     params: ['--make-shared', mount.target],
     logError: false,
   });

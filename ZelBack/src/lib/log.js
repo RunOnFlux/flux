@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('config');
+const { logDir } = require('../../runtimePaths');
 
 const levels = {
   off: -1,
@@ -15,7 +16,7 @@ const forceConsole = Boolean(config.logConsole);
 
 const logLevel = config && config.logLevel ? config.logLevel : levels.debug;
 
-const homeDirPath = path.join(__dirname, '../../../');
+const homeDirPath = `${path.join(logDir(), path.sep)}`;
 
 const fileSizeCache = {};
 
