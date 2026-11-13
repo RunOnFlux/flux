@@ -99,6 +99,8 @@ async function refresh(file) {
  * Follows the proxy's ports from here on, and resolves once it holds them: a node that has moved
  * has an out-of-date userconfig.js, so nothing reads the node's ports before this. A file that
  * cannot be read leaves the ports already held. Its directory comes from the image's tmpfiles.
+ * It waits as long as the file takes to appear: FluxOS is not ready until it holds its ports, and
+ * its unit's start timeout bounds the wait.
  * @param {{file?: string}} [options]
  * @returns {Promise<void>}
  */
