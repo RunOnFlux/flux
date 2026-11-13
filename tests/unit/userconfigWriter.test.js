@@ -20,7 +20,6 @@ describe('userconfig writer tests', () => {
         ipaddress: '1.2.3.4',
         zelid: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
         kadena: 'kadena:k:abc?chainid=0',
-        testnet: false,
         development: false,
         apiport: 16137,
         routerIP: '192.168.1.1',
