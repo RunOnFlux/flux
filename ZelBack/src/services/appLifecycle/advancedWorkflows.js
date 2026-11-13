@@ -73,6 +73,7 @@ const unpaidAdmission = require('../appMessaging/unpaidAdmission');
 const admissionQuorum = require('../appMessaging/admissionQuorum');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const bodyLimit = require('../utils/bodyLimit');
+const { callerAddress } = require('../utils/apiSocket');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -3798,7 +3799,7 @@ async function updateAppGlobalyApi(req, res) {
         signature: processedBody.signature,
         type: processedBody.type,
         version: processedBody.version,
-        client: { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
+        client: { remoteAddress: callerAddress(req), headers: req.headers },
       });
 
       const responseHash = messageHelper.createDataMessage(hash);

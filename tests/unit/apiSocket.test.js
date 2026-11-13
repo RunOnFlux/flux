@@ -1,3 +1,4 @@
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -149,6 +150,27 @@ describe('apiSocket tests', () => {
         setTimeout(() => reject(new Error('no answer')), 3000);
       });
       expect(await opened).to.be.oneOf(['refused', 'closed', 'opened']);
+    });
+  });
+
+  // Behind the proxy a request's socket is a Unix socket, which has no peer address: the caller
+  // is read through callerAddress. The node service listens for apps on its own TCP socket, so its
+  // peer is the app's container.
+  describe('who reads a raw peer address', () => {
+    const ROOT = path.join(__dirname, '../..');
+    const RAW_PEER = /\b(socket|connection)\??\.remoteAddress\b/;
+
+    it('is apiSocket and the node service alone', () => {
+      const readers = execFileSync('git', ['-C', ROOT, 'ls-files', 'ZelBack/src'], { encoding: 'utf8' })
+        .split('\n')
+        .filter((file) => file.endsWith('.js'))
+        .filter((file) => RAW_PEER.test(fs.readFileSync(path.join(ROOT, file), 'utf8')))
+        .sort();
+
+      expect(readers).to.deep.equal([
+        'ZelBack/src/services/fluxNodeService.js',
+        'ZelBack/src/services/utils/apiSocket.js',
+      ]);
     });
   });
 });

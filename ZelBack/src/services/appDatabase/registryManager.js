@@ -39,6 +39,7 @@ const {
   extractIp, ipsMatch, normalizeSocketAddress,
 } = require('../utils/socketAddressUtils');
 const bodyLimit = require('../utils/bodyLimit');
+const { callerAddress } = require('../utils/apiSocket');
 
 // The most moves followed from one address. A node announces each move it makes,
 // so a real chain is one or two long; the bound only ends a chain that loops.
@@ -2160,7 +2161,7 @@ async function registerAppGlobalyApi(req, res) {
       }
 
       const tag = await unpaidAdmission.tagSubmission(
-        { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
+        { remoteAddress: callerAddress(req), headers: req.headers },
         daemonHeight,
       );
 
