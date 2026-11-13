@@ -60,7 +60,8 @@ export async function buildMessageLog({
  * @param {{log: object[], servers: number[], joiner: number, held?: Set<string>,
  *   withheld?: Set<string>}} options
  *   `servers` and `joiner` are node indices; `held` names the hashes the joiner already holds,
- *   `withheld` those whose message no serving node holds
+ *   `withheld` those whose message no serving node holds. With no `joiner`, only the servers
+ *   are seeded.
  */
 export async function seedMessageLog({
   log, servers, joiner, held = new Set(), withheld = new Set(),
@@ -71,6 +72,7 @@ export async function seedMessageLog({
     await dbClient(index + 1).seedPermanentMessages(served.map((m) => m.permanentMessage));
     await dbClient(index + 1).seedAppHashes(entries);
   }));
+  if (joiner === undefined) return;
   const joinerHolds = log.filter((m) => held.has(m.hash));
   if (joinerHolds.length > 0) await dbClient(joiner + 1).seedPermanentMessages(joinerHolds.map((m) => m.permanentMessage));
   await dbClient(joiner + 1).seedAppHashes(log.map((m) => ({ ...m.hashEntry, message: held.has(m.hash) })));
