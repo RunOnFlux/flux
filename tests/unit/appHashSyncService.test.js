@@ -576,6 +576,24 @@ describe('appHashSyncService tests', () => {
         expect(bulkFetchedEvent().processed).to.equal(600);
       });
 
+      it('keeps going when the database refuses a peer\'s last piece, and asks the next peer for it', async () => {
+        const flush = sinon.stub(MemoryStage.prototype, 'flush').callThrough();
+        flush.onFirstCall().callsFake(async function refusesThePiece() {
+          this.staged.clear();
+          throw new Error('connection timed out');
+        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i)))));
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(bulkFetchedEvent().peers.map(({ staged, error }) => ({ staged, error }))).to.deep.equal([
+          { staged: 0, error: 'connection timed out' },
+          { staged: 600, error: undefined },
+        ]);
+        expect(byHeightCalls()[1].args[1].params).to.deep.equal({ fromHeight: 1000, toHeight: 1599 });
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
       it('takes the whole log from a peer that does not serve it by height', async () => {
         serviceHelperStub.axiosGet.callsFake((url) => {
           if (url.includes('/apps/permanentmessagesbyheight')) return notFound();

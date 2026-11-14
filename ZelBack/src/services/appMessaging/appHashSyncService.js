@@ -356,7 +356,7 @@ async function stageFromPeers(peers, stage, paymentHeights) {
       }
     }
     // eslint-disable-next-line no-await-in-loop
-    await stage.flush();
+    await stage.flush().catch((flushError) => { outcome.error = outcome.error ? `${outcome.error}; ${flushError.message}` : flushError.message; });
     outcome.staged = stage.size - before;
     const seconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
     log.info(`syncMissingHashes - Staged ${outcome.staged} of ${outcome.received} messages from ${peer.key} (${outcome.route}, ${ranges.length} ranges) in ${seconds.toFixed(1)}s`

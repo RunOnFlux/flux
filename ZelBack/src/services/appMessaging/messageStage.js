@@ -1,5 +1,5 @@
 const config = require('config');
-const { BSON, MongoBulkWriteError } = require('mongodb');
+const { BSON } = require('mongodb');
 const dbHelper = require('../dbHelper');
 
 const stagingCollection = config.database.appsglobal.collections.appsMessagesStaging;
@@ -7,7 +7,10 @@ const stagingCollection = config.database.appsglobal.collections.appsMessagesSta
 // Messages are written to the stage in pieces of this many.
 const INSERT_PIECE = 1000;
 
-const DUPLICATE_KEY = 11000;
+// The deepest a message the stage takes may nest objects and arrays. No valid app message comes
+// near it; the database refuses a document nested far deeper, and with it every document of its
+// piece.
+const MAX_MESSAGE_DEPTH = 32;
 
 /**
  * Messages fetched from peers and held until this node has verified them, so that fetching runs
@@ -15,11 +18,11 @@ const DUPLICATE_KEY = 11000;
  * hash is one this node is missing and has not staged yet, and keeps it exactly as the peer sent
  * it, placed at the height of this node's own payment record for the hash.
  *
- * A message the database cannot store (a field name holding a null character), or one over
- * config.fluxapps.gossipMessageMaxBytes, the largest a node takes from a peer, is not taken: no
- * valid app message is either, and its hash is left for the next peer. A hash counts as staged
- * once its message is written; a piece the database refuses leaves the hashes it did not store
- * unstaged.
+ * A message the database cannot store (a field name holding a null character, or objects and
+ * arrays nested deeper than MAX_MESSAGE_DEPTH), or one over config.fluxapps.gossipMessageMaxBytes,
+ * the largest a node takes from a peer, is not taken: no valid app message is any of these, and its
+ * hash is left for the next peer. A hash counts as staged once the database holds its message; a
+ * piece whose write fails leaves unstaged every hash whose message the database does not hold.
  *
  * One stage exists at a time: opening one discards whatever an earlier one left.
  */
@@ -77,6 +80,7 @@ class MessageStage {
   async add(message) {
     const record = this.#missing.get(message?.hash);
     if (!record || this.#staged.has(message.hash) || this.#pending.has(message.hash)) return true;
+    if (nestedDeeperThan(message, MAX_MESSAGE_DEPTH)) return false;
     const document = { hash: message.hash, height: record.height, message };
     try {
       if (BSON.serialize(document).length > config.fluxapps.gossipMessageMaxBytes) return false;
@@ -90,28 +94,27 @@ class MessageStage {
   }
 
   /**
-   * Writes the messages taken since the last write. A message the database stored, or holds
-   * already, is staged; one it refused is not, and is taken again from the next peer that sends
-   * it. Rejects when the database refused any message of the piece.
+   * Writes the messages taken since the last write, and stages each one the database then holds.
+   * When the write fails, in any way, the database is asked which messages of the piece it holds,
+   * and only those are staged; the rest are taken again from the next peer that sends them.
+   * Rejects when any message of the piece is not held, or the database cannot say.
    */
   async flush() {
     if (this.#unwritten.length === 0) return;
     const documents = this.#unwritten;
     this.#unwritten = [];
     this.#pending.clear();
-    let refused = new Set();
     try {
       await this.#collection.insertMany(documents, { ordered: false });
     } catch (error) {
-      refused = error instanceof MongoBulkWriteError
-        ? new Set([].concat(error.writeErrors ?? []).filter((writeError) => writeError.code !== DUPLICATE_KEY).map((writeError) => writeError.index))
-        : new Set(documents.keys());
-      if (refused.size > 0) throw error;
-    } finally {
-      documents.forEach((document, index) => {
-        if (!refused.has(index)) this.#staged.add(document.hash);
-      });
+      const hashes = documents.map((document) => document.hash);
+      const held = await this.#collection.find({ hash: { $in: hashes } }, { projection: { _id: 0, hash: 1 } }).toArray()
+        .catch(() => []);
+      held.forEach((document) => this.#staged.add(document.hash));
+      if (held.length < documents.length) throw error;
+      return;
     }
+    documents.forEach((document) => this.#staged.add(document.hash));
   }
 
   /**
@@ -156,6 +159,26 @@ class MessageStage {
     this.#pending.clear();
     await this.#collection.drop().catch(ignoreMissingCollection);
   }
+}
+
+/**
+ * Whether a parsed JSON value nests objects and arrays more than `limit` deep, the value itself
+ * being the first level.
+ * @param {unknown} value
+ * @param {number} limit
+ * @returns {boolean}
+ */
+function nestedDeeperThan(value, limit) {
+  const open = [[value, 1]];
+  while (open.length > 0) {
+    const [node, depth] = open.pop();
+    if (node !== null && typeof node === 'object') {
+      if (depth > limit) return true;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const child of Object.values(node)) open.push([child, depth + 1]);
+    }
+  }
+  return false;
 }
 
 /**

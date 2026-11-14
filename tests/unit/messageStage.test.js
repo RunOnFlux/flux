@@ -1,5 +1,7 @@
 const { expect } = require('chai');
+const sinon = require('sinon');
 const config = require('config');
+const { Collection } = require('mongodb');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { MessageStage } = require('../../ZelBack/src/services/appMessaging/messageStage');
@@ -14,6 +16,13 @@ const record = (hash, height) => ({
 const sent = (hash, height) => ({
   type: 'fluxappregister', hash, height, txid: `peer-${hash}`, appSpecifications: { name: hash },
 });
+
+// `levels` objects or arrays, one inside the next.
+function nested(levels, kind) {
+  let value = 'x';
+  for (let i = 0; i < levels; i += 1) value = kind === 'arrays' ? [value] : { inner: value };
+  return value;
+}
 
 async function collect(iterable) {
   const items = [];
@@ -32,6 +41,7 @@ describe('MessageStage tests', () => {
   });
 
   afterEach(async () => {
+    sinon.restore();
     await stage?.discard();
     stage = null;
   });
@@ -120,6 +130,86 @@ describe('MessageStage tests', () => {
 
     expect(stage.size).to.equal(1);
     expect(stage.unstagedHeights()).to.deep.equal([20]);
+  });
+
+  ['objects', 'arrays'].forEach((kind) => {
+    [190, 250].forEach((levels) => {
+      it(`does not take a message nesting ${levels} ${kind}, and stores the rest of its piece`, async () => {
+        stage = await MessageStage.open(new Map([['a', record('a', 10)], ['b', record('b', 20)], ['c', record('c', 30)]]));
+
+        expect(await stage.add(sent('a', 10))).to.equal(true);
+        expect(await stage.add({ ...sent('b', 20), deep: nested(levels, kind) })).to.equal(false);
+        expect(await stage.add(sent('c', 30))).to.equal(true);
+        await stage.flush();
+
+        expect((await collection.find({}, { projection: { _id: 0, hash: 1 } }).toArray()).map((doc) => doc.hash).sort()).to.deep.equal(['a', 'c']);
+        expect(stage.unstagedHeights(), 'left for the next peer').to.deep.equal([20]);
+      });
+    });
+
+    it(`takes a message nesting ${kind} to the deepest it allows`, async () => {
+      stage = await MessageStage.open(new Map([['a', record('a', 10)]]));
+
+      // the message is the first level
+      expect(await stage.add({ ...sent('a', 10), deep: nested(31, kind) })).to.equal(true);
+      await stage.flush();
+
+      expect(stage.size).to.equal(1);
+      expect(await collection.countDocuments()).to.equal(1);
+    });
+  });
+
+  it('stages what a write that failed stored, and asks the database what that is', async () => {
+    stage = await MessageStage.open(new Map([['a', record('a', 10)], ['b', record('b', 20)]]));
+    // a write that lands, and whose answer is lost: a socket timeout
+    const write = Collection.prototype.insertMany;
+    sinon.stub(Collection.prototype, 'insertMany').callsFake(async function landsThenTimesOut(...args) {
+      await write.apply(this, args);
+      throw new Error('connection timed out');
+    });
+    await stage.add(sent('a', 10));
+    await stage.add(sent('b', 20));
+
+    await stage.flush();
+
+    expect(stage.size).to.equal(2);
+    expect(stage.unstagedHeights()).to.deep.equal([]);
+  });
+
+  it('stages nothing of a piece whose write failed without storing it, and rejects', async () => {
+    stage = await MessageStage.open(new Map([['a', record('a', 10)], ['b', record('b', 20)]]));
+    // a piece the database refuses whole, naming no document, as it does one nested too deep
+    const write = Collection.prototype.insertMany;
+    sinon.stub(Collection.prototype, 'insertMany').callsFake(function refusedWhole(documents, options) {
+      return write.call(this, documents.map((document) => ({ ...document, deep: nested(250, 'objects') })), options);
+    });
+    await stage.add(sent('a', 10));
+    await stage.add(sent('b', 20));
+
+    const error = await stage.flush().catch((caught) => caught);
+
+    expect(error).to.be.instanceOf(Error);
+    expect(error.writeErrors ?? [], 'no document is named').to.deep.equal([]);
+    expect(await collection.countDocuments()).to.equal(0);
+    expect(stage.size).to.equal(0);
+    expect(stage.unstagedHeights(), 'every hash is asked for again').to.deep.equal([10, 20]);
+  });
+
+  it('stages nothing of a piece whose write failed when the database cannot say what it holds, and rejects', async () => {
+    stage = await MessageStage.open(new Map([['a', record('a', 10)]]));
+    const write = Collection.prototype.insertMany;
+    sinon.stub(Collection.prototype, 'insertMany').callsFake(async function landsThenTimesOut(...args) {
+      await write.apply(this, args);
+      throw new Error('connection timed out');
+    });
+    sinon.stub(Collection.prototype, 'find').throws(new Error('connection timed out'));
+    await stage.add(sent('a', 10));
+
+    const error = await stage.flush().catch((caught) => caught);
+
+    expect(error).to.be.instanceOf(Error);
+    expect(stage.size).to.equal(0);
+    expect(stage.unstagedHeights()).to.deep.equal([10]);
   });
 
   it('counts a hash staged only once the database stored its message, and rejects a piece it refused', async () => {
