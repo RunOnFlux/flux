@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -13,6 +13,7 @@ import { assertNoEvent, waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node's IP changes and fluxd confirms the new address before FluxOS has told
 // its peers, so they hear the move with the chain listing the node at the new
@@ -132,8 +133,7 @@ describe('a move heard after the chain lists the new address', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await Promise.all(moved.map((ip) => clearNodeAddress(ip).catch(() => {})));
     await env?.teardown();
   });

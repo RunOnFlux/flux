@@ -47,8 +47,8 @@ const PEER_MANAGER_EVENTS = ['peerConnected', 'peerDisconnected', 'authenticated
 
 /**
  * fluxCommunication loaded again with these proxyquire stubs, installed on the
- * shared peer manager as production installs it. restore() puts the hooks back and
- * removes the listeners this copy added.
+ * shared peer manager as production installs it. restore() stops this copy's
+ * discovery, puts the hooks back and removes the listeners this copy added.
  * @param {object} [stubs]
  * @returns {{mod: object, hooks: object, restore: function(): void}}
  */
@@ -60,6 +60,7 @@ function loadFluxCommunication(stubs = {}) {
     mod,
     hooks,
     restore() {
+      mod.stopDiscovery();
       PEER_MANAGER_HOOKS.forEach((name) => { peerManager[name] = hooks[name]; });
       PEER_MANAGER_EVENTS.forEach((event) => peerManager.listeners(event)
         .filter((listener) => !listeners[event].includes(listener))
@@ -147,6 +148,12 @@ describe('fluxCommunication tests', () => {
     // Force-close any lingering client connections (tests override ws.close with a no-op)
     localWsServer.clients.forEach((client) => client.terminate());
     localWsServer.close(done);
+  });
+
+  after(() => {
+    fluxCommunication.stopDiscovery();
+    peerManager.reset();
+    cacheManager.resetCaches();
   });
 
   describe('addOutgoingPeer tests', () => {
@@ -1305,7 +1312,9 @@ describe('fluxCommunication tests', () => {
       let clock;
       let passes;
 
-      beforeEach(async () => {
+      beforeEach(() => {
+        // Before the clock is faked: whatever an earlier test left due is on the real one.
+        mod.stopDiscovery();
         clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
         passes = [];
         // A pass ends at once here: its first question finds the daemon unsynced.
@@ -1313,13 +1322,10 @@ describe('fluxCommunication tests', () => {
           passes.push(Date.now());
           return { data: { synced: false } };
         });
-        // drain whatever an earlier test left due
-        mod.scheduleDiscovery(0);
-        await clock.tickAsync(1);
-        passes.length = 0;
       });
 
       afterEach(() => {
+        mod.stopDiscovery();
         clock.restore();
       });
 
@@ -1362,11 +1368,15 @@ describe('fluxCommunication tests', () => {
       let clock;
 
       beforeEach(() => {
+        mod.stopDiscovery();
+        fluxCommunication.stopDiscovery();
         clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
         sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: false } });
       });
 
       afterEach(() => {
+        mod.stopDiscovery();
+        fluxCommunication.stopDiscovery();
         clock.restore();
       });
 
@@ -2423,19 +2433,7 @@ describe('fluxCommunication tests', () => {
       await waitForWsConnected(wsserver);
 
       // Wait for the close event to be processed
-      await new Promise((resolve) => {
-        const checkInterval = setInterval(() => {
-          if (peerManager.outboundCount === 0) {
-            clearInterval(checkInterval);
-            resolve();
-          }
-        }, 100);
-        // Timeout after 3 seconds
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          resolve();
-        }, 3000);
-      });
+      await waitFor(() => logSpy.calledWith('Connection 127.0.0.2:16127 removed from peerManager (outbound, code: 1005)'), 3000, 100);
 
       expect(peerManager.outboundCount).to.equal(0);
       sinon.assert.calledWith(logSpy, 'Outgoing connection to 127.0.0.2:16127 closed with code 1005');

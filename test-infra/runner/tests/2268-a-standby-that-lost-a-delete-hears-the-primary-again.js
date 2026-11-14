@@ -16,7 +16,7 @@
  * Not here: what a primary that is not a delete answers, and a list that moves between
  * passes. Those are unit-tested, and modelled in the shapes a repair must leave alone.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, listAppContainers } from '../framework/container.js';
@@ -30,6 +30,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const GIVEUP_BEFORE_PASS = 'giveUp:beforePass';
 
@@ -143,8 +144,7 @@ describe('a standby that lost a delete hears the primary again', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

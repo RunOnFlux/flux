@@ -1226,8 +1226,13 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
   }
 }
 
+const STORAGE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+let storageCheckTimer = null;
+let storageChecksStopped = false;
+
 /**
- * Check storage space usage of applications and enforce limits
+ * Check storage space usage of applications and enforce limits, then again every
+ * STORAGE_CHECK_INTERVAL_MS until stopStorageSpaceChecks.
  * @param {Function} installedApps - Async function to get installed apps
  * @param {Function} removeAppLocally - Async function to remove app locally
  * @param {Function} softRedeploy - Async function to soft redeploy app (can be null)
@@ -1319,15 +1324,22 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
         }
       }
     }
-    setTimeout(() => {
-      checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations);
-    }, 30 * 60 * 1000);
   } catch (error) {
     log.error(error);
-    setTimeout(() => {
-      checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations);
-    }, 30 * 60 * 1000);
   }
+  if (storageChecksStopped) return;
+  storageCheckTimer = setTimeout(() => {
+    checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations);
+  }, STORAGE_CHECK_INTERVAL_MS);
+}
+
+/**
+ * Stop the storage checks: the next one is cancelled, and a check under way schedules none.
+ */
+function stopStorageSpaceChecks() {
+  storageChecksStopped = true;
+  clearTimeout(storageCheckTimer);
+  storageCheckTimer = null;
 }
 
 module.exports = {
@@ -1349,4 +1361,5 @@ module.exports = {
   checkApplicationsCpuUSage,
   monitorSharedDBApps,
   checkStorageSpaceForApps,
+  stopStorageSpaceChecks,
 };

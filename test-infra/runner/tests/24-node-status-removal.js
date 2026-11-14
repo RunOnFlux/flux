@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { deliverApp } from '../framework/app-delivery.js';
@@ -15,6 +15,7 @@ import {
 } from '../framework/wait.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -76,8 +77,7 @@ describe('Confirmation loss removes installed apps', function () {
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -116,8 +116,7 @@ describe('Daemon stale removes installed apps', function () {
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

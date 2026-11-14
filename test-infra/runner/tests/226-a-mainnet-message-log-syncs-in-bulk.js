@@ -19,7 +19,7 @@
  * node holds; a node that is not Arcane accepts it without the comparison, as the slice's
  * buckyorbit renewal shows.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { loadMessageSlice } from '../framework/message-slice.js';
@@ -29,6 +29,7 @@ import { setSystemSecure, stopTicker } from '../framework/daemon-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const JOINER = 3;
 // The chain's speed-up at the PON fork, as appMessageChain.appExpirationHeight counts it.
@@ -94,8 +95,7 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
     await waitForOrchestratorState(joiner, 'READY', 600000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

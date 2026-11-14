@@ -148,6 +148,7 @@ describe('AppSyncOrchestrator', () => {
     findOneAndUpdateStub = sinon.stub().resolves();
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+      onQuickClient: sinon.stub().callsFake((database) => ({ ...database, client: 'quick' })),
       findOneInDatabase: sinon.stub().resolves(null),
       findOneAndUpdateInDatabase: findOneAndUpdateStub,
     };
@@ -2582,6 +2583,31 @@ describe('AppSyncOrchestrator', () => {
       expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
 
+    it('should keep retrying on blocks after the initial sync gives up', async () => {
+      syncMissingHashesStub.rejects(new Error('persistent failure'));
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      await clock.tickAsync(300000);
+      await clock.tickAsync(300000);
+      expect(syncMissingHashesStub.callCount).to.equal(3);
+      expect(logStub.warn.calledWith(sinon.match('Hash sync retries exhausted'))).to.be.true;
+
+      syncMissingHashesStub.resolves({ resolved: 1, missing: 0, unreachable: 0, nextRetryHeight: null });
+
+      // not before the fallback interval
+      blockEmitter.emit('blocksProcessed', 2555050);
+      await clock.tickAsync(0);
+      expect(syncMissingHashesStub.callCount).to.equal(3);
+
+      blockEmitter.emit('blocksProcessed', 2555100);
+      await clock.tickAsync(0);
+      expect(syncMissingHashesStub.callCount).to.equal(4);
+    });
+
     it('should ignore HASH_UNRESOLVED before initial sync completes', async () => {
       syncMissingHashesStub.rejects(new Error('not ready'));
 
@@ -2771,13 +2797,14 @@ describe('AppSyncOrchestrator', () => {
   });
 
   describe('writeShutdownReason', () => {
-    it('should write shutdown reason to heartbeat doc', async () => {
+    it('writes the shutdown reason to the heartbeat doc on the quick client', async () => {
       await AppSyncOrchestrator.writeShutdownReason('sigterm');
 
       const call = findOneAndUpdateStub.getCalls().find(
         (c) => c.args[2]?._id === 'heartbeat',
       );
       expect(call).to.not.be.undefined;
+      expect(call.args[0].client, 'a stalled database would hold the shutdown for the main client\'s limit').to.equal('quick');
       expect(call.args[3]).to.deep.equal({ $set: { shutdownReason: 'sigterm' } });
     });
 

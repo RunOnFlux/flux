@@ -31,28 +31,17 @@
  *
  * PER THREAD. Each worker thread has its own `node:net` and `node:dns`, so a default set in one
  * thread does not reach another. apiServer calls `applyNetworkDefaults()` at the top of the module,
- * before anything connects, and app.js loads apiServer before it starts anything. Every worker is created with `createWorker()`, which starts
- * `workerBootstrap.js`: it applies the same defaults in the new thread, then loads the worker
- * script, so no worker script runs before they are in effect.
- *
- * NODE FLOOR. Node 20.13 and later accept `--network-family-autoselection-attempt-timeout` in a
- * worker's `execArgv`, which would set the defaults before the thread runs any code and make the
- * bootstrap unnecessary. Earlier Node rejects the unknown flag with ERR_WORKER_INVALID_EXEC_ARGV,
- * so every worker would fail to start, and the fleet runs Node 20.8. Once the oldest Node in the
- * fleet is 20.13 or later, `createWorker()` can pass both defaults as `execArgv` flags
- * (`--network-family-autoselection-attempt-timeout`, `--dns-result-order`) after
- * `process.execArgv`, and `workerBootstrap.js` can go.
+ * before anything connects, and app.js loads apiServer before it starts anything. Every worker is
+ * created with `createWorker()`, which starts it with both defaults as `execArgv` flags after the
+ * process's own, so they are in effect before the worker script runs.
  */
 
 const net = require('node:net');
 const dns = require('node:dns');
-const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 
 const CONNECT_ATTEMPT_TIMEOUT_MS = 2_000;
 const DNS_RESULT_ORDER = 'ipv4first';
-
-const WORKER_BOOTSTRAP = path.join(__dirname, 'workerBootstrap.js');
 
 /**
  * Applies the outbound connection defaults to the calling thread.
@@ -68,7 +57,13 @@ function applyNetworkDefaults() {
  * @returns {Worker}
  */
 function createWorker(script) {
-  return new Worker(WORKER_BOOTSTRAP, { workerData: { script } });
+  return new Worker(script, {
+    execArgv: [
+      ...process.execArgv,
+      `--network-family-autoselection-attempt-timeout=${CONNECT_ATTEMPT_TIMEOUT_MS}`,
+      `--dns-result-order=${DNS_RESULT_ORDER}`,
+    ],
+  });
 }
 
 module.exports = {

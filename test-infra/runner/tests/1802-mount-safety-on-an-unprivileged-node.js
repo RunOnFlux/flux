@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus, fluxosPid } from '../framework/container.js';
@@ -12,6 +12,7 @@ import {
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The mount-safety guard on a node whose FluxOS is not root.
 //
@@ -110,8 +111,7 @@ describe('mount safety decides on what a node can actually read', function () {
     await waitFor(() => isUp(env.clients[0], name), { timeout: 90000, interval: 2000, label: 'app running' });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

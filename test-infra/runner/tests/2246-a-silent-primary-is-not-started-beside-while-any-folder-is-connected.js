@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, crashFluxos, releaseFluxos } from '../framework/container.js';
@@ -11,6 +11,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An app with two single-writer (g:) components, on real syncthing daemons. Its
 // primary's FluxOS stops answering while its containers and its syncthing go on
@@ -73,8 +74,7 @@ describe('a silent primary is not started beside while any of its folders is con
     })));
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await releaseFluxos(client(PRIMARY).container).catch(() => {});
     await env?.teardown();
   });

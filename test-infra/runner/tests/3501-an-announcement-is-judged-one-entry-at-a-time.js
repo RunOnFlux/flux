@@ -1,6 +1,6 @@
 // weight: medium
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -12,6 +12,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A version 2 apprunning message names every app its sender holds. Each entry is
 // judged on its own: one without a name and a hash is refused and the rest of the
@@ -99,8 +100,7 @@ describe('an announcement is judged one entry at a time', function () {
     expect(await stub.connectedNodes(), 'fixture: the stub holds connections beyond node 0').to.equal(1);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

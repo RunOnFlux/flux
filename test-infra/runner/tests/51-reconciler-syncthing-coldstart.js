@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -15,6 +15,7 @@ import { syncthingSeedIndex } from '../framework/g-app-placement.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // COLD START: a sync app placed on several nodes AT ONCE, with NO node holding the
 // data and NO connected peer that holds it. This is the one shape the forceNonLeader
@@ -100,8 +101,7 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
     await installOnNodes(env, claimSpec, holders);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await resetFdm().catch(() => {});
     await env?.teardown();

@@ -1,4 +1,4 @@
-import { describe, it, before, after, afterEach } from 'mocha';
+import { describe, it, before, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -9,6 +9,7 @@ import {
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -25,8 +26,7 @@ describe('Ticker and block control', function () {
     await resetAll();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

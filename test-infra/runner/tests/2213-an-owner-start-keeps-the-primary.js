@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -14,6 +14,7 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An owner stops a single-writer (g:) app on its primary and starts it again.
 // The primary holds the app for the whole of it: stopped, its stop lock is what
@@ -160,8 +161,7 @@ describe('an owner start keeps the primary', function () {
     auth = (await authenticate(client(PRIMARY).url, appOwnerKey())).zelidauth;
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await client(PRIMARY)?.releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });

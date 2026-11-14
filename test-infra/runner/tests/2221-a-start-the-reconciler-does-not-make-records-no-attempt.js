@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -15,6 +15,7 @@ import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/re
 import { dbClient } from '../framework/db-client.js';
 import { appId, destroyVolume } from '../framework/volume-fixture.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A reconcile pass that does not start a component records no restart attempt.
 // The pass restarting a primary whose container died is held just before it
@@ -64,8 +65,7 @@ describe('a start the reconciler does not make records no attempt', function () 
     });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetFdm().catch(() => {});
     await env?.teardown();
   });

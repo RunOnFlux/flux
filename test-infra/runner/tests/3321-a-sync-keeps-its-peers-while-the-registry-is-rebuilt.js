@@ -10,7 +10,7 @@
  * they stay temp messages on every peer. A batch of two thousand is not built here: what makes
  * a large answer slow is this node's work, and the held rebuild stands in for that wait.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -21,6 +21,7 @@ import {
   assertNoEvent, waitFor, waitForDaemonReady, waitForNodeStatus,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const BEFORE_REBUILD = 'appSync:beforeRebuild';
 const BUDGET_MS = 60000;
@@ -71,8 +72,7 @@ describe('a sync keeps its peers while the registry is rebuilt', function () {
     await env.startDiscovery([SUBJECT]);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await subject?.releaseCheckpoint(BEFORE_REBUILD).catch(() => {});
     await env?.teardown();
   });

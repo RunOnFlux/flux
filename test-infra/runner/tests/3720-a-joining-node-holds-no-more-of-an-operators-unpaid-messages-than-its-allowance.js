@@ -14,7 +14,7 @@
  * Once a block builds the registry, what was held is checked and stored, and none
  * of what was refused is.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -26,6 +26,7 @@ import { dbClient } from '../framework/db-client.js';
 import { nodeKey } from '../framework/keys.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const ANSWERING = 0;
 const OPERATOR_B = 1;
@@ -87,8 +88,7 @@ describe('a joining node holds no more of an operator\'s unpaid messages than it
     await joiner.waitForEvent('ephemeralSync:peerComplete', (d) => d.syncType === 'apptemp', 240000, { afterId: mark });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

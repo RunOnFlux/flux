@@ -73,6 +73,7 @@ const net = require('node:net');
 
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const { default: cacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -88,6 +89,10 @@ const FLUXBENCH_WITHOUT_PROBE = { status: 'error', data: { code: -32601, name: '
 
 describe('fluxNetworkHelper tests', () => {
   after(releaseMongo);
+
+  after(() => {
+    cacheManager.resetCaches();
+  });
 
   let getNetworkInfoStub;
 
@@ -1171,7 +1176,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkNodeJsVersionAllowed tests', () => {
-    // minimumNodeJsAllowedVersion = '20.8.0'
+    // minimumNodeJsAllowedVersion = '24.14.1'
     const realNodeJsVersion = process.versions.node;
     const { NODEJS_FLOOR, RESIDENTIAL_DOS } = nodeDosState.StickyDosOwner;
 
@@ -1197,15 +1202,15 @@ describe('fluxNetworkHelper tests', () => {
       nodeDosState.setDosMessage(null);
     });
 
-    it('allows the runtime the fleet already runs', () => {
-      runningOn('24.14.1');
+    it('allows a later release of the floor\'s major', () => {
+      runningOn('24.15.0');
 
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
       expect(nodeDosState.getStickyDosMessage()).to.equal(null);
     });
 
     it('allows the floor itself', () => {
-      runningOn('20.8.0');
+      runningOn('24.14.1');
 
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
       expect(nodeDosState.getStickyDosMessage()).to.equal(null);
@@ -1217,20 +1222,20 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
       const reported = fluxNetworkHelper.getDOSState().data;
-      expect(reported.dosMessage).to.include('20.8.0');
+      expect(reported.dosMessage).to.include('24.14.1');
       expect(reported.dosMessage).to.include('16.20.2');
       expect(reported.dosState).to.equal(100);
     });
 
     it('refuses a version below the floor within the same major', () => {
-      runningOn('20.7.0');
+      runningOn('24.14.0');
 
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
       expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
     });
 
     it('refuses a pre-release of the floor, and allows a nightly of a later major', () => {
-      runningOn('20.8.0-pre');
+      runningOn('24.14.1-pre');
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
       nodeDosState.clearStickyDos(NODEJS_FLOOR);
 
@@ -1239,7 +1244,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('compares each part as a number', () => {
-      runningOn('20.10.0');
+      runningOn('24.100.0');
       expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
 
       runningOn('9.11.2');

@@ -1,7 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
-const { MongoOperationTimeoutError } = require('mongodb');
+const { MongoNetworkTimeoutError } = require('mongodb');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
@@ -89,9 +89,10 @@ describe('upnpMappingRecord tests', () => {
     expect(errorStub.firstCall.args[0]).to.match(/31000\/TCP not recorded: not primary/);
   });
 
-  // A router turn waits on a mapping's record, so each write it makes is bounded by
-  // the driver's timeoutMS; the driver ending a write at that bound is its contract.
-  it('bounds every write a router turn waits on by recordWriteLimitMs', async () => {
+  it('makes every write a router turn waits on on the quick client, and reads on the main one', async () => {
+    const onQuick = sinon.stub(dbHelper, 'onQuickClient').callsFake((database) => ({
+      collection: (name) => ({ quick: true, ...database.collection(name) }),
+    }));
     const updates = sinon.spy(collection, 'updateOne');
     const deletes = sinon.spy(collection, 'deleteOne');
     dbHelper.databaseConnection.returns(null);
@@ -102,11 +103,13 @@ describe('upnpMappingRecord tests', () => {
 
     await upnpMappingRecord.mapping(31000, 'TCP', 'Flux_App_web');
     await upnpMappingRecord.removed(31000, 'TCP');
-
     // the two that waited for the database, then the turn's own add and removal
-    const options = [...updates.getCalls(), ...deletes.getCalls()].map((call) => call.args[2] ?? call.args[1]);
-    expect(options).to.have.length(4);
-    options.forEach((o) => expect(o.timeoutMS).to.equal(config.upnp.recordWriteLimitMs));
+    expect([...updates.getCalls(), ...deletes.getCalls()].map((call) => call.thisValue.quick)).to.deep.equal([true, true, true, true]);
+
+    onQuick.resetHistory();
+    await upnpMappingRecord.all();
+    await upnpMappingRecord.complete();
+    sinon.assert.notCalled(onQuick);
   });
 
   [
@@ -114,13 +117,13 @@ describe('upnpMappingRecord tests', () => {
     ['removal', () => upnpMappingRecord.removed(31998, 'TCP'), 'deleteOne', '31998/TCP not cleared'],
   ].forEach(([what, write, method, logged]) => {
     it(`logs a ${what} record that ran out of time, and lets the router turn go on`, async () => {
-      sinon.stub(collection, method).rejects(new MongoOperationTimeoutError('Timed out during operation execution'));
+      sinon.stub(collection, method).rejects(new MongoNetworkTimeoutError('connection 3 to 127.0.0.1:27017 timed out'));
       const errorStub = sinon.stub(log, 'error');
 
       await write();
 
       sinon.assert.calledOnce(errorStub);
-      expect(errorStub.firstCall.args[0]).to.equal(`upnpMappingRecord - ${logged}: Timed out during operation execution`);
+      expect(errorStub.firstCall.args[0]).to.equal(`upnpMappingRecord - ${logged}: connection 3 to 127.0.0.1:27017 timed out`);
     });
   });
 

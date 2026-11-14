@@ -11,13 +11,14 @@
  *
  * The answer is applied in order, so the canary stored last shows the others read.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
 import { appRemovedEvent, apprunningEvent, socketAddr } from '../framework/state-events.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const ANSWERING = 0;
 const JOINER = 1;
@@ -66,8 +67,7 @@ describe('a node stores what a sync answer carries as data, and only what was si
     );
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

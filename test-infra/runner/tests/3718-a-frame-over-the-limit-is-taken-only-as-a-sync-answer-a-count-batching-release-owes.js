@@ -14,7 +14,7 @@
  * The padding is a field storage drops, so each message is one the node would
  * store at any size.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -23,6 +23,7 @@ import { advanceBlock } from '../framework/daemon-control.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import limits from '../framework/message-limits.cjs';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { GOSSIP_MESSAGE_MAX_BYTES, PEER_FRAME_MAX_BYTES } = limits;
 
@@ -71,8 +72,7 @@ describe('a frame over the limit is taken only as a sync answer a count-batching
       });
     });
 
-    after(async function () {
-      this.timeout(60000);
+    afterTeardown(async function () {
       await fleet?.env?.teardown();
     });
 
@@ -114,8 +114,7 @@ describe('a frame over the limit is taken only as a sync answer a count-batching
       fleet = await joinThroughAnAnswerOverTheLimit(this, 'bytes', { arcaneStubPeers: [ANSWERING] });
     });
 
-    after(async function () {
-      this.timeout(60000);
+    afterTeardown(async function () {
       await fleet?.env?.teardown();
     });
 

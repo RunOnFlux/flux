@@ -49,4 +49,69 @@ describe('enterpriseHelper', () => {
       });
     });
   });
+
+  describe('decryptAesKeyWithRsaKey, while fluxbench is busy', () => {
+    const busy = { status: 'error', data: { code: 500, name: 'Error', message: 'Work queue depth exceeded' } };
+    const unwrapped = { status: 'success', data: JSON.stringify({ status: 'ok', message: 'AESKEY' }) };
+    let clock;
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    });
+
+    function loadWith(decryptRSAMessage) {
+      const previous = process.env.FLUXOS_PATH;
+      process.env.FLUXOS_PATH = '/tmp/fluxos';
+      try {
+        return proxyquire(MODULE_PATH, {
+          '../dbHelper': { databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }) },
+          '../benchmarkService': { decryptRSAMessage },
+          '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
+        });
+      } finally {
+        if (previous === undefined) delete process.env.FLUXOS_PATH;
+        else process.env.FLUXOS_PATH = previous;
+      }
+    }
+
+    it('asks again a second after each busy refusal, and returns the key fluxbench then unwraps', async () => {
+      const decryptRSAMessage = sinon.stub();
+      decryptRSAMessage.onCall(0).resolves(busy);
+      decryptRSAMessage.onCall(1).resolves(busy);
+      decryptRSAMessage.onCall(2).resolves(unwrapped);
+      const m = loadWith(decryptRSAMessage);
+
+      const key = m.decryptAesKeyWithRsaKey('app', 100, 'wrapped', 'owner');
+      await clock.tickAsync(999);
+      sinon.assert.calledOnce(decryptRSAMessage);
+      await clock.tickAsync(1);
+      sinon.assert.calledTwice(decryptRSAMessage);
+      await clock.tickAsync(1000);
+
+      expect(await key).to.equal('AESKEY');
+      sinon.assert.calledThrice(decryptRSAMessage);
+    });
+
+    it('gives up after three more refusals, naming the refusal', async () => {
+      const decryptRSAMessage = sinon.stub().resolves(busy);
+      const m = loadWith(decryptRSAMessage);
+
+      const key = m.decryptAesKeyWithRsaKey('app', 100, 'wrapped', 'owner').catch((error) => error);
+      await clock.tickAsync(10000);
+
+      expect((await key).message).to.equal('fluxbench refused unwrapping the key of app as busy 4 times');
+      expect(decryptRSAMessage.callCount).to.equal(4);
+    });
+
+    it('does not ask again after any other failure', async () => {
+      const decryptRSAMessage = sinon.stub().resolves({ status: 'error', data: { message: 'System not Secure' } });
+      const m = loadWith(decryptRSAMessage);
+
+      const key = m.decryptAesKeyWithRsaKey('app', 100, 'wrapped', 'owner').catch((error) => error);
+      await clock.tickAsync(10000);
+
+      expect((await key).message).to.equal('Error getting decrypted AES key.');
+      sinon.assert.calledOnce(decryptRSAMessage);
+    });
+  });
 });

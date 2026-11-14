@@ -21,7 +21,7 @@
  * not show mainnet latency.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +34,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { nodeKey } from '../framework/keys.js';
 import { askToBeDialed } from '../framework/peer-topology.js';
 import { upgradeBase } from '../framework/upgrade-base.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { tag: BASE_TAG } = upgradeBase(fileURLToPath(import.meta.url));
 
@@ -111,8 +112,7 @@ describe('a message whose first copy is forged arrives from a peer that holds it
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

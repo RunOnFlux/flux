@@ -1,11 +1,12 @@
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { crashFluxos, releaseFluxos } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node asks its peers whether they can reach it. A peer that does not answer at
 // all - its FluxOS down - says nothing about the node that asked, and is not asked
@@ -42,8 +43,7 @@ describe('a node whose observers do not answer holds itself in service', functio
     held = OBSERVERS;
   });
 
-  after(async function () {
-    this.timeout(300000);
+  afterTeardown(async function () {
     if (env) await Promise.all(held.map((i) => releaseFluxos(client(i).container).catch(() => {})));
     await env?.teardown();
   });

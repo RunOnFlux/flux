@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -12,6 +12,7 @@ import {
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -78,8 +79,7 @@ describe('State sync: app running state (0x21)', function () {
     );
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -137,8 +137,7 @@ describe('State sync: hash resolution', function () {
     await advanceBlock();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -226,8 +225,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

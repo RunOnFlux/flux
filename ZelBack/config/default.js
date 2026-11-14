@@ -77,8 +77,12 @@ module.exports = {
     // over four times the slowest healthy round trip seen on the fleet.
     // maintenanceCallTimeoutMs bounds the client for the named long operations:
     // index builds, the explorer restore's deletes and the registry rebuild.
+    // quickCallTimeoutMs bounds every step of a call on the client for callers
+    // that cannot wait long (dbHelper.onQuickClient), finding the server
+    // included. A local write takes milliseconds.
     callTimeoutMs: 60 * 1000,
     maintenanceCallTimeoutMs: 15 * 60 * 1000,
+    quickCallTimeoutMs: 5 * 1000,
     // The database is suspect, and the node takes on no new apps, once
     // suspectRoundTrips round trips have run out within suspectWindowMs. It stops
     // being suspect suspectWindowMs after the last one.
@@ -130,6 +134,7 @@ module.exports = {
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
         appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
+        appsMessagesStaging: 'zelappsmessagesstaging', // messages fetched from peers in bulk, held until this node has verified them
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsinstallinglocations', // stores install location of flux apps as documents containing name, ip, obtainedAt
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -185,10 +190,6 @@ module.exports = {
     // How long one turn on the router may run (portReconciler.onRouter): a turn
     // is a few requests, each answered in milliseconds by nearly every router.
     turnLimitMs: 60 * 1000,
-    // How long a write of a mapping's record may take (upnpMappingRecord): a turn
-    // waits on it, and a turn cut off at turnLimitMs still finishes it before
-    // the next turn starts. A local write takes milliseconds.
-    recordWriteLimitMs: 5 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',
@@ -212,7 +213,7 @@ module.exports = {
   // paths need what the runtime lacks, one at a time and silently, instead of
   // reporting itself unfit. Unset allows: the check runs bare in
   // startFluxFunctions, whose catch re-enters it.
-  minimumNodeJsAllowedVersion: '20.8.0',
+  minimumNodeJsAllowedVersion: '24.14.1',
   minimumSyncthingAllowedVersion: '2.0.10',
   // The Docker a node runs: the oldest release FluxOS supports. 28.0 rewrote
   // Docker's networking rules and its patch releases fixed them; 28.1.1 is the
@@ -888,6 +889,14 @@ module.exports = {
     hashSyncPeersPerRound: 3,
     hashSyncEphemeralPeers: 5,
     hashSyncFallbackRecheckBlocks: 100,
+    // a peer that sends nothing for this long during a bulk fetch is abandoned; it covers the wait for
+    // the first byte, which the whole-log route spends building its answer
+    hashSyncBulkIdleMs: 120000,
+    // apps whose messages a bulk hash sync verifies at once
+    hashSyncVerifyConcurrency: 4,
+    // a reader of this node's permanent messages that takes nothing of the answer for this long has
+    // its connection closed; a healthy reader pauses only to store each 1000 messages it receives
+    messageReaderIdleMs: 30000,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,

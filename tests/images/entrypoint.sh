@@ -47,7 +47,7 @@ if [[ -n $MANUAL_TEST ]]; then
   exit
 fi
 
-npx mocha --require ./tests/unit/databaseLeftovers.js "$@" --exit
+npx mocha --require ./tests/unit/databaseLeftovers.js --require ./tests/unit/timerLeftovers.js "$@" --exit
 status=$?
 rm -f {debug,info,warn,error}.log
 exit $status

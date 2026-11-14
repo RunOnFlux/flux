@@ -11,7 +11,7 @@
  * of it, as the first nodes to upgrade are. The 8.23.1 node is on the entry's
  * ring arc, so it is sent the message directly.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { fileURLToPath } from 'node:url';
 import { createTestEnv } from '../framework/test-env.js';
@@ -22,6 +22,7 @@ import { pendingMessageOn } from '../framework/unpaid-messages.js';
 import { upgradeBase } from '../framework/upgrade-base.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { tag: BASE_TAG } = upgradeBase(fileURLToPath(import.meta.url));
 
@@ -51,8 +52,7 @@ describe('before the version floor an Arcane node short of its quorum admits as 
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

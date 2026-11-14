@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -10,6 +10,7 @@ import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { waitFor, waitForBootSettled, waitForAppRemoved } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An app pinned to named nodes runs on those nodes and nowhere else.
 //
@@ -79,8 +80,7 @@ describe('a pinned app runs where its spec says', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -786,6 +786,18 @@ describe('networkStateManager tests', () => {
       releaseFetch();
       await startPromise;
     });
+
+    it('keeps nothing a fetch running at its stop returned, and starts no loop', async () => {
+      const startPromise = nsm.start();
+      await flush();
+
+      await nsm.stop();
+      releaseFetch();
+      await startPromise;
+
+      expect(nsm.started).to.equal(false);
+      expect(nsm.nodeCount).to.equal(0);
+    });
   });
 
   it('should set the indexesReady property to false if indexes are being built', async () => {

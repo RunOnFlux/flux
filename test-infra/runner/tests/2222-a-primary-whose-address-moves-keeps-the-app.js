@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { moveNodeAddress } from '../framework/container.js';
@@ -16,6 +16,7 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { placeSilentPrimaryApp, A, B, C } from '../framework/silent-primary.js';
 import { peerDeathMs } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The primary's public address moves. FDM names a primary by IP and goes on
 // naming the address it left; here it never follows, so every election pass on
@@ -78,8 +79,7 @@ describe('a primary whose address moves keeps the app', function () {
     movedIp = oldIp.replace(/\.\d+$/, '.240');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await clearNodeAddress(oldIp).catch(() => {});
     await resetFdm().catch(() => {});

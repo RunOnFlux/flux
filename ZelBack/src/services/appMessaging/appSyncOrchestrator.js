@@ -109,6 +109,12 @@ class AppSyncOrchestrator {
   #budgetStalled = false;
   #explorerSynced = false;
   #hashSyncComplete = false;
+  /**
+   * The initial hash sync failed every attempt it gets. Block-driven hash
+   * retries run once the initial sync has completed or given up.
+   * @type {boolean}
+   */
+  #hashSyncGaveUp = false;
   #dbRebuilt = false;
   #blocksSinceSyncStarted = 0;
   #blockReceivedHandler = null;
@@ -923,6 +929,7 @@ class AppSyncOrchestrator {
     this.#stateSyncComplete = false;
     this.#publishStateSyncAuthority();
     this.#hashSyncAttempts = 0;
+    this.#hashSyncGaveUp = false;
     if (this.#syncTimeout) {
       clearTimeout(this.#syncTimeout);
       this.#syncTimeout = null;
@@ -995,13 +1002,13 @@ class AppSyncOrchestrator {
   }
 
   #onHashUnresolved() {
-    if (!this.#hashSyncComplete) return;
+    if (!this.#hashSyncComplete && !this.#hashSyncGaveUp) return;
     // New unresolved hash — schedule immediate check on next block
     this.#nextHashRetryHeight = 0;
   }
 
   async #checkHashRetry(blockHeight) {
-    if (!this.#hashSyncComplete) return;
+    if (!this.#hashSyncComplete && !this.#hashSyncGaveUp) return;
     if (!this.#canSendMessages) return;
     if (this.#syncInProgress) return;
     if (blockHeight < this.#nextHashRetryHeight) return;
@@ -1097,7 +1104,9 @@ class AppSyncOrchestrator {
           this.#runHashSync().then(() => this.#checkReadiness());
         }, HASH_SYNC_RETRY_MS);
       } else {
-        log.warn('AppSyncOrchestrator - Hash sync retries exhausted, falling back to block timer');
+        log.warn('AppSyncOrchestrator - Hash sync retries exhausted, falling back to block timer and block-driven hash retries');
+        this.#hashSyncGaveUp = true;
+        this.#nextHashRetryHeight = this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS;
       }
     } finally {
       this.#syncInProgress = false;
@@ -1287,21 +1296,25 @@ class AppSyncOrchestrator {
     this.#heartbeatInterval = setInterval(writeHeartbeat, config.system.heartbeatIntervalMs ?? 30000);
   }
 
+  /**
+   * Records why this process is stopping, for the next boot to read. Made on the
+   * quick client, so a stalled database holds the shutdown for at most
+   * config.database.quickCallTimeoutMs.
+   * @param {string} reason
+   * @returns {Promise<void>}
+   */
   static async writeShutdownReason(reason) {
     try {
       const db = dbHelper.databaseConnection();
       if (!db) return;
-      const database = db.db(config.database.local.database);
-      await Promise.race([
-        dbHelper.findOneAndUpdateInDatabase(
-          database,
-          config.database.local.collections.nodeStartupTracker,
-          { _id: 'heartbeat' },
-          { $set: { shutdownReason: reason } },
-          { upsert: true },
-        ),
-        new Promise((_, reject) => { setTimeout(() => reject(new Error('shutdown write timeout')), 3000); }),
-      ]);
+      const database = dbHelper.onQuickClient(db.db(config.database.local.database));
+      await dbHelper.findOneAndUpdateInDatabase(
+        database,
+        config.database.local.collections.nodeStartupTracker,
+        { _id: 'heartbeat' },
+        { $set: { shutdownReason: reason } },
+        { upsert: true },
+      );
     } catch (error) {
       log.error(`Failed to write shutdown reason: ${error.message}`);
     }

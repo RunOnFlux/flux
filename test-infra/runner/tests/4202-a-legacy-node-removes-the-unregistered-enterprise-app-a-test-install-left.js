@@ -1,7 +1,7 @@
 // upgrades-from: v8.23.0
 // weight: medium
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { fileURLToPath } from 'node:url';
 import { expect } from 'chai';
@@ -19,6 +19,7 @@ import { execInContainer } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { upgradeBase } from '../framework/upgrade-base.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A legacy node removes, at the first start of this build, an installed
 // enterprise app that was never registered, and keeps every other app it holds.
@@ -106,8 +107,7 @@ describe('a legacy node removes the unregistered enterprise app a test install l
     await env.upgradeNode(LEGACY, { tag: env.nodeImageTag(ARCANE) });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -3,12 +3,13 @@
  * legacy, alternating round the ring, so every Arcane node holds exactly the
  * quorum of Arcane peers. The same checks as 3709 (framework/mixed-network.js).
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { mixedFleet, mixedNetworkChecks } from '../framework/mixed-network.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const MIX = { legacy: [1, 3, 5, 7, 9, 11], observer: 4 };
 
@@ -24,8 +25,7 @@ describe('unpaid app messages on a half Arcane fleet', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -15,6 +15,7 @@ import {
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // One app whose volume can never be mounted must not stop the rest of the node
 // working. The syncthing monitor's first-run mount-safety pass sets
@@ -111,8 +112,7 @@ describe('one unmountable app does not block g: election node-wide', function ()
     await waitFor(() => isUp(env.clients[0], gName), { timeout: 90000, interval: 2000, label: 'g: app running on node 0' });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetFdm().catch(() => {});
     await resetSyncState().catch(() => {});
     await env?.teardown();

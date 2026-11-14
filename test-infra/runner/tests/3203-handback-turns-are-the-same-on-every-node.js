@@ -9,7 +9,7 @@
  * eviction, an address move, a spare copy, a lapsing announcement, a decision the chain outran, a
  * removal still running - and checks the turn did not move with it.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { dbClient } from '../framework/db-client.js';
 import {
@@ -24,6 +24,7 @@ import {
   bootResidentialFleet, seedApp, returnToService, elapseSettleWindow, departureWaitMs, retireSeededApps, expectHoldsOnly,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOf } from '../framework/handback-turns.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const FLEET = [1, 2, 3, 4, 5];
 const HOLDERS = keysOf(FLEET);
@@ -66,8 +67,7 @@ describe('handback turns are the same on every node', function () {
     env = await bootResidentialFleet(this);
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await Promise.all((env?.clients ?? []).map((client) => client.releaseAllCheckpoints().catch(() => {})));
     await clearSystemSecure().catch(() => {});
     await stopTicker().catch(() => {});

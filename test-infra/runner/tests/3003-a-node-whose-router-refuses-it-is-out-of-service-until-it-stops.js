@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -19,6 +19,7 @@ import {
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -135,8 +136,7 @@ describe('a node whose router refuses it is out of service until it stops', func
     }
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

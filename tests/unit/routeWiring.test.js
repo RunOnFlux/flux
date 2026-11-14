@@ -12,7 +12,9 @@
 // middleware chain it actually built.
 
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
+const { once } = require('node:events');
 
 const { expect } = require('chai');
 const espree = require('espree');
@@ -31,6 +33,12 @@ const {
   requireBootSettled,
   requireRegistryReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
+
+// apicache.clear() with no target empties the store but leaves each entry's
+// expiry timer armed; clearing entry by entry stops both.
+function clearCache() {
+  apicache.getIndex().all.forEach((key) => apicache.clear(key));
+}
 
 /**
  * The route table routes.js builds, as a list of {method, path, chain}.
@@ -310,6 +318,117 @@ describe('route wiring', () => {
       });
     });
   });
+
+  // Anyone may ask for the permanent message log, and it is the largest answer a
+  // node gives. Asserted through each route's own chain, with a handler that holds
+  // every request it takes open, so the limit is the one the route is wired to.
+  describe('reads of the permanent message log', () => {
+    let server;
+    let url;
+    let held;
+
+    async function serveRoute(routePath) {
+      const route = table.find((entry) => entry.path === routePath && entry.method === 'get');
+      expect(route, `${routePath} is not registered as a GET`).to.not.equal(undefined);
+      held = [];
+      const app = express();
+      app.get(routePath, ...route.chain.slice(0, -1), function holdRequest(req, res) {
+        held.push(res);
+      });
+      server = http.createServer(app);
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      url = `http://127.0.0.1:${server.address().port}`;
+      return route;
+    }
+
+    // The limits are the node's own, shared by every test: each test's requests
+    // have to have let go of their places before the next one starts.
+    afterEach(async () => {
+      const released = held.map((res) => once(res, 'close'));
+      server.closeAllConnections();
+      server.close();
+      await Promise.all([...released, once(server, 'close')]);
+      clearCache();
+    });
+
+    // `from` is the caller's address: any 127.0.0.x reaches the server on 127.0.0.1.
+    function open(requestPath, from = '127.0.0.1') {
+      const req = http.get(`${url}${requestPath}`, { localAddress: from });
+      req.answered = new Promise((resolve) => {
+        req.on('response', function readStatus(res) {
+          res.resume();
+          resolve(res.statusCode);
+        });
+      });
+      req.on('error', () => {});
+      return req;
+    }
+
+    async function untilHeld(count) {
+      const deadline = Date.now() + 1000;
+      while (held.length < count && Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+      }
+      expect(held).to.have.lengthOf(count);
+    }
+
+    it('GET /apps/permanentmessages limits the requests its cache does not answer', async () => {
+      const route = await serveRoute('/apps/permanentmessages/:hash?/:owner?/:appname?');
+
+      const cacheAt = route.chain.findIndex((fn) => fn && fn.name === 'cache');
+      const limitAt = route.chain.findIndex((fn) => fn && fn.name === 'limitConcurrent');
+      expect(limitAt, 'the route carries no limit').to.not.equal(-1);
+      expect(cacheAt, 'the route carries no cache').to.not.equal(-1);
+      expect(limitAt).to.be.greaterThan(cacheAt);
+    });
+
+    it('GET /apps/permanentmessages answers one lookup without a hash at a time', async () => {
+      await serveRoute('/apps/permanentmessages/:hash?/:owner?/:appname?');
+
+      open('/apps/permanentmessages');
+      await untilHeld(1);
+
+      expect(await open('/apps/permanentmessages?owner=alice').answered).to.equal(503);
+      expect(await open('/apps/permanentmessages?appname=logapp').answered).to.equal(503);
+      expect(await open('/apps/permanentmessages?probe=1').answered).to.equal(503);
+      expect(held).to.have.lengthOf(1);
+    });
+
+    it('GET /apps/permanentmessages answers a lookup by hash however many others it is answering', async () => {
+      await serveRoute('/apps/permanentmessages/:hash?/:owner?/:appname?');
+
+      open('/apps/permanentmessages');
+      await untilHeld(1);
+      open('/apps/permanentmessages/a1b2');
+      open('/apps/permanentmessages?hash=c3d4');
+
+      await untilHeld(3);
+    });
+
+    it('GET /apps/permanentmessagesbyheight serves four logs at a time', async () => {
+      await serveRoute('/apps/permanentmessagesbyheight');
+
+      for (let i = 1; i <= 4; i += 1) open(`/apps/permanentmessagesbyheight?fromHeight=0&toHeight=${i}`, `127.0.0.${i}`);
+      await untilHeld(4);
+
+      expect(await open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=9', '127.0.0.5').answered).to.equal(503);
+      expect(held).to.have.lengthOf(4);
+    });
+
+    it('GET /apps/permanentmessagesbyheight serves one log at a time to one caller', async () => {
+      await serveRoute('/apps/permanentmessagesbyheight');
+
+      open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=1', '127.0.0.1');
+      await untilHeld(1);
+
+      expect(await open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=2', '127.0.0.1').answered).to.equal(503);
+      open('/apps/permanentmessagesbyheight?fromHeight=0&toHeight=3', '127.0.0.2');
+      await untilHeld(2);
+    });
+  });
+
   // Every route hands its failures to express, which answers 500 - so a failure
   // is a response now, and apicache stores whatever a handler produced. Without
   // a bound on what may be stored, one transient rejection is served to every
@@ -331,7 +450,7 @@ describe('route wiring', () => {
     let calls;
 
     beforeEach(() => {
-      apicache.clear();
+      clearCache();
       calls = { boom: 0, reported: 0, fine: 0 };
       app = express();
       app.get('/boom', cache('30 seconds'), asyncRoute(async () => {
@@ -349,7 +468,7 @@ describe('route wiring', () => {
     });
 
     afterEach(() => {
-      apicache.clear();
+      clearCache();
     });
 
     it('does not answer a later caller from a handler that failed', async () => {

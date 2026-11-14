@@ -11,7 +11,7 @@
  * The stub stands in for fluxd: the run files are written as fluxd writes them,
  * not by a fluxd.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -23,6 +23,7 @@ import {
 } from '../framework/fluxd-control.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const CREDENTIAL = 1;
 const FLUX_CONF = 0;
@@ -47,8 +48,7 @@ describe('FluxOS reaches fluxd through what fluxd publishes when its unit passes
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

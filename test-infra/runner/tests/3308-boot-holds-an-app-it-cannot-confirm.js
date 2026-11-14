@@ -50,6 +50,7 @@ import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { loadSharedConfig, BOOT_DRIFT_MS } from '../framework/coupled-knobs.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const HOLDER = 0;
 const NODES = 3;
@@ -200,8 +201,7 @@ describe('boot holds an app whose location it cannot read', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -16,6 +16,13 @@ describe('geolocationService tests', () => {
   // with a wildcard carrying `client`, `server`, `cloud` or `pool` inverts the
   // tests asserting UNKNOWN and DATACENTER. Tests that want a PTR set it here.
   let dnsStub;
+  // A pass lazily requires the benchmark service and the location table. Every
+  // load here replaces both, so no pass makes a real benchmark call or reads the
+  // real table. Each answers as in a unit run with neither available: the
+  // benchmark call fails (link speeds read as no signal) and the table has not
+  // loaded. A test that needs a loaded table brings its own.
+  let benchmarkServiceStub;
+  let unloadedTableStub;
   let clock;
 
   const mockGeolocationData = {
@@ -104,6 +111,14 @@ describe('geolocationService tests', () => {
       },
     };
 
+    benchmarkServiceStub = {
+      getBenchmarks: sinon.stub().resolves({ status: 'error', data: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED' } }),
+    };
+    unloadedTableStub = {
+      status: sinon.stub().returns({ ready: false, generated: null, rowCount: 0 }),
+      lookup: sinon.stub().rejects(new Error('the table has not loaded')),
+    };
+
     // Load module with stubs
     geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
       'node:dns': dnsStub,
@@ -112,6 +127,8 @@ describe('geolocationService tests', () => {
       './dbHelper': dbHelperStub,
       './serviceHelper': serviceHelperStub,
       './fluxNetworkHelper': fluxNetworkHelperStub,
+      './benchmarkService': benchmarkServiceStub,
+      './appPlacement/ipLocationStore': unloadedTableStub,
     });
   });
 
@@ -397,6 +414,8 @@ describe('geolocationService tests', () => {
 
     it('stops when it is told to, so nothing wakes again', async () => {
       await geolocationService.setNodeGeolocation();
+      // The pass read its link speeds from this file's stub, not the real service.
+      sinon.assert.calledOnce(benchmarkServiceStub.getBenchmarks);
       geolocationService.stopNodeGeolocation();
       fluxNetworkHelperStub.getLocalSocketAddress.resetHistory();
 
@@ -444,6 +463,8 @@ describe('geolocationService tests', () => {
         './dbHelper': dbHelperStub,
         './serviceHelper': serviceHelperStub,
         './fluxNetworkHelper': fluxNetworkHelperStub,
+        './benchmarkService': benchmarkServiceStub,
+        './appPlacement/ipLocationStore': unloadedTableStub,
       });
     }
 
@@ -637,7 +658,7 @@ describe('geolocationService tests', () => {
       expect(Date.now() - written.lastIpChangeDate, 'the change is stamped now').to.be.below(60000);
     });
 
-    // The table lookup is not stubbed by this describe's reload(), so these
+    // This describe's reload() has no table loaded, so these
     // build their own. A recent change means: lastIpChangeDate on record AND
     // the address held for less than the stability window since.
     function reloadWithTable(networkClass) {
@@ -648,6 +669,7 @@ describe('geolocationService tests', () => {
         './dbHelper': dbHelperStub,
         './serviceHelper': serviceHelperStub,
         './fluxNetworkHelper': fluxNetworkHelperStub,
+        './benchmarkService': benchmarkServiceStub,
         './appPlacement/ipLocationStore': {
           lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass }),
           status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
@@ -769,6 +791,7 @@ describe('geolocationService tests', () => {
         './dbHelper': dbHelperStub,
         './serviceHelper': serviceHelperStub,
         './fluxNetworkHelper': fluxNetworkHelperStub,
+        './benchmarkService': benchmarkServiceStub,
         './appPlacement/ipLocationStore': table,
       });
 
@@ -795,6 +818,7 @@ describe('geolocationService tests', () => {
           './dbHelper': dbHelperStub,
           './serviceHelper': serviceHelperStub,
           './fluxNetworkHelper': fluxNetworkHelperStub,
+          './benchmarkService': benchmarkServiceStub,
           './appPlacement/ipLocationStore': {
             lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' }),
             status: sinon.stub().returns(status),
@@ -909,6 +933,7 @@ describe('geolocationService tests', () => {
         './dbHelper': dbHelperStub,
         './serviceHelper': serviceHelperStub,
         './fluxNetworkHelper': fluxNetworkHelperStub,
+        './benchmarkService': benchmarkServiceStub,
         './appPlacement/ipLocationStore': ipLocationStoreStub,
       });
     }
@@ -1194,6 +1219,7 @@ describe('geolocationService tests', () => {
         './dbHelper': dbHelperStub,
         './serviceHelper': serviceHelperStub,
         './fluxNetworkHelper': fluxNetworkHelperStub,
+        './benchmarkService': benchmarkServiceStub,
         './appPlacement/ipLocationStore': tableStub,
       });
     }

@@ -4,7 +4,7 @@
 
 # FluxOS unit tests in containers
 
-`tests/images/run-unit.sh` runs the unit suite as CI runs it (`.github/workflows/nodejs.yml`): Node 20.8.0, MongoDB 7.0, cron, `CI=true`, `npm run ciconfig` and `npm run prebuild`. The only requirement on the host is Docker with the compose plugin.
+`tests/images/run-unit.sh` runs the unit suite as CI runs it (`.github/workflows/nodejs.yml`): Node 24.14.1, MongoDB 7.0, cron, `CI=true`, `npm run ciconfig` and `npm run prebuild`. The only requirement on the host is Docker with the compose plugin.
 
 * Each run is a compose project of its own, with its own image, removed with its image and volumes when the run ends, so runs on one host never share an image, container, network or volume.
 * No unit test asks a docker daemon, and the run has none: every docker answer a test reads is a stub.

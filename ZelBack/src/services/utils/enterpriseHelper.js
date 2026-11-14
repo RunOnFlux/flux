@@ -6,6 +6,35 @@ const log = require('../../lib/log');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
+// fluxbench refuses at once, with this message, a call it has no room for; it makes room as the
+// calls it is running finish, and a full queue of 20 decrypts empties in about half a second.
+const FLUXBENCH_BUSY = 'Work queue depth exceeded';
+const BUSY_RETRIES = 3;
+const BUSY_RETRY_MS = 1000;
+
+/**
+ * Asks fluxbench to unwrap an app's AES key, asking again up to BUSY_RETRIES times, BUSY_RETRY_MS
+ * apart, while it refuses the call as busy. Any other answer is returned as it came.
+ * @param {string} inputData the request, as JSON
+ * @param {string} appName
+ * @returns {Promise<object>} fluxbench's answer
+ */
+async function unwrapKeyWhenFluxbenchHasRoom(inputData, appName) {
+  let refusals = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    // eslint-disable-next-line no-await-in-loop
+    const dataReturned = await benchmarkService.decryptRSAMessage(inputData);
+    if (dataReturned.status !== 'error' || dataReturned.data?.message !== FLUXBENCH_BUSY) return dataReturned;
+    refusals += 1;
+    if (refusals > BUSY_RETRIES) {
+      throw new Error(`fluxbench refused unwrapping the key of ${appName} as busy ${refusals} times`);
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => { setTimeout(resolve, BUSY_RETRY_MS); });
+  }
+}
+
 /**
  * Decrypts AES key with RSA key
  * @param {string} appName - Application name
@@ -53,7 +82,7 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
     blockHeight: block,
   });
 
-  const dataReturned = await benchmarkService.decryptRSAMessage(inputData);
+  const dataReturned = await unwrapKeyWhenFluxbenchHasRoom(inputData, appName);
   const { status, data } = dataReturned;
   if (status === 'success') {
     const dataParsed = JSON.parse(data);

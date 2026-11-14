@@ -9,7 +9,7 @@
  * here gain their link that way, one owned by the network's owner and one by another, and are
  * alike in everything else. The same owner's app joining is the canary for each case.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -26,6 +26,7 @@ import { appId } from '../framework/volume-fixture.js';
 import { PRODUCTION } from '../framework/coupled-knobs.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import installOutcomeModule from '../../../ZelBack/src/services/utils/installOutcome.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { InstallOutcome } = installOutcomeModule;
 const HOLDER = 1;
@@ -121,8 +122,7 @@ describe('a network link joins apps of one owner', function () {
     expect(await isMember(otherOwner), `${otherOwner} on ${network} before any reconnect`).to.equal(false);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

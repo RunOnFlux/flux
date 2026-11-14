@@ -40,10 +40,13 @@ function refuseIfTooLarge(req, res, body, limit = MAX_BODY_SIZE) {
       res.set('Connection', 'close');
       res.status(413).json(messageHelper.createErrorMessage('Request body too large'));
       // what the client is still sending is read and dropped for a moment, so that the
-      // refusal arrives before the reset that destroying a busy socket sends
+      // refusal arrives before the reset that destroying a busy socket sends;
+      // a socket that closes sooner ends the wait
       res.on('finish', () => {
         req.resume();
-        setTimeout(() => req.destroy(), BODY_DRAIN_MS).unref();
+        const drain = setTimeout(() => req.destroy(), BODY_DRAIN_MS);
+        drain.unref();
+        req.socket.once('close', () => clearTimeout(drain));
       });
     }
   }

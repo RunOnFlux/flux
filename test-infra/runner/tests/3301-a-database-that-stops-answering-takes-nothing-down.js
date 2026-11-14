@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { authenticate } from '../auth.js';
@@ -13,6 +13,7 @@ import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { holdCommands, releaseCommands } from '../framework/mongo-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A mongod that stops answering FluxOS's commands while it goes on answering the
 // driver's heartbeats, and then answers again: what a mongod with one thread stuck
@@ -85,8 +86,7 @@ describe('a database that stops answering takes nothing down', function () {
     await waitForDown(client, stoppedName, 'stopped by its owner');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (held) await releaseCommands().catch(() => {});
     await env?.teardown();
   });

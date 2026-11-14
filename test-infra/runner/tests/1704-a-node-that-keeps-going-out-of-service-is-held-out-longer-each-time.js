@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { loadSharedConfig } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -141,8 +142,7 @@ describe('a node that keeps going out of service is held out longer each time', 
     expect((await recurrence()).record.episodeHeights, 'fixture: no episode recorded').to.deep.equal([]);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (nodeIp) await setUpnpCapacity(nodeIp, null).catch(() => {});
     await env?.teardown();
   });

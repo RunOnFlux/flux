@@ -1,6 +1,6 @@
 // weight: light
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -11,12 +11,14 @@ import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
 // A router turn records a mapping before it asks for it (upnpRouter's
-// RecordingClient), and each record write ends within config.upnp.recordWriteLimitMs,
-// so a database that holds every command leaves the router's mappings going ahead.
+// RecordingClient), and each record write is made on the database's quick
+// client, so it ends within config.database.quickCallTimeoutMs: a database that
+// holds every command leaves the router's mappings going ahead.
 //
 // The turn is the refresh of the node's own ports: every portRestoreIntervalMs it
 // maps its four core ports again, one add each, and touches the database for
@@ -28,7 +30,7 @@ const subnet = getSubnetConfig();
 const API_PORT = 16137;
 const CORE_PORTS = [API_PORT - 1, API_PORT, API_PORT + 1, API_PORT + 2];
 const REFRESH_CYCLE_MS = loadSharedConfig().fluxapps.portRestoreIntervalMs;
-// config.upnp.recordWriteLimitMs, which the harness leaves at production's
+// config.database.quickCallTimeoutMs, which the harness leaves at production's
 const RECORD_WRITE_LIMIT_MS = 5000;
 // upnpRouter.pause after each map
 const PAUSE_AFTER_MAP_MS = 500;
@@ -69,9 +71,7 @@ describe('a router turn maps its port while the database holds the record', func
       { timeout: REFRESHED_WITHIN_MS, interval: 1000, label: 'a refresh asking the router for every core port' });
   });
 
-  after(async function () {
-    // a release, then the teardown every suite gives 60 s
-    this.timeout(HOLD_MS + 60000);
+  afterTeardown(async function () {
     if (held) await releaseCommands().catch(() => {});
     await env?.teardown();
   });

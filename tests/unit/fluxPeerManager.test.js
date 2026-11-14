@@ -17,6 +17,7 @@ const log = require('../../ZelBack/src/lib/log');
 const messageRoutes = require('../../ZelBack/src/services/utils/messageRoutes');
 const { INTENT } = require('../../ZelBack/src/services/utils/messageIntent');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+const { default: cacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
 // Loaded for its side effect: the transport declares the routing table as it loads, and the
 // ordered-route tests below read it. Declared here rather than relied on - without it this
@@ -63,6 +64,7 @@ describe('FluxPeerSocket tests', () => {
   afterEach(() => {
     sinon.restore();
     manager.reset();
+    cacheManager.resetCaches();
   });
 
   describe('constructor', () => {
@@ -1063,6 +1065,7 @@ describe('FluxPeerManager tests', () => {
   afterEach(() => {
     sinon.restore();
     manager.reset();
+    cacheManager.resetCaches();
   });
 
   // A node that syncs from itself learns nothing it does not already hold, and

@@ -739,6 +739,8 @@ describe('arcaneLink tests', () => {
       await a.mod.handleNonce(nonceFrom('keyB'), peers.aPeer);
 
       expect(peers.aPeer.link).to.equal(link);
+      // The peer gives up the handshake left running, which settles it.
+      a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: null, nonce: link.localNonce } }, peers.aPeer);
     });
 
     it('should not fail a new handshake on the confirm of the one it replaced', async () => {

@@ -25,7 +25,7 @@
 //     serving and keeps its data where it is;
 //   - a node whose own ip-api report says FR while the table says DE keeps both
 //     apps: only the table moves an installed app.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -39,6 +39,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING } from '../framework/residential-fleet.js';
 import { keysOf, nextOwnedTurn, turnOwner } from '../framework/handback-turns.js';
 import { allowFromNow } from '../framework/time-budget.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -192,8 +193,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
     await stopTicker();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     // leave the stub on its single-domain default for whatever runs next
     await fetch(`${env?.stubControl}/iplocation`, {
       method: 'POST',

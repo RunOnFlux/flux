@@ -8,7 +8,7 @@
  * order, so the node recording a well-formed claim sent after a frame says it has finished with the
  * frame. Every test starts with the stub connected to every real node.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -18,6 +18,7 @@ import { fluxosPid } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -81,8 +82,7 @@ describe('a frame a peer cannot mean is dropped', function () {
     expect(pids.every((pid) => typeof pid === 'number'), `FluxOS running on every node: ${pids}`).to.equal(true);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

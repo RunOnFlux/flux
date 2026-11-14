@@ -1,6 +1,6 @@
 // weight: medium
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -15,6 +15,7 @@ import { socketAddr } from '../framework/state-events.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node records when it took an app (app:placementRecorded) and announces that
 // as the app's runningSince. The record follows the app's data on the node: a
@@ -90,8 +91,7 @@ describe('a node keeps its own record of when it took an app', function () {
     announcedSince = runningSinceIn(first);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

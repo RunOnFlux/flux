@@ -2324,6 +2324,9 @@ let discoveryTimer = null;
 let discoveryDueAt = Infinity;
 let discoveryInPass = false;
 let discoveryRequestedMs = null;
+// Moves on at each stopDiscovery: a pass, or a start waiting on the node list,
+// begun before a stop schedules nothing after it.
+let discoveryEpoch = 0;
 
 /**
  * Run a discovery pass in `ms`, unless one is already due sooner.
@@ -2347,6 +2350,7 @@ async function runDiscoveryPass() {
   discoveryTimer = null;
   discoveryDueAt = Infinity;
   discoveryInPass = true;
+  const epoch = discoveryEpoch;
   let nextMs = config.fluxapps.discoveryFailRetryMs ?? 120000;
   try {
     nextMs = await fluxDiscovery();
@@ -2354,7 +2358,11 @@ async function runDiscoveryPass() {
     discoveryInPass = false;
     const requested = discoveryRequestedMs;
     discoveryRequestedMs = null;
-    scheduleDiscovery(requested === null ? nextMs : Math.min(nextMs, requested));
+    if (epoch === discoveryEpoch) {
+      scheduleDiscovery(requested === null ? nextMs : Math.min(nextMs, requested));
+    } else if (requested !== null) {
+      scheduleDiscovery(requested);
+    }
   }
 }
 
@@ -2366,8 +2374,28 @@ function startDiscovery() {
   // land after it. A peer holds one socket in either direction, so peers that
   // dial us while we are waiting take the very sockets we would have dialled
   // them on, and a late first pass then has nothing left to connect to.
-  // eslint-disable-next-line no-use-before-define
-  networkStateService.onReady(() => scheduleDiscovery(0));
+  const epoch = discoveryEpoch;
+  networkStateService.onReady(() => {
+    if (epoch === discoveryEpoch) scheduleDiscovery(0);
+  });
+}
+
+/**
+ * Stop discovery: cancel the pass due and the report of this node's
+ * authenticated links due to its peers. A pass in flight finishes without
+ * scheduling another, and a start still waiting on the node list never
+ * schedules its first. Discovery runs again from the next scheduleDiscovery or
+ * startDiscovery.
+ */
+function stopDiscovery() {
+  discoveryEpoch += 1;
+  discoveryRunning = false;
+  clearTimeout(discoveryTimer);
+  discoveryTimer = null;
+  discoveryDueAt = Infinity;
+  discoveryRequestedMs = null;
+  clearTimeout(arcaneReportTimer);
+  arcaneReportTimer = null;
 }
 
 async function startDiscoveryApi(req, res) {
@@ -2792,6 +2820,7 @@ module.exports = {
   discoveryRetryMs,
   takeArcanePeers,
   startDiscovery,
+  stopDiscovery,
   initializeDiscovery,
   startDiscoveryApi,
   handleAppMessages,

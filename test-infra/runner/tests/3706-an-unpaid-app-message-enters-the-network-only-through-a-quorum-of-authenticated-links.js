@@ -17,7 +17,7 @@
  * The harness's fluxbench is the daemon stub's: what a green run shows is the
  * protocol between FluxOS processes, not SAS's encryption.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { appOwnerKey, nodeKey } from '../framework/keys.js';
@@ -30,6 +30,7 @@ import {
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 10;
 const LEGACY = 7;
@@ -104,8 +105,7 @@ describe('an unpaid app message enters the network only through a quorum of auth
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -31,6 +31,7 @@ describe('bodyLimit', () => {
     const clock = sinon.useFakeTimers();
     try {
       const req = new EventEmitter();
+      req.socket = new EventEmitter();
       req.destroy = sinon.stub();
       req.resume = sinon.stub();
       const res = makeResponse();
@@ -47,6 +48,27 @@ describe('bodyLimit', () => {
       sinon.assert.notCalled(req.destroy);
       clock.tick(1000);
       sinon.assert.calledOnce(req.destroy);
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('stops waiting to destroy the request once its socket has closed', () => {
+    const clock = sinon.useFakeTimers();
+    try {
+      const req = new EventEmitter();
+      req.socket = new EventEmitter();
+      req.destroy = sinon.stub();
+      req.resume = sinon.stub();
+      const res = makeResponse();
+
+      bodyLimit.refuseIfTooLarge(req, res, 'x'.repeat(bodyLimit.MAX_BODY_SIZE + 1));
+      res.handlers.finish();
+      req.socket.emit('close');
+
+      expect(clock.countTimers()).to.equal(0);
+      clock.tick(1000);
+      sinon.assert.notCalled(req.destroy);
     } finally {
       clock.restore();
     }

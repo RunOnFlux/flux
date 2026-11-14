@@ -15,7 +15,7 @@
  * against its operator from the moment it passes its check, so the observer takes
  * exactly the allowance of them.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
@@ -26,6 +26,7 @@ import {
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 4;
 const STUB = 3;
@@ -74,8 +75,7 @@ describe('an operator naming its own clients is held to the operator allowance',
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

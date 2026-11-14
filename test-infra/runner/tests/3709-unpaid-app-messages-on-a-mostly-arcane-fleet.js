@@ -9,12 +9,13 @@
  * carries is stored on no Arcane node. The fleet and the checks are
  * framework/mixed-network.js.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { mixedFleet, mixedNetworkChecks } from '../framework/mixed-network.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const MIX = { legacy: [3, 9], observer: 4 };
 
@@ -30,8 +31,7 @@ describe('unpaid app messages on a mostly Arcane fleet', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

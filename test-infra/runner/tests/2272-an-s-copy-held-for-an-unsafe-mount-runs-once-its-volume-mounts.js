@@ -8,7 +8,7 @@
  * component has no decider to say it may run again, so the hold must not outlive the
  * unsafe mount: once the superblock is back, the volume mounts and the copy starts.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -21,6 +21,7 @@ import { breakFolderVolume, restoreFolderVolume } from '../framework/volume-fixt
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const MOUNT_SAFETY = 'mount safety block';
 
@@ -66,8 +67,7 @@ describe('an s: copy held for an unsafe mount runs once its volume mounts', func
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

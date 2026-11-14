@@ -13,7 +13,7 @@
  * A = the standby, B = the primary, C = a bystander the discovery ring needs.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { moveNodeAddress } from '../framework/container.js';
@@ -22,6 +22,7 @@ import { resetFdm } from '../framework/fdm-control.js';
 import { waitForUp, waitForElectionDecisions, electionDecisionCount } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { placeSilentPrimaryApp, B } from '../framework/silent-primary.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const SIGTERM_EXPIRY_S = 120;
 // fluxd's answer is read through FluxOS's call cache and the node's address cache.
@@ -46,8 +47,7 @@ describe('a primary whose fluxd decides its new address keeps the app', function
     await setDecidedAddress(oldIp, oldIp);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await setDecidedAddress(oldIp, null).catch(() => {});
     await resetFdm().catch(() => {});

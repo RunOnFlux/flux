@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -16,6 +16,7 @@ import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-contr
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -210,8 +211,7 @@ describe('a second machine installed afresh on the collateral of a node running 
     await env.startNode(COPY);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await watch?.stop();
     await env?.teardown();
   });
@@ -273,8 +273,7 @@ describe('a second machine started from a clone of the listed node\'s disk', fun
     await waitFor(() => isUp(env, appName, LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

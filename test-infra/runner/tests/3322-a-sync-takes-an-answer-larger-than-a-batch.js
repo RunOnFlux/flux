@@ -11,7 +11,7 @@
  * door takes a quorum of checks per message and 2,200 of them do not fit a suite. Their
  * specifications, hashes and signatures are real, and the node under test checks them.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -19,6 +19,7 @@ import { buildTempMessages } from '../framework/seed-helper.js';
 import { dbClient } from '../framework/db-client.js';
 import { waitForDaemonReady, waitForNodeStatus } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const BUDGET_MS = 60000;
 const MESSAGES = 2200;
@@ -60,8 +61,7 @@ describe('a sync takes an answer larger than a batch', function () {
     await env.startDiscovery([SUBJECT]);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

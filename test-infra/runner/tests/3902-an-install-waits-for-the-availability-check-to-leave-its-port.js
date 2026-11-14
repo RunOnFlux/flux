@@ -1,5 +1,5 @@
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -9,6 +9,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An install of an app on the port the availability check is testing waits for
 // the check to stop listening there, and then installs.
@@ -59,8 +60,7 @@ describe('an install waits for the availability check to leave its port', functi
     );
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env) await subject().releaseCheckpoint(CHECK_LISTENING).catch(() => {});
     await env?.teardown();
   });

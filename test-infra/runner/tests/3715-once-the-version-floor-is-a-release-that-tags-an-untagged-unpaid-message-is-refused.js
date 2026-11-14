@@ -14,7 +14,7 @@
  * No node can hold admissionQuorum (10) authenticated links here, so an Arcane
  * node's door refuses a registration with 503.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { appOwnerKey, nodeKey } from '../framework/keys.js';
@@ -26,6 +26,7 @@ import {
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 5;
 const ARCANE = [0, 1];
@@ -81,8 +82,7 @@ describe('once the version floor is a release that tags, an untagged unpaid mess
     }, { timeout: 120000, interval: 2000, label: 'the Arcane stub linked to both Arcane nodes, the plain stub connected to every node' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

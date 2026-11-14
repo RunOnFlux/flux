@@ -13,7 +13,7 @@
  * Every node polls the published source every few seconds: the subject is what a
  * node does with a ban it holds, not how the ban reaches it.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { appOwnerKey, nodeKey } from '../framework/keys.js';
@@ -22,6 +22,7 @@ import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { setBlocklist } from '../framework/external-http-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 3;
 const ENTRIES = [1, 2];
@@ -82,8 +83,7 @@ describe('a banned caller is refused at every route that takes an app message', 
     await publish([ban()]);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await setBlocklist([]).catch(() => {});
     await env?.teardown();
   });

@@ -64,6 +64,11 @@ class FluxPeerManager extends EventEmitter {
    * @type {Map<string, FluxPeerSocket>}
    */
   #handshaking = new Map();
+  /**
+   * The deadline each handshaking connection joins at if its link has not settled.
+   * @type {Map<FluxPeerSocket, NodeJS.Timeout>}
+   */
+  #handshakeDeadlines = new Map();
   /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
   #reconnectCounts = new Map();
   /** @type {number} peer count threshold for app sync readiness */
@@ -231,9 +236,8 @@ class FluxPeerManager extends EventEmitter {
     if (!settled) return this.#register(peer, Boolean(existing), options.source);
     peer.handshaking = true;
     this.#handshaking.set(key, peer);
-    const deadline = setTimeout(() => this.#settleHandshake(peer, Boolean(existing), options.source), config.fluxapps.linkHandshakeDeadlineMs);
+    this.#handshakeDeadlines.set(peer, setTimeout(() => this.#settleHandshake(peer, Boolean(existing), options.source), config.fluxapps.linkHandshakeDeadlineMs));
     settled.catch((error) => log.error(error)).finally(() => {
-      clearTimeout(deadline);
       this.#settleHandshake(peer, Boolean(existing), options.source);
     });
     return peer;
@@ -247,11 +251,21 @@ class FluxPeerManager extends EventEmitter {
    * @private
    */
   #settleHandshake(peer, replaced, source) {
+    this.#clearHandshakeDeadline(peer);
     if (this.#handshaking.get(peer.key) !== peer) return;
     this.#handshaking.delete(peer.key);
     peer.handshaking = false;
     this.#register(peer, replaced, source);
     peer.flushQueuedFrames();
+  }
+
+  /**
+   * @param {FluxPeerSocket} peer
+   * @private
+   */
+  #clearHandshakeDeadline(peer) {
+    clearTimeout(this.#handshakeDeadlines.get(peer));
+    this.#handshakeDeadlines.delete(peer);
   }
 
   /**
@@ -263,6 +277,7 @@ class FluxPeerManager extends EventEmitter {
    * @private
    */
   #dropHandshaking(peer, code, reason) {
+    this.#clearHandshakeDeadline(peer);
     this.#handshaking.delete(peer.key);
     peer.detachHandlers();
     try { peer.ws.close(code, reason); } catch (_e) { /* noop */ }
@@ -284,6 +299,7 @@ class FluxPeerManager extends EventEmitter {
    * @param {FluxPeerSocket} peer
    */
   removeHandshaking(peer) {
+    this.#clearHandshakeDeadline(peer);
     if (this.#handshaking.get(peer.key) === peer) this.#handshaking.delete(peer.key);
   }
 

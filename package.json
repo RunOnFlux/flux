@@ -46,7 +46,7 @@
   ],
   "license": "AGPL-3.0-or-later",
   "engines": {
-    "node": ">=20.8.0"
+    "node": ">=24.14.1"
   },
   "bugs": {
     "url": "https://github.com/runonflux/flux/issues"
@@ -56,7 +56,7 @@
     "lint": "eslint --ext .js ./",
     "lint:fix": "eslint --ext .js ./ --fix",
     "test:zelback": "mocha tests/ZelBack",
-    "test:zelback:unit": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig nyc --reporter=lcov mocha --require ./tests/unit/databaseLeftovers.js \"tests/unit/**/*.test.js\" --exit",
+    "test:zelback:unit": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig nyc --reporter=lcov mocha --require ./tests/unit/databaseLeftovers.js --require ./tests/unit/timerLeftovers.js \"tests/unit/**/*.test.js\" --exit",
     "test:zelback:unit:compose": "bash tests/images/run-unit.sh",
     "test:ethereumHelper": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig mocha tests/unit/ethereumHelper.test.js --exit",
     "prebuild": "bash checkNodeV.sh",
@@ -93,7 +93,7 @@
     "google-auth-library": "^10.5.0",
     "inquirer": "~12.8.2",
     "js-yaml": "~4.1.0",
-    "mongodb": "~6.18.0",
+    "mongodb": "~7.8.0",
     "morgan": "~1.10.0",
     "nano-ethereum-signer": "~0.1.2",
     "node-abort-controller": "^3.1.1",

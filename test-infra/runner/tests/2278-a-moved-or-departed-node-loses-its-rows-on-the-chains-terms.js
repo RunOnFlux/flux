@@ -1,5 +1,5 @@
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The node list and the chain's record of moves decide when a node's location
 // rows go, and every peer reads the same two.
@@ -146,8 +147,7 @@ describe('a moved or departed node loses its rows on the chain\'s terms', functi
     }));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await Promise.all(cuts.map(({ container, ips }) => unblockPeerAccess(container, ips, API_PORT).catch(() => {})));
     await Promise.all(held.map(([i, socket]) => client(i).releaseCheckpoint(BEFORE_RECONCILE, socket).catch(() => {})));
     await Promise.all(dropped.map((ip) => Promise.all([restoreToNodeList(ip).catch(() => {}), clearNodeStatus(ip).catch(() => {})])));

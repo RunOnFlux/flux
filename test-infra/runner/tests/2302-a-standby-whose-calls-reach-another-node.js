@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -16,6 +16,7 @@ import {
   isDaemonUp, getDeviceId, getFolders, getConfiguredDevices, addDevice, listFolderFiles,
 } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A single-writer app on two nodes, the primary holding the world and the standby
 // meant to hold a copy of it. The standby's router forwards by port alone, so
@@ -131,8 +132,7 @@ describe('a standby whose calls to its primary reach another node', function () 
     await waitForReconcileActuated(env.clients[A], identifier, 'dataCleared', 120000, { afterId: standbyInstalledFrom });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env && redirectRules.length) await clearOutboundRedirect(env.clients[A].container, redirectRules).catch(() => {});
     await resetFdm().catch(() => {});
     await env?.teardown();

@@ -41,7 +41,11 @@ describe('dbHelper tests', () => {
 
       const dbConnection = await dbHelper.connectMongoDb();
 
-      expect(dbConnection.s.url).to.equal(mongoUrl);
+      try {
+        expect(dbConnection.s.url).to.equal(mongoUrl);
+      } finally {
+        await dbConnection.close();
+      }
     });
   });
 
@@ -781,47 +785,83 @@ describe('dbHelper tests', () => {
     });
   });
 
-  describe('the maintenance client', () => {
+  describe('the maintenance and quick clients', () => {
     afterEach(async () => {
       sinon.restore();
       await dbHelper.closeDbConnection();
     });
 
-    const client = () => ({ close: sinon.stub().resolves(), db: sinon.stub().callsFake((name) => ({ databaseName: name, client: 'maintenance' })) });
+    const client = (name) => ({ close: sinon.stub().resolves(), db: sinon.stub().callsFake((database) => ({ databaseName: database, client: name })) });
 
-    it('is connected beside the main client, each bounded by its own configured call timeout', async () => {
+    it('are connected beside the main client, each bounded by its own configured call timeout', async () => {
       await dbHelper.closeDbConnection();
-      const main = client();
-      const maintenance = client();
+      const main = client('main');
+      const maintenance = client('maintenance');
+      const quick = client('quick');
       const connect = sinon.stub(MongoClient, 'connect');
       connect.onFirstCall().resolves(main);
       connect.onSecondCall().resolves(maintenance);
+      connect.onThirdCall().resolves(quick);
 
       await dbHelper.initiateDB();
 
-      const { callTimeoutMs, maintenanceCallTimeoutMs } = config.database;
-      expect(callTimeoutMs, 'the two clients share one bound, so this proves nothing').to.not.equal(maintenanceCallTimeoutMs);
+      const { callTimeoutMs, maintenanceCallTimeoutMs, quickCallTimeoutMs } = config.database;
+      expect(new Set([callTimeoutMs, maintenanceCallTimeoutMs, quickCallTimeoutMs]).size, 'clients sharing one bound prove nothing').to.equal(3);
       expect(connect.firstCall.args[1]).to.include({ maxPoolSize: 100, socketTimeoutMS: callTimeoutMs, waitQueueTimeoutMS: callTimeoutMs });
       expect(connect.secondCall.args[1]).to.include({ socketTimeoutMS: maintenanceCallTimeoutMs, waitQueueTimeoutMS: maintenanceCallTimeoutMs });
+      expect(connect.thirdCall.args[1]).to.include({
+        serverSelectionTimeoutMS: quickCallTimeoutMs,
+        connectTimeoutMS: quickCallTimeoutMs,
+        socketTimeoutMS: quickCallTimeoutMs,
+        waitQueueTimeoutMS: quickCallTimeoutMs,
+      });
+      expect(connect.thirdCall.args[1]).to.not.have.property('timeoutMS');
       expect(dbHelper.databaseConnection()).to.equal(main);
       expect(dbHelper.maintenanceConnection()).to.equal(maintenance);
+      expect(dbHelper.quickConnection()).to.equal(quick);
       expect(dbHelper.onMaintenanceClient({ databaseName: 'globalzelappstest' })).to.deep.equal({ databaseName: 'globalzelappstest', client: 'maintenance' });
+      expect(dbHelper.onQuickClient({ databaseName: 'zelfluxlocaltest' })).to.deep.equal({ databaseName: 'zelfluxlocaltest', client: 'quick' });
     });
 
-    it('is connected with the main client or not at all', async () => {
+    it('place a database on the main client while they are not connected', async () => {
       await dbHelper.closeDbConnection();
-      const main = client();
+      const database = { databaseName: 'zelfluxlocaltest' };
+
+      expect(dbHelper.onMaintenanceClient(database)).to.equal(database);
+      expect(dbHelper.onQuickClient(database)).to.equal(database);
+    });
+
+    [['maintenance', 'onSecondCall'], ['quick', 'onThirdCall']].forEach(([which, refused]) => {
+      it(`are connected with the main client or not at all: the ${which} client refused`, async () => {
+        await dbHelper.closeDbConnection();
+        const opened = [client('main'), client('maintenance')];
+        const connect = sinon.stub(MongoClient, 'connect');
+        connect.onFirstCall().resolves(opened[0]);
+        connect.onSecondCall().resolves(opened[1]);
+        connect[refused]().rejects(new Error('connection refused'));
+
+        const error = await dbHelper.initiateDB().catch((caught) => caught);
+
+        expect(error.message).to.equal('connection refused');
+        const connected = refused === 'onSecondCall' ? 1 : 2;
+        opened.slice(0, connected).forEach((c) => sinon.assert.calledOnce(c.close));
+        expect(dbHelper.databaseConnection()).to.equal(null);
+        expect(dbHelper.maintenanceConnection()).to.equal(null);
+        expect(dbHelper.quickConnection()).to.equal(null);
+      });
+    });
+
+    it('are closed with the main client', async () => {
+      await dbHelper.closeDbConnection();
+      const clients = [client('main'), client('maintenance'), client('quick')];
       const connect = sinon.stub(MongoClient, 'connect');
-      connect.onFirstCall().resolves(main);
-      connect.onSecondCall().rejects(new Error('connection refused'));
+      clients.forEach((c, i) => connect.onCall(i).resolves(c));
+      await dbHelper.initiateDB();
 
-      const error = await dbHelper.initiateDB().catch((caught) => caught);
+      await dbHelper.closeDbConnection();
 
-      expect(error.message).to.equal('connection refused');
-
-      sinon.assert.calledOnce(main.close);
-      expect(dbHelper.databaseConnection()).to.equal(null);
-      expect(dbHelper.maintenanceConnection()).to.equal(null);
+      clients.forEach((c) => sinon.assert.calledOnce(c.close));
+      expect(dbHelper.quickConnection()).to.equal(null);
     });
   });
 

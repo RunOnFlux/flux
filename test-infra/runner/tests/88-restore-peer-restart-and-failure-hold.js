@@ -1,4 +1,4 @@
-import { describe, it, before, after, beforeEach } from 'mocha';
+import { describe, it, before, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -13,6 +13,7 @@ import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/re
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An r:/s: component runs on EVERY instance at once, so after a restore the
 // peers' containers are holding the data that was just replaced underneath
@@ -98,8 +99,7 @@ describe('a restore restarts the other instances and never rebuilds them', funct
     auth = await authenticate(env.clients[0].url, appOwnerKey());
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     // the immutable bit is set by the failure test; clear it whatever happened
     await execInContainer(env.clients[0].container, `chattr -i ${appDir(appName)}/appdata 2>/dev/null || true`).catch(() => {});
     await resetSyncState().catch(() => {});

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
@@ -11,6 +11,7 @@ import {
 } from '../framework/host-stall.js';
 import { failCommands } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A container made by a release that gave app containers no slice of their own runs
 // on through upgrades until it is recreated: it lives in its runtime's scope under
@@ -101,8 +102,7 @@ describe('a stalled host kills a container made before the app slices', function
     runnableAfterWindow = await canRun(container, scope);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await releaseDatabase?.().catch(() => {});
     if (container) await resumeDisk(container, DOCKER_ROOT).catch(() => {});
     if (client) await thawEveryNode([client]);

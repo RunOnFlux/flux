@@ -18,7 +18,7 @@
  * volumes sit on ext4, so the refusal and the volume staying buffered are
  * unit-proved only (volumeService.test.js, 'direct I/O on app volumes').
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -31,6 +31,7 @@ import { volumeRoot } from '../framework/volume-fixture.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('an app volume uses direct I/O', function () {
   let env;
@@ -88,8 +89,7 @@ describe('an app volume uses direct I/O', function () {
     );
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

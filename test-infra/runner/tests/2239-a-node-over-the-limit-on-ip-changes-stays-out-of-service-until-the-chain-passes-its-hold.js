@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import { buildSeedableTestApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node whose IP changes a second time inside the limit's window is out of
 // service until the chain is 2400 blocks past the change: the hold is the
@@ -97,8 +98,7 @@ describe('a node over the limit on IP changes stays out of service until the cha
     await waitForAppInstalled(client(SUBJECT), appName, 180000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (listed) await clearNodeAddress(listed).catch(() => {});
     await env?.teardown();
   });

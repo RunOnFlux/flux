@@ -3,16 +3,78 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { Readable } = require('stream');
 const config = require('config');
 const { appSyncEvents: syncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
 const MESSAGES = config.database.appsglobal.collections.appsMessages;
 
+// A peer's answer from GET /apps/permanentmessagesbyheight: one message per line, then the
+// closing count.
 function makeStreamResponse(data) {
-  const json = JSON.stringify({ status: 'success', data });
-  const stream = new Readable({ read() { this.push(json); this.push(null); } });
-  return { data: stream, headers: {} };
+  const body = `${[...data.map((message) => JSON.stringify(message)), JSON.stringify({ status: 'success', data: { count: data.length } })].join('\n')}\n`;
+  return { data: Readable.from([Buffer.from(body)]), headers: {}, request: { setTimeout: sinon.stub() } };
+}
+
+// A peer's answer from GET /apps/permanentmessages, the whole log as one JSON envelope.
+function makeWholeLogResponse(data) {
+  return { data: Readable.from([Buffer.from(JSON.stringify({ status: 'success', data }))]), headers: {}, request: { setTimeout: sinon.stub() } };
+}
+
+// The stage, in memory: what a peer sent, placed at this node's record height for its hash. A
+// message whose hash is in MemoryStage.untakeable is one the stage does not take.
+class MemoryStage {
+  static opened = [];
+
+  static untakeable = new Set();
+
+  constructor(missing) {
+    this.missing = missing;
+    this.staged = new Map();
+    this.discarded = false;
+  }
+
+  static async open(missing) {
+    const stage = new MemoryStage(missing);
+    MemoryStage.opened.push(stage);
+    return stage;
+  }
+
+  get size() {
+    return this.staged.size;
+  }
+
+  async add(message) {
+    const record = this.missing.get(message?.hash);
+    if (!record || this.staged.has(message.hash)) return true;
+    if (MemoryStage.untakeable.has(message.hash) && message.untakeable) return false;
+    this.staged.set(message.hash, { height: record.height, message });
+    return true;
+  }
+
+  async flush() {}
+
+  unstagedHeights() {
+    return [...this.missing.values()].filter((record) => !this.staged.has(record.hash)).map((record) => record.height).sort((a, b) => a - b);
+  }
+
+  async* batches(size) {
+    const ordered = [...this.staged.values()].sort((a, b) => a.height - b.height);
+    let batch = [];
+    for (let i = 0; i < ordered.length; i += 1) {
+      batch.push(ordered[i].message);
+      if (batch.length >= size && ordered[i + 1]?.height !== ordered[i].height) {
+        yield batch;
+        batch = [];
+      }
+    }
+    if (batch.length > 0) yield batch;
+  }
+
+  async discard() {
+    this.discarded = true;
+  }
 }
 
 describe('appHashSyncService tests', () => {
@@ -153,7 +215,10 @@ describe('appHashSyncService tests', () => {
       '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
       '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
       '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
+      './messageStage': { MessageStage: MemoryStage },
     });
+    MemoryStage.opened = [];
+    MemoryStage.untakeable = new Set();
   });
 
   afterEach(() => {
@@ -368,18 +433,332 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findInDatabase.resolves([]);
       dbHelperStub.findOneInDatabase.resolves(null);
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse([]));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse([])));
 
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
       await appHashSyncService.syncMissingHashes();
 
-      // Should have attempted bulk fetch (axiosGet called for explorer sync check + permanent messages)
       expect(serviceHelperStub.axiosGet.called).to.be.true;
-      expect(logStub.info.calledWith(sinon.match('streaming bulk fetch'))).to.be.true;
+      expect(logStub.info.calledWith(sinon.match('using bulk fetch'))).to.be.true;
+    });
+
+    describe('a bulk fetch', () => {
+      const missingRecords = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+      const registration = (i) => ({
+        type: 'fluxappregister', version: 1, hash: `hash${i}`, timestamp: 1000 + i, signature: `sig${i}`,
+        appSpecifications: { name: `app${i}`, version: 4, owner: 'alice' }, valueSat: 100, txid: `tx${i}`, height: 1000 + i,
+      });
+      const lines = (messages) => messages.map((message) => `${JSON.stringify(message)}\n`).join('');
+      const closing = (count) => `${JSON.stringify({ status: 'success', data: { count } })}\n`;
+
+      // A body that delivers `text` and then fails as a connection torn down mid-body does.
+      function cutOff(text) {
+        return {
+          request: { setTimeout: sinon.stub() },
+          data: new Readable({
+            read() {
+              if (this.sent) return;
+              this.sent = true;
+              this.push(Buffer.from(text));
+              setImmediate(() => this.destroy(new Error('aborted')));
+            },
+          }),
+        };
+      }
+
+      function notFound() {
+        return Promise.reject(Object.assign(new Error('Request failed with status code 404'), { response: { status: 404 } }));
+      }
+
+      function byHeightCalls() {
+        return serviceHelperStub.axiosGet.getCalls().filter((call) => call.args[0].includes('/apps/permanentmessagesbyheight'));
+      }
+
+      let published;
+      function bulkFetchedEvent() {
+        return published.find((event) => event.name === 'hashSync:bulkFetched')?.data;
+      }
+
+      beforeEach(() => {
+        dbHelperStub.findInDatabase.onFirstCall().resolves(missingRecords);
+        dbHelperStub.findInDatabase.resolves([]);
+        dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+        peerManagerStub.allValues.returns([makePeer('10.0.0.1', '16127'), makePeer('10.0.0.2', '16127')]);
+        published = [];
+        sinon.stub(fluxEventBus, 'publish').callsFake((name, data) => { published.push({ name, data }); });
+      });
+
+      it('keeps what a peer delivered before its connection was cut, and asks the next peer only for the rest', async () => {
+        const firstHalf = Array(300).fill(null).map((_, i) => registration(i));
+        const secondHalf = Array(300).fill(null).map((_, i) => registration(300 + i));
+        let byHeight = 0;
+        serviceHelperStub.axiosGet.callsFake(() => {
+          byHeight += 1;
+          if (byHeight === 1) return Promise.resolve(cutOff(lines(firstHalf)));
+          return Promise.resolve(makeStreamResponse(secondHalf));
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        const calls = byHeightCalls();
+        expect(new Set(calls.map((call) => call.args[0])).size, 'peers asked').to.equal(2);
+        expect(calls.map((call) => call.args[1].params)).to.deep.equal([
+          { fromHeight: 1000, toHeight: 1599 },
+          { fromHeight: 1300, toHeight: 1599 },
+        ]);
+        const inserted = collectionStub.insertMany.getCalls().flatMap((call) => call.args[0].map((message) => message.hash));
+        expect(inserted).to.have.lengthOf(600);
+        expect(bulkFetchedEvent().peers.map((outcome) => [outcome.received, outcome.staged, Boolean(outcome.error)])).to.deep.equal([[300, 300, true], [300, 300, false]]);
+      });
+
+      it('treats a log that ends without its closing line as incomplete', async () => {
+        let byHeight = 0;
+        serviceHelperStub.axiosGet.callsFake(() => {
+          byHeight += 1;
+          const all = missingRecords.map((_, i) => registration(i));
+          if (byHeight === 1) return Promise.resolve({ data: Readable.from([Buffer.from(lines(all.slice(0, 100)))]), request: { setTimeout: sinon.stub() } });
+          return Promise.resolve({ data: Readable.from([Buffer.from(lines(all.slice(100)) + closing(500))]), request: { setTimeout: sinon.stub() } });
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        const [first] = bulkFetchedEvent().peers;
+        expect(first.staged).to.equal(100);
+        expect(first.error).to.match(/without its closing line/);
+        expect(byHeightCalls()[1].args[1].params).to.deep.equal({ fromHeight: 1100, toHeight: 1599 });
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('counts each message the stage does not take, and asks the next peer for its hash', async () => {
+        MemoryStage.untakeable = new Set(['hash599']);
+        let byHeight = 0;
+        serviceHelperStub.axiosGet.callsFake(() => {
+          byHeight += 1;
+          const all = missingRecords.map((_, i) => registration(i));
+          if (byHeight === 1) all[599] = { ...all[599], untakeable: true };
+          return Promise.resolve(makeStreamResponse(byHeight === 1 ? all : all.slice(599)));
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(bulkFetchedEvent().peers.map(({ received, refused, staged }) => ({ received, refused, staged }))).to.deep.equal([
+          { received: 600, refused: 1, staged: 599 },
+          { received: 1, refused: 0, staged: 1 },
+        ]);
+        expect(byHeightCalls()[1].args[1].params).to.deep.equal({ fromHeight: 1599, toHeight: 1599 });
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('gives up a peer whose whole log holds a message longer than any a node takes, and asks the next for the rest', async () => {
+        const longest = config.fluxapps.gossipMessageMaxBytes;
+        let wholeLog = 0;
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('/apps/permanentmessagesbyheight')) return notFound();
+          wholeLog += 1;
+          const all = missingRecords.map((_, i) => registration(i));
+          if (wholeLog > 1) return Promise.resolve(makeWholeLogResponse(all.slice(300)));
+          // the first 300 messages, then one that opens and never closes
+          const pieces = [`${JSON.stringify({ status: 'success', data: all.slice(0, 300) }).slice(0, -2)},{"hash":"hash300","pad":"`];
+          const padding = 'x'.repeat(64 * 1024);
+          for (let sent = 0; sent <= longest; sent += padding.length) pieces.push(padding);
+          return Promise.resolve({ data: Readable.from(pieces.map((piece) => Buffer.from(piece))), headers: {}, request: { setTimeout: sinon.stub() } });
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        const [first, second] = bulkFetchedEvent().peers;
+        expect(first).to.include({ route: 'wholeLog', staged: 300 });
+        expect(first.error).to.match(/runs past/);
+        expect(second).to.include({ route: 'wholeLog', staged: 300 });
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('keeps going when the database refuses a peer\'s last piece, and asks the next peer for it', async () => {
+        const flush = sinon.stub(MemoryStage.prototype, 'flush').callThrough();
+        flush.onFirstCall().callsFake(async function refusesThePiece() {
+          this.staged.clear();
+          throw new Error('connection timed out');
+        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i)))));
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(bulkFetchedEvent().peers.map(({ staged, error }) => ({ staged, error }))).to.deep.equal([
+          { staged: 0, error: 'connection timed out' },
+          { staged: 600, error: undefined },
+        ]);
+        expect(byHeightCalls()[1].args[1].params).to.deep.equal({ fromHeight: 1000, toHeight: 1599 });
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('takes the whole log from a peer that does not serve it by height', async () => {
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('/apps/permanentmessagesbyheight')) return notFound();
+          return Promise.resolve(makeWholeLogResponse(missingRecords.map((_, i) => registration(i))));
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(bulkFetchedEvent().peers.map(({ route, received, staged }) => ({ route, received, staged }))).to.deep.equal([{ route: 'wholeLog', received: 600, staged: 600 }]);
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('asks a peer whose explorer is still catching up for what it holds', async () => {
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.endsWith('/explorer/issynced')) return Promise.resolve({ data: { status: 'success', data: false } });
+          return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(bulkFetchedEvent().peers.map(({ route, staged }) => ({ route, staged }))).to.deep.equal([{ route: 'byHeight', staged: 600 }]);
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('reads every peer\'s log to its end before it verifies anything', async () => {
+        const order = [];
+        serviceHelperStub.axiosGet.callsFake(() => {
+          const body = makeStreamResponse(missingRecords.map((_, i) => registration(i)));
+          body.data.on('end', () => order.push('log read'));
+          return Promise.resolve(body);
+        });
+        messageVerifierStub.verifyAppHash.callsFake(async () => { order.push('verify'); return true; });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(order[0]).to.equal('log read');
+        expect(order.filter((step) => step === 'log read')).to.have.lengthOf(1);
+        expect(order.lastIndexOf('log read')).to.be.below(order.indexOf('verify'));
+      });
+
+      it('asks for two runs of missing messages in one request only when few payments lie between them', async () => {
+        const near = [{ hash: 'n1', txid: 'tn1', height: 5000, value: 100, message: false }];
+        const far = [{ hash: 'f1', txid: 'tf1', height: 90000, value: 100, message: false }];
+        const records = [...missingRecords, ...near, ...far];
+        dbHelperStub.findInDatabase.reset();
+        dbHelperStub.findInDatabase.onFirstCall().resolves(records);
+        // every payment this node recorded: 1999 between the first run and 5000, 2000 between 5000 and 90000
+        const payments = [
+          ...records.map((record) => ({ height: record.height })),
+          ...Array(1999).fill(null).map((_, i) => ({ height: 2000 + i })),
+          ...Array(2000).fill(null).map((_, i) => ({ height: 10000 + i })),
+        ];
+        dbHelperStub.findInDatabase.callsFake(async (db, collection, query) => (query.notOnChain && !('message' in query) ? payments : []));
+        serviceHelperStub.axiosGet.callsFake(() => {
+          return Promise.resolve(makeStreamResponse([]));
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(byHeightCalls().filter((call) => call.args[0].startsWith('http://10.0.0.1:')).map((call) => call.args[1].params)).to.deep.equal([
+          { fromHeight: 1000, toHeight: 5000 },
+          { fromHeight: 90000, toHeight: 90000 },
+        ]);
+      });
+
+      it('gives up a peer that stops sending, without counting the time spent staging, and asks the next for the rest', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+          const first = missingRecords.slice(0, 300).map((_, i) => registration(i));
+          const silent = new Readable({ read() {} });
+          silent.push(Buffer.from(lines(first)));
+          const request = { setTimeout: sinon.stub() };
+          let byHeight = 0;
+          serviceHelperStub.axiosGet.callsFake(() => {
+            byHeight += 1;
+            if (byHeight === 1) return Promise.resolve({ data: silent, request });
+            return Promise.resolve(makeStreamResponse(missingRecords.slice(300).map((_, i) => registration(300 + i))));
+          });
+
+          const run = appHashSyncService.syncMissingHashes();
+          for (let i = 0; i < 20 && byHeight === 0; i += 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((resolve) => { setImmediate(resolve); });
+          }
+          await new Promise((resolve) => { setImmediate(resolve); });
+          clock.tick(119000);
+          await new Promise((resolve) => { setImmediate(resolve); });
+          expect(byHeight, 'still waiting on the first peer').to.equal(1);
+          clock.tick(2000);
+          await run;
+
+          expect(request.setTimeout.calledWith(0)).to.equal(true);
+          const [failed] = bulkFetchedEvent().peers;
+          expect(failed.staged).to.equal(300);
+          expect(failed.error).to.match(/^no data from 10\.0\.0\.[12]:16127 for 120s$/);
+          expect(bulkFetchedEvent().processed).to.equal(600);
+        } finally {
+          clock.restore();
+        }
+      });
+
+      it('gives up a peer that answers and then sends no body at all', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+          let byHeight = 0;
+          serviceHelperStub.axiosGet.callsFake(() => {
+            byHeight += 1;
+            if (byHeight === 1) return Promise.resolve({ data: new Readable({ read() {} }), request: { setTimeout: sinon.stub() } });
+            return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
+          });
+
+          const run = appHashSyncService.syncMissingHashes();
+          for (let i = 0; i < 20 && byHeight === 0; i += 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((resolve) => { setImmediate(resolve); });
+          }
+          await new Promise((resolve) => { setImmediate(resolve); });
+          clock.tick(121000);
+          await run;
+
+          const [failed, next] = bulkFetchedEvent().peers;
+          expect(failed.staged).to.equal(0);
+          expect(failed.error).to.match(/^no data from .* for 120s$/);
+          expect(next.staged).to.equal(600);
+        } finally {
+          clock.restore();
+        }
+      });
+
+      it('does not count the time the stage takes against the peer', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const add = sinon.stub(MemoryStage.prototype, 'add').callsFake(async function slowFirst(message) {
+          if (add.callCount === 1) await new Promise((resolve) => { setTimeout(resolve, 150000); });
+          return add.wrappedMethod.call(this, message);
+        });
+        try {
+          serviceHelperStub.axiosGet.callsFake(() => {
+            return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
+          });
+
+          const run = appHashSyncService.syncMissingHashes();
+          for (let i = 0; i < 20 && add.callCount === 0; i += 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((resolve) => { setImmediate(resolve); });
+          }
+          clock.tick(150000);
+          await run;
+
+          expect(bulkFetchedEvent().peers.map(({ staged, error }) => ({ staged, error }))).to.deep.equal([{ staged: 600, error: undefined }]);
+        } finally {
+          clock.restore();
+        }
+      });
+
+      it('discards the stage when verifying fails', async () => {
+        serviceHelperStub.axiosGet.callsFake(() => {
+          return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
+        });
+        dbHelperStub.appPaymentFacts.rejects(new Error('database gone'));
+
+        await appHashSyncService.syncMissingHashes().catch(() => {});
+
+        expect(MemoryStage.opened).to.have.lengthOf(1);
+        expect(MemoryStage.opened[0].discarded).to.equal(true);
+      });
     });
 
     describe('a missing hash whose message this node holds unpromoted', () => {
@@ -473,10 +852,7 @@ describe('appHashSyncService tests', () => {
         return Promise.resolve([]);
       });
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkFetchResult)));
 
       await appHashSyncService.syncMissingHashes();
 
@@ -524,11 +900,7 @@ describe('appHashSyncService tests', () => {
       });
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      // Bulk fetch: 3 peers × 2 calls each (explorer check + permanent messages)
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkFetchResult)));
 
       await appHashSyncService.syncMissingHashes();
 
@@ -575,10 +947,7 @@ describe('appHashSyncService tests', () => {
       });
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkFetchResult)));
 
       const insertError = new Error('write concern timeout');
       insertError.result = { insertedCount: 2 };
@@ -919,10 +1288,7 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findInDatabase.resolves([recentRetry, oldRetry]);
       dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse([]));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse([])));
 
       advanceDateOnDelay();
       try {
@@ -1061,6 +1427,7 @@ describe('appHashSyncService tests', () => {
         '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
         '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
         '../utils/globalState': localGlobalState,
+        './messageStage': { MessageStage: MemoryStage },
       });
     });
 
@@ -1088,10 +1455,7 @@ describe('appHashSyncService tests', () => {
         return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       await localModule.syncMissingHashes();
 
@@ -1116,10 +1480,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
         });
         localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-          return Promise.resolve({ data: { status: 'success', data: true } });
-        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
       };
       // the write that marks a hash's message as held
       const hashMarks = () => localCollectionStub.bulkWrite.getCalls()
@@ -1162,10 +1523,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
         });
         localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-          return Promise.resolve({ data: { status: 'success', data: true } });
-        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
         const partial = new Error('duplicate key');
         partial.result = { insertedCount: 1 };
         localCollectionStub.insertMany.rejects(partial);
@@ -1202,10 +1560,7 @@ describe('appHashSyncService tests', () => {
         return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
       localCollectionStub.find.returns({
         project: sinon.stub().returns({
           sort: sinon.stub().returns({
@@ -1259,12 +1614,7 @@ describe('appHashSyncService tests', () => {
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
       // Bulk fetch returns our two update messages from all peers
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) {
-          return Promise.resolve(makeStreamResponse(bulkMessages));
-        }
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       // Previous spec for the app (before first update) — from DB
       localCollectionStub.find.returns({
@@ -1320,10 +1670,7 @@ describe('appHashSyncService tests', () => {
         return Promise.resolve([]);
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       await localModule.syncMissingHashes();
 
@@ -1353,10 +1700,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve([]);
         });
         localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-        serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
-          return Promise.resolve({ data: { status: 'success', data: true } });
-        });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
         await localModule.syncMissingHashes();
       };
@@ -1404,12 +1748,7 @@ describe('appHashSyncService tests', () => {
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) {
-          return Promise.resolve(makeStreamResponse(bulkMessages));
-        }
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       // Previous spec is enterprise v8 with encrypted data
       const prevSpec = {
@@ -1478,12 +1817,7 @@ describe('appHashSyncService tests', () => {
       });
       localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) {
-          return Promise.resolve(makeStreamResponse(bulkMessages));
-        }
-        return Promise.resolve({ data: { status: 'success', data: true } });
-      });
+      serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
 
       // Previous spec is enterprise v8 with encrypted data
       const prevSpec = {
@@ -1510,6 +1844,164 @@ describe('appHashSyncService tests', () => {
       sinon.assert.calledOnce(localCheckAndDecryptStub);
       const verifyCall = localMessageVerifierStub.verifyAppMessageUpdateSignature.firstCall;
       expect(verifyCall.args[5]).to.equal('my-owner');
+    });
+
+    describe('several apps at once', () => {
+      const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+      const message = (type, name, i, specs = {}) => ({
+        type, version: 1, hash: `hash${i}`, timestamp: 1000 + i, signature: `sig${i}`,
+        appSpecifications: {
+          name, version: 4, owner, ...specs,
+        },
+        valueSat: 100 + i, txid: `tx${i}`, height: 1000 + i,
+      });
+      const registration = (name, i, specs) => message('fluxappregister', name, i, specs);
+      const update = (name, i, specs) => message('fluxappupdate', name, i, specs);
+      const enterprise = (i) => ({ version: 8, enterprise: `blob${i}` });
+
+      const syncMessages = async (bulkMessages) => {
+        const missingRecords = bulkMessages.map((m, i) => ({
+          hash: m.hash, txid: m.txid, height: m.height, value: 100 + i, message: false,
+        }));
+        const manyMissing = missingRecords.length > 500 ? missingRecords : [
+          ...missingRecords,
+          ...Array(600).fill(null).map((_, i) => ({
+            hash: `absent${i}`, txid: `atx${i}`, height: 9000 + i, value: 1, message: false,
+          })),
+        ];
+        let getMissingCalls = 0;
+        localDbHelperStub.findInDatabase.callsFake(() => {
+          getMissingCalls += 1;
+          return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+        });
+        localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+        serviceHelperStub.axiosGet.callsFake(() => Promise.resolve(makeStreamResponse(bulkMessages)));
+
+        await localModule.syncMissingHashes();
+      };
+
+      // Each message's hash check takes `turns` trips through the event loop; the log is every
+      // check's start and end, in the order they happened.
+      const checksTaking = (turns = () => 2) => {
+        const events = [];
+        let inFlight = 0;
+        let mostInFlight = 0;
+        localMessageVerifierStub.verifyAppHash.callsFake(async (m) => {
+          events.push(`start ${m.hash}`);
+          inFlight += 1;
+          mostInFlight = Math.max(mostInFlight, inFlight);
+          for (let turn = 0; turn < turns(m); turn += 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((resolve) => { setImmediate(resolve); });
+          }
+          inFlight -= 1;
+          events.push(`end ${m.hash}`);
+        });
+        return { events, mostInFlight: () => mostInFlight };
+      };
+      const stored = () => localCollectionStub.insertMany.getCalls().flatMap((call) => call.args[0].map((m) => m.hash));
+      const decryptedBlobs = () => localCheckAndDecryptStub.getCalls().map((call) => call.args[0].enterprise);
+
+      it('checks up to four apps at once', async () => {
+        const checks = checksTaking();
+
+        await syncMessages(['a', 'b', 'c', 'd', 'e', 'f'].map((name, i) => registration(name, i)));
+
+        expect(stored(), 'the fixture stored fewer than six').to.have.length(6);
+        expect(checks.mostInFlight()).to.equal(4);
+      });
+
+      it('checks one app\'s messages one after another, while another app is checked', async () => {
+        const checks = checksTaking();
+
+        await syncMessages([registration('solo', 0), update('solo', 1), registration('other', 2)]);
+
+        expect(stored()).to.deep.equal(['hash0', 'hash1', 'hash2']);
+        const at = (event) => checks.events.indexOf(event);
+        expect(at('end hash0')).to.be.below(at('start hash1'));
+        expect(at('start hash2'), 'the other app waited for this one').to.be.below(at('end hash0'));
+      });
+
+      it('stores the messages in height order, whatever order their apps finish in', async () => {
+        const checks = checksTaking((m) => (m.hash === 'hash0' ? 6 : 1));
+
+        await syncMessages(['slow', 'quick', 'quicker'].map((name, i) => registration(name, i)));
+
+        expect(checks.events.filter((e) => e.startsWith('end')), 'the first app did not finish last')
+          .to.deep.equal(['end hash1', 'end hash2', 'end hash0']);
+        expect(stored()).to.deep.equal(['hash0', 'hash1', 'hash2']);
+        const marked = localCollectionStub.bulkWrite.getCalls()
+          .flatMap((call) => call.args[0].filter((op) => op.updateOne?.update?.$set?.message === true))
+          .map((op) => op.updateOne.filter.hash);
+        expect(marked).to.deep.equal(['hash0', 'hash1', 'hash2']);
+      });
+
+      it('decrypts an update\'s predecessor verified in the same run only once', async () => {
+        localCheckAndDecryptStub.callsFake((spec) => Promise.resolve({ ...spec, compose: [{ name: `from-${spec.enterprise}` }] }));
+
+        await syncMessages([registration('ent', 0, enterprise(0)), update('ent', 1, enterprise(1))]);
+
+        expect(stored()).to.deep.equal(['hash0', 'hash1']);
+        expect(decryptedBlobs()).to.deep.equal(['blob0', 'blob1']);
+        const prevSpecs = localMessageVerifierStub.verifyAppMessageUpdateSignature.firstCall.args[7];
+        expect(prevSpecs.compose).to.deep.equal([{ name: 'from-blob0' }]);
+      });
+
+      it('decrypts a stored predecessor that lies between two updates the run verifies', async () => {
+        localCheckAndDecryptStub.callsFake((spec) => Promise.resolve({ ...spec, compose: [{ name: `from-${spec.enterprise}` }] }));
+        const held = [registration('ent', 0, enterprise(0)), update('ent', 2, enterprise(2))];
+        localCollectionStub.find.returns({
+          project: sinon.stub().returns({ sort: sinon.stub().returns({ toArray: sinon.stub().resolves(held) }) }),
+        });
+
+        await syncMessages([update('ent', 1, enterprise(1)), update('ent', 3, enterprise(3))]);
+
+        expect(stored()).to.deep.equal(['hash1', 'hash3']);
+        expect(decryptedBlobs()).to.deep.equal(['blob1', 'blob0', 'blob3', 'blob2']);
+        const prevSpecs = localMessageVerifierStub.verifyAppMessageUpdateSignature.secondCall.args[7];
+        expect(prevSpecs.compose).to.deep.equal([{ name: 'from-blob2' }]);
+      });
+
+      it('decrypts the predecessor again when its own decrypt failed', async () => {
+        localCheckAndDecryptStub.callsFake((spec) => (spec.enterprise === 'blob0' && localCheckAndDecryptStub.callCount === 1
+          ? Promise.reject(new Error('Error decrypting AES key.'))
+          : Promise.resolve({ ...spec, compose: [] })));
+
+        await syncMessages([registration('ent', 0, enterprise(0)), update('ent', 1, enterprise(1))]);
+
+        expect(stored()).to.deep.equal(['hash0', 'hash1']);
+        expect(decryptedBlobs()).to.deep.equal(['blob0', 'blob1', 'blob0']);
+      });
+
+      [
+        [1000, 'kept', ['blob1000']],
+        [1001, 'dropped and decrypted again', ['blob1500', 'blob0']],
+      ].forEach(([apps, outcome, afterRegistrations]) => {
+        it(`keeps the latest spec of 1000 apps across batches: with ${apps}, the first app's is ${outcome}`, async () => {
+          // a later batch finds what an earlier one stored
+          const inserted = [];
+          localCollectionStub.insertMany.callsFake(async (docs) => { inserted.push(...docs); return { insertedCount: docs.length }; });
+          localCollectionStub.find.callsFake((query) => ({
+            project: () => ({
+              sort: () => ({
+                toArray: async () => inserted.filter((doc) => query['appSpecifications.name']?.$in.includes(doc.appSpecifications.name)),
+              }),
+            }),
+          }));
+          const registrations = Array.from({ length: apps }, (_, i) => registration(`app${i}`, i, enterprise(i)));
+          // non-enterprise registrations that put the update in a batch of its own, after every
+          // enterprise app's spec is kept
+          const fillers = Array.from({ length: (500 - (apps % 500)) % 500 }, (_, i) => registration(`filler${i}`, apps + i));
+          const last = apps + fillers.length;
+
+          await syncMessages([...registrations, ...fillers, update('app0', last, enterprise(last))]);
+
+          expect(stored(), 'the fixture stored fewer than every message').to.have.length(last + 1);
+          expect(localCollectionStub.insertMany.lastCall.args[0].map((m) => m.hash), 'the update shared its batch').to.deep.equal([`hash${last}`]);
+          expect(localCollectionStub.insertMany.callCount, 'the run was one batch').to.be.above(2);
+          expect(decryptedBlobs().slice(apps)).to.deep.equal(afterRegistrations);
+        });
+      });
     });
   });
 

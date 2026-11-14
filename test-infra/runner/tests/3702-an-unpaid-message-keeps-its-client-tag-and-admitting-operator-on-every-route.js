@@ -18,7 +18,7 @@
  * refused; so are a live frame carrying a field an app message does not have, a
  * malformed tag and a tag height two epochs old.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { appOwnerKey, nodeKey } from '../framework/keys.js';
@@ -31,6 +31,7 @@ import {
 } from '../framework/unpaid-messages.js';
 import { waitFor, waitForOrchestratorState } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 5;
 const STUB = 3;
@@ -101,8 +102,7 @@ describe('an unpaid app message keeps its client tag and admitting operator on e
     await heldOn(REAL, registered);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -11,6 +11,7 @@ import { assertNoEvent, waitFor } from '../framework/wait.js';
 import { nodeKey } from '../framework/keys.js';
 import { verifyBtcMessage } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Some routers forward a port by number alone, to the node behind them, whatever
 // address the traffic is for - outgoing traffic included. Inbound is unaffected,
@@ -74,8 +75,7 @@ describe('a call to one node answered by another', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env && redirectRules.length) await clearOutboundRedirect(env.clients[A].container, redirectRules).catch(() => {});
     await env?.teardown();
   });

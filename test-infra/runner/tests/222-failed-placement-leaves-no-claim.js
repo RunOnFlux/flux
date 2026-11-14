@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushBrokenImage } from '../framework/registry-helper.js';
@@ -7,6 +7,7 @@ import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { waitFor } from '../framework/wait.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node that fails to place an app tells the network it has given it up.
 //
@@ -58,8 +59,7 @@ describe('a failed placement tells the network it gave the app up', function () 
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

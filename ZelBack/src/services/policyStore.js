@@ -116,6 +116,9 @@ const claimants = new Map();
 // routes to the same bundle, and a chase reads the map as it goes, so a claim arriving while
 // one is running is picked up by it rather than starting a second.
 let chasingClaim = false;
+// The wait that paces the chase between asks: {timer, resolve}, or null. stop() ends it, and
+// the chase with it.
+let claimPace = null;
 
 // How long a refresh waits for a peer to answer before going to the backstop. Peers are on
 // the local network and answer in milliseconds; this is the bound on how long a refresh is
@@ -355,6 +358,12 @@ async function restore() {
     onReject: (reason) => log.warn(`policyStore - stored bundle rejected, will refetch: ${reason}`),
   });
   if (!payload) return false;
+  // Policy only moves forward: a peer can answer while this reads the disk, and a bundle
+  // adopted meanwhile is never replaced by an older one stored.
+  if (getSeq() >= payload.seq) {
+    log.info(`policyStore - stored seq ${payload.seq} not restored: seq ${getSeq()} is held`);
+    return false;
+  }
   current = payload;
   currentRaw = stored.raw;
   // Through the derivation like every other write to either fact, NOT because this opens
@@ -807,6 +816,22 @@ function setPeerTransport({
 }
 
 /**
+ * Wait PEER_WINDOW_MS between the asks of a claim chase.
+ * @returns {Promise<boolean>} false when stop() ended the wait.
+ */
+function paceClaim() {
+  return new Promise((resolve) => {
+    claimPace = {
+      timer: setTimeout(() => {
+        claimPace = null;
+        resolve(true);
+      }, PEER_WINDOW_MS),
+      resolve,
+    };
+  });
+}
+
+/**
  * A peer says it holds a sequence. It cannot be checked, so it is a prompt to ask rather than
  * something to believe -- and what comes back is a signed bundle, which can be. A peer
  * claiming a sequence it cannot produce costs one request.
@@ -820,17 +845,20 @@ async function pursueClaim() {
   if (chasingClaim) return;
   chasingClaim = true;
   try {
-    const tried = new Set();
+    // The sequence each peer has been asked for in this chase. A peer is asked again only
+    // once it claims a higher one - news it adopted since - so every claim costs at most one
+    // request, and a peer answering with the claim it already made is not asked again.
+    const askedFor = new Map();
     for (;;) {
       // Re-read each time round, so a peer that announces while this is running is asked by
       // this chase rather than waiting for the next one.
-      const next = [...claimants.keys()].find((key) => !tried.has(key));
-      // Every peer that offered has been asked. The claim goes no further rather than being
-      // retried on a timer, and a peer that never offered is not asked at all: if it held
-      // the bundle it would have said so, and it is asked anyway the moment it connects.
+      const next = [...claimants.keys()].find((key) => !(claimants.get(key) <= askedFor.get(key)));
+      // Every claim has been asked for. The claim goes no further rather than being retried
+      // on a timer, and a peer that never offered is not asked at all: if it held the bundle
+      // it would have said so, and it is asked anyway the moment it connects.
       if (!next) return;
-      tried.add(next);
       const claimed = claimants.get(next);
+      askedFor.set(next, claimed);
       // Already held, by this chase having got it from someone else or by any other route,
       // so there is nothing to ask this peer for. Skipped rather than ending the chase: a
       // peer further down the map may be claiming a sequence higher still.
@@ -847,7 +875,7 @@ async function pursueClaim() {
       // peer going quiet. One on this build answers in milliseconds, so the window is the
       // deadline for a peer that has stopped rather than the cost of asking one.
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(PEER_WINDOW_MS);
+      if (!await paceClaim()) return;
     }
   } finally {
     chasingClaim = false;
@@ -928,7 +956,13 @@ async function start() {
   refreshInterval = refreshInterval || phaseTimer;
 }
 
+/** Stop the refresh tick and any claim chase in progress. */
 function stop() {
+  if (claimPace) {
+    clearTimeout(claimPace.timer);
+    claimPace.resolve(false);
+    claimPace = null;
+  }
   if (phaseTimer) {
     clearTimeout(phaseTimer);
     phaseTimer = null;

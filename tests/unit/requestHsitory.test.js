@@ -4,9 +4,13 @@ const sinon = require('sinon');
 const { RequestHistory } = require('../../ZelBack/src/services/utils/requestHistory');
 
 describe('requestHistory tests', () => {
+  // Histories holding requests on real timers, cleared after each test.
+  const storing = [];
+
   beforeEach(async () => { });
 
   afterEach(() => {
+    storing.splice(0).forEach((history) => history.clear());
     sinon.restore();
   });
 
@@ -45,6 +49,7 @@ describe('requestHistory tests', () => {
     };
 
     const history = new RequestHistory();
+    storing.push(history);
 
     const id = history.storeRequest(request);
 
@@ -74,6 +79,7 @@ describe('requestHistory tests', () => {
     };
 
     const history = new RequestHistory();
+    storing.push(history);
 
     history.on('targetAdded', () => { targetEmitted = true; });
     history.on('requestAdded', () => { addEmitted = true; });

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, restartDockerd, execInContainer } from '../framework/container.js';
@@ -11,6 +11,7 @@ import { appOwnerKey } from '../framework/keys.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { waitForUp, assertNoEvent, waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // B1 end-to-end: backup holds a lease on the WHOLE app under its bare main
 // name. While the lease is held, no reconcile of any component may actuate -
@@ -55,8 +56,7 @@ describe('backup leases the whole app against the reconciler', function () {
     }
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

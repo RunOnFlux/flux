@@ -60,8 +60,12 @@ module.exports = {
     // over four times the slowest healthy round trip seen on the fleet.
     // maintenanceCallTimeoutMs bounds the client for the named long operations:
     // index builds, the explorer restore's deletes and the registry rebuild.
+    // quickCallTimeoutMs bounds every step of a call on the client for callers
+    // that cannot wait long (dbHelper.onQuickClient), finding the server
+    // included. A local write takes milliseconds.
     callTimeoutMs: 60 * 1000,
     maintenanceCallTimeoutMs: 15 * 60 * 1000,
+    quickCallTimeoutMs: 5 * 1000,
     // The database is suspect, and the node takes on no new apps, once
     // suspectRoundTrips round trips have run out within suspectWindowMs. It stops
     // being suspect suspectWindowMs after the last one.
@@ -109,6 +113,7 @@ module.exports = {
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
         appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
+        appsMessagesStaging: 'zelappsmessagesstaging', // messages fetched from peers in bulk, held until this node has verified them
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsInstallingLocations',
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -138,7 +143,6 @@ module.exports = {
     longLivedLeaseS: 35 * 60,
     renewalTestLeaseS: 60,
     turnLimitMs: 60 * 1000,
-    recordWriteLimitMs: 500,
   },
   benchmark: {
     host: '127.0.0.1',
@@ -157,7 +161,7 @@ module.exports = {
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.0.0',
-  minimumNodeJsAllowedVersion: '20.8.0',
+  minimumNodeJsAllowedVersion: '24.14.1',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '28.1.1',
   minimumMongoDbAllowedVersion: '6.0.27',
@@ -441,6 +445,7 @@ module.exports = {
     hashSyncPeersPerRound: 3,
     hashSyncEphemeralPeers: 5,
     hashSyncFallbackRecheckBlocks: 100,
+    messageReaderIdleMs: 30000,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,

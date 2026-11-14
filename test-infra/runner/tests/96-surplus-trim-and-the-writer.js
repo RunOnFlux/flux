@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -14,6 +14,7 @@ import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { advanceBlock, driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
 import { waitFor, waitForGiveUpConsidered, waitForStartedGiveUpPasses } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Trimming a surplus copy, when the surplus copy is the one WRITING.
 //
@@ -238,8 +239,7 @@ function describeSurplusWriter({ label, enterprise }) {
       });
     });
 
-    after(async function () {
-      this.timeout(120000);
+    afterTeardown(async function () {
       held?.stop();
       await startTicker().catch(() => {});
       await resetFdm().catch(() => {});

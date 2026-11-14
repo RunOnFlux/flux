@@ -12,12 +12,13 @@
 // packages are present whether or not the checks ever ran, so presence proves
 // nothing about the code under test. `installed: []` proves the pass happened and
 // found its work done, which is a different fact from silence.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
 import { waitForPackagesChecked, waitForAptCommand } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // ca-certificates is checked too, but the image satisfies it in both regimes and
 // the entrypoint never purges it - removing it would break TLS before FluxOS ran.
@@ -63,7 +64,7 @@ describe('94 legacy package provisioning', function suite() {
       });
     });
 
-    after(async () => {
+    afterTeardown(async () => {
       await env?.teardown();
     });
 
@@ -99,7 +100,7 @@ describe('94 legacy package provisioning', function suite() {
       });
     });
 
-    after(async () => {
+    afterTeardown(async () => {
       await env?.teardown();
     });
 
@@ -154,7 +155,7 @@ describe('94 legacy package provisioning', function suite() {
       });
     });
 
-    after(async () => {
+    afterTeardown(async () => {
       await env?.teardown();
     });
 

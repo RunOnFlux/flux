@@ -8,7 +8,7 @@
  * The daemon stub is not fluxd: which transactions the mempool holds is set by the suite.
  */
 import {
-  describe, it, before, after, afterEach,
+  describe, it, before, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -21,6 +21,7 @@ import { buildAppSpec, registerApp } from '../framework/app-helper.js';
 import { nodeKey } from '../framework/keys.js';
 import { waitFor, assertNoEvent } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODE = 1;
 const BEFORE_BLOCK = 'explorer:beforeBlock';
@@ -40,8 +41,7 @@ describe('a payment a reorganisation drops leaves the registry only when it will
     db = dbClient(NODE + 1);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

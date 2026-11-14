@@ -34,7 +34,7 @@
  * ones it makes.
  */
 import {
-  describe, it, before, beforeEach, after, afterEach,
+  describe, it, before, beforeEach, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -44,6 +44,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { hold, release, releaseAll } from '../framework/packet-hold.js';
 import { authenticate } from '../auth.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const API_PORT = 16127;
 // Longer than the inbound path's deferred duplicate refusal (1s) plus the close
@@ -170,8 +171,7 @@ describe('a crossing dial keeps the connection the lower address dialed', functi
     if (low && high) await Promise.all([releaseAll(low), releaseAll(high)]);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

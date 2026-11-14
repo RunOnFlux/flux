@@ -13,7 +13,7 @@
  * has to reach the verdict it reached when the message was accepted - while the
  * node that tries to run it refuses to create the container.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
@@ -30,6 +30,7 @@ import {
   waitForAppInstalled, waitForAppSpecStored,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 function composeWith(appName, cpu) {
   return [{
@@ -90,8 +91,7 @@ describe('1903 a component always runs under a CPU limit', function suite() {
     await bootAndPeer(env);
   });
 
-  after(async function hook() {
-    this.timeout(30000);
+  afterTeardown(async function hook() {
     await env?.teardown();
   });
 

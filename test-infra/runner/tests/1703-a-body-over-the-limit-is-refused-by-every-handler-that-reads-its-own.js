@@ -9,13 +9,14 @@
  *
  * A body at the limit is the canary: it is handled, not refused.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { fluxosPid } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import bodyLimitModule from '../../../ZelBack/src/services/utils/bodyLimit.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { MAX_BODY_SIZE } = bodyLimitModule;
 
@@ -78,8 +79,7 @@ describe('a body over the limit is refused by every handler that reads its own',
     expect(pidBefore, 'FluxOS running').to.be.a('number');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -12,6 +12,7 @@ import {
 } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 async function bootToReady(env) {
   await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
@@ -37,8 +38,7 @@ describe('Hash sync: block-timer retry with unresolvable hash', function () {
     await bootToReady(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

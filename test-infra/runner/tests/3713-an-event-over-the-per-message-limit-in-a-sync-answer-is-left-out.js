@@ -14,7 +14,7 @@
  * whichever JOINER reaches first, the answer's events left out or the message
  * stored. The other message is the canary.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -23,6 +23,7 @@ import { advanceBlock } from '../framework/daemon-control.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import limits from '../framework/message-limits.cjs';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { GOSSIP_MESSAGE_MAX_BYTES } = limits;
 
@@ -69,8 +70,7 @@ describe('an event over the per-message limit in a sync answer is left out', fun
     await advanceBlock();
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

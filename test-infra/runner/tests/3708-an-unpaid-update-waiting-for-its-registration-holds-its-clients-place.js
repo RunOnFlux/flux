@@ -10,7 +10,7 @@
  * waiting updates hold its places. A registration under another tag is taken
  * through the same stub, so the refusal is the client's.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
@@ -20,6 +20,7 @@ import {
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 4;
 const STUB = 3;
@@ -66,8 +67,7 @@ describe('an unpaid update waiting for its registration holds its client\'s plac
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

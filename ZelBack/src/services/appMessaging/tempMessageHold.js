@@ -26,6 +26,9 @@ let drainAgain = false;
 let awaitingDb = false;
 let backlog = true;
 let waiters = [];
+let stopped = false;
+let retry = null;
+let passUnderWay = Promise.resolve();
 
 function rows() {
   return dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(appsHeldMessages);
@@ -234,8 +237,18 @@ function drainWhenDbReady() {
   globalState.waitForDbReady().then(() => {
     awaitingDb = false;
     // eslint-disable-next-line no-use-before-define
-    drain();
+    if (!stopped) drain();
   });
+}
+
+function retryLater() {
+  if (stopped) return;
+  clearTimeout(retry);
+  retry = setTimeout(() => {
+    retry = null;
+    // eslint-disable-next-line no-use-before-define
+    drain();
+  }, RETRY_MS).unref();
 }
 
 /**
@@ -248,6 +261,8 @@ async function drain() {
     return;
   }
   draining = true;
+  let passEnded;
+  passUnderWay = new Promise((resolve) => { passEnded = resolve; });
   let databaseDown = false;
   try {
     // The last test of each pass runs with nothing awaited before `draining` clears, so
@@ -270,13 +285,14 @@ async function drain() {
       // eslint-disable-next-line no-await-in-loop
       await settleWaiters();
     } while (!databaseDown && (drainAgain || (globalState.dbReady && backlog)));
-    if (databaseDown) setTimeout(drain, RETRY_MS).unref();
+    if (databaseDown) retryLater();
     else if (!globalState.dbReady) drainWhenDbReady();
   } catch (error) {
     log.error(`Held messages not checked: ${error.message}`);
-    setTimeout(drain, RETRY_MS).unref();
+    retryLater();
   } finally {
     draining = false;
+    passEnded();
   }
 }
 
@@ -307,9 +323,22 @@ function isEmpty() {
  * @returns {Promise<void>}
  */
 async function start(relayMessage) {
+  stopped = false;
   relay = relayMessage;
   backlog = await rows().estimatedDocumentCount() > 0;
   drain();
+}
+
+/**
+ * Stop checking until the next start: a retry waiting is cancelled, and neither a retry
+ * nor a check on the registry opening is scheduled.
+ * @returns {Promise<void>} Resolves once a pass under way has ended.
+ */
+async function stop() {
+  stopped = true;
+  clearTimeout(retry);
+  retry = null;
+  await passUnderWay;
 }
 
 module.exports = {
@@ -319,4 +348,5 @@ module.exports = {
   isPaidAndMissing,
   rowKey,
   start,
+  stop,
 };

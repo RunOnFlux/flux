@@ -1,5 +1,5 @@
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -11,6 +11,7 @@ import { pushTestApp } from '../framework/registry-helper.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An install is refused a port another install of the same app is testing, and
 // the install testing it goes on to hold the app.
@@ -52,8 +53,7 @@ describe('an install is refused a port another install of the app is testing', f
     );
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env) await subject().releaseCheckpoint(PORT_TEST_LISTENING, appName).catch(() => {});
     await env?.teardown();
   });
