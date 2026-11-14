@@ -2,14 +2,16 @@
  * A peer that sends a message the database cannot store costs the node fetching in bulk only that
  * message: the fetch goes on, and the message comes from a peer that sends a copy it can store.
  *
- * The serving nodes hold 600 messages but one, X, the last. The peer stub serves all 600, with a
- * copy of X holding a field name with a null character, which no database stores, just before
- * the real X. A bulk fetch asks up to three peers, chosen at random among those its ring did not
+ * The serving nodes hold 600 messages but two, Y and X, the last two. The peer stub serves all 600,
+ * with two copies the database cannot store: one of Y nesting objects 250 deep just before the real
+ * Y, and one of X holding a field name with a null character just before the real X. The database
+ * refuses a document nested that deep together with every document written beside it, so the
+ * nested copy shows whether a refused message costs its whole piece. A bulk fetch asks up to three peers, chosen at random among those its ring did not
  * give it, which are the peers that dialled it: a node it dialled, whether by its ring or because
  * that node asked to be dialled, is a ring peer. So the stub dials the joiner, as any peer reaches
  * another's bulk fetch, and since only the stub holds X it is asked whatever order the peers are
- * asked in. The copy the database refuses arrives in the last piece the stub sends. The joiner
- * keeps all 600, X among them.
+ * asked in. Both copies arrive in the last piece the stub sends. The joiner keeps all 600, Y and X
+ * among them.
  *
  * The joiner is given its payment records only once the stub's link is up, and the block-driven
  * retry then fetches them; its first sync, with nothing to fetch, may run first.
@@ -39,6 +41,15 @@ const PEERS_ASKED = 3;
 const BEFORE_VERIFY = 'hashSync:beforeVerify';
 // the block-driven retry's recheck interval, twice over
 const RETRY_BLOCKS = 2 * loadSharedConfig().fluxapps.hashSyncFallbackRecheckBlocks;
+// deeper than the database stores
+const NESTED_LEVELS = 250;
+
+// `levels` objects, one inside the next.
+function nested(levels) {
+  let value = 'x';
+  for (let i = 0; i < levels; i += 1) value = { inner: value };
+  return value;
+}
 
 describe('a peer that sends a message the database cannot store costs only that message', function () {
   let env;
@@ -69,14 +80,17 @@ describe('a peer that sends a message the database cannot store costs only that 
     log = await buildMessageLog({
       env, name: `e2eUnstorable${Date.now()}x`, apps: 10, updates: 59, height: env.initialHeight - 2000,
     });
-    const withheld = log[log.length - 1];
-    await seedMessageLog({ log, servers: PEERS, withheld: new Set([withheld.hash]) });
-    const unstorable = { ...withheld.permanentMessage, 'note\u0000': 'a field name no database stores' };
+    const [y, x] = log.slice(-2);
+    await seedMessageLog({ log, servers: PEERS, withheld: new Set([y.hash, x.hash]) });
+    const tooDeep = { ...y.permanentMessage, note: nested(NESTED_LEVELS) };
+    const unstorable = { ...x.permanentMessage, 'note\u0000': 'a field name no database stores' };
     const stub = env.stubPeerClients.get(STUB);
     await stub.serveMessageLog([
-      ...log.slice(0, -1).map((m) => JSON.stringify(m.permanentMessage)),
+      ...log.slice(0, -2).map((m) => JSON.stringify(m.permanentMessage)),
+      JSON.stringify(tooDeep),
+      JSON.stringify(y.permanentMessage),
       JSON.stringify(unstorable),
-      JSON.stringify(withheld.permanentMessage),
+      JSON.stringify(x.permanentMessage),
     ]);
 
     const client = await startJoiner(env, JOINER);
@@ -122,15 +136,16 @@ describe('a peer that sends a message the database cannot store costs only that 
     expect(verifyHeld, 'the bulk fetch reached verification').to.not.equal(null);
   });
 
-  it('took every message it was missing in one bulk fetch, the stub\'s refused copy left out', function () {
+  it('took every message it was missing in one bulk fetch, the stub\'s two refused copies left out', function () {
     expect(bulkFetched, 'a bulk fetch that finished').to.not.equal(null);
     const outcome = bulkFetched.data.peers.find((peer) => peer.peer === stubKey);
-    expect(outcome, JSON.stringify(bulkFetched.data.peers)).to.include({ refused: 1 });
-    expect(outcome.received - outcome.staged, JSON.stringify(outcome)).to.equal(1);
+    expect(outcome, JSON.stringify(bulkFetched.data.peers)).to.include({ refused: 2 });
+    expect(outcome.received - outcome.staged, JSON.stringify(outcome)).to.equal(2);
+    expect(outcome.error, JSON.stringify(outcome)).to.equal(undefined);
     expect(bulkFetched.data.processed, JSON.stringify(bulkFetched.data)).to.equal(log.length);
   });
 
-  it('keeps every message, the one only the stub held among them, each at its own record\'s txid, height and payment', async function () {
+  it('keeps every message, the two only the stub held among them, each at its own record\'s txid, height and payment', async function () {
     const notKept = await messagesNotKept(JOINER, log);
     expect(notKept, JSON.stringify(notKept)).to.deep.equal([]);
   });
