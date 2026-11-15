@@ -250,7 +250,7 @@ async function assertNodeImageStamped(tag) {
 // parts of the tree the process loads. Its data, its containers and its
 // database stay.
 const UPGRADE_DIRS = ['ZelBack/src', 'ZelBack/config/networks', 'helpers', 'lib'];
-const UPGRADE_FILES = ['package.json', 'ZelBack/pinEnvironment.js', 'ZelBack/config/default.js', 'ZelBack/config/volumeToolsImage.json', 'app.js', 'apiServer.js', 'init.js'];
+const UPGRADE_FILES = ['package.json', 'ZelBack/pinEnvironment.js', 'ZelBack/runtimePaths.js', 'ZelBack/config/default.js', 'ZelBack/config/volumeToolsImage.json', 'app.js', 'apiServer.js', 'init.js'];
 // The new build's per-node config files and the script that writes the overlay from them.
 const UPGRADE_HARNESS = ['test-infra/config', 'test-infra/write-node-config.sh'];
 
