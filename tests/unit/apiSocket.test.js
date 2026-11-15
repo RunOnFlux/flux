@@ -165,11 +165,12 @@ describe('apiSocket tests', () => {
 
     it('takes a websocket through the socket', async () => {
       const opened = new Promise((resolve, reject) => {
+        const noAnswer = setTimeout(() => reject(new Error('no answer')), 3000);
+        const settle = (outcome) => { clearTimeout(noAnswer); resolve(outcome); };
         const ws = new WebSocket(`ws+unix:${socketPath}:/ws/flux/nosuchroute`);
-        ws.on('error', () => resolve('refused'));
-        ws.on('close', () => resolve('closed'));
-        ws.on('open', () => { ws.close(); resolve('opened'); });
-        setTimeout(() => reject(new Error('no answer')), 3000);
+        ws.on('error', () => settle('refused'));
+        ws.on('close', () => settle('closed'));
+        ws.on('open', () => { ws.close(); settle('opened'); });
       });
       expect(await opened).to.be.oneOf(['refused', 'closed', 'opened']);
     });
