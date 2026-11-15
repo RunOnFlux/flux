@@ -57,6 +57,15 @@ describe('ufw apply-node-firewall helper', () => {
 
   const run = (files, wait = 2) => spawnSync('python3', [helper, '--lock', lockPath, '--wait', String(wait), ...files], { encoding: 'utf8' });
 
+  // The helper run without blocking the event loop, for a run that waits out a held lock.
+  const runWaiting = (args, env = process.env) => new Promise((resolve, reject) => {
+    const child = spawn('python3', [helper, '--lock', lockPath, ...args], { env });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', (status) => resolve({ status, stderr }));
+  });
+
   // Holds the lock the way every ufw command does, from another process, until killed.
   const holdLock = () => new Promise((resolve, reject) => {
     const holder = spawn('python3', ['-c', [
@@ -258,9 +267,7 @@ describe('ufw apply-node-firewall helper', () => {
     const file = write('user.rules', text);
     await holdLock();
 
-    const result = spawnSync('python3', [helper, '--lock', lockPath, '--wait', '0.5', '--rules', JSON.stringify([['allow', '16127']]), file], {
-      encoding: 'utf8', env: { ...process.env, PYTHONPATH: fakeUfw() },
-    });
+    const result = await runWaiting(['--wait', '0.5', '--rules', JSON.stringify([['allow', '16127']]), file], { ...process.env, PYTHONPATH: fakeUfw() });
 
     expect(result.status).to.equal(75);
     expect(applied()).to.deep.equal([]);
@@ -325,7 +332,7 @@ describe('ufw apply-node-firewall helper', () => {
     const file = write('user.rules', text);
     await holdLock();
 
-    const result = run([file], 0.5);
+    const result = await runWaiting(['--wait', '0.5', file]);
 
     expect(result.status).to.equal(75);
     expect(result.stderr).to.match(/not free within 0\.5s/);

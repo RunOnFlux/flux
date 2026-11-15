@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { authenticate } from '../auth.js';
@@ -12,6 +12,7 @@ import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An operator appstop is durable: operatorStopped is persisted in appsRuntimeState
 // and is the highest-priority desired-state input, so the reconciler must never
@@ -51,8 +52,7 @@ describe('reconciler honours a durable operator stop', function () {
     ({ index: idx } = await seedSimpleApp(env, appName));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -172,8 +172,7 @@ describe('reconciler honours a durable operator stop: the claim it keeps', funct
     ({ index: idx } = await seedSimpleApp(env, appName));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

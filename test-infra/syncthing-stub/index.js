@@ -9,10 +9,15 @@ const PORT = Number(process.env.SYNCTHING_PORT) || 8384;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 8385;
 const API_KEY = process.env.SYNCTHING_API_KEY || 'stub-syncthing-api-key';
 
-// the node's source IP as Docker presents it (strip the IPv4-mapped ::ffff: form)
+// Nodes whose container a suite moved: the address it now holds -> the address
+// it booted at. A node keeps its syncthing when its address changes.
+const movedNodes = new Map();
+
+// The node a request comes from, named by the address it booted at (the source
+// IP as Docker presents it, without the IPv4-mapped ::ffff: form).
 function clientIp(req) {
-  const raw = req.socket.remoteAddress || '';
-  return raw.replace(/^::ffff:/, '');
+  const raw = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  return movedNodes.get(raw) ?? raw;
 }
 
 // --- per-node syncthing identity + config --------------------------------
@@ -787,15 +792,23 @@ app.get('/rest/db/status', (req, res) => {
   const folderId = req.query.folder;
   const ov = lookupSync(clientIp(req), folderId || '');
   if (ov?.statusUnreadable) return res.status(500).json({ error: 'simulated unreadable folder status' });
-  const globalBytes = ov?.globalBytes ?? 0;
+  // A sending folder publishes what it held: the entries leave the local-change list
+  // and join the index, so a seed's data is in its global figures.
+  const declared = Array.isArray(ov?.localChanged) ? ov.localChanged : [];
+  const sending = reqState(req).folders.get(folderId || '')?.type === 'sendreceive';
+  const published = sending
+    ? declared.filter((entry) => entry.type === 'FILE_INFO_TYPE_FILE' && !entry.deleted)
+    : [];
+  const publishedBytes = published.reduce((total, entry) => total + (Number(entry.size) || 0), 0);
+  const globalBytes = (ov?.globalBytes ?? 0) + publishedBytes;
   // How many of the indexed entries are FILES. This stub reports no directories,
   // so bytes it reports are bytes in files, and at least one file carries them -
   // see /sync-state.
-  const globalFiles = ov?.globalFiles ?? 0;
-  const inSyncBytes = ov?.inSyncBytes ?? 0;
+  const globalFiles = (ov?.globalFiles ?? 0) + published.length;
+  const inSyncBytes = (ov?.inSyncBytes ?? 0) + publishedBytes;
   const state = ov?.state ?? 'idle';
   // Derived, never declared separately - see the /sync-state comment.
-  const localChanged = Array.isArray(ov?.localChanged) ? ov.localChanged : [];
+  const localChanged = sending ? [] : declared;
   const changedFiles = localChanged.filter((entry) => entry.type === 'FILE_INFO_TYPE_FILE' && !entry.deleted);
   const receiveOnlyChangedFiles = changedFiles.length;
   const receiveOnlyChangedDirectories = localChanged.filter((entry) => entry.type === 'FILE_INFO_TYPE_DIRECTORY').length;
@@ -1010,6 +1023,17 @@ control.get('/state', (req, res) => {
       pendingFolderScans: s.pendingFolderScans,
     })),
   });
+});
+
+// A node's container moved from one address to another: { from, to }, bare
+// addresses. Its requests from `to` are the node's from then on.
+control.post('/node-moved', (req, res) => {
+  const { from, to } = req.body || {};
+  if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+  const node = movedNodes.get(from) ?? from;
+  movedNodes.delete(from);
+  movedNodes.set(to, node);
+  return res.json({ node, at: to });
 });
 
 // Make this node's folder PATCHes take `ms` to apply, as a syncthing slow to

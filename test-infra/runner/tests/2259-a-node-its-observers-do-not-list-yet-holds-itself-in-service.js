@@ -1,12 +1,13 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { hideNodeFromPeers, revealNodeToPeers } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node asks its peers whether they can reach it. A peer whose node list does
 // not hold the node's address - an address change it has not yet seen confirmed -
@@ -44,8 +45,7 @@ describe('a node its observers do not list yet holds itself in service', functio
     await Promise.all(others.map((c, k) => c.waitForEvent('networkstate:updated', () => true, 180000, { afterId: anchors[k] })));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env) await revealNodeToPeers(client(SUBJECT).ip).catch(() => {});
     await env?.teardown();
   });

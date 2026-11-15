@@ -576,7 +576,11 @@ describe('keepUPNPPortsOpen pokes the address that asked', () => {
   it('pokes the caller\'s own service ports, which the app-port ban would refuse', async () => {
     const udp = { send: sinon.stub().callsArg(5), close: sinon.stub() };
     sandbox.stub(dgram, 'createSocket').returns(udp);
-    sandbox.stub(net.Socket.prototype, 'connect');
+    // every TCP port refuses the connection, as a closed one does
+    sandbox.stub(net.Socket.prototype, 'connect').callsFake(function refused() {
+      process.nextTick(() => this.emit('error', Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })));
+      return this;
+    });
     sandbox.stub(serviceHelper, 'delay').resolves();
     const servicePorts = [16126, 16122, 16128, 16129];
 

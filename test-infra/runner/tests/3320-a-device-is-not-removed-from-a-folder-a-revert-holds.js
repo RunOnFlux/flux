@@ -17,7 +17,7 @@
  * A = the standby, B = the primary, C = holds nothing.
  */
 import {
-  describe, it, before, after, afterEach,
+  describe, it, before, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import {
@@ -30,6 +30,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const SIGTERM_EXPIRY_S = 120;
 const REVERT_SENT = 'syncthing:beforeLocalChangeRevertSent';
@@ -62,8 +63,7 @@ describe('a device is not removed from a folder a revert holds', function () {
     await client(A)?.releaseAllCheckpoints().catch(() => {});
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await client(A)?.releaseAllCheckpoints().catch(() => {});
     fleet?.stop();
     await fleet?.env?.teardown();

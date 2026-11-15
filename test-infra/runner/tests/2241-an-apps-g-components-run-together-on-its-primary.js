@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, crashFluxos, releaseFluxos } from '../framework/container.js';
@@ -11,6 +11,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An app with two single-writer (g:) components, on real syncthing daemons: its
 // primary runs both, and every other holder runs neither. Every wait holds that no
@@ -70,8 +71,7 @@ describe('an app\'s g: components run together on its primary', function () {
     })));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

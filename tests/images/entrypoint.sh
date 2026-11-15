@@ -3,11 +3,6 @@
 USER=fluxtesting
 HASH_LOCATION=tests/images/.package_hash
 
-if ! docker ps >/dev/null 2>&1; then
-  echo "Docker not available at ${DOCKER_HOST:-/var/run/docker.sock}... exiting"
-  exit 1
-fi
-
 npm config set update-notifier false
 
 # The working dir will have files if flux repo has been mounted, if not
@@ -32,9 +27,6 @@ fi
 
 npm run prebuild || exit 1
 
-# create directories etc
-sudo syncthing --home=/home/$USER/.config/syncthing 2>&1 > /dev/null &
-
 npm run ciconfig
 
 export NODE_CONFIG_DIR=$(pwd)/tests/unit/globalconfig
@@ -55,7 +47,7 @@ if [[ -n $MANUAL_TEST ]]; then
   exit
 fi
 
-npx mocha "$@" --exit
+npx mocha --require ./tests/unit/databaseLeftovers.js --require ./tests/unit/timerLeftovers.js "$@" --exit
 status=$?
 rm -f {debug,info,warn,error}.log
 exit $status

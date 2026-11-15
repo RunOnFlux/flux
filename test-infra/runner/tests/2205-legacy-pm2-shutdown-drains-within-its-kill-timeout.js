@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pm2Registration, shutdownFluxosUnderPm2 } from '../framework/container.js';
@@ -9,6 +9,7 @@ import { waitFor, waitForUp } from '../framework/wait.js';
 import { isDaemonUp, isFolderSynced, readPath } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A legacy node's shutdown, with FluxOS run by pm2 the way the multitool starts
 // it: pm2 -> start.sh -> npm start -> FluxOS.
@@ -119,8 +120,7 @@ describe('a legacy node under pm2 drains within its kill timeout', function () {
     }
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

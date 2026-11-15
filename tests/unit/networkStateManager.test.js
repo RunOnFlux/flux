@@ -199,6 +199,32 @@ describe('networkStateManager tests', () => {
     sinon.assert.calledTwice(fetcher);
   });
 
+  describe('how often a block refreshes the list', () => {
+    const refreshesAfter = async (elapsedMs) => {
+      const blockEmitter = new EventEmitter();
+      fetcher.resolves(defaultNetworkState);
+      let now = 1_000_000_000n;
+      sinon.stub(process.hrtime, 'bigint').callsFake(() => now);
+      const nsm = new NetworkStateManager(fetcher, { stateEvent: 'blocksProcessed', stateEmitter: blockEmitter });
+      await nsm.start();
+      fetcher.resetHistory();
+
+      now += BigInt(elapsedMs) * 1_000_000n;
+      blockEmitter.emit('blocksProcessed', 1946562);
+      await new Promise((r) => { setImmediate(r); });
+      await nsm.stop();
+      return fetcher.callCount;
+    };
+
+    it('refreshes on a block arriving a moment under a block time after the last fetch ended', async () => {
+      expect(await refreshesAfter(29_600)).to.equal(1);
+    });
+
+    it('does not refresh on a block arriving inside the floor', async () => {
+      expect(await refreshesAfter(24_900)).to.equal(0);
+    });
+  });
+
   it('should return filter map when searching state by pubkey', async () => {
     const expectedResponse = new Map(
       [
@@ -760,6 +786,18 @@ describe('networkStateManager tests', () => {
       releaseFetch();
       await startPromise;
     });
+
+    it('keeps nothing a fetch running at its stop returned, and starts no loop', async () => {
+      const startPromise = nsm.start();
+      await flush();
+
+      await nsm.stop();
+      releaseFetch();
+      await startPromise;
+
+      expect(nsm.started).to.equal(false);
+      expect(nsm.nodeCount).to.equal(0);
+    });
   });
 
   it('should set the indexesReady property to false if indexes are being built', async () => {
@@ -1104,6 +1142,100 @@ describe('networkStateManager tests', () => {
       expect(await nsm.getRandomSocketAddress('10.0.0.1:16127')).to.equal(null);
 
       await nsm.stop();
+    });
+
+    describe('the Arcane marks', () => {
+      const draws = async (nsm, local, avoid) => {
+        const seen = new Set();
+        for (let i = 0; i < 60; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const drawn = await nsm.getRandomArcaneSocketAddress(local, avoid);
+          seen.add(drawn ? `${drawn.socketAddress}@${drawn.reporter}` : null);
+        }
+        return [...seen].sort();
+      };
+
+      it('draws only marked listed nodes, never this one, each with its reporter', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127', '10.0.0.4:16127');
+
+        expect(nsm.markArcane('10.0.0.1:16127', 'r1')).to.equal(true);
+        expect(nsm.markArcane('10.0.0.2:16127', 'r1')).to.equal(true);
+        expect(nsm.markArcane('10.0.0.3', 'r2')).to.equal(true);
+        expect(nsm.markArcane('10.0.0.9:16127', 'r1'), 'an unlisted node').to.equal(false);
+
+        expect(await draws(nsm, '10.0.0.1:16127')).to.deep.equal(['10.0.0.2:16127@r1', '10.0.0.3:16127@r2']);
+        await nsm.stop();
+      });
+
+      it('answers nothing when no other node is marked', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '10.0.0.2:16127');
+        nsm.markArcane('10.0.0.1:16127', 'r1');
+
+        expect(await nsm.getRandomArcaneSocketAddress('10.0.0.1:16127')).to.equal(null);
+        await nsm.stop();
+      });
+
+      it('skips what the caller avoids, by address or by reporter', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127');
+        nsm.markArcane('10.0.0.2:16127', 'r1');
+        nsm.markArcane('10.0.0.3:16127', 'r2');
+
+        expect(await draws(nsm, '10.0.0.1:16127', (socketAddress, reporter) => reporter === 'r1')).to.deep.equal(['10.0.0.3:16127@r2']);
+        await nsm.stop();
+      });
+
+      it('carries a mark over a rebuild of the list, and lets it go with its node', async () => {
+        let ips = ['10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127'];
+        fetcher.callsFake(async () => ips.map(nodeAt));
+        const nsm = new NetworkStateManager(fetcher);
+        await nsm.start();
+        nsm.markArcane('10.0.0.2:16127', 'r1');
+        nsm.markArcane('10.0.0.3:16127', 'r1');
+
+        ips = ['10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.4:16127'];
+        await nsm.fetchNetworkState();
+        expect(await draws(nsm, '10.0.0.1:16127')).to.deep.equal(['10.0.0.2:16127@r1']);
+
+        ips = ['10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127', '10.0.0.4:16127'];
+        await nsm.fetchNetworkState();
+        expect(await draws(nsm, '10.0.0.1:16127'), 'a node that left and came back is unmarked').to.deep.equal(['10.0.0.2:16127@r1']);
+        await nsm.stop();
+      });
+
+      it('replaces a reporter\'s marks with its new report, and leaves other reporters\' marks', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127', '10.0.0.4:16127');
+        nsm.replaceArcaneReport('r1', ['10.0.0.2:16127', '10.0.0.3:16127']);
+        nsm.markArcane('10.0.0.4:16127', 'r2');
+
+        expect(nsm.replaceArcaneReport('r1', ['10.0.0.3:16127', '10.0.0.9:16127'])).to.equal(1);
+
+        expect(await draws(nsm, '10.0.0.1:16127')).to.deep.equal(['10.0.0.3:16127@r1', '10.0.0.4:16127@r2']);
+        await nsm.stop();
+      });
+
+      it('keeps the first reporter\'s mark, except against this node\'s own authenticated link', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127');
+        nsm.markArcane('10.0.0.2:16127', 'r1');
+        nsm.markArcane('10.0.0.2:16127', 'r2');
+        nsm.markArcane('10.0.0.3:16127', 'r1');
+        nsm.markArcane('10.0.0.3:16127', NetworkStateManager.SELF_REPORTED);
+
+        expect(await draws(nsm, '10.0.0.1:16127')).to.deep.equal(['10.0.0.2:16127@r1', `10.0.0.3:16127@${NetworkStateManager.SELF_REPORTED}`]);
+        // a later report by r1 does not take away this node's own mark
+        nsm.replaceArcaneReport('r1', []);
+        expect(await draws(nsm, '10.0.0.1:16127')).to.deep.equal([`10.0.0.3:16127@${NetworkStateManager.SELF_REPORTED}`]);
+        await nsm.stop();
+      });
+
+      it('takes a node\'s mark away', async () => {
+        const nsm = await fleetOf('10.0.0.1:16127', '10.0.0.2:16127');
+        nsm.markArcane('10.0.0.2:16127', 'r1');
+
+        nsm.unmarkArcane('10.0.0.2');
+
+        expect(await nsm.getRandomArcaneSocketAddress('10.0.0.1:16127')).to.equal(null);
+        await nsm.stop();
+      });
     });
 
     describe('an external observer', () => {

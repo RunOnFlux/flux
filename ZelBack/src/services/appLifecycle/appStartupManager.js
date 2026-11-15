@@ -12,6 +12,7 @@ const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
 const serviceHelper = require('../serviceHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const nodeDosState = require('../nodeDosState');
 const registryManager = require('../appDatabase/registryManager');
 const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
@@ -32,11 +33,14 @@ const { RemovalOutcome } = require('../utils/removalOutcome');
 const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
 
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
+// How long boot takes to decide the apps it finds stopped, start to end; past it
+// every app is removed.
+const BOOT_APPS_RECONCILE_TIMEOUT_MS = config.system.bootAppsReconcileTimeoutMs ?? 300000;
 
 // The router taking this node's ports ends the hold boot put on it for not taking them.
 routerEvents.on('upnpReady', () => {
-  if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER)) {
-    fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER);
+  if (nodeDosState.isStickyDosHeldBy(nodeDosState.StickyDosOwner.UPNP_ROUTER)) {
+    nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.UPNP_ROUTER);
   }
 });
 
@@ -160,35 +164,55 @@ function startAtBoot(componentsToStart) {
 }
 
 /**
- * Whether this node holds an unexpired location record for an app.
+ * Boot did not decide every app it found stopped within
+ * BOOT_APPS_RECONCILE_TIMEOUT_MS.
+ */
+class BootAppsReconcileTimeout extends Error {
+  constructor() {
+    super(`boot did not decide its apps within ${BOOT_APPS_RECONCILE_TIMEOUT_MS / 1000}s`);
+  }
+}
+
+/**
+ * Whether this node holds an unexpired location record for an app, read every
+ * BOOT_STEP_RETRY_MS until it answers.
  * @param {string} appName
  * @param {string} localSocketAddr
+ * @param {number} deadline When boot's app step ends (ms).
  * @returns {Promise<boolean>}
- * @throws {Error} When the records cannot be read.
+ * @throws {BootAppsReconcileTimeout} When the record has not answered by `deadline`.
  */
-async function readLocation(appName, localSocketAddr) {
-  const valid = await appHasValidLocationOnNode(appName, localSocketAddr);
-  if (valid === null) throw new Error(`the location record of ${appName} could not be read`);
-  return valid;
+async function readLocationBefore(appName, localSocketAddr, deadline) {
+  for (;;) {
+    const waitMs = Math.min(BOOT_STEP_RETRY_MS, deadline - Date.now());
+    if (waitMs <= 0) throw new BootAppsReconcileTimeout();
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(waitMs);
+    // eslint-disable-next-line no-await-in-loop
+    const valid = await appHasValidLocationOnNode(appName, localSocketAddr);
+    if (valid !== null) return valid;
+    log.warn(`appStartupManager - App ${appName}: its location record could not be read, reading it again`);
+  }
 }
 
 /**
  * Decides an app held in globalState.unconfirmedApps once its location record can
- * be read, reading it every BOOT_STEP_RETRY_MS until then. A valid record releases
- * the app and starts the components boot starts; any other answer removes it, the
- * app held until the removal has finished or holds it as departing. An app whose
- * hold has ended by then - uninstalled meanwhile, perhaps installed again since -
- * is not this check's to decide, and it does nothing.
+ * be read; boot waits for it. A valid record releases the app and starts the
+ * components boot starts; any other answer removes it, the app held until the
+ * removal has finished or holds it as departing. An app whose hold has ended by
+ * then - uninstalled meanwhile, perhaps installed again since - is not this
+ * check's to decide, and it does nothing.
  * @param {string} appName
  * @param {string[]} componentsToStart
  * @param {string} localSocketAddr
  * @param {symbol} hold The hold this check decides, as boot set it.
+ * @param {number} deadline When boot's app step ends (ms).
  * @returns {Promise<void>}
+ * @throws {BootAppsReconcileTimeout} When the record has not answered by `deadline`.
  */
-async function confirmHeldApp(appName, componentsToStart, localSocketAddr, hold) {
+async function confirmHeldApp(appName, componentsToStart, localSocketAddr, hold, deadline) {
   const isHeld = () => globalState.unconfirmedApps.get(appName) === hold;
-  await serviceHelper.delay(BOOT_STEP_RETRY_MS);
-  const valid = await untilSucceeds(`Location check of ${appName}`, () => readLocation(appName, localSocketAddr));
+  const valid = await readLocationBefore(appName, localSocketAddr, deadline);
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BOOT_BEFORE_LOCATION_DECISION, appName);
   // Nothing awaits between this check and the decision below, so the hold cannot
   // end in between.
@@ -233,6 +257,7 @@ async function reconcileAppsOnBoot() {
     appsFailed: [],
   };
 
+  const deadline = Date.now() + BOOT_APPS_RECONCILE_TIMEOUT_MS;
   try {
     log.info('appStartupManager - Starting boot reconciliation check');
 
@@ -271,6 +296,7 @@ async function reconcileAppsOnBoot() {
     // Process each app
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsWithStoppedContainers) {
+      if (Date.now() >= deadline) throw new BootAppsReconcileTimeout();
       results.appsChecked += 1;
 
       log.info(`appStartupManager - Checking app ${appName}`);
@@ -325,14 +351,16 @@ async function reconcileAppsOnBoot() {
         const hasValidLocation = await appHasValidLocationOnNode(appName, localSocketAddr);
         if (hasValidLocation === null) {
           // Whether the network placed it elsewhere while this node was down is not
-          // known, so it is neither started nor removed until it is.
+          // known, so it is neither started nor removed until it is, and boot does
+          // not settle before then: the node announces nothing until every app it
+          // found stopped is decided.
           log.warn(`appStartupManager - App ${appName}: its location record could not be read, held stopped until it can be`);
           const hold = Symbol(appName);
           globalState.unconfirmedApps.set(appName, hold);
           fluxEventBus.publish('boot:appUnconfirmed', { name: appName });
-          confirmHeldApp(appName, componentsToStart, localSocketAddr, hold)
-            .catch((error) => log.error(`appStartupManager - App ${appName}: the location check stopped: ${error.message}`));
           results.appsUnconfirmed.push(appName);
+          // eslint-disable-next-line no-await-in-loop
+          await confirmHeldApp(appName, componentsToStart, localSocketAddr, hold, deadline);
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -386,6 +414,7 @@ async function reconcileAppsOnBoot() {
 
     return results;
   } catch (error) {
+    if (error instanceof BootAppsReconcileTimeout) throw error;
     log.error(`appStartupManager - Critical error during recovery: ${error.message}`);
   }
 }
@@ -417,11 +446,42 @@ async function tidyPlacementsOnBoot() {
   });
 }
 
+// What a wait answers when an owner holds the node out of service.
+const OUT_OF_SERVICE = Symbol('outOfService');
+
+/**
+ * Decide the apps this node runs after boot: remove them all when the node may
+ * run none, otherwise wait for fluxd, confirmation and the app database and
+ * reconcile them. A node an owner holds out of service, at any point of this,
+ * is left to the removal the hold starts (nodeStatusMonitor.initialize): boot
+ * removes nothing for it and starts nothing. Boot settles however it ends.
+ * @param {object} bootContext AppSyncOrchestrator.readBootContext
+ * @returns {Promise<void>}
+ */
 async function manageAppsOnBoot(bootContext) {
+  let stopWatching = () => {};
+  const takenOut = new Promise((resolve) => {
+    stopWatching = nodeDosState.onStickyDos(() => resolve(OUT_OF_SERVICE));
+  });
+  const isOutOfService = () => nodeDosState.getStickyDosMessage() !== null;
+  // OUT_OF_SERVICE when the node is held out of service by the time the wait
+  // ends, however it ends. A hold released while it waits leaves it waiting.
+  const unlessTakenOut = async (work) => {
+    const answer = await Promise.race([takenOut, work]);
+    if (isOutOfService()) return OUT_OF_SERVICE;
+    if (answer !== OUT_OF_SERVICE) return answer;
+    const done = await work;
+    return isOutOfService() ? OUT_OF_SERVICE : done;
+  };
+  const leaveToItsRemoval = () => log.error(`appStartupManager - Node is out of service (${nodeDosState.getStickyDosMessage()}); its removal unloads the apps, and boot starts none`);
   try {
     await tidyPlacementsOnBoot();
     // ahead of every container start, so no slice in use can be empty here
     await appSlice.stopEmptySlices();
+    if (isOutOfService()) {
+      leaveToItsRemoval();
+      return;
+    }
     if (bootContext.firstBoot) {
       log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
     } else if (bootContext.unreadable) {
@@ -440,7 +500,10 @@ async function manageAppsOnBoot(bootContext) {
     // Locations still valid — wait for daemon + sync then reconcile.
     const DAEMON_TIMEOUT_MS = config.system.bootDaemonTimeoutMs ?? 300000;
     try {
-      await awaitWithin(globalState.waitForDaemonReady(), DAEMON_TIMEOUT_MS, 'daemon_timeout');
+      if (await awaitWithin(unlessTakenOut(globalState.waitForDaemonReady()), DAEMON_TIMEOUT_MS, 'daemon_timeout') === OUT_OF_SERVICE) {
+        leaveToItsRemoval();
+        return;
+      }
     } catch (error) {
       if (error.message === 'daemon_timeout') {
         log.error(`appStartupManager - Daemon not ready after ${DAEMON_TIMEOUT_MS / 1000}s, removing all apps`);
@@ -450,19 +513,17 @@ async function manageAppsOnBoot(bootContext) {
       throw error;
     }
 
-    await nodeConfirmationService.waitForConfirmationStatus();
+    if (await unlessTakenOut(nodeConfirmationService.waitForConfirmationStatus()) === OUT_OF_SERVICE) {
+      leaveToItsRemoval();
+      return;
+    }
     if (!nodeConfirmationService.isConfirmed()) {
       log.info('appStartupManager - Node not confirmed, removing all apps');
       await removeAllApps('Node not confirmed');
       return;
     }
 
-    if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
-      log.error('appStartupManager - Node is out of service for a host stall; its own removal unloads the apps');
-      return;
-    }
-
-    if (fluxNetworkHelper.isNodeDos()) {
+    if (nodeDosState.isNodeDos()) {
       log.error('appStartupManager - Node is in DOS state, removing all apps');
       await removeAllApps('Node DOS');
       return;
@@ -470,16 +531,19 @@ async function manageAppsOnBoot(bootContext) {
 
     // A UPnP node is ready once its router has taken its own ports, as it is once
     // its database is: both within the one deadline.
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BOOT_BEFORE_SYNC_WAIT);
     const upnpNode = upnpService.isUPNP();
     try {
-      await awaitWithin(Promise.all([globalState.waitForDbReady(), upnpNode ? upnpService.whenUPNPReady() : null]), SYNC_TIMEOUT_MS, 'sync_timeout');
+      if (await awaitWithin(unlessTakenOut(Promise.all([globalState.waitForDbReady(), upnpNode ? upnpService.whenUPNPReady() : null])), SYNC_TIMEOUT_MS, 'sync_timeout') === OUT_OF_SERVICE) {
+        leaveToItsRemoval();
+        return;
+      }
     } catch (error) {
       if (error.message === 'sync_timeout') {
         if (upnpNode && !upnpService.isUPNPReady()) {
           const reason = `UPnP: the router has not taken this node's ports within ${SYNC_TIMEOUT_MS / 1000}s of its start`;
-          fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.UPNP_ROUTER, reason);
-          log.error(`appStartupManager - ${reason}, removing all apps`);
-          await removeAllApps('UPnP not mapped');
+          nodeDosState.setStickyDos(nodeDosState.StickyDosOwner.UPNP_ROUTER, reason);
+          leaveToItsRemoval();
           return;
         }
         log.error(`appStartupManager - DB not ready after ${SYNC_TIMEOUT_MS / 1000}s, removing all apps`);
@@ -495,8 +559,15 @@ async function manageAppsOnBoot(bootContext) {
     // app, whose removal then releases them; the apps start without waiting on
     // the mappings, which follow in the background.
     await portManager.declareInstalledAppsPorts();
-    await reconcileAppsOnBoot();
+    try {
+      await reconcileAppsOnBoot();
+    } catch (error) {
+      if (!(error instanceof BootAppsReconcileTimeout)) throw error;
+      log.error(`appStartupManager - ${error.message}, removing all apps`);
+      await removeAllApps('Apps not decided at boot');
+    }
   } finally {
+    stopWatching();
     globalState.bootContainerStateSettled = true;
     fluxEventBus.publish('boot:settled', {});
     log.info('appStartupManager - Boot container state settled');

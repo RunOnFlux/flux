@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -12,6 +12,7 @@ import {
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import numericIdTables from '../../../ZelBack/src/services/utils/numericIdTables.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const { TABLES_SHA256 } = numericIdTables;
 
@@ -116,8 +117,7 @@ describe('an app\'s syncthing is the app\'s', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

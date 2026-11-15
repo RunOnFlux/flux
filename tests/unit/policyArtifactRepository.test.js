@@ -1,6 +1,10 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const config = require('config');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const repository = require('../../ZelBack/src/services/appDatabase/policyArtifactRepository');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const MODULE_PATH = '../../ZelBack/src/services/appDatabase/policyArtifactRepository';
 const POLICY_DOCUMENTS = 'policydocuments';
@@ -41,7 +45,7 @@ describe('policyArtifactRepository - the signed bundle', () => {
       const [db, collection, query, update, options] = dbHelper.findOneAndUpdateInDatabase.firstCall.args;
       expect(db).to.equal(database);
       expect(collection).to.equal(POLICY_DOCUMENTS);
-      expect(query).to.deep.equal({ _id: m.BUNDLE_ID });
+      expect(query, 'only over a lower sequence, or none').to.deep.equal({ _id: m.BUNDLE_ID, $or: [{ seq: { $lt: 42 } }, { seq: { $exists: false } }] });
       expect(update.$set.raw).to.equal('{"payload_b64":"x"}');
       expect(update.$set.seq).to.equal(42);
       expect(update.$set.verifiedAt).to.be.a('number');
@@ -53,6 +57,24 @@ describe('policyArtifactRepository - the signed bundle', () => {
       // the bundle overwriting each other's fields.
       const { module: m } = load();
       expect(m.BUNDLE_ID).to.not.equal('ipLocationTable');
+    });
+
+    const duplicateKey = () => Object.assign(new Error('E11000 duplicate key'), { code: 11000 });
+
+    it('answers false when a bundle of this sequence or a higher one is stored', async () => {
+      const { module: m, dbHelper: stubbedDb } = load();
+      stubbedDb.findOneAndUpdateInDatabase.rejects(duplicateKey());
+
+      expect(await m.writeBundle('{}', 4)).to.equal(false);
+      expect(stubbedDb.findOneAndUpdateInDatabase.callCount, 'asked once more, the document existing').to.equal(2);
+    });
+
+    it('records a bundle whose insert met another write\'s first insert, once asked again', async () => {
+      const { module: m, dbHelper: stubbedDb } = load();
+      stubbedDb.findOneAndUpdateInDatabase.onFirstCall().rejects(duplicateKey());
+
+      expect(await m.writeBundle('{}', 40)).to.equal(true);
+      expect(stubbedDb.findOneAndUpdateInDatabase.callCount).to.equal(2);
     });
 
     it('answers false rather than throwing when there is no database yet', async () => {
@@ -103,6 +125,43 @@ describe('policyArtifactRepository - the signed bundle', () => {
       dbHelper.findOneInDatabase.resolves({ raw: '{}' });
 
       expect((await m.readBundle()).seq).to.equal(0);
+    });
+  });
+});
+
+// The stored bundle only moves forward, in the database itself: of two writes the higher
+// sequence is what stays, whichever order they are made or finish in.
+describe('policyArtifactRepository - the stored bundle against a database', () => {
+  const clear = () => dbHelper.databaseConnection().db(config.database.local.database)
+    .collection(config.database.local.collections.policyDocuments).deleteOne({ _id: repository.BUNDLE_ID });
+  const storedSeq = async () => (await repository.readBundle())?.seq ?? null;
+
+  before(requireMongo);
+  beforeEach(clear);
+  after(async () => {
+    await clear();
+    await releaseMongo();
+  });
+
+  it('keeps the newer when the older is written after it', async () => {
+    expect(await repository.writeBundle('{"b":40}', 40)).to.equal(true);
+    expect(await repository.writeBundle('{"b":4}', 4)).to.equal(false);
+    expect(await storedSeq()).to.equal(40);
+  });
+
+  it('moves to the newer when it is written after the older', async () => {
+    await repository.writeBundle('{"b":4}', 4);
+    expect(await repository.writeBundle('{"b":40}', 40)).to.equal(true);
+    expect(await storedSeq()).to.equal(40);
+  });
+
+  [[4, 40], [40, 4]].forEach(([first, second]) => {
+    it(`keeps the newer of two written at once with none stored, ${first} sent first`, async () => {
+      await Promise.all([
+        repository.writeBundle(`{"b":${first}}`, first),
+        repository.writeBundle(`{"b":${second}}`, second),
+      ]);
+      expect(await storedSeq()).to.equal(40);
     });
   });
 });

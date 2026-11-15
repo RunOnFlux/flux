@@ -1,10 +1,11 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, stopAppContainer } from '../framework/container.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, seedTestApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A clean exit (code 0) is restarted under the default 'always' restart policy.
 // This is the regression for the client whose containers exit 0 to free memory:
@@ -28,8 +29,7 @@ describe('reconciler restarts a cleanly-exited (exit 0) container by default', f
     ({ index: idx, identifier } = await seedTestApp(env, { name: appName, exitCode: 0 }));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

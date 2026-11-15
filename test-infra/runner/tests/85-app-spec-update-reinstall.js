@@ -30,17 +30,19 @@
  * app's data volume survives. A change to hdd takes the hard path and reformats
  * it, which is a different suite.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { getAppContainerId } from '../framework/container.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('an app whose specification changed is reinstalled at the new specification', function () {
   let env;
@@ -96,8 +98,7 @@ describe('an app whose specification changed is reinstalled at the new specifica
     }, { timeout: 120000, interval: 2000, label: 'the app is running before its spec changes' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -119,7 +120,7 @@ describe('an app whose specification changed is reinstalled at the new specifica
     expect(updated.hash, 'an update that hashes the same is not an update').to.not.equal(app.hash);
 
     const beforeUpdate = holder.getLastEventId();
-    await seedSpecUpdate(env, updated, [0]);
+    await deliverApp(env, updated, [0]);
 
     // driveUntil is the only thing that may advance the chain here. Only a
     // block still at the tip when it is fetched reaches the periodic passes,

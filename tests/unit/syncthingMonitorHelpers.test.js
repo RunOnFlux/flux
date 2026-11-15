@@ -168,6 +168,7 @@ describe('syncthingMonitorHelpers tests', () => {
         rescanIntervalS: 900,
         maxConflicts: 0,
         syncOwnership: true,
+        caseSensitiveFS: true,
       });
       expect(result.devices).to.deep.equal(devices);
       expect(result, 'a type left in would be written whenever any field changes').to.not.have.property('type');
@@ -186,6 +187,7 @@ describe('syncthingMonitorHelpers tests', () => {
       rescanIntervalS: 900,
       maxConflicts: 0,
       syncOwnership: true,
+      caseSensitiveFS: true,
       fsWatcherEnabled: true,
       markerName: '.stfolder',
       devices: ['AAA', 'MINE', 'ZZZ'].map((deviceID) => ({ deviceID, introducedBy: '', encryptionPassword: '' })),
@@ -208,7 +210,7 @@ describe('syncthingMonitorHelpers tests', () => {
 
     it('writes a folder any field of which differs from what the monitor would write', () => {
       const fields = Object.keys(built()).filter((field) => field !== 'devices');
-      expect(fields, 'fixture: the built config names the fields the monitor writes').to.include.members(['path', 'label', 'paused', 'type', 'rescanIntervalS', 'maxConflicts', 'syncOwnership']);
+      expect(fields, 'fixture: the built config names the fields the monitor writes').to.include.members(['path', 'label', 'paused', 'type', 'rescanIntervalS', 'maxConflicts', 'syncOwnership', 'caseSensitiveFS']);
       fields.forEach((field) => {
         const differs = { ...held(), [field]: `not ${held()[field]}` };
         expect(helpers.folderNeedsUpdate(differs, built()), field).to.equal(true);
@@ -226,6 +228,10 @@ describe('syncthingMonitorHelpers tests', () => {
       expect(helpers.folderNeedsUpdate({ ...held(), type: 'sendreceive' }, built('receiveonly')), 'fixture: a differing type is a change').to.equal(true);
 
       expect(helpers.folderNeedsUpdate({ ...held(), type: 'sendreceive' }, built(null))).to.equal(false);
+    });
+
+    it('writes a folder syncthing holds with its case checks on', () => {
+      expect(helpers.folderNeedsUpdate({ ...held(), caseSensitiveFS: false }, built())).to.equal(true);
     });
 
     it('does not compare a field the monitor does not write', () => {

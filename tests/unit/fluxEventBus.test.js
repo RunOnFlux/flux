@@ -1,6 +1,7 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
+const proxyquire = require('proxyquire').noCallThru();
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 const { FluxEventBus } = fluxEventBus;
@@ -325,6 +326,16 @@ describe('FluxEventBus tests', () => {
     };
 
     const heldEvents = (bus) => bus.since(0).filter((e) => e.event === 'checkpoint:held').map((e) => e.data);
+
+    it('holds from the start every checkpoint its config names, only when enabled', () => {
+      const { FluxEventBus: ConfiguredBus } = proxyquire('../../ZelBack/src/services/utils/fluxEventBus', {
+        config: { has: (key) => key === 'testCheckpointsHeldAtStart', get: () => [POINT] },
+      });
+
+      expect(new ConfiguredBus(true).isCheckpointHeld(POINT, 'app_app')).to.equal(true);
+      expect(new ConfiguredBus(false).isCheckpointHeld(POINT, 'app_app')).to.equal(false);
+      expect(new FluxEventBus(true).isCheckpointHeld(POINT, 'app_app')).to.equal(false);
+    });
 
     it('passes straight through a held checkpoint when disabled', async () => {
       const bus = new FluxEventBus(false);

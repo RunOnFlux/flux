@@ -28,10 +28,14 @@
  * Both openings are held before either node is asked to dial, so no
  * connection can form until both have initiated theirs, whichever request
  * reached its node first; each case then releases them in the order it tests.
- * Discovery is quietened after the fleet has peered (discoveryRetryMs), so the
- * only dials between L and H are the ones each case makes.
+ * The fleet runs one discovery pass at boot and no other: discoveryRetryMs removes
+ * the periodic pass and a link target of 0 the pass a lost link brings forward.
+ * Every case asserts that no pass ran, so the only dials between L and H are the
+ * ones it makes.
  */
-import { describe, it, before, after, afterEach } from 'mocha';
+import {
+  describe, it, before, beforeEach, afterEach,
+} from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -40,6 +44,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { hold, release, releaseAll } from '../framework/packet-hold.js';
 import { authenticate } from '../auth.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const API_PORT = 16127;
 // Longer than the inbound path's deferred duplicate refusal (1s) plus the close
@@ -61,6 +66,7 @@ describe('a crossing dial keeps the connection the lower address dialed', functi
   dumpLogsOnFailure(() => env);
   let low;
   let high;
+  let passesAtStart;
   const auth = new Map();
 
   const call = async (client, path) => {
@@ -82,6 +88,8 @@ describe('a crossing dial keeps the connection the lower address dialed', functi
     .map((k) => [k, (after[k] ?? 0) - (before[k] ?? 0)])
     .filter(([, n]) => n !== 0));
   const decisions = (d) => Object.values(d).reduce((sum, n) => sum + n, 0);
+  const discoveryPasses = () => Promise.all([low, high]
+    .map(async (client) => (await client.getTestCounters())['discovery:pass'] ?? 0));
 
   async function disconnectPair() {
     await Promise.all([
@@ -127,6 +135,7 @@ describe('a crossing dial keeps the connection the lower address dialed', functi
     expect(h.outbound, 'H holds no connection it dialed').to.deep.equal([]);
     expect(l.outbound.map((p) => p.alive), 'L holds exactly its own dial, alive').to.deep.equal([true]);
     expect(h.inbound.map((p) => p.alive), "H holds exactly L's dial, alive").to.deep.equal([true]);
+    expect(await discoveryPasses(), 'no discovery pass ran during the case').to.deep.equal(passesAtStart);
   }
 
   before(async function () {
@@ -136,7 +145,7 @@ describe('a crossing dial keeps the connection the lower address dialed', functi
       nodes: 3,
       // Peer once at boot, then never again on its own: every later dial between
       // L and H is one a case made.
-      configOverrides: { fluxapps: { discoveryRetryMs: 24 * 60 * 60 * 1000 } },
+      configOverrides: { fluxapps: { discoveryRetryMs: 24 * 60 * 60 * 1000, admissionLinkTarget: 0 } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     const [a, b] = env.clients;
@@ -149,6 +158,12 @@ describe('a crossing dial keeps the connection the lower address dialed', functi
     await waitFor(async () => (await low.getTestState('peers')).self === `${low.ip}:${API_PORT}`
       && (await high.getTestState('peers')).self === `${high.ip}:${API_PORT}`,
     { timeout: 60000, interval: 1000, label: 'both nodes know their own address' });
+    await waitFor(async () => (await discoveryPasses()).every((passes) => passes > 0),
+      { timeout: 60000, interval: 200, label: 'both nodes counted their boot pass' });
+  });
+
+  beforeEach(async function () {
+    passesAtStart = await discoveryPasses();
   });
 
   afterEach(async function () {
@@ -156,8 +171,7 @@ describe('a crossing dial keeps the connection the lower address dialed', functi
     if (low && high) await Promise.all([releaseAll(low), releaseAll(high)]);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

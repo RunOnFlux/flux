@@ -1,24 +1,26 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { buildSeedableApp } from '../framework/seed-helper.js';
+import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForAppInstalled } from '../framework/wait.js';
-import { dbClient } from '../framework/db-client.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node removing an app is not offered it by its own spawner until the removal
 // has finished, and is offered it again from then on.
 //
 // The app asks for one instance and is known to one node only, which holds it, so
-// its spawner never picks it while the node announces it. Its spec is seeded near
+// its spawner never picks it while the node announces it. Its spec is delivered near
 // expiry, which the spawner never picks, the app installed directly, and the spec
-// given its normal expiry once the node's own location record of it is in place.
+// given its normal expiry by an update once the node's own location record of it is
+// in place.
 //
 // A removal stops announcing the app, so the node's location record of it expires
 // while the removal runs, and the app is short from then on. The removal is held
@@ -75,11 +77,10 @@ describe('a node takes an app again once its removal has finished', function () 
     });
     await installOnNodes(env, app, [REMOVER]);
     await waitFor(listedHere, { timeout: 180000, interval: 2000, label: 'the node lists itself as holding the app' });
-    await dbClient(REMOVER + 1).replaceGlobalAppSpec({ ...app.spec, expire: SPAWNABLE_EXPIRE });
+    await deliverApp(env, await buildSeedableUpdate(app, (spec) => { spec.expire = SPAWNABLE_EXPIRE; }), [REMOVER]);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await remover()?.releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });

@@ -14,6 +14,7 @@ import {
 import { dbClient } from '../framework/db-client.js';
 import { waitFor, waitForInstallSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A restarting node rebuilds its application registry once its boot hash sync
 // completes, and refills its location store from the orchestrator's state sync.
@@ -69,26 +70,37 @@ describe('registry and location reads wait for their store after a restart', fun
     }, { timeout: 180000, interval: 3000, label: 'every app in the restarted node\'s registry before the restart' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
   // Both routes are sampled together from the moment the node is back, so each
-  // one's window is observed rather than assumed. The fleet's spawners may still
-  // be placing the apps, so a location list of any length is a correct answer:
-  // for locations the contract is the status, and for the registry it is the
-  // status and the whole list.
+  // one's window is observed rather than assumed. The node is cut off from its
+  // peers across the restart: it can rebuild nothing until it can be heard, so
+  // each window stays open until a refusal has been seen. The fleet's spawners may
+  // still be placing the apps, so a location list of any length is a correct
+  // answer: for locations the contract is the status, and for the registry it is
+  // the status and the whole list.
   it('answers 503 until each store stands, then the whole of it, and never a short list', async function () {
     this.timeout(420000);
+    const peers = env.clients.map((_unused, i) => i).filter((i) => i !== RESTARTED);
+    await env.partitionGroups([RESTARTED], peers);
     await restartFluxos(env.clients[RESTARTED].container);
 
     const registry = [];
     const locations = [];
-    await waitFor(async () => {
+    const sample = async () => {
       const [r, l] = await Promise.all([read('/apps/globalappsspecifications'), read('/apps/locations')]);
       registry.push(r);
       locations.push(l);
+    };
+    await waitFor(async () => {
+      await sample();
+      return registry.some((x) => x.status === 503) && locations.some((x) => x.status === 503);
+    }, { timeout: 60000, interval: POLL_MS, label: 'both routes refusing while the node has no peers' });
+    await env.healPartition([RESTARTED], peers);
+    await waitFor(async () => {
+      await sample();
       return registry.some((x) => x.success) && locations.some((x) => x.success);
     }, { timeout: 360000, interval: POLL_MS, label: 'the registry and locations answering 200 again' });
 

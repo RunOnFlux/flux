@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -14,6 +14,7 @@ import {
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node shutting down hands its single-writer (g:) data to the standby before
 // it goes, and holds still while it does.
@@ -96,8 +97,7 @@ describe('a graceful shutdown drains to the standby and holds still', function (
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

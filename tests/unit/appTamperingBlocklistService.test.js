@@ -3,7 +3,7 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { makeStickyDosDouble } = require('./stickyDosTestDouble');
-const { StickyDosOwner } = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { StickyDosOwner } = require('../../ZelBack/src/services/nodeDosState');
 
 describe('appTamperingBlocklistService tests', () => {
   const OWNER = StickyDosOwner.APP_TAMPERING;
@@ -11,7 +11,7 @@ describe('appTamperingBlocklistService tests', () => {
   const RESIDENTIAL_REASON = 'Residential node not running ArcaneOS';
   let service;
   let dbHelperStub;
-  let fluxNetworkHelperStub;
+  let nodeDosStateStub;
   let generalServiceStub;
   let daemonMiscStub;
   let benchmarkServiceStub;
@@ -41,7 +41,7 @@ describe('appTamperingBlocklistService tests', () => {
       },
       './policyStore': policyStoreStub,
       './dbHelper': dbHelperStub,
-      './fluxNetworkHelper': fluxNetworkHelperStub,
+      './nodeDosState': nodeDosStateStub,
       './generalService': generalServiceStub,
       './daemonService/daemonServiceMiscRpcs': daemonMiscStub,
       './benchmarkService': benchmarkServiceStub,
@@ -59,11 +59,11 @@ describe('appTamperingBlocklistService tests', () => {
       aggregateInDatabase: sinon.stub().resolves([]),
     };
 
-    // Stateful on purpose: the real fluxNetworkHelper reads back the message it
+    // Stateful on purpose: the real nodeDosState reads back the message it
     // was given, and every ownership rule in this service is written against
     // that read-back. A getter pinned to null would let a clear that must not
     // happen pass as if it had.
-    fluxNetworkHelperStub = makeStickyDosDouble();
+    nodeDosStateStub = makeStickyDosDouble();
 
     generalServiceStub = {
       obtainNodeCollateralInformation: sinon.stub().resolves({ txhash: MOCK_TXHASH, txindex: 0 }),
@@ -210,8 +210,8 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
-      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.clearStickyDos.called).to.be.false;
     });
 
     it('skips when own txhash cannot be determined', async () => {
@@ -219,23 +219,23 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
-      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.clearStickyDos.called).to.be.false;
     });
 
     it('keeps an active DOS when the blocklist cannot be fetched', async () => {
       // an unreadable blocklist is not an empty one: falling through would
       // take the clear branch and a github outage would undo enforcement
       policyStoreStub.getDocument.returns(null); // could not read the policy;
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(
+      nodeDosStateStub.getStickyDosMessage = sinon.stub().returns(
         `Node flagged via tampering blocklist: tamper score 99, txhash ${MOCK_TXHASH}`,
       );
       setTamperScore(100);
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.clearStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
     });
 
     it('does nothing when txhash is not on the blocklist', async () => {
@@ -244,7 +244,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
     });
 
     it('does nothing when listed but score <= threshold', async () => {
@@ -253,7 +253,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
     });
 
     it('skips the tick when the score cannot be read, leaving an active DOS in place', async () => {
@@ -262,8 +262,8 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.clearStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
     });
 
     it('sets sticky DOS when listed AND score > threshold', async () => {
@@ -272,8 +272,8 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
-      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDos);
-      const msg = fluxNetworkHelperStub.setStickyDos.firstCall.args[1];
+      sinon.assert.calledOnce(nodeDosStateStub.setStickyDos);
+      const msg = nodeDosStateStub.setStickyDos.firstCall.args[1];
       expect(msg).to.include(service.DOS_MESSAGE_PREFIX);
       expect(msg).to.include(MOCK_TXHASH);
       expect(msg).to.include('11');
@@ -291,7 +291,7 @@ describe('appTamperingBlocklistService tests', () => {
       policyStoreStub.getDocument.returns([]);
       await service.enforceBlocklist();
 
-      sinon.assert.called(fluxNetworkHelperStub.clearStickyDos);
+      sinon.assert.called(nodeDosStateStub.clearStickyDos);
       expect(service.isDosActive()).to.be.false;
     });
 
@@ -304,19 +304,19 @@ describe('appTamperingBlocklistService tests', () => {
       setTamperScore(5);
       await service.enforceBlocklist();
 
-      sinon.assert.called(fluxNetworkHelperStub.clearStickyDos);
+      sinon.assert.called(nodeDosStateStub.clearStickyDos);
       expect(service.isDosActive()).to.be.false;
     });
 
     it('clears a verdict of its own left standing by an earlier run', async () => {
       const ours = `${service.DOS_MESSAGE_PREFIX}: tamper score 42, txhash xyz`;
-      fluxNetworkHelperStub.holds.set(OWNER, ours);
+      nodeDosStateStub.holds.set(OWNER, ours);
       policyStoreStub.getDocument.returns([]);
       setTamperScore(0);
 
       await service.enforceBlocklist();
 
-      sinon.assert.called(fluxNetworkHelperStub.clearStickyDos);
+      sinon.assert.called(nodeDosStateStub.clearStickyDos);
     });
 
     it("releases its own verdict and leaves another owner's standing", async () => {
@@ -324,54 +324,54 @@ describe('appTamperingBlocklistService tests', () => {
       setTamperScore(15);
       await service.enforceBlocklist();
       expect(service.isDosActive()).to.be.true;
-      fluxNetworkHelperStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
+      nodeDosStateStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
 
       // ...and our own condition stops holding.
       policyStoreStub.getDocument.returns([]);
       await service.enforceBlocklist();
 
       expect(service.isDosActive()).to.be.false;
-      expect(fluxNetworkHelperStub.getStickyDosMessage(), "dropped another owner's DOS on the floor").to.equal(RESIDENTIAL_REASON);
+      expect(nodeDosStateStub.getStickyDosMessage(), "dropped another owner's DOS on the floor").to.equal(RESIDENTIAL_REASON);
     });
 
     // Enforcement runs every 12 hours. A verdict that waited for another owner
     // to let go of a shared slot left a node this build has determined should be
     // out of service taking apps until the next tick.
     it("records its verdict beside another owner's, without waiting for it", async () => {
-      fluxNetworkHelperStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
+      nodeDosStateStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
       policyStoreStub.getDocument.returns([MOCK_TXHASH]);
       setTamperScore(15);
 
       await service.enforceBlocklist();
 
       expect(service.isDosActive()).to.be.true;
-      const message = fluxNetworkHelperStub.getStickyDosMessage();
+      const message = nodeDosStateStub.getStickyDosMessage();
       expect(message, 'overwrote a verdict it does not own').to.contain('Residential');
       expect(message).to.contain('tamper score 15');
     });
 
     it('refreshes its own verdict rather than treating it as foreign', async () => {
-      fluxNetworkHelperStub.holds.set(OWNER, `${service.DOS_MESSAGE_PREFIX}: tamper score 42, txhash xyz`);
+      nodeDosStateStub.holds.set(OWNER, `${service.DOS_MESSAGE_PREFIX}: tamper score 42, txhash xyz`);
       policyStoreStub.getDocument.returns([MOCK_TXHASH]);
       setTamperScore(15);
 
       await service.enforceBlocklist();
 
-      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDos);
-      expect(fluxNetworkHelperStub.getStickyDosMessage()).to.contain('tamper score 15');
+      sinon.assert.calledOnce(nodeDosStateStub.setStickyDos);
+      expect(nodeDosStateStub.getStickyDosMessage()).to.contain('tamper score 15');
     });
 
 
 
 
     it('does NOT clear a verdict set by a different owner', async () => {
-      fluxNetworkHelperStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
+      nodeDosStateStub.holds.set(RESIDENTIAL, RESIDENTIAL_REASON);
       policyStoreStub.getDocument.returns([]);
       setTamperScore(0);
 
       await service.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.clearStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.clearStickyDos.called).to.be.false;
     });
   });
 
@@ -425,7 +425,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await arcaneService.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
       expect(arcaneService.isDosActive()).to.be.false;
     });
 
@@ -457,7 +457,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await svc.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
       expect(policyStoreStub.getDocument.called).to.be.false;
     });
 
@@ -469,7 +469,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await svc.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
       expect(policyStoreStub.getDocument.called).to.be.false;
     });
 
@@ -484,7 +484,7 @@ describe('appTamperingBlocklistService tests', () => {
 
       await svc.enforceBlocklist();
 
-      expect(fluxNetworkHelperStub.setStickyDos.called).to.be.false;
+      expect(nodeDosStateStub.setStickyDos.called).to.be.false;
     });
 
     it('FLUXOS_PATH env var alone does not skip enforcement (spoof guard)', async () => {
@@ -499,7 +499,7 @@ describe('appTamperingBlocklistService tests', () => {
 
         await svc.enforceBlocklist();
 
-        sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDos);
+        sinon.assert.calledOnce(nodeDosStateStub.setStickyDos);
       } finally {
         if (originalFluxOSPath !== undefined) process.env.FLUXOS_PATH = originalFluxOSPath;
         else delete process.env.FLUXOS_PATH;

@@ -62,6 +62,13 @@ const APP_NAME_REGEX_LEGACY = /^[a-zA-Z0-9]+$/;
 const MAX_APP_NAME_LENGTH = 63;
 const MAX_COMPONENT_NAME_LENGTH = 63;
 const MAX_APP_COMPONENTS = 10;
+// The longest v8 `enterprise` string: the base64 of an RSA-wrapped AES key
+// (256 bytes), a nonce (12), the AES-GCM ciphertext of the largest contacts and
+// compose the validator allows, and a tag (16).
+const MAX_ENTERPRISE_LENGTH = 2646396;
+
+// The longest install error a node tells the network, or stores from it, in characters.
+const INSTALL_ERROR_MAX_LENGTH = 1000;
 
 // Mount options for an app's FLUXFSVOL. An app volume holds data its owner
 // writes, so nothing stored there should be able to confer privilege on
@@ -159,6 +166,14 @@ const ANNOUNCE_INTERVAL_MS = Math.floor(
   (RUNNING_EXPIRY_MS * (1 - ANNOUNCE_SLACK)) / ANNOUNCES_PER_EXPIRY / 1000,
 ) * 1000;
 
+// How many blocks after the chain moves a node its location rows wait for its
+// signed move before they are evicted: 20 minutes at 30 s a block.
+const ADDRESS_MOVE_GRACE_BLOCKS = 40;
+
+// How long rows at an address the chain has not listed wait on a signed move to
+// it. A node can sign such a move to any address, so the wait ends.
+const ADDRESS_MOVE_WAIT_MS = config.fluxapps.addressMoveWaitMs ?? 1200000;
+
 // Hash sync constants (blocks, at 30s per block)
 const HASH_EXPIRY_BLOCKS = 1051200; // ~1 year — permanently flag unresolvable hashes
 const HASH_RETRY_BACKOFF = [0, 100, 500, 2500, 12500, 50000, 100000]; // ~0, 50min, 4h, 21h, 4d, 17d, 35d
@@ -193,6 +208,8 @@ module.exports = {
   MAX_APP_NAME_LENGTH,
   MAX_COMPONENT_NAME_LENGTH,
   MAX_APP_COMPONENTS,
+  MAX_ENTERPRISE_LENGTH,
+  INSTALL_ERROR_MAX_LENGTH,
 
   // Volumes
   APP_VOLUME_MOUNT_OPTIONS,
@@ -208,6 +225,8 @@ module.exports = {
   GOSSIP_VALIDITY_MS,
   RUNNING_EXPIRY_MS,
   ANNOUNCE_INTERVAL_MS,
+  ADDRESS_MOVE_GRACE_BLOCKS,
+  ADDRESS_MOVE_WAIT_MS,
   INSTALLING_EXPIRY_MS,
   INSTALLING_ERRORS_EXPIRY_MS,
   SIGTERM_EXPIRY_MS,

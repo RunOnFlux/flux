@@ -5,7 +5,7 @@ const { EventEmitter } = require('node:events');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { makeStickyDosDouble } = require('./stickyDosTestDouble');
-const { StickyDosOwner } = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { StickyDosOwner } = require('../../ZelBack/src/services/nodeDosState');
 
 const { EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
@@ -49,6 +49,7 @@ describe('residentialNodeDosService tests', () => {
       },
       './dbHelper': dbHelperStub,
       './fluxNetworkHelper': fluxNetworkHelperStub,
+      './nodeDosState': fluxNetworkHelperStub,
       './geolocationService': geolocationServiceStub,
       './benchmarkService': benchmarkServiceStub,
       './utils/globalState': globalStateStub,
@@ -1025,7 +1026,7 @@ describe('residentialNodeDosService tests', () => {
     it('holds two give-up passes in every turn', () => {
       const { fluxapps } = productionConfig();
 
-      expect(fluxapps.residentialTurnMs).to.be.at.least(2 * passIntervalMs(fluxapps));
+      expect(fluxapps.handbackTurnMs).to.be.at.least(2 * passIntervalMs(fluxapps));
     });
 
     it('is shorter than what a renewed announcement still has to run', () => {
@@ -1033,7 +1034,7 @@ describe('residentialNodeDosService tests', () => {
       const { RUNNING_EXPIRY_MS, ANNOUNCE_INTERVAL_MS } = require('../../ZelBack/src/services/utils/appConstants');
       const { fluxapps } = productionConfig();
 
-      expect(RUNNING_EXPIRY_MS - ANNOUNCE_INTERVAL_MS).to.be.above(fluxapps.residentialTurnMs);
+      expect(RUNNING_EXPIRY_MS - ANNOUNCE_INTERVAL_MS).to.be.above(fluxapps.handbackTurnMs);
     });
 
     it('is the same relationship the unit config copy models', () => {
@@ -1043,7 +1044,7 @@ describe('residentialNodeDosService tests', () => {
       const unitCopy = require('config').fluxapps;
 
       expect(unitCopy.removeFluxAppsPeriod).to.equal(production.removeFluxAppsPeriod);
-      expect(unitCopy.residentialTurnMs).to.equal(production.residentialTurnMs);
+      expect(unitCopy.handbackTurnMs).to.equal(production.handbackTurnMs);
       expect(unitCopy.locationTtlS).to.equal(production.locationTtlS);
     });
   });

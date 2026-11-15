@@ -34,6 +34,7 @@ const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const nodeDosState = require('./nodeDosState');
 
 const DEPENDENCIES = new Set(['mongod', 'dockerd', 'containerd', 'syncthing', 'fluxd', 'fluxbenchd']);
 const READ_INTERVAL_MS = config.hostStall.readIntervalMs;
@@ -57,8 +58,6 @@ let readTimer = null;
 let generation = 0;
 /** The state being kept, which stop() lets its caller wait for. */
 let keeping = Promise.resolve();
-/** Called once the node is out of service for a host stall. */
-const tripListeners = [];
 const DEFAULT_PATHS = {
   procRoot: '/proc',
   stateFile: '/run/fluxos/host-stall.json',
@@ -248,28 +247,12 @@ async function writeState(text, stateFile) {
  * reading waits for one.
  */
 function keepState() {
-  const trip = fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL) ? tripReason : null;
+  const trip = nodeDosState.isStickyDosHeldBy(nodeDosState.StickyDosOwner.HOST_STALL) ? tripReason : null;
   const text = JSON.stringify({ trip, threads: [...tracked] });
   if (text === (queuedText ?? keptText)) return;
   queuedText = text;
   const { stateFile } = paths;
   keeping = keeping.then(() => writeState(text, stateFile));
-}
-
-/** Tell every listener the node is out of service for a host stall. */
-function announceTrip() {
-  tripListeners.forEach((listener) => listener());
-}
-
-/**
- * Call `listener` once the node is out of service for a host stall: at once
- * when it already is, whether it tripped in this process or the trip was
- * restored at start.
- * @param {function(): void} listener
- */
-function onTrip(listener) {
-  tripListeners.push(listener);
-  if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) listener();
 }
 
 /** Restore what an earlier FluxOS in this boot kept: the trip, and every thread's count. */
@@ -283,8 +266,7 @@ async function restoreState() {
     keptText = text;
     if (trip) {
       tripReason = trip;
-      fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, trip);
-      announceTrip();
+      nodeDosState.setStickyDos(nodeDosState.StickyDosOwner.HOST_STALL, trip);
     }
   } catch (error) {
     log.error(`hostStall - the kept state could not be read: ${error.message}`);
@@ -299,10 +281,9 @@ async function act() {
     return;
   }
   fluxNetworkHelper.setPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL, describe(longest));
-  if (longest.intervals >= STUCK_INTERVALS && !fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
+  if (longest.intervals >= STUCK_INTERVALS && !nodeDosState.isStickyDosHeldBy(nodeDosState.StickyDosOwner.HOST_STALL)) {
     tripReason = `Host stall: ${describe(longest)}`;
-    fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, tripReason);
-    announceTrip();
+    nodeDosState.setStickyDos(nodeDosState.StickyDosOwner.HOST_STALL, tripReason);
   }
 }
 
@@ -370,13 +351,11 @@ function stop() {
   keptText = NOTHING_KEPT;
   queuedText = null;
   paths = { ...DEFAULT_PATHS };
-  tripListeners.length = 0;
   return keeping;
 }
 
 module.exports = {
   start,
   stop,
-  onTrip,
   readOnce,
 };

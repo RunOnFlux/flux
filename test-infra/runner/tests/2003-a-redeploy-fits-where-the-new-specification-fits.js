@@ -17,17 +17,19 @@
  * not (20 of 25 - 12). The hdd change also takes the HARD path, which is the path
  * that removes the volume and so the one where a refusal costs the most.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { getAppContainerId } from '../framework/container.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Node 1 (client index 0): a cumulus node with 25 GB left for apps.
 const ROOM_FOR_ONE_COPY = { lockedSystemResources: { hdd: 0, extrahdd: 203 } };
@@ -92,8 +94,7 @@ describe('a redeploy keeps the app on a node with room for its new specification
     }, { timeout: 180000, interval: 2000, label: 'the app is running before its spec changes' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -106,7 +107,7 @@ describe('a redeploy keeps the app on a node with room for its new specification
       spec.compose[0].hdd = 20;
     });
     const beforeUpdate = holder.getLastEventId();
-    await seedSpecUpdate(env, updated, [0]);
+    await deliverApp(env, updated, [0]);
     await stopTicker();
 
     // Either answer ends the drive: the hard redeploy finishing, or the app

@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -41,6 +42,19 @@ let currentHeight = Number(process.env.INITIAL_HEIGHT);
 let deterministicNodeList = [];
 let originalNodeList = [];
 let pendingBlocks = [];
+// The active chain's hash at each height a fork replaced; every other height is
+// `000000000000stub<height>`.
+const forkedHashes = new Map();
+// Headers of the blocks a fork left behind, hash -> { height, previousblockhash }:
+// fluxd keeps a stale branch's headers and answers getblockheader for them.
+const staleHeaders = new Map();
+let forkCount = 0;
+let mempool = [];
+
+function hashAt(height) {
+  return forkedHashes.get(height) ?? `000000000000stub${height}`;
+}
+
 // height -> block time, epoch seconds. A block's time is fixed when it is mined,
 // or when it is first asked about if it predates this stub, and every later read
 // returns the same value - as the chain does, where every node reads one header
@@ -64,6 +78,8 @@ const rpcMethodFailures = new Map();
 // and what every suite that does not care about this should see: a node reading
 // systemsecure=true is never a residential-DOS target.
 const nonArcaneNodes = new Map();
+// What stands in for the key behind fluxbench's encryptmessage on every Arcane node.
+const STUB_NODE_AUTH_KEY = 'harness-node-auth';
 const requestJournal = [];
 // real ip -> the login (`user:password`) fluxd accepts from that node, as fluxd's
 // cookie: a node with one is answered 401 without it. Other nodes are not asked
@@ -99,6 +115,11 @@ function nodeBySourceIp(sourceIp) {
   const clean = sourceIp.replace('::ffff:', '');
   const listed = deterministicNodeList.find((n) => n.ip.split(':')[0] === clean);
   if (listed) return listed;
+  const moved = movedNodes.get(clean);
+  if (moved) {
+    return deterministicNodeList.find((n) => n.ip.split(':')[0] === moved)
+      || originalNodeList.find((n) => n.ip.split(':')[0] === moved) || null;
+  }
   // A node that has really moved arrives from its NEW address while its list entry
   // still says where it was - which is exactly the state an address change puts it
   // in, before the chain catches up. It is the same node, and failing to recognise
@@ -110,6 +131,10 @@ function nodeBySourceIp(sourceIp) {
     if (String(override.reported).split(':')[0] === clean) {
       return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
     }
+  }
+  // A node fluxd has decided a new address for calls from it.
+  for (const [realIp, decided] of decidedAddresses) {
+    if (decided.address === clean) return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
   }
   // Nor is it anyone else once it is told a further move: until its container
   // moves again it still arrives from the address it was moved to before.
@@ -125,6 +150,11 @@ function nodeBySourceIp(sourceIp) {
   // and what a mined confirmation changes, leave it out.
   return originalNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
 }
+
+// Nodes whose container a suite moved: the address it now holds -> the address
+// its list entry carries. Its requests from there are that node's, whatever its
+// answers are moved to.
+const movedNodes = new Map();
 
 // Machines that run on another node's collateral: real ip -> the real ip of the
 // listed node they run as. Each is a machine of its own all the same, so what its
@@ -157,6 +187,9 @@ function aliasedOwnAddress(sourceIp, node) {
 // all of them, and a per-RPC dial is how a suite comes to move an answer the
 // product never reads.
 const reportedAddresses = new Map(); // real ip -> { reported, scope }
+// real ip -> the decided_address fluxd reports for the node: { address, peers, changed }.
+// Only a node given one is beside a fluxd that decides addresses.
+const decidedAddresses = new Map();
 // The addresses each node was reported at before the one it is reported at now:
 // real ip -> Set of ips.
 const formerReportedAddresses = new Map();
@@ -301,7 +334,7 @@ const rpcHandlers = {
     chain: 'main',
     blocks: localHeightFor(sourceIp),
     headers: currentHeight,
-    bestblockhash: `000000000000stub${localHeightFor(sourceIp)}`,
+    bestblockhash: hashAt(localHeightFor(sourceIp)),
     difficulty: 1000,
     verificationprogress: 1,
     chainwork: '0000000000000000000000000000000000000000000000000000000000000001',
@@ -331,29 +364,37 @@ const rpcHandlers = {
     errors: '',
   }),
 
-  getnetworkinfo: () => ({
-    version: DAEMON_VERSION,
-    subversion: DAEMON_SUBVERSION,
-    protocolversion: DAEMON_PROTOCOL_VERSION,
-    localservices: '0000000000000005',
-    timeoffset: 0,
-    connections: deterministicNodeList.length,
-    networks: [],
-    relayfee: 0.000001,
-    localaddresses: [],
-  }),
+  getnetworkinfo: (params, sourceIp) => {
+    const node = sourceIp ? nodeBySourceIp(sourceIp) : null;
+    const decided = node ? decidedAddresses.get(node.ip.split(':')[0]) : undefined;
+    return {
+      version: DAEMON_VERSION,
+      subversion: DAEMON_SUBVERSION,
+      protocolversion: DAEMON_PROTOCOL_VERSION,
+      localservices: '0000000000000005',
+      timeoffset: 0,
+      connections: deterministicNodeList.length,
+      networks: [],
+      relayfee: 0.000001,
+      localaddresses: [],
+      // A fluxd that decides addresses (9.2.0) reports the one its peers see the
+      // node at; one that does not reports no such field.
+      ...(decided ? { decided_address: decided } : {}),
+    };
+  },
 
   getpeerinfo: () => [],
 
   getchaintips: () => [
-    { height: currentHeight, hash: `000000000000stub${currentHeight}`, branchlen: 0, status: 'active' },
+    { height: currentHeight, hash: hashAt(currentHeight), branchlen: 0, status: 'active' },
   ],
 
-  getbestblockhash: (params, sourceIp) => `000000000000stub${localHeightFor(sourceIp)}`,
+  getbestblockhash: (params, sourceIp) => hashAt(localHeightFor(sourceIp)),
 
   getblockhash: (params) => {
     const height = params[0];
-    return `000000000000stub${height}`;
+    const pending = pendingBlocks.find((b) => b.height === height);
+    return pending?.hash ?? hashAt(height);
   },
 
   getblock: (params) => {
@@ -363,13 +404,18 @@ const rpcHandlers = {
 
     const pending = pendingBlocks.find((b) => b.height === asNum || b.height === hashOrHeight || b.hash === hashOrHeight);
     if (pending) {
-      const confirmations = verbosity === 2 ? fluxnodeTxsAt(pending.height) : [];
-      return confirmations.length ? { ...pending, tx: [...(pending.tx || []), ...confirmations] } : pending;
+      const fluxnodeTxs = verbosity === 2 ? fluxnodeTxsAt(pending.height) : [];
+      return {
+        ...pending,
+        // Read live: the chain moves on after a block is pushed.
+        confirmations: currentHeight - pending.height + 1,
+        ...(fluxnodeTxs.length ? { tx: [...(pending.tx || []), ...fluxnodeTxs] } : {}),
+      };
     }
 
     const height = !Number.isNaN(asNum) ? asNum : currentHeight;
     const block = {
-      hash: `000000000000stub${height}`,
+      hash: hashAt(height),
       confirmations: currentHeight - height + 1,
       size: 1000,
       height,
@@ -379,8 +425,8 @@ const rpcHandlers = {
       time: blockTimeOf(height),
       nonce: 0,
       difficulty: 1000,
-      previousblockhash: height > 0 ? `000000000000stub${height - 1}` : undefined,
-      nextblockhash: height < currentHeight ? `000000000000stub${height + 1}` : undefined,
+      previousblockhash: height > 0 ? hashAt(height - 1) : undefined,
+      nextblockhash: height < currentHeight ? hashAt(height + 1) : undefined,
     };
 
     if (verbosity === 2) {
@@ -392,18 +438,28 @@ const rpcHandlers = {
 
   getblockheader: (params) => {
     const hash = params[0];
+    const stale = staleHeaders.get(hash);
+    if (stale) {
+      return {
+        hash, confirmations: -1, height: stale.height, version: 4, previousblockhash: stale.previousblockhash, time: blockTimeOf(stale.height),
+      };
+    }
+    const pending = pendingBlocks.find((b) => b.hash === hash);
+    const forkedHeight = [...forkedHashes].find(([, forked]) => forked === hash)?.[0];
+    const stubHeight = /stub(\d+)$/.exec(hash);
+    const height = pending?.height ?? forkedHeight ?? (stubHeight ? Number(stubHeight[1]) : currentHeight);
     return {
       hash,
-      confirmations: 1,
-      height: currentHeight,
+      confirmations: currentHeight - height + 1,
+      height,
       version: 4,
-      previousblockhash: `000000000000stub${currentHeight - 1}`,
-      time: blockTimeOf(currentHeight),
+      previousblockhash: pending?.previousblockhash ?? hashAt(height - 1),
+      time: blockTimeOf(height),
     };
   },
 
   getmempoolinfo: () => ({ size: 0, bytes: 0, usage: 0 }),
-  getrawmempool: () => [],
+  getrawmempool: () => mempool,
 
   viewdeterministiczelnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
   viewdeterministicfluxnodelist: (params, sourceIp) => publishedNodeList(sourceIp),
@@ -478,7 +534,7 @@ const rpcHandlers = {
         locktime: 0,
         vin: [],
         vout,
-        blockhash: `000000000000stub${currentHeight}`,
+        blockhash: hashAt(currentHeight),
         confirmations: 1,
         time: Math.floor(Date.now() / 1000),
         blocktime: Math.floor(Date.now() / 1000),
@@ -493,7 +549,11 @@ const rpcHandlers = {
     const node = nodeBySourceIp(sourceIp);
     if (node) {
       const o = overrideFor(node);
-      pendingConfirmations.set(node.ip.split(':')[0], aliasedOwnAddress(sourceIp, node) ?? (o ? o.reported : node.ip));
+      const realIp = node.ip.split(':')[0];
+      const aliased = aliasedOwnAddress(sourceIp, node);
+      pendingConfirmations.set(realIp, aliased ?? (o ? o.reported : node.ip));
+      if (aliased) confirmationsFromAliases.add(realIp);
+      else confirmationsFromAliases.delete(realIp);
     }
     return { hex: 'stub-confirmation-tx-hex' };
   },
@@ -594,6 +654,18 @@ const benchHandlers = {
     status: 'ok',
     message: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
   }),
+
+  // As fluxbench answers on an Arcane node: the same ciphertext for the same
+  // identity and message on every node, and none on a node marked not secure.
+  encryptmessage: (params, sourceIp) => {
+    const node = nodeBySourceIp(sourceIp);
+    if (nonArcaneNodes.has(node ? node.ip.split(':')[0] : '')) throw new Error('System not Secure');
+    const request = JSON.parse(params[0]);
+    const message = crypto.createHmac('sha256', STUB_NODE_AUTH_KEY)
+      .update(`${request.fluxID}|${request.appName}|${request.message}`)
+      .digest('base64');
+    return JSON.stringify({ message, status: 'ok' });
+  },
 
   help: () => 'Flux benchmark stub',
   stop: () => 'Flux benchmark stopping (stub)',
@@ -709,6 +781,9 @@ benchd.listen(BENCHD_PORT, () => console.log(`Fluxbenchd stub listening on port 
 
 // Confirmations sent since the last block: real ip -> the address each carries.
 const pendingConfirmations = new Map();
+// Real ips of listed nodes whose pending confirmation another machine on the same
+// collateral sent.
+const confirmationsFromAliases = new Set();
 // The fluxnode confirmations each built block carries, by height, and the block
 // each node last confirmed in (real ip -> height).
 const fluxnodeTxsByHeight = new Map();
@@ -779,6 +854,12 @@ function mineConfirmations() {
     const benchmarkElsewhere = current && current.scope !== 'all' && current.reported !== address;
     if (!node) {
       // not listed: nothing to move
+    } else if (confirmationsFromAliases.has(realIp) && address !== node.ip) {
+      // Another machine on the collateral confirmed from where it is: the chain lists
+      // the collateral there, and the listed node's own machine still measures its
+      // own address.
+      const own = current && current.scope !== 'all' ? current.reported : node.ip;
+      reportedAddresses.set(realIp, { reported: own, scope: 'benchmark', listed: address });
     } else if (address !== node.ip) {
       if (benchmarkElsewhere) reportedAddresses.set(realIp, { ...current, listed: address });
       else reportAddress(realIp, { reported: address, scope: 'all' });
@@ -793,6 +874,7 @@ function mineConfirmations() {
   const confirming = deterministicNodeList.filter((node) => pendingConfirmations.has(realIpOf(node))
     || currentHeight >= (confirmationDue.get(realIpOf(node)) ?? scheduledFrom(node, currentHeight)));
   pendingConfirmations.clear();
+  confirmationsFromAliases.clear();
   fluxnodeTxsByHeight.set(currentHeight, confirming.map((node) => {
     lastConfirmedHeights.set(realIpOf(node), currentHeight);
     confirmationDue.set(realIpOf(node), currentHeight + intervalOf(node));
@@ -811,6 +893,7 @@ function withLastConfirmed(node) {
 // -- Block ticker --
 const BLOCK_INTERVAL_MS = Number(process.env.BLOCK_INTERVAL_MS) || 5000;
 const TICKER_AUTOSTART = process.env.TICKER_AUTOSTART !== 'false';
+// { appHash, valueSat } of each app payment the next block carries
 const pendingAppTxQueue = [];
 let tickerHandle = null;
 
@@ -820,13 +903,12 @@ function tickBlock() {
   mineConfirmations();
   const txs = [];
   while (pendingAppTxQueue.length > 0) {
-    const appHash = pendingAppTxQueue.shift();
-    txs.push(buildAppRegistrationTx(appHash, currentHeight));
+    const { appHash, valueSat } = pendingAppTxQueue.shift();
+    txs.push(buildAppRegistrationTx(appHash, currentHeight, valueSat));
   }
   if (txs.length > 0) {
     pendingBlocks.push({
-      hash: `000000000000stub${currentHeight}`,
-      confirmations: 1,
+      hash: hashAt(currentHeight),
       size: 1000,
       height: currentHeight,
       version: 4,
@@ -835,7 +917,7 @@ function tickBlock() {
       time: blockTimeOf(currentHeight),
       nonce: 0,
       difficulty: 1000,
-      previousblockhash: `000000000000stub${currentHeight - 1}`,
+      previousblockhash: hashAt(currentHeight - 1),
     });
     console.log(`Block ${currentHeight}: ${txs.length} app tx(s)`);
   }
@@ -890,7 +972,10 @@ control.post('/ticker/stop', (req, res) => {
   res.json({ tickerRunning: false, stopped });
 });
 
-function buildAppRegistrationTx(appHash, height) {
+// What an app payment pays when its queue entry names no amount.
+const APP_PAYMENT_SAT = 200000000;
+
+function buildAppRegistrationTx(appHash, height, valueSat = APP_PAYMENT_SAT) {
   const opReturnHex = Buffer.from(appHash, 'utf-8').toString('hex');
   return {
     txid: `apptx-${appHash.substring(0, 16)}-${height}`,
@@ -898,7 +983,7 @@ function buildAppRegistrationTx(appHash, height) {
     vin: [{ txid: 'prev-tx-stub', vout: 0, address: 'stub-sender-address' }],
     vout: [
       {
-        valueSat: 200000000,
+        valueSat,
         scriptPubKey: {
           addresses: ['t3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX'],
           asm: '',
@@ -925,24 +1010,19 @@ control.post('/advance-block', (req, res) => {
     txs.push(buildAppRegistrationTx(appHash, currentHeight));
   }
   while (pendingAppTxQueue.length > 0) {
-    txs.push(buildAppRegistrationTx(pendingAppTxQueue.shift(), currentHeight));
+    const { appHash: queued, valueSat } = pendingAppTxQueue.shift();
+    txs.push(buildAppRegistrationTx(queued, currentHeight, valueSat));
   }
   if (block) {
     block.height = block.height || currentHeight;
-    block.hash = block.hash || `000000000000stub${currentHeight}`;
+    block.hash = block.hash || hashAt(currentHeight);
+    block.previousblockhash = block.previousblockhash || hashAt(block.height - 1);
     block.time = block.time ?? blockTimeOf(block.height);
-    // Computed live, the way a synthesized block computes it at the top of this
-    // file. Stamping 1 at push time made a block carrying transactions read as
-    // the chain tip no matter how far behind the node was, while an empty block
-    // did not - so the one class of block whose isSynced skip matters most, an
-    // app registration, was the one class the stub had made unskippable.
-    block.confirmations = currentHeight - block.height + 1;
     block.tx = [...(block.tx || []), ...txs];
     pendingBlocks.push(block);
   } else if (txs.length > 0) {
     pendingBlocks.push({
-      hash: `000000000000stub${currentHeight}`,
-      confirmations: 1,
+      hash: hashAt(currentHeight),
       size: 1000,
       height: currentHeight,
       version: 4,
@@ -951,7 +1031,7 @@ control.post('/advance-block', (req, res) => {
       time: blockTimeOf(currentHeight),
       nonce: 0,
       difficulty: 1000,
-      previousblockhash: `000000000000stub${currentHeight - 1}`,
+      previousblockhash: hashAt(currentHeight - 1),
     });
     console.log(`Block ${currentHeight}: ${txs.length} app tx(s) (manual advance)`);
   }
@@ -961,6 +1041,18 @@ control.post('/advance-block', (req, res) => {
 control.post('/set-height', (req, res) => {
   currentHeight = req.body.height;
   res.json({ currentHeight });
+});
+
+// A node's container moved from one address to another: { from, to }, bare
+// addresses. Its requests from `to` are the node's from then on; what the stub
+// answers about it stays with /node-address.
+control.post('/node-moved', (req, res) => {
+  const { from, to } = req.body || {};
+  if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+  const node = movedNodes.get(from) ?? from;
+  movedNodes.delete(from);
+  movedNodes.set(to, node);
+  return res.json({ node, at: to });
 });
 
 // Machines that run on another node's collateral, replacing any set before:
@@ -1062,15 +1154,44 @@ control.post('/node-address/:ip', (req, res) => {
 });
 
 control.post('/queue-app-tx', (req, res) => {
-  const { appHash } = req.body;
+  const { appHash, valueSat = APP_PAYMENT_SAT } = req.body;
   if (!appHash) return res.status(400).json({ error: 'appHash required' });
-  pendingAppTxQueue.push(appHash);
+  if (!Number.isSafeInteger(valueSat) || valueSat <= 0) return res.status(400).json({ error: 'valueSat must be a positive integer' });
+  pendingAppTxQueue.push({ appHash, valueSat });
   return res.json({ queued: true, queueLength: pendingAppTxQueue.length, nextBlockHeight: currentHeight + 1 });
 });
 
 control.post('/add-block-fixture', (req, res) => {
   pendingBlocks.push(req.body.block);
   res.json({ pendingBlocks: pendingBlocks.length });
+});
+
+// Replaces the active chain from fromHeight to the tip with a branch of the same
+// length: new hashes, and none of the replaced blocks' transactions. The replaced
+// blocks' headers stay answerable, as fluxd's do for a stale branch.
+control.post('/mempool', (req, res) => {
+  mempool = Array.isArray(req.body?.txids) ? req.body.txids : [];
+  res.json({ mempool });
+});
+
+control.post('/fork', (req, res) => {
+  const fromHeight = Number(req.body?.fromHeight);
+  if (!Number.isInteger(fromHeight) || fromHeight < 1 || fromHeight > currentHeight) {
+    return res.status(400).json({ error: `fromHeight must be a height from 1 to the tip ${currentHeight}` });
+  }
+  const replaced = [];
+  for (let height = fromHeight; height <= currentHeight; height += 1) {
+    const pending = pendingBlocks.find((b) => b.height === height);
+    replaced.push({ height, hash: hashAt(height), previousblockhash: pending?.previousblockhash ?? hashAt(height - 1) });
+  }
+  forkCount += 1;
+  replaced.forEach(({ height, hash, previousblockhash }) => {
+    staleHeaders.set(hash, { height, previousblockhash });
+    forkedHashes.set(height, `000000000000fork${forkCount}h${height}`);
+  });
+  pendingBlocks = pendingBlocks.filter((b) => b.height < fromHeight);
+  console.log(`Fork ${forkCount}: blocks ${fromHeight}..${currentHeight} replaced`);
+  return res.json({ fromHeight, tip: currentHeight, replaced: replaced.map((b) => b.hash) });
 });
 
 control.delete('/pending-blocks', (req, res) => {
@@ -1257,6 +1378,24 @@ control.delete('/rpc-hold/:ip', (req, res) => {
   return res.json({ ip: req.params.ip, held: false, released });
 });
 
+// -- Decided addresses --
+
+// The address fluxd decides one node is at, as fluxd 9.2.0 reports it in
+// getnetworkinfo's decided_address; `address: null` makes it a fluxd that decides
+// none.
+control.post('/decided-address/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  if (!deterministicNodeList.some((n) => n.ip.split(':')[0] === key)) return res.status(404).json({ error: `no node in the list at ${key}` });
+  const { address } = req.body || {};
+  if (address === null || address === undefined) {
+    decidedAddresses.delete(key);
+    return res.json({ node: key, decided: null });
+  }
+  const decided = { address: String(address).split(':')[0], peers: 8, changed: Math.floor(Date.now() / 1000) };
+  decidedAddresses.set(key, decided);
+  return res.json({ node: key, decided });
+});
+
 // -- Logins --
 
 // The login fluxd accepts from one node: its cookie, `user:password`.
@@ -1365,6 +1504,7 @@ control.post('/reset', (req, res) => {
   reportedAddresses.clear();
   formerReportedAddresses.clear();
   pendingConfirmations.clear();
+  confirmationsFromAliases.clear();
   confirmationIntervals.clear();
   confirmationDue.clear();
   hiddenFromPeers.clear();
@@ -1375,8 +1515,11 @@ control.post('/reset', (req, res) => {
   // hangs whatever made it.
   for (const ip of [...rpcHolds.keys()]) releaseHolds(ip);
   for (const ip of [...refusalHolds.keys()]) releaseRefusals(ip);
+  decidedAddresses.clear();
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];
+  forkedHashes.clear();
+  staleHeaders.clear();
   pendingAppTxQueue.length = 0;
   requestJournal.length = 0;
   seededAddressDeltas.length = 0;

@@ -9,11 +9,13 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const imageVerifier = require('../../ZelBack/src/services/utils/imageVerifier');
 const policyStore = require('../../ZelBack/src/services/policyStore');
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
 const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 
 describe('imageManager tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   let imageManager;
@@ -391,6 +393,76 @@ describe('imageManager tests', () => {
       } catch (err) {
         // Collection doesn't exist
       }
+    });
+
+    describe('a copied message written down differently', () => {
+      // A PGP message is random per encryption, so equal ones mean a copy. The
+      // armor is not part of the message: these variants are the same blob.
+      let sealed;
+      let sealedAgain;
+      before(async () => {
+        // eslint-disable-next-line global-require
+        const openpgp = require('openpgp');
+        const seal = async () => openpgp.encrypt({
+          message: await openpgp.createMessage({ text: 'sealed' }), passwords: ['pw'], format: 'armored',
+        });
+        sealed = await seal();
+        sealedAgain = await seal();
+      });
+
+      const publish = (secrets, extra = {}) => dbHelper.insertOneToDatabase(
+        database,
+        config.database.appsglobal.collections.appsInformation,
+        {
+          name: 'ExistingApp', version: 7, owner: '1Owner1', compose: [{ name: 'Comp1', secrets, repoauth: secrets }], nodes: ['node1'], ...extra,
+        },
+      );
+
+      it('refuses a copy with an extra armor header', async () => {
+        await publish(sealed);
+        const copy = sealed.replace('-----BEGIN PGP MESSAGE-----\n', '-----BEGIN PGP MESSAGE-----\nComment: copied\n');
+
+        let error;
+        try {
+          await imageManager.checkAppSecrets('NewApp', { name: 'C', secrets: copy }, '1Owner2', true);
+        } catch (e) {
+          error = e;
+        }
+        expect(error.message).to.include('duplicate in app: \'ExistingApp\'');
+      });
+
+      it('refuses a copy with its checksum line dropped', async () => {
+        await publish(sealed);
+        const copy = sealed.split('\n').filter((line) => !line.startsWith('=')).join('\n');
+
+        let error;
+        try {
+          await imageManager.checkAppSecrets('NewApp', { name: 'C', secrets: copy }, '1Owner2', true);
+        } catch (e) {
+          error = e;
+        }
+        expect(error.message).to.include('duplicate in app');
+      });
+
+      it('accepts a message that merely says the same thing', async () => {
+        await publish(sealed);
+
+        await imageManager.checkAppSecrets('NewApp', { name: 'C', secrets: sealedAgain }, '1Owner2', true);
+      });
+
+      it('applies the same test to repoauth, and lets an owner reuse their own', async () => {
+        await publish(sealed);
+        const copy = sealed.replace('-----BEGIN PGP MESSAGE-----\n', '-----BEGIN PGP MESSAGE-----\nVersion: x\n');
+
+        let error;
+        try {
+          await imageManager.checkAppRepoauth('NewApp', { name: 'C', repoauth: copy }, '1Owner2', true);
+        } catch (e) {
+          error = e;
+        }
+        expect(error.message).to.include('repoauth are not valid (duplicate in app');
+        await imageManager.checkAppRepoauth('NewApp', { name: 'C', repoauth: copy }, '1Owner1', true);
+      });
     });
 
     it('should pass if no duplicate secrets found during registration', async () => {
@@ -930,6 +1002,12 @@ describe('imageManager tests', () => {
     const publishedByGrafana = {
       name: 'dashboards', owner: '1SomeOwner', hash: 'b'.repeat(64), images: ['grafana/dashboards:latest'],
     };
+
+    it('a client entry refuses no application, whatever it names', () => {
+      const entries = [{ kind: 'client', value: '0.0.0.0/0', expires: '2999-01-01' }];
+      expect(imageManager.blockedReasonFor(entries, namedGrafana)).to.equal(null);
+      expect(imageManager.blockedReasonFor(entries, publishedByGrafana)).to.equal(null);
+    });
 
     it('a name entry blocks the application of that name', () => {
       const reason = imageManager.blockedReasonFor([{ kind: 'name', value: 'grafana' }], namedGrafana);

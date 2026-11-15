@@ -8,6 +8,7 @@ const EVENTS = Object.freeze({
   EPHEMERAL_SYNC_UNVERIFIED: 'ephemeralSyncUnverified',
   EPHEMERAL_SYNC_WRITE_FAILED: 'ephemeralSyncWriteFailed',
   EPHEMERAL_SYNC_PROGRESS: 'ephemeralSyncProgress',
+  EPHEMERAL_SYNC_BUSY: 'ephemeralSyncBusy',
   SPAWNER_READY: 'spawnerReady',
   READINESS_LOST: 'readinessLost',
   HASH_RESPONSE_RECEIVED: 'hashResponseReceived',

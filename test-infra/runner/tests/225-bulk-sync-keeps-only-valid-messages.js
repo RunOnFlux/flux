@@ -12,7 +12,7 @@
  * - after the transfer, the former owner signs an update.
  * Every peer serves the same log, so whichever the joiner streams from, it is lied to.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createHash } from 'node:crypto';
 import { createTestEnv } from '../framework/test-env.js';
@@ -23,6 +23,7 @@ import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitForDaemonReady, waitForOrchestratorState, waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const APPS = 10;
 const UPDATES = 54;
@@ -145,8 +146,7 @@ describe('a node that joins takes the gap in bulk and keeps only valid messages'
     await waitForOrchestratorState(joiner, 'READY', 600000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

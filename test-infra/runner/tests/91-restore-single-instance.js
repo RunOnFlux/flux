@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus } from '../framework/container.js';
@@ -11,6 +11,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Every other restore suite has somewhere for the data to come back from. This
 // one does not: one instance, no peers.
@@ -120,8 +121,7 @@ describe('a restore with no peer to fall back on', function () {
     auth = await authenticate(client.url, appOwnerKey());
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     for (const app of [syncedApp, plainApp]) {
       // eslint-disable-next-line no-await-in-loop
       await execInContainer(client.container, `chattr -i ${dirOf(app)}/appdata 2>/dev/null || true`).catch(() => {});

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -12,6 +12,7 @@ import {
   enableRpcFailure, disableAllRpcFailure, clearAllNodeStatus,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 async function bootToReady(env) {
   await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
@@ -37,8 +38,7 @@ describe('Compound failures: peer loss + daemon failure during READY', function 
     await bootToReady(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await disableAllRpcFailure();
     await clearAllNodeStatus();
     await env?.teardown();
@@ -91,8 +91,7 @@ describe('Compound failures: rapid peer oscillation', function () {
     await bootToReady(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

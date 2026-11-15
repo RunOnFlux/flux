@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, crashFluxos, releaseFluxos } from '../framework/container.js';
@@ -14,6 +14,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey, otherOwnerKeys, userKey } from '../framework/keys.js';
 import { followPrimary } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Three single-writer (g:) apps, each of a different owner, on overlapping
 // holders of real syncthing daemons. Every node but the last holds two of them
@@ -202,8 +203,7 @@ describe('single-writer apps of different owners on shared holders', function ()
     }
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import { buildSeedableTestApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Whether a removal is told to the network is read as its message goes out, not
 // when the removal starts.
@@ -100,8 +101,7 @@ describe('a node held for its IP changes tells the network of a removal once it 
     );
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env) await subject().releaseCheckpoint(BEFORE_CONTAINERS, installing).catch(() => {});
     if (listed) await clearNodeAddress(listed).catch(() => {});
     await env?.teardown();

@@ -12,6 +12,7 @@ describe('appStartupManager tests', () => {
   let dbHelperStub;
   let dockerServiceStub;
   let fluxNetworkHelperStub;
+  let nodeDosStateStub;
   let upnpServiceStub;
   let routerEventsStub;
   let registryManagerStub;
@@ -24,8 +25,18 @@ describe('appStartupManager tests', () => {
   let portManagerStub;
   let appSliceStub;
   let nodeStatusMonitor;
+  let confirmationStub;
+  // The owners holding the node out of service, and who listens for a new one.
+  let stickyHolds;
+  let holdListeners;
+  const holdNode = (owner, reason) => {
+    stickyHolds.set(owner, reason);
+    holdListeners.forEach((listener) => listener(owner, reason));
+  };
 
   beforeEach(() => {
+    stickyHolds = new Map();
+    holdListeners = [];
     appSliceStub = { stopEmptySlices: sinon.stub().resolves(0) };
     logStub = {
       info: sinon.stub(),
@@ -44,12 +55,21 @@ describe('appStartupManager tests', () => {
 
     fluxNetworkHelperStub = {
       getLocalSocketAddress: sinon.stub(),
+      allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
+    };
+
+    nodeDosStateStub = {
       isNodeDos: sinon.stub().returns(false),
       isStickyDosHeldBy: sinon.stub().returns(false),
-      setStickyDos: sinon.stub(),
+      setStickyDos: sinon.stub().callsFake((owner, reason) => holdNode(owner, reason)),
       clearStickyDos: sinon.stub(),
       StickyDosOwner: { HOST_STALL: 'hostStall', UPNP_ROUTER: 'upnpRouter' },
-      allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
+      onStickyDos: (listener) => {
+        holdListeners.push(listener);
+        stickyHolds.forEach((reason, owner) => listener(owner, reason));
+        return () => { holdListeners = holdListeners.filter((other) => other !== listener); };
+      },
+      getStickyDosMessage: () => (stickyHolds.size ? [...stickyHolds.values()].join('; ') : null),
     };
 
     upnpServiceStub = {
@@ -91,6 +111,11 @@ describe('appStartupManager tests', () => {
     // stubbed to resolve so a test does not sit on a gate nothing here opens.
     // On the module itself those two are the same fact, which is why this has to
     // be sinon over the real object rather than an object asserting both.
+    confirmationStub = {
+      isConfirmed: sinon.stub().returns(true),
+      waitForConfirmed: sinon.stub().resolves(),
+      waitForConfirmationStatus: sinon.stub().resolves(),
+    };
     globalStateStub = resetGlobalState();
     sinon.stub(globalStateStub, 'waitForDbReady').resolves();
     sinon.stub(globalStateStub, 'waitForDaemonReady').resolves();
@@ -123,11 +148,13 @@ describe('appStartupManager tests', () => {
       '../upnpService': upnpServiceStub,
       '../upnpRouter': { routerEvents: routerEventsStub },
       '../fluxNetworkHelper': fluxNetworkHelperStub,
+      '../nodeDosState': nodeDosStateStub,
       '../appDatabase/registryManager': registryManagerStub,
       './advancedWorkflows': advancedWorkflowsStub,
       '../appMonitoring/appReconciler': appReconcilerStub,
       './appUninstaller': appUninstallerStub,
       './appSlice': appSliceStub,
+      './appNetworkLinker': { reconcileAllAppNetworkLinks: sinon.stub().resolves() },
       '../appMonitoring/nodeStatusMonitor': nodeStatusMonitor,
       '../appManagement/appPlacements': appPlacementsStub,
       '../utils/globalState': globalStateStub,
@@ -147,11 +174,7 @@ describe('appStartupManager tests', () => {
       '../appQuery/appQueryService': appQueryServiceStub,
       '../utils/appConstants': { localAppsInformation: 'localAppsInformation', SIGTERM_EXPIRY_MS: 420000, RUNNING_EXPIRY_MS: 7500000 },
       '../utils/appUtilities': appUtilities,
-      '../nodeConfirmationService': {
-        isConfirmed: sinon.stub().returns(true),
-        waitForConfirmed: sinon.stub().resolves(),
-        waitForConfirmationStatus: sinon.stub().resolves(),
-      },
+      '../nodeConfirmationService': confirmationStub,
     });
   });
 
@@ -378,7 +401,7 @@ describe('appStartupManager tests', () => {
 
     describe('an app whose location record cannot be read', () => {
       const futureExpiry = () => new Date(Date.now() + (300 * 1000));
-      // the held app's check runs in the background, on stubs that answer at once
+      // lets the reconcile run up to the read it waits on
       const settle = () => new Promise((resolve) => { setImmediate(resolve); });
 
       beforeEach(() => {
@@ -389,25 +412,29 @@ describe('appStartupManager tests', () => {
         dbHelperStub.findInDatabase.onSecondCall().rejects(new Error('DB error'));
       });
 
-      it('is held, neither started nor removed', async () => {
-        // the record stays unreadable for as long as this test looks
-        dbHelperStub.findInDatabase.onThirdCall().returns(new Promise(() => {}));
+      it('is held, neither started nor removed, and boot waits for it', async () => {
+        // the record answers only once the test has looked
+        let answer;
+        dbHelperStub.findInDatabase.onThirdCall().returns(new Promise((resolve) => { answer = resolve; }));
 
-        const results = await appStartupManager.reconcileAppsOnBoot();
+        let returned = false;
+        const reconciling = appStartupManager.reconcileAppsOnBoot().then((results) => { returned = true; return results; });
         await settle();
 
-        expect(results.appsUnconfirmed).to.deep.equal(['AppA']);
+        expect(returned, 'boot decided its apps with one still held').to.equal(false);
         expect(globalStateStub.unconfirmedApps.has('AppA'), 'the app was not held').to.equal(true);
         expect(appUninstallerStub.removeAppLocally.called, 'an app whose location is unknown was removed').to.equal(false);
         expect(appUninstallerStub.finishRemoval.called, 'an app whose location is unknown was handed to be removed').to.equal(false);
         expect(appReconcilerStub.enqueue.called, 'an app whose location is unknown was started').to.equal(false);
+
+        answer([{ expireAt: futureExpiry() }]);
+        expect((await reconciling).appsUnconfirmed).to.deep.equal(['AppA']);
       });
 
       it('is started, and released, once its record reads valid', async () => {
         dbHelperStub.findInDatabase.onThirdCall().resolves([{ expireAt: futureExpiry() }]);
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'AppA');
         expect(globalStateStub.unconfirmedApps.has('AppA'), 'a confirmed app is still held').to.equal(false);
@@ -420,17 +447,34 @@ describe('appStartupManager tests', () => {
         dbHelperStub.findInDatabase.onCall(4).resolves([{ expireAt: futureExpiry() }]);
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         expect(dbHelperStub.findInDatabase.callCount, 'the record was not read until it answered').to.equal(5);
         sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'AppA');
+      });
+
+      it('ends boot\'s app step when its record has not answered by the deadline, deciding nothing', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['Date'] });
+        try {
+          // every later read fails, and each failure is a retry's wait gone by
+          dbHelperStub.findInDatabase.callsFake(async () => {
+            clock.tick(15000);
+            throw new Error('DB error');
+          });
+
+          const outcome = await appStartupManager.reconcileAppsOnBoot().then(() => null, (error) => error);
+
+          expect(outcome?.message).to.match(/did not decide its apps within 300s/);
+          expect(appReconcilerStub.enqueue.called, 'an app whose location is unknown was started').to.equal(false);
+          expect(appUninstallerStub.removeAppLocally.called, 'an app whose location is unknown was removed').to.equal(false);
+        } finally {
+          clock.restore();
+        }
       });
 
       it('is removed once its record reads expired, telling the network nothing', async () => {
         dbHelperStub.findInDatabase.onThirdCall().resolves([]);
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         sinon.assert.calledOnceWithExactly(appUninstallerStub.removeAppLocally, 'AppA', null, true, true, false);
         expect(appReconcilerStub.enqueue.called, 'an app whose location expired was started').to.equal(false);
@@ -442,12 +486,12 @@ describe('appStartupManager tests', () => {
         let finishRemoval;
         appUninstallerStub.removeAppLocally.returns(new Promise((resolve) => { finishRemoval = resolve; }));
 
-        await appStartupManager.reconcileAppsOnBoot();
+        const reconciling = appStartupManager.reconcileAppsOnBoot();
         await settle();
         expect(globalStateStub.unconfirmedApps.has('AppA'), 'released while its removal was running').to.equal(true);
 
         finishRemoval('removed');
-        await settle();
+        await reconciling;
         expect(globalStateStub.unconfirmedApps.has('AppA')).to.equal(false);
       });
 
@@ -456,7 +500,6 @@ describe('appStartupManager tests', () => {
         appUninstallerStub.removeAppLocally.resolves('busy');
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         sinon.assert.calledOnceWithExactly(appUninstallerStub.finishRemoval, 'AppA', true, false);
         expect(appReconcilerStub.enqueue.called).to.equal(false);
@@ -472,12 +515,12 @@ describe('appStartupManager tests', () => {
 
         it('is not removed when it was uninstalled meanwhile and its record reads expired', async () => {
           const answer = recordAnswersLater();
-          await appStartupManager.reconcileAppsOnBoot();
+          const reconciling = appStartupManager.reconcileAppsOnBoot();
           await settle();
 
           globalStateStub.unconfirmedApps.delete('AppA');
           answer([]);
-          await settle();
+          await reconciling;
 
           expect(appUninstallerStub.removeAppLocally.called, 'removed an app installed again after its uninstall').to.equal(false);
           expect(appReconcilerStub.enqueue.called).to.equal(false);
@@ -485,12 +528,12 @@ describe('appStartupManager tests', () => {
 
         it('is not started when it was uninstalled meanwhile and its record reads valid', async () => {
           const answer = recordAnswersLater();
-          await appStartupManager.reconcileAppsOnBoot();
+          const reconciling = appStartupManager.reconcileAppsOnBoot();
           await settle();
 
           globalStateStub.unconfirmedApps.delete('AppA');
           answer([{ expireAt: futureExpiry() }]);
-          await settle();
+          await reconciling;
 
           expect(appReconcilerStub.enqueue.called, 'started an app on the word of a hold that had ended').to.equal(false);
           expect(appUninstallerStub.removeAppLocally.called).to.equal(false);
@@ -498,13 +541,13 @@ describe('appStartupManager tests', () => {
 
         it('decides nothing for a later hold under the same name, and leaves that hold in place', async () => {
           const answer = recordAnswersLater();
-          await appStartupManager.reconcileAppsOnBoot();
+          const reconciling = appStartupManager.reconcileAppsOnBoot();
           await settle();
 
           const later = Symbol('AppA');
           globalStateStub.unconfirmedApps.set('AppA', later);
           answer([]);
-          await settle();
+          await reconciling;
 
           expect(appUninstallerStub.removeAppLocally.called, 'decided an app another hold now covers').to.equal(false);
           expect(globalStateStub.unconfirmedApps.get('AppA'), 'released a hold that was not its own').to.equal(later);
@@ -519,7 +562,6 @@ describe('appStartupManager tests', () => {
           });
 
           await appStartupManager.reconcileAppsOnBoot();
-          await settle();
 
           expect(globalStateStub.unconfirmedApps.get('AppA'), 'released a hold set after its removal began').to.equal(later);
         });
@@ -542,7 +584,6 @@ describe('appStartupManager tests', () => {
         dbHelperStub.findInDatabase.onThirdCall().resolves([{ expireAt: futureExpiry() }]);
 
         await appStartupManager.reconcileAppsOnBoot();
-        await settle();
 
         sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'web_MixedApp');
       });
@@ -723,10 +764,10 @@ describe('appStartupManager tests', () => {
         await booting;
 
         expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'reconciled').to.equal(true);
-        sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
+        sinon.assert.notCalled(nodeDosStateStub.setStickyDos);
       });
 
-      it('holds the node out of service as upnpRouter, and removes its apps, when the router has not taken its ports by the boot deadline', async () => {
+      it('holds the node out of service as upnpRouter when the router has not taken its ports by the boot deadline, and leaves its apps to the hold\'s removal', async () => {
         const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         try {
           upnpServiceStub.whenUPNPReady.returns(new Promise(() => {}));
@@ -734,12 +775,14 @@ describe('appStartupManager tests', () => {
 
           const booting = appStartupManager.manageAppsOnBoot(KEEP);
           await clock.tickAsync(config.system.bootSyncTimeoutMs - 1);
-          sinon.assert.notCalled(fluxNetworkHelperStub.setStickyDos);
+          sinon.assert.notCalled(nodeDosStateStub.setStickyDos);
           await clock.tickAsync(1);
           await booting;
 
-          sinon.assert.calledOnceWithMatch(fluxNetworkHelperStub.setStickyDos, 'upnpRouter', sinon.match(/router has not taken this node's ports/));
-          sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'app1');
+          sinon.assert.calledOnceWithMatch(nodeDosStateStub.setStickyDos, 'upnpRouter', sinon.match(/router has not taken this node's ports/));
+          sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+          sinon.assert.calledWithMatch(logStub.error, /out of service \(UPnP: the router has not taken this node's ports/);
+          expect(globalStateStub.bootContainerStateSettled).to.equal(true);
           expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'no reconcile').to.equal(false);
         } finally {
           clock.restore();
@@ -747,23 +790,128 @@ describe('appStartupManager tests', () => {
       });
 
       it('ends the upnpRouter hold once the router takes its ports', () => {
-        fluxNetworkHelperStub.isStickyDosHeldBy.withArgs('upnpRouter').returns(true);
+        nodeDosStateStub.isStickyDosHeldBy.withArgs('upnpRouter').returns(true);
 
         routerEventsStub.emit('upnpReady');
 
-        sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.clearStickyDos, 'upnpRouter');
+        sinon.assert.calledOnceWithExactly(nodeDosStateStub.clearStickyDos, 'upnpRouter');
       });
     });
 
-    it('leaves a node out of service for a host stall to its own removal, and starts no app', async () => {
-      fluxNetworkHelperStub.isStickyDosHeldBy.returns(true);
-      fluxNetworkHelperStub.isNodeDos.returns(true);
+    describe('a node held out of service', () => {
+      const never = () => new Promise(() => {});
+      const VALID = { machineRebooted: false, downtimeMs: 1000, cleanShutdown: true };
+      const EXPIRED = { machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false };
+
+      beforeEach(() => {
+        appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
+      });
+
+      // Each wait is held until the node is held, so what boot does next is what the hold decided.
+      const holdDuring = async (bootContext, wait) => {
+        let reached;
+        const waiting = new Promise((resolve) => { reached = resolve; });
+        wait.callsFake(() => { reached(); return never(); });
+        const boot = appStartupManager.manageAppsOnBoot(bootContext);
+        await waiting;
+        holdNode('insightExplorer', 'fluxd is running without insightexplorer=1');
+        await boot;
+      };
+
+      const leftToTheHold = () => {
+        sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+        sinon.assert.notCalled(appReconcilerStub.enqueue);
+        sinon.assert.calledWithMatch(logStub.error, /out of service \(fluxd is running without insightexplorer=1\); its removal unloads the apps/);
+        expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+      };
+
+      it('is left to the hold\'s removal when it is held before boot decides, even with its locations expired', async () => {
+        holdNode('insightExplorer', 'fluxd is running without insightexplorer=1');
+
+        await appStartupManager.manageAppsOnBoot(EXPIRED);
+
+        leftToTheHold();
+        sinon.assert.notCalled(globalStateStub.waitForDaemonReady);
+      });
+
+      it('is left to the hold\'s removal when it is held while boot waits for fluxd', async () => {
+        await holdDuring(VALID, globalStateStub.waitForDaemonReady);
+
+        leftToTheHold();
+        sinon.assert.notCalled(confirmationStub.waitForConfirmationStatus);
+      });
+
+      it('is left to the hold\'s removal when it is held while boot waits for confirmation, confirmed or not', async () => {
+        confirmationStub.isConfirmed.returns(false);
+
+        await holdDuring(VALID, confirmationStub.waitForConfirmationStatus);
+
+        leftToTheHold();
+      });
+
+      it('is left to the hold\'s removal when it is held while boot waits for the app database', async () => {
+        await holdDuring(VALID, globalStateStub.waitForDbReady);
+
+        leftToTheHold();
+      });
+
+      it('goes on waiting when a hold is released while boot waits, and decides once the wait ends', async () => {
+        let daemonReady;
+        globalStateStub.waitForDaemonReady.returns(new Promise((resolve) => { daemonReady = resolve; }));
+        const boot = appStartupManager.manageAppsOnBoot(VALID);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        holdNode('ipChanges', 'IP changes over the limit allowed, one in 20 hours');
+        stickyHolds.delete('ipChanges');
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.notCalled(confirmationStub.waitForConfirmationStatus);
+
+        daemonReady();
+        await boot;
+
+        sinon.assert.calledOnce(confirmationStub.waitForConfirmationStatus);
+        sinon.assert.neverCalledWithMatch(logStub.error, /out of service/);
+      });
+
+      it('stops listening for a hold once boot has settled', async () => {
+        await appStartupManager.manageAppsOnBoot(VALID);
+
+        expect(holdListeners).to.have.length(0);
+      });
+    });
+
+    it('removes every app, and settles, when boot has not decided its apps by the deadline', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['Date'] });
+      try {
+        dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxAppA'], State: 'exited' }]);
+        registryManagerStub.getApplicationGlobalSpecifications.resolves({ version: 3, containerData: '' });
+        fluxNetworkHelperStub.getLocalSocketAddress.resolves('10.0.0.1:16127');
+        // a location read fails, and each failure is a retry's wait gone by
+        dbHelperStub.findInDatabase.callsFake(async (database, collection, query) => {
+          if (!query?.ip) return [{ name: 'AppA' }];
+          clock.tick(15000);
+          throw new Error('DB error');
+        });
+        appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'AppA' }] });
+
+        await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
+
+        sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'AppA');
+        sinon.assert.calledWithMatch(logStub.warn, /REMOVAL REASON: Apps not decided at boot - removing AppA/);
+        expect(appReconcilerStub.enqueue.called, 'an undecided app was started').to.equal(false);
+        expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('removes every app of a node in DOS that no owner holds', async () => {
+      nodeDosStateStub.isNodeDos.returns(true);
       appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
 
       await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
 
-      sinon.assert.calledWithExactly(fluxNetworkHelperStub.isStickyDosHeldBy, 'hostStall');
-      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+      sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'app1');
+      sinon.assert.calledWithMatch(logStub.warn, /REMOVAL REASON: Node DOS - removing app1/);
       sinon.assert.notCalled(globalStateStub.waitForDbReady);
     });
 
@@ -1024,7 +1172,7 @@ describe('appStartupManager tests', () => {
 
     // A boot that stops before it reconciles the apps still clears stray records.
     it('removes stray records on a boot that stops early', async () => {
-      fluxNetworkHelperStub.isNodeDos.returns(true);
+      nodeDosStateStub.isNodeDos.returns(true);
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
@@ -1044,7 +1192,7 @@ describe('appStartupManager tests', () => {
       appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'web' }] });
       await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
 
-      fluxNetworkHelperStub.isNodeDos.returns(true);
+      nodeDosStateStub.isNodeDos.returns(true);
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPorts);
@@ -1086,7 +1234,7 @@ describe('appStartupManager tests', () => {
       appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'web' }] });
       await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
 
-      fluxNetworkHelperStub.isNodeDos.returns(true);
+      nodeDosStateStub.isNodeDos.returns(true);
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.notCalled(portManagerStub.declareInstalledAppsPorts);

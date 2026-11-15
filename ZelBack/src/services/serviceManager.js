@@ -11,6 +11,7 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const nodeDosState = require('./nodeDosState');
 const databaseHealthService = require('./databaseHealthService');
 const hostStallService = require('./hostStallService');
 const appKill = require('./appLifecycle/appKill');
@@ -34,6 +35,8 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
 const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
+const tempMessageHold = require('./appMessaging/tempMessageHold');
+const messageStore = require('./appMessaging/messageStore');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
@@ -53,6 +56,7 @@ const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const paymentPositions = require('./migrations/paymentPositions');
 const placements = require('./migrations/placements');
 const appMessageHashes = require('./migrations/appMessageHashes');
+const enterpriseRows = require('./migrations/enterpriseRows');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -71,6 +75,7 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
 const peerSetStabilityService = require('./peerSetStabilityService');
+const dosRecurrenceService = require('./dosRecurrenceService');
 const outboundPathService = require('./outboundPathService');
 const uplinkService = require('./uplinkService');
 const nodeConfirmationService = require('./nodeConfirmationService');
@@ -94,21 +99,21 @@ function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 const {
   cpuCheckIntervalMs,
   forceRemovalIntervalMs,
-  tempMsgTtlS,
 } = config.fluxapps;
 
 // State objects for monitoring services
 const dosState = {
-  get dosMessage() { return fluxNetworkHelper.getDosMessage(); },
-  set dosMessage(value) { fluxNetworkHelper.setDosMessage(value); },
-  get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
-  set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
+  get dosMessage() { return nodeDosState.getDosMessage(); },
+  set dosMessage(value) { nodeDosState.setDosMessage(value); },
+  get dosStateValue() { return nodeDosState.getDosStateValue(); },
+  set dosStateValue(value) { nodeDosState.setDosStateValue(value); },
   testingPort: null,
   nextTestingPort: null,
   originalPortFailed: null,
   routerRefusalsSeen: 0,
 };
-const portsNotWorking = new Set();
+// Each port the apps port check found not working, to what it found (availabilityChecker.PortFailure).
+const portsNotWorking = new Map();
 const appsStorageViolations = [];
 
 /**
@@ -161,6 +166,10 @@ async function prepareDatabaseSchema() {
     { key: { lastSeen: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'lastSeen_ttl' }, // 30 days
     { key: { appName: 1, eventType: 1, lastSeen: -1 }, name: 'appName_eventType_lastSeen' },
   ]);
+  // a kept removal goes when its app's location row on this node would have expired
+  await dbHelper.ensureIndexes(database.collection(config.database.local.collections.unannouncedRemovals), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+  ]);
   // The unique incident-rollup index lives with its owner: duplicate rollups
   // must have their counts SUMMED, not one dropped, so the merge needs the
   // collection's own knowledge rather than a generic dedupe. See
@@ -181,7 +190,21 @@ async function prepareDatabaseSchema() {
   // no need to drop temporary messages
   const databaseTemp = db.db(config.database.appsglobal.database);
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), [
-    { key: { receivedAt: 1 }, expireAfterSeconds: tempMsgTtlS },
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { receivedAt: 1 } },
+    // every check of whether a pending message is held
+    { key: { hash: 1 }, unique: true, recover: dbHelper.dedupeByKey },
+    // the unpaid allowances, appMessaging/unpaidAdmission.js
+    { key: { clientTag: 1 } },
+    { key: { originKey: 1 } },
+  ]);
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsHeldMessages), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { heldAt: 1 } },
+    { key: { key: 1 }, unique: true },
+    // the allowance counts what is held, by client and by admitting operator
+    { key: { 'admission.clientTag': 1 } },
+    { key: { 'admission.originKey': 1 } },
   ]);
   log.info('Temporary database prepared');
   log.info('Preparing Flux Apps locations');
@@ -226,7 +249,13 @@ async function prepareDatabaseSchema() {
     // an app's holders by their signed announcements, and each holder's own events
     { key: { 'data.apps.name': 1 }, name: 'announcements by the apps they name', partialFilterExpression: { type: 'apprunning' } },
     { key: { 'envelope.pubKey': 1, type: 1 }, name: 'events by signing key' },
+    // the events of a type at given addresses
+    { key: { type: 1, ip: 1, expireAt: 1 }, name: 'events of a type at addresses, by expiry' },
+    // the reports and removals of one app, by its name lowercased
+    { key: { appNames: 1, expireAt: 1 }, name: 'reports by the apps they name, lowercased', partialFilterExpression: { type: 'apprunning' } },
+    { key: { appNameLower: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
   ]);
+  await messageStore.lowercaseStoredAppNames(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   log.info('App state events collection prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
@@ -246,6 +275,9 @@ async function prepareDatabaseSchema() {
     { key: { name: 1, hash: 1 }, name: 'query for getting flux app install errors location based on specs name and hash' },
     { key: { name: 1, hash: 1, ip: 1 }, name: 'query for getting flux app install errors location based on specs name and hash and node ip' },
   ]);
+  // A ttl index passes over a row whose expireAt is not a date, so such a row stays for ever.
+  await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations)
+    .deleteMany({ expireAt: { $not: { $type: 'date' } } });
   log.info('App installing errors locations prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
@@ -253,6 +285,8 @@ async function prepareDatabaseSchema() {
     { key: { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, unique: true, recover: dbHelper.dedupeByKey },
   ]);
   log.info('Signed app installing errors broadcasts collection prepared');
+
+  await enterpriseRows.blankStoredEnterpriseSecrets(db.db(config.database.appslocal.database).collection(config.database.appslocal.collections.appsInformation));
 
   // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
   // we can remove this.
@@ -311,6 +345,9 @@ async function startFluxFunctions() {
     // moment with a database, before anything can ask whether it is fit, until
     // the chain has passed its hold.
     fluxNetworkHelper.startIpChangeHoldWatch();
+    // A node that keeps going out of service is held out longer each time:
+    // restored before anything can ask whether it is fit.
+    await dosRecurrenceService.start().catch((err) => log.error(`dosRecurrence start error: ${err.message}`));
     await dockerService.waitForDocker();
     const dockerInfo = await dockerService.dockerInfo().catch(() => null);
     // Where docker keeps its records, read while it answers, for a kill made
@@ -406,6 +443,9 @@ async function startFluxFunctions() {
     await dockerService.applyContainerFirewall();
     setInterval(() => dockerService.applyContainerFirewall(), 10 * 60 * 1000);
 
+    // The removals a signal starts, a hold's among them, from the first point
+    // boot can remove an app. A hold set earlier is replayed to it.
+    nodeStatusMonitor.initialize(appQueryService.installedApps, appUninstaller.removeAppLocally);
     // App startup manager owns all boot-time container lifecycle decisions:
     // Locations expired → remove all. Otherwise wait for daemon/DB, then reconcile.
     appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
@@ -430,8 +470,14 @@ async function startFluxFunctions() {
     await daemonServiceUtils.waitForFluxd();
     // awaited so isDaemonSynced cache is populated before hash sync reads it
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
+    // Before daemonReady, so manageAppsOnBoot's wait for fluxd ends on the hold.
+    const addressIndexed = fluxNetworkHelper.checkInsightExplorerAllowed(daemonServiceMiscRpcs.isInsightExplorer());
     globalState.daemonReady = true;
 
+    // Boot ends here without fluxd's address index: the steps below place app
+    // payments in chain order from it and bootstrap the explorer from it. The
+    // node serves its API holding the DOS, and the hold removes its apps.
+    if (!addressIndexed) return;
     // App payments are placed in chain order from the daemon's address index: it
     // positions the payments recorded before the scan recorded positions, and a
     // node with no app history yet fetches its payments through it.
@@ -455,6 +501,8 @@ async function startFluxFunctions() {
     // it is the only thing that knows whether an arriving answer is still
     // wanted. The peer manager asks rather than keeping its own copy.
     peerManager.syncResponseWanted = (peerSocket) => orchestrator.isSyncResponseWanted(peerSocket);
+    peerManager.syncArrivalWanted = (peerSocket) => orchestrator.isSyncArrivalWanted(peerSocket);
+    await untilSucceeds('Held message count', () => tempMessageHold.start(fluxCommunication.settleHeldAppMessage));
 
     // The other half of the peer-gated fallback. The orchestrator stops a node
     // whose peer set keeps collapsing from ever reaching READY, which is silent;
@@ -545,9 +593,10 @@ async function startFluxFunctions() {
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it
     fluxNetworkHelper.setOnAddressChanged((apps, reason, key) => appReconciler.requestRestartOf(apps, reason, key));
-    // this node's own address moved: it records the move as its peers will, so
-    // it knows FDM naming its old IP means itself, and tells them once it has
-    // peers at the new address
+    // this node's own address moved: it records the move as its peers will
+    // before its address switches, so it knows FDM naming its old IP means
+    // itself, and tells them once it has peers at the new address
+    fluxNetworkHelper.setOnOwnAddressRecorded((oldIp, newIp, movedAt) => fluxCommunication.recordOwnAddressMoveAtSwitch(oldIp, newIp, movedAt));
     fluxNetworkHelper.setOnOwnAddressMoved((oldIp, newIp, movedAt) => fluxCommunication.handleOwnAddressMove(oldIp, newIp, movedAt));
     // whether this node ran apps at an address it has no record of leaving
     fluxNetworkHelper.setInstalledAppsListedAt((socketAddress) => appQueryService.installedAppsListedAt(socketAddress));
@@ -763,7 +812,6 @@ async function startFluxFunctions() {
         fluxNetworkHelper.isArcane,
       );
     }, bootDelay(3 * 60 * 1000));
-    nodeStatusMonitor.initialize(appQueryService.installedApps, appUninstaller.removeAppLocally);
     nodeStatusMonitor.start(appQueryService.installedApps, appUninstaller.removeAppLocally);
     // Start the syncthing/masterSlave deciders once boot container state has settled
     // (the same AsyncGate the reconciler starts on), not after a fixed delay. Each

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
@@ -8,6 +8,7 @@ import { resetSyncState, setPeerCompletion } from '../framework/syncthing-contro
 import { waitFor, waitForUp } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // What a node does about a holder it cannot ask.
 //
@@ -112,8 +113,7 @@ describe('a syncthing holder that predates the folder endpoint', function () {
     }
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

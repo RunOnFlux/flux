@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after, afterEach,
+  describe, it, before, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -15,6 +15,7 @@ import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { crashFluxos, releaseFluxos } from '../framework/container.js';
 import { failCommands } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Cold starts of a g: app where the holder at the higher address cannot read its
 // locations: every read of its location records fails. Its monitor holds the folder
@@ -99,8 +100,7 @@ describe('a holder that cannot read its locations keeps what it tells its peers'
     await Promise.all((env?.clients ?? []).map((c) => c?.releaseAllCheckpoints().catch(() => {})));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

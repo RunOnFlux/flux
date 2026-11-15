@@ -784,6 +784,32 @@ function nonFileEntryBytesForVersion(version) {
 }
 
 /**
+ * Whether a release hears a device's whole index again once the device has left a
+ * folder and come back. Before v2.1.2 a daemon drops the device's records and keeps the
+ * sequence it had reached, so the device goes on sending deltas and the records never
+ * return.
+ * @param {string} version syncthing's version string, e.g. v2.0.15
+ * @returns {boolean}
+ * @throws When the version cannot be parsed.
+ */
+function refetchesDroppedDevicesForVersion(version) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(typeof version === 'string' ? version : '');
+  if (!match) throw new Error(`syncthing reported a version that cannot be read: ${JSON.stringify(version)}`);
+  const [major, minor, patch] = match.slice(1).map(Number);
+  return major > 2 || (major === 2 && (minor > 1 || (minor === 1 && patch >= 2)));
+}
+
+/**
+ * Whether this node's syncthing hears a device's whole index again after the device left
+ * a folder. Read from the running daemon on every call: a release can go back as well as
+ * forward across a restart.
+ * @returns {Promise<boolean>}
+ */
+async function refetchesDroppedDevices() {
+  return refetchesDroppedDevicesForVersion((await systemVersion())?.version);
+}
+
+/**
  * How many bytes this node's syncthing counts for each directory and each symlink.
  *
  * Read from the running daemon on every call, never remembered: the release can
@@ -874,6 +900,20 @@ async function getDbLocalChanged(folder, page = 1, perpage = LOCAL_CHANGED_PAGE_
     throw new Error('folder parameter is mandatory');
   }
   return request('get', `/rest/db/localchanged?folder=${folder}&page=${page}&perpage=${perpage}`);
+}
+
+/**
+ * What this node holds as a folder's latest and a device's index does not.
+ * @param {string} folder Folder ID.
+ * @param {string} device Device ID.
+ * @param {number} [page]
+ * @param {number} [perpage]
+ * @returns {Promise<object>} syncthing's `progress`, `queued` and `rest` lists, or `files`
+ */
+async function getDbRemoteNeed(folder, device, page = 1, perpage = LOCAL_CHANGED_PAGE_SIZE) {
+  return request('get', `/rest/db/remoteneed?${qs.stringify({
+    folder, device, page, perpage,
+  })}`);
 }
 
 /**
@@ -1578,23 +1618,35 @@ async function stopSyncthingSentinel() {
 // syncthing resolves owners against the numeric id tables (numericIdTables.js)
 // in place of the host's user and group names, so every owner travels as its
 // number and a change of owner alone is a change. It runs in a mount namespace
-// of its own with the tables bound over /etc/passwd and /etc/group, and starts
-// only once both are bound. The table paths are "$1" and "$2", and syncthing's
-// own arguments follow them.
+// of its own whose /etc is a directory of its own: the tables bound as passwd
+// and group, and every other entry a link into the host's /etc, bound live at
+// "$3". A table bound over the host's file would be dropped the moment the host
+// replaced that file, as useradd and groupadd do; a file in a directory nothing
+// else writes is never replaced. An entry the host adds to /etc after syncthing
+// starts reaches it at its next start. The table paths are "$1" and "$2", and
+// syncthing's own arguments follow "$3".
 //
 // The namespace is a slave of the host's, so an app volume mounted after
-// syncthing starts reaches it, and its own binds reach nothing else. A slave
+// syncthing starts reaches it, and its own mounts reach nothing else. A slave
 // receives only from a shared mount, which systemd makes of every mount at boot
 // and FluxOS makes of the one holding the app volumes where it is not.
-const NUMERIC_ID_SYNCTHING = 'mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 2 && exec syncthing "$@"';
+const NUMERIC_ID_SYNCTHING = 'mount --rbind /etc "$3"'
+  + ' && mount -t tmpfs -o size=1m,mode=0755 syncthing-etc /etc'
+  + ' && for e in "$3"/* "$3"/.[!.]*; do n="${e##*/}"; case "$n" in passwd|group|"*"|".[!.]*") continue;; esac;'
+  + ' if [ -L "$e" ]; then ln -s "$(readlink "$e")" "/etc/$n"; else ln -s "$e" "/etc/$n"; fi || exit 1; done'
+  + ' && : > /etc/passwd && : > /etc/group'
+  + ' && mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 3 && exec syncthing "$@"';
 
 /**
- * Where this node keeps the numeric id tables syncthing is given.
- * @returns {{dir: string, passwd: string, group: string}}
+ * Where this node keeps the numeric id tables syncthing is given, and the
+ * directory the host's /etc is bound on inside syncthing's namespace.
+ * @returns {{dir: string, passwd: string, group: string, hostEtc: string}}
  */
 function numericIdTablePaths() {
   const dir = path.join(syncthingHomeDir(), 'numeric-ids');
-  return { dir, passwd: path.join(dir, 'passwd'), group: path.join(dir, 'group') };
+  return {
+    dir, passwd: path.join(dir, 'passwd'), group: path.join(dir, 'group'), hostEtc: path.join(dir, 'host-etc'),
+  };
 }
 
 /**
@@ -1657,14 +1709,14 @@ function noteOwnersByNumber() {
 
 /**
  * Why a private mount namespace cannot give syncthing the numeric id tables
- * here, asked by trying the first bind on its own.
- * @param {{passwd: string}} tables
+ * here, asked by trying its first mount on its own.
+ * @param {{hostEtc: string}} tables
  * @returns {Promise<string>}
  */
 async function numericIdLaunchFailure(tables) {
   const { error } = await serviceHelper.runCommand('unshare', {
     runAsRoot: true,
-    params: ['--mount', '--propagation', 'slave', 'mount', '--bind', tables.passwd, '/etc/passwd'],
+    params: ['--mount', '--propagation', 'slave', 'mount', '--rbind', '/etc', tables.hostEtc],
     logError: false,
   });
   return error ? error.message : 'a private mount namespace with the numeric id tables can be made, and syncthing still did not start';
@@ -1780,6 +1832,7 @@ async function ensureSyncthingRunning(installed) {
   }
 
   if (!checkedAtStart) await ensureNumericIdTables('launch');
+  await fs.mkdir(tables.hostEtc, { recursive: true });
 
   log.info('Spawning Syncthing instance...');
 
@@ -1796,7 +1849,7 @@ async function ensureSyncthingRunning(installed) {
   // the devices and unpauses each folder once its role is decided.
   childProcess.spawn(
     // Quoted: every path comes from SYNCTHING_PATH, and this runs through a shell.
-    `sudo nohup unshare --mount --propagation slave sh -c '${NUMERIC_ID_SYNCTHING}' syncthing '${tables.passwd}' '${tables.group}' `
+    `sudo nohup unshare --mount --propagation slave sh -c '${NUMERIC_ID_SYNCTHING}' syncthing '${tables.passwd}' '${tables.group}' '${tables.hostEtc}' `
     + `--logfile '${logFile}' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --paused --home '${syncthingHome}' >/dev/null 2>&1 </dev/null &`,
     { shell: true },
   ).unref();
@@ -2747,9 +2800,12 @@ module.exports = {
   getDbStatusInFileBytes,
   nonFileEntryBytes,
   nonFileEntryBytesForVersion,
+  refetchesDroppedDevices,
+  refetchesDroppedDevicesForVersion,
   statusInFileBytes,
   getDbFile,
   getDbLocalChanged,
+  getDbRemoteNeed,
   eachDbLocalChanged,
   dbRevert,
   drainFoldersToPeers,

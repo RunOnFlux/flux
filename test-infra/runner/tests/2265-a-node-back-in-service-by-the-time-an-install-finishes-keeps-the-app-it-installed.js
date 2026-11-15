@@ -1,5 +1,5 @@
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -11,6 +11,7 @@ import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { buildSeedableTestApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node that goes out of service while an install is running removes every
 // other app at once and leaves the app being installed to its install. Back in
@@ -80,8 +81,7 @@ describe('a node back in service by the time an install finishes keeps the app i
       .to.include.members([running, installing]);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env) {
       await client().releaseCheckpoint(BEFORE_CONTAINERS, installing).catch(() => {});
       await clearNodeStatus(client().ip).catch(() => {});

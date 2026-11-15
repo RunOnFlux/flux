@@ -30,17 +30,19 @@
  * Triggered and driven exactly as suite 85: the app's global row is replaced by a
  * seeded update, and blocks drive the periodic reinstall pass.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { execInContainer, getAppContainerId } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const APP_USER = '10000';
 const ADDED = [
@@ -114,14 +116,13 @@ describe('a mount directory a specification update adds is writable by the app\'
       spec.compose[0].environmentParameters = [`WRITE_PROBE=/tmp,${ADDED.map((d) => d.mount).join(',')}`];
     });
     expect(updated.hash, 'an update that hashes the same is not an update').to.not.equal(app.hash);
-    await seedSpecUpdate(env, updated, [0]);
+    await deliverApp(env, updated, [0]);
     // The only advancer from here: see suite 85 on why a second one settles the
     // node's tip on one parity and the reinstall pass never fires.
     await stopTicker();
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -129,6 +130,7 @@ describe('a mount directory a specification update adds is writable by the app\'
     // Budgeted in blocks, as suite 85 is: 108 covers three firings of the pass
     // at its longest period.
     this.timeout(1500000);
+    const mark = holder.getLastEventId();
     await driveUntil(
       holder,
       async () => (await localSpec(holder))?.hash === updated.hash,
@@ -140,6 +142,14 @@ describe('a mount directory a specification update adds is writable by the app\'
       const containerAfter = await getAppContainerId(holder.container, appName, appName);
       return Boolean(containerAfter) && containerAfter !== containerBefore;
     }, { timeout: 120000, interval: 2000, label: 'the component is replaced at the new specification' });
+    // The redeploy ends by asking for the app to be restarted, which the reconciler
+    // carries out on its next pass: until then the container is about to stop.
+    await holder.waitForEvent(
+      'reconciler:actuated',
+      (d) => d.identifier === `${appName}_${appName}` && d.action === 'restarted',
+      120000,
+      { afterId: mark },
+    );
 
     const kept = await sh(`cat ${marker}`);
     expect(kept.stdout.trim(), 'what the app wrote before the update is still on its volume').to.equal('kept');

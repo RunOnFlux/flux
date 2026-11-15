@@ -10,6 +10,7 @@ const config = require('config');
 const serviceHelper = require('./serviceHelper');
 const { withRegistryWrite } = require('./appDatabase/registryWriteLock');
 const appMessageChain = require('./utils/appMessageChain');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
@@ -21,8 +22,9 @@ let openDBConnection = null;
 
 // The client for the named long operations: index builds, the explorer
 // restore's deletes and the registry rebuild. One of its round trips may take
-// up to config.database.maintenanceCallTimeoutMs; every other call uses the
-// main client, bounded by config.database.callTimeoutMs.
+// up to config.database.maintenanceCallTimeoutMs. A call on neither this
+// client nor the quick one uses the main client, bounded by
+// config.database.callTimeoutMs.
 function maintenanceSettings() {
   return {
     maxPoolSize: 4,
@@ -35,6 +37,29 @@ function maintenanceSettings() {
  * @type {mongodb.MongoClient}
  */
 let maintenanceDBConnection = null;
+
+// The client for calls a caller cannot wait long for: a router turn's mapping
+// records, a folder's dropped-device records written under its write lock, and
+// the shutdown reason. Finding the server, opening a connection, waiting for a
+// pooled one and one round trip each end in an error after
+// config.database.quickCallTimeoutMs. A write that ends so has an unknown
+// outcome. Its timeouts are not counted by databaseHealthService: running out
+// of so short a limit is no sign that the database is stuck.
+function quickSettings() {
+  const limit = config.database.quickCallTimeoutMs;
+  return {
+    maxPoolSize: 10,
+    serverSelectionTimeoutMS: limit,
+    connectTimeoutMS: limit,
+    socketTimeoutMS: limit,
+    waitQueueTimeoutMS: limit,
+  };
+}
+
+/**
+ * @type {mongodb.MongoClient}
+ */
+let quickDBConnection = null;
 
 /**
  * Cached MongoDB server version, populated once per connection.
@@ -68,6 +93,25 @@ function maintenanceConnection() {
  */
 function onMaintenanceClient(database) {
   return maintenanceDBConnection ? maintenanceDBConnection.db(database.databaseName) : database;
+}
+
+/**
+ * The quick client, if it was initiated before, otherwise null.
+ * @returns {mongodb.MongoClient | null}
+ */
+function quickConnection() {
+  return quickDBConnection;
+}
+
+/**
+ * `database` on the quick client: the same database, whose calls end within
+ * config.database.quickCallTimeoutMs. `database` itself while the quick client
+ * is not connected.
+ * @param {mongodb.Db} database
+ * @returns {mongodb.Db}
+ */
+function onQuickClient(database) {
+  return quickDBConnection ? quickDBConnection.db(database.databaseName) : database;
 }
 
 /**
@@ -106,18 +150,28 @@ async function connectMongoDb(url, settings = {}) {
 }
 
 /**
- * Initiates the default db connection and the maintenance one, both or
- * neither.
+ * Initiates the main, maintenance and quick db connections, all or none.
  * @returns true
  */
 async function initiateDB() {
   if (!openDBConnection) {
-    const main = await connectMongoDb();
-    maintenanceDBConnection = await connectMongoDb(undefined, maintenanceSettings()).catch(async (error) => {
-      await main.close();
+    const opened = [];
+    const open = async (settings) => {
+      const client = await connectMongoDb(undefined, settings);
+      opened.push(client);
+      return client;
+    };
+    try {
+      const main = await open();
+      const maintenance = await open(maintenanceSettings());
+      const quick = await open(quickSettings());
+      maintenanceDBConnection = maintenance;
+      quickDBConnection = quick;
+      openDBConnection = main;
+    } catch (error) {
+      await Promise.all(opened.map((client) => client.close()));
       throw error;
-    });
-    openDBConnection = main;
+    }
     // Read the server version once, on the initial connect. It is informational
     // and the getter swallows its own errors, so this cannot fail the connect.
     await getMongoDbVersion();
@@ -188,6 +242,10 @@ async function closeDbConnection() {
     await maintenanceDBConnection.close();
     maintenanceDBConnection = null;
   }
+  if (quickDBConnection) {
+    await quickDBConnection.close();
+    quickDBConnection = null;
+  }
 }
 
 /**
@@ -244,9 +302,9 @@ async function dedupeByKey(collection, spec, options = {}) {
 /**
  * Assert one index, healing the failures that are recoverable.
  *
- *   - a pre-existing index that conflicts is dropped and recreated: the index on
- *     the same KEY when its options differ (IndexOptionsConflict), the index of
- *     the same NAME when its key differs (IndexKeySpecsConflict);
+ *   - on a conflict (IndexOptionsConflict, IndexKeySpecsConflict) every index holding
+ *     the requested key or the requested name is dropped, and the index is built. A
+ *     name left out is generated from the key, so such an index collides by its key;
  *   - a unique build blocked by DUPLICATE ROWS runs the caller's `recover`
  *     strategy (see dedupeByKey) and rebuilds, so the node ends up WITH the
  *     index rather than running degraded without it. Every build goes this way,
@@ -297,12 +355,11 @@ async function ensureIndex(collection, spec, options = {}, recover = null) {
     if (!conflict) throw err;
     const specKeys = JSON.stringify(spec);
     const indexes = await collection.listIndexes().toArray();
-    const match = err.codeName === 'IndexKeySpecsConflict'
-      ? indexes.find((idx) => idx.name === options.name)
-      : indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
-    if (match?.name) {
-      log.warn(`ensureIndex - conflicting index '${match.name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
-      await collection.dropIndex(match.name);
+    const colliding = indexes.filter((idx) => idx.name === options.name || JSON.stringify(idx.key) === specKeys);
+    for (const { name } of colliding) {
+      log.warn(`ensureIndex - conflicting index '${name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
+      // eslint-disable-next-line no-await-in-loop
+      await collection.dropIndex(name);
     }
     await buildIndex(collection, spec, options, recover);
   }
@@ -1227,6 +1284,7 @@ async function reindexGlobalAppsInformation(
       }
     }
 
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REGISTRY_BEFORE_SWAP);
     await infoCol.rename(globalAppsInformationCol, { dropTarget: true });
 
     log.info(
@@ -1369,6 +1427,8 @@ module.exports = {
   dedupeByKey,
   maintenanceConnection,
   onMaintenanceClient,
+  quickConnection,
+  onQuickClient,
   aggregateInDatabase,
   isDatabaseError,
   appMessagesThatCount,

@@ -18,13 +18,15 @@ const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMes
 const {
   asyncRoute,
   cache,
+  limitConcurrent,
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
   requirePolicyReady,
   requireRegistryReady,
 } = require('./services/utils/routeGuards');
-const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
+const { alwaysRespond, isLocal } = require('./middlewares');
+const { refuseBannedCaller } = require('./services/appSecurity/clientBans');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -47,6 +49,7 @@ const advancedWorkflows = require('./services/appLifecycle/advancedWorkflows');
 const imageManager = require('./services/appSecurity/imageManager');
 const messageVerifier = require('./services/appMessaging/messageVerifier');
 const appHashSyncService = require('./services/appMessaging/appHashSyncService');
+const permanentMessageLog = require('./services/appMessaging/permanentMessageLog');
 const monitoringOrchestrator = require('./services/appMonitoring/monitoringOrchestrator');
 const systemIntegration = require('./services/appSystem/systemIntegration');
 
@@ -60,11 +63,28 @@ const peerIdentityService = require('./services/peerIdentityService');
 const outboundPathService = require('./services/outboundPathService');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
-const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const uplinkService = require('./services/uplinkService');
 const kernelService = require('./services/kernelService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
+
+/**
+ * Whether a permanent message lookup names no message hash. One that does reads a single message;
+ * one that does not reads the whole log, or every message of an owner or an app name.
+ * @param {object} req Request
+ * @returns {boolean}
+ */
+function withoutMessageHash(req) {
+  return !(req.params.hash || req.query.hash);
+}
+
+// A permanent message lookup without a hash builds its whole answer in memory, so a node builds
+// one at a time.
+const permanentMessageQueryLimit = limitConcurrent(1, 'This node is already answering a permanent message query', { limited: withoutMessageHash });
+
+// Each message log being served keeps a processor core compressing it for its whole transfer. One
+// caller is served one log at a time, so one caller cannot hold every place.
+const permanentMessageLogLimit = limitConcurrent(4, 'This node is already serving as many message logs as it allows', { perCaller: 1 });
 
 module.exports = (app) => {
   // GET PUBLIC methods
@@ -130,9 +150,6 @@ module.exports = (app) => {
   }));
   app.get('/daemon/getblockheader/:hash?/:verbose?', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceBlockchainRpcs.getBlockHeader(req, res);
-  }));
-  app.get('/daemon/getchaintips', cache('30 seconds'), asyncRoute((req, res) => {
-    return daemonServiceBlockchainRpcs.getChainTips(req, res);
   }));
   app.get('/daemon/getdifficulty', cache('30 seconds'), asyncRoute((req, res) => {
     return daemonServiceBlockchainRpcs.getDifficulty(req, res);
@@ -348,6 +365,9 @@ module.exports = (app) => {
   app.get('/flux/networkhealth', cache('5 seconds'), asyncRoute((req, res) => {
     return fluxCommunication.getNetworkHealth(req, res);
   }));
+  app.get('/flux/networkpaths', asyncRoute((req, res) => {
+    return fluxCommunication.getNetworkPaths(req, res);
+  }));
   // Deprecated peer endpoints — kept for backward compatibility
   app.get('/flux/connectedpeers', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxCommunication.connectedPeers(req, res);
@@ -361,7 +381,9 @@ module.exports = (app) => {
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxNetworkHelper.getIncomingConnectionsInfo(req, res);
   }));
-  app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), asyncRoute((req, res) => {
+  // Not cached: the answer is whether this node lists the address and reaches it
+  // now, and the nodes that ask act on it.
+  app.get('/flux/checkfluxavailability/:ip?/:port?', asyncRoute((req, res) => {
     return fluxNetworkHelper.checkFluxAvailability(req, res);
   }));
   app.post('/flux/checkappavailability', asyncRoute((req, res) => {
@@ -394,9 +416,6 @@ module.exports = (app) => {
   app.get('/flux/outboundpath', rejectQueryParameters, asyncRoute((req, res) => {
     return outboundPathService.outboundPathAPI(req, res);
   }));
-
-  // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.get('/arcane/authchallenge', requireHttps, asyncRoute(arcaneAuthService.authChallengeHandler));
 
   // Apps routes - now directly calling modular services
   //
@@ -457,6 +476,11 @@ module.exports = (app) => {
   app.post('/apps/promotedfolders', asyncRoute((req, res) => {
     return appQueryService.promotedFolderHoldings(req, res);
   }));
+  // Answers a node or the Flux team, on the terms of the holdings above, so it takes no
+  // cache either.
+  app.post('/apps/folderrecords', asyncRoute((req, res) => {
+    return appQueryService.folderRecords(req, res);
+  }));
   app.get('/apps/listallapps', cache('30 seconds'), asyncRoute((req, res) => {
     return appQueryService.listAllAppsApi(req, res);
   }));
@@ -484,8 +508,13 @@ module.exports = (app) => {
   app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), asyncRoute((req, res) => {
     return messageVerifier.getAppsTemporaryMessages(req, res);
   }));
-  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), asyncRoute((req, res) => {
+  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), permanentMessageQueryLimit, asyncRoute((req, res) => {
     return messageVerifier.getAppsPermanentMessages(req, res);
+  }));
+  // Streamed from the database as it is read, so it takes no cache: an entry would hold the whole
+  // body in memory.
+  app.get('/apps/permanentmessagesbyheight', permanentMessageLogLimit, asyncRoute((req, res) => {
+    return permanentMessageLog.getPermanentMessagesByHeightAPI(req, res);
   }));
   app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', requireRegistryReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getGlobalAppsSpecifications(req, res);
@@ -544,22 +573,22 @@ module.exports = (app) => {
   app.get('/apps/installingerrorslocations', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsInstallingErrorsLocations(req, res);
   }));
-  app.post('/apps/calculateprice', asyncRoute((req, res) => { // returns price in flux for both new registration of app and update of app
+  app.post('/apps/calculateprice', refuseBannedCaller, asyncRoute((req, res) => { // returns price in flux for both new registration of app and update of app
     return appSpecHelpers.getAppPrice(req, res);
   }));
-  app.post('/apps/calculatefiatandfluxprice', asyncRoute((req, res) => { // returns price in usd and flux for both new registration of app and update of app
+  app.post('/apps/calculatefiatandfluxprice', refuseBannedCaller, asyncRoute((req, res) => { // returns price in usd and flux for both new registration of app and update of app
     return appSpecHelpers.getAppFiatAndFluxPrice(req, res);
   }));
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), asyncRoute((req, res) => { // deprecated: whitelist retired, always returns []
     return generalService.whitelistedRepositories(req, res);
   }));
-  app.post('/apps/verifyappregistrationspecifications', asyncRoute((req, res) => { // returns formatted app specifications
+  app.post('/apps/verifyappregistrationspecifications', refuseBannedCaller, asyncRoute((req, res) => { // returns formatted app specifications
     return appValidator.verifyAppRegistrationParameters(req, res);
   }));
-  app.post('/apps/verifyappupdatespecifications', asyncRoute((req, res) => { // returns formatted app specifications
+  app.post('/apps/verifyappupdatespecifications', refuseBannedCaller, asyncRoute((req, res) => { // returns formatted app specifications
     return appValidator.verifyAppUpdateApi(req, res);
   }));
-  app.post('/apps/placementfeasibility', asyncRoute((req, res) => { // fault domains and per-domain instance share for a prospective spec
+  app.post('/apps/placementfeasibility', refuseBannedCaller, asyncRoute((req, res) => { // fault domains and per-domain instance share for a prospective spec
     return placementFeasibility.placementFeasibilityAPI(req, res);
   }));
   app.get('/apps/placementlocations', rejectQueryParameters, cache('30 seconds'), asyncRoute((req, res) => { // node, fault-domain and tier counts per continent/country
@@ -607,10 +636,12 @@ module.exports = (app) => {
     return explorerService.getAddressFusionCoinbase(req, res);
   }));
 
-  // GET PROTECTED API - User level
+  // GET PROTECTED API - Node operator or flux team level
   app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', asyncRoute((req, res) => {
     return daemonServiceMiningRpcs.prioritiseTransaction(req, res);
   }));
+
+  // GET PROTECTED API - User level
   app.get('/daemon/submitblock/:hexdata?/:jsonparametersobject?', asyncRoute((req, res) => {
     return daemonServiceMiningRpcs.submitBlock(req, res);
   }));
@@ -957,6 +988,9 @@ module.exports = (app) => {
   app.get('/explorer/reindex/:reindexapps?', asyncRoute((req, res) => {
     return explorerService.reindexExplorer(req, res);
   }));
+  app.get('/explorer/start', asyncRoute((req, res) => {
+    return explorerService.startBlockProcessing(req, res);
+  }));
   app.get('/explorer/restart', asyncRoute((req, res) => {
     return explorerService.restartBlockProcessing(req, res);
   }));
@@ -1036,7 +1070,7 @@ module.exports = (app) => {
   app.get('/apps/installapplocally/:appname?', requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return appInstaller.installAppLocally(req, res);
   }));
-  app.get('/apps/testappinstall/:appname?', requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
+  app.get('/apps/testappinstall/:appname?', refuseBannedCaller, requireBootSettled, requirePolicyReady, asyncRoute((req, res) => {
     return appInstaller.testAppInstall(req, res);
   }));
   app.get('/apps/createfluxnetwork', asyncRoute((req, res) => {
@@ -1089,9 +1123,6 @@ module.exports = (app) => {
   }));
 
   // POST PUBLIC methods route
-  // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.post('/arcane/configsync', requireHttps, asyncRoute(arcaneAuthService.configSyncHandler));
-
   app.post('/id/verifylogin', asyncRoute((req, res) => {
     return idService.verifyLogin(req, res);
   }));
@@ -1177,16 +1208,16 @@ module.exports = (app) => {
     return daemonServiceMiningRpcs.submitBlockPost(req, res);
   }));
 
-  app.post('/apps/checkdockerexistance', asyncRoute((req, res) => {
+  app.post('/apps/checkdockerexistance', refuseBannedCaller, asyncRoute((req, res) => {
     return imageManager.checkDockerAccessibility(req, res);
   }));
-  app.post('/apps/appregister', asyncRoute((req, res) => {
+  app.post('/apps/appregister', refuseBannedCaller, asyncRoute((req, res) => {
     return registryManager.registerAppGlobalyApi(req, res);
   }));
-  app.post('/apps/appupdate', asyncRoute((req, res) => {
+  app.post('/apps/appupdate', refuseBannedCaller, asyncRoute((req, res) => {
     return advancedWorkflows.updateAppGlobalyApi(req, res);
   }));
-  app.post('/apps/getpublickey', asyncRoute((req, res) => {
+  app.post('/apps/getpublickey', refuseBannedCaller, asyncRoute((req, res) => {
     return cryptographicKeys.getPublicKey(req, res);
   }));
 

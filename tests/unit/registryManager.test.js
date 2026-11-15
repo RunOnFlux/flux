@@ -4,6 +4,8 @@ const sinon = require('sinon');
 const config = require('config');
 const { ObjectId, Collection } = require('mongodb');
 const proxyquire = require('proxyquire');
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
@@ -17,7 +19,10 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/localRemovalQueue');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
+const unpaidAdmission = require('../../ZelBack/src/services/appMessaging/unpaidAdmission');
+
+chai.use(chaiAsPromised);
 
 describe('registryManager tests', () => {
   before(requireMongo);
@@ -152,6 +157,56 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('storeAppSpecificationInForce tests', () => {
+    const name = `applytest${Date.now()}`;
+    const message = (hash, height, expire = 100) => ({
+      hash, height, appSpecifications: { name, hash, height, expire },
+    });
+    const apply = (specs, governing, atHeight) => {
+      sinon.stub(dbHelper, 'appMessagesThatCount').resolves(governing);
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { height: atHeight } });
+      return registryManager.storeAppSpecificationInForce(specs);
+    };
+
+    beforeEach(async () => {
+      await database.collection(config.database.appsglobal.collections.appsInformation).deleteMany({ name });
+    });
+
+    it('applies the message that governs the app, in force, and says so', async () => {
+      const update = message('aa', 1000);
+      const decision = await apply(update.appSpecifications, [message('bb', 900), update], 1010);
+
+      expect(decision).to.deep.equal({
+        name, hash: 'aa', height: 1000, applied: true, reason: 'applied', governingHash: 'aa', atHeight: 1010,
+      });
+      const held = await database.collection(config.database.appsglobal.collections.appsInformation).findOne({ name });
+      expect(held.hash).to.equal('aa');
+    });
+
+    it('declines a message another governs, naming the one that does', async () => {
+      const decision = await apply(message('aa', 1000).appSpecifications, [message('aa', 1000), message('bb', 1001)], 1010);
+
+      expect(decision).to.include({ applied: false, reason: 'notGoverning', governingHash: 'bb' });
+      expect(await database.collection(config.database.appsglobal.collections.appsInformation).findOne({ name })).to.equal(null);
+    });
+
+    it('declines a message whose term has ended', async () => {
+      const update = message('aa', 1000, 5);
+      const decision = await apply(update.appSpecifications, [update], 1010);
+
+      expect(decision).to.include({ applied: false, reason: 'notInForce', governingHash: 'aa' });
+    });
+
+    it('leaves a row that already holds the message', async () => {
+      const update = message('aa', 1000);
+      await apply(update.appSpecifications, [update], 1010);
+      sinon.restore();
+      const decision = await apply(update.appSpecifications, [update], 1011);
+
+      expect(decision).to.include({ applied: false, reason: 'alreadyHeld' });
+    });
+  });
+
   describe('getApplicationOwner tests', () => {
     beforeEach(async () => {
       const collection = config.database.appsglobal.collections.appsInformation;
@@ -188,6 +243,60 @@ describe('registryManager tests', () => {
       const getOwnerResult = await registryManager.getApplicationOwner('testapp');
 
       expect(getOwnerResult).to.equal(appOwner);
+    });
+  });
+
+  describe('an app name given as a pattern', () => {
+    const owner = '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH';
+    const collection = config.database.appsglobal.collections.appsInformation;
+
+    beforeEach(async () => {
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        // Collection doesn't exist
+      }
+      await dbHelper.insertOneToDatabase(database, collection, { name: 'VictimApp', owner, version: 3 });
+      await dbHelper.insertOneToDatabase(database, collection, { name: 'Fluxvictim', owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', version: 3 });
+    });
+
+    it('is a name, not a pattern, to getApplicationSpecifications', async () => {
+      expect(await registryManager.getApplicationSpecifications('VictimApp$|_MyOwnApp')).to.equal(undefined);
+      expect(await registryManager.getApplicationSpecifications('.*')).to.equal(undefined);
+    });
+
+    it('is a name, not a pattern, to getApplicationOwner', async () => {
+      expect(await registryManager.getApplicationOwner('VictimApp$|_MyOwnApp')).to.equal(null);
+      expect(await registryManager.getApplicationOwner('.*')).to.equal(null);
+    });
+
+    it('does not resolve a legacy container identifier to the owner of a case variant of it', async () => {
+      expect(await registryManager.getApplicationOwner('fluxvictim')).to.equal(null);
+      expect(await registryManager.getApplicationOwner('Fluxvictim')).to.equal('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC');
+      // not a container identifier: no docker name is built from it as it is
+      expect(await registryManager.getApplicationOwner('FLUXVICTIM')).to.equal('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC');
+    });
+  });
+
+  describe('availableApps tests', () => {
+    it('answers a public listing without an enterprise app\'s compose and contacts', async () => {
+      const collection = config.database.appsglobal.collections.appsInformation;
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        // Collection doesn't exist
+      }
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'EntListed', version: 8, enterprise: 'blob', compose: [{ name: 'web' }], contacts: ['a@b.c'], owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      });
+      const res = { json: sinon.fake((param) => param) };
+
+      await registryManager.availableApps(null, res);
+
+      const listed = res.json.firstCall.args[0].data.find((app) => app.name === 'EntListed');
+      expect(listed.compose).to.eql([]);
+      expect(listed.contacts).to.eql([]);
+      expect(listed.enterprise).to.equal('blob');
     });
   });
 
@@ -460,6 +569,17 @@ describe('registryManager tests', () => {
 
       expect(await holderKeys()).to.eql(['key-b']);
     });
+
+    it('reads no version 1 report, which no node sends', async () => {
+      await database.collection(events).insertMany([
+        running('key-a', '1.1.1.1:16127', AT - 1000),
+        {
+          ip: '2.2.2.2:16127', type: 'apprunning', dedupKey: 'v1:TestApp', broadcastedAt: new Date(AT - 1000), expireAt: new Date(AT + LIFE), data: { ip: '2.2.2.2:16127', name: 'TestApp', hash: 'h' }, envelope: { pubKey: 'key-b' },
+        },
+      ]);
+
+      expect(await holderKeys()).to.eql(['key-a']);
+    });
   });
 
   describe('appsListedAt', () => {
@@ -700,13 +820,17 @@ describe('registryManager tests', () => {
   });
 
   describe('storeAppInstallingMessage tests', () => {
-    const validMessage = {
-      type: 'fluxappinstalling',
-      version: 1,
-      broadcastedAt: Date.now(),
-      name: 'TestApp',
-      ip: '192.168.1.1:16127',
-    };
+    let validMessage;
+
+    beforeEach(() => {
+      validMessage = {
+        type: 'fluxappinstalling',
+        version: 1,
+        broadcastedAt: Date.now(),
+        name: 'TestApp',
+        ip: '192.168.1.1:16127',
+      };
+    });
 
     it('should store a valid app installing message', async () => {
       const result = await registryManager.storeAppInstallingMessage(validMessage);
@@ -906,6 +1030,49 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('the app a spec request is authorised against', () => {
+    // Authorised against the app the lookup returned, not against a name cut out
+    // of the request: an owner of one app must not be able to read another's by
+    // spelling a name the two lookups read differently.
+    it('asks about the name of the spec it found, whatever spelling the request used', async () => {
+      const collection = config.database.appsglobal.collections.appsInformation;
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'EntSpecOwnerApp',
+        version: 8,
+        enterprise: 'encrypted-blob',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        compose: [],
+        hash: 'entspecownerhash',
+        height: 100,
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000 } });
+      const verifyPrivilege = sinon.stub().resolves(false);
+      const subject = proxyquire('../../ZelBack/src/services/appDatabase/registryManager', {
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec },
+        '../utils/appUtilities': { specificationFormatter: (spec) => spec },
+        '../verificationHelper': { verifyPrivilege },
+      });
+      const req = {
+        params: { appname: 'entspecownerapp', decrypt: 'true' },
+        query: {},
+        headers: { 'enterprise-key': 'session-key' },
+      };
+
+      await subject.getApplicationSpecificationAPI(req, { json: sinon.fake() });
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER, authOf(req), { appName: 'EntSpecOwnerApp' });
+    });
+
+    it('finds nothing for a name that is an alternation of two apps', async () => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000 } });
+      const res = { json: sinon.fake((param) => param) };
+
+      await registryManager.getApplicationSpecificationAPI({ params: { appname: 'SpecTestApp|Other_Mine' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+  });
+
   describe('getApplicationComponentNamesAPI tests', () => {
     const composedApp = {
       name: 'NamesApp',
@@ -1043,6 +1210,22 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('availableApps when the database does not answer', () => {
+    afterEach(() => sinon.restore());
+
+    it('throws to an internal caller, which has no list to read', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').rejects(new Error('operation was interrupted'));
+      await expect(registryManager.availableApps()).to.be.rejectedWith('operation was interrupted');
+    });
+
+    it('answers a route with the error', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').rejects(new Error('operation was interrupted'));
+      const res = { json: sinon.stub().returnsArg(0) };
+      const answer = await registryManager.availableApps(undefined, res);
+      expect(answer.status).to.equal('error');
+    });
+  });
+
   describe('checkApplicationRegistrationNameConflicts tests', () => {
     beforeEach(async () => {
       const collection = config.database.appsglobal.collections.appsInformation;
@@ -1059,6 +1242,33 @@ describe('registryManager tests', () => {
         // Collection doesn't exist
       }
       await dbHelper.insertOneToDatabase(database, collection, existingApp);
+    });
+
+    it('never reads the whole registry for one name', async () => {
+      const whole = sinon.spy(dbHelper, 'findInDatabase');
+      await registryManager.checkApplicationRegistrationNameConflicts({ name: 'FreshApp', owner: 'x' });
+      expect(whole.called, 'a name check loaded every app').to.equal(false);
+      whole.restore();
+    });
+
+    it('refuses a name a local app holds, in any case', async () => {
+      const localDatabase = db.db(config.database.appslocal.database);
+      const collection = config.database.appslocal.collections.appsInformation;
+      await localDatabase.collection(collection).deleteMany({ name: 'LocalOne' });
+      await dbHelper.insertOneToDatabase(localDatabase, collection, { name: 'LocalOne' });
+      await expect(registryManager.checkApplicationRegistrationNameConflicts({ name: 'localone', owner: 'x' }))
+        .to.be.rejectedWith('already assigned to local application');
+      await localDatabase.collection(collection).deleteMany({ name: 'LocalOne' });
+    });
+
+    it('still refuses a name whose registered app has outlived its term, with no hash known to be older', async () => {
+      const daemon = db.db(config.database.daemon.database);
+      const hashes = config.database.daemon.collections.appsHashes;
+      await daemon.collection(hashes).deleteMany({ hash: 'late' });
+      await dbHelper.insertOneToDatabase(daemon, hashes, { hash: 'late', txid: 't', height: 99999999 });
+      await expect(registryManager.checkApplicationRegistrationNameConflicts({ name: 'ExistingApp', owner: 'x' }, 'late'))
+        .to.be.rejectedWith('already assigned to local application');
+      await daemon.collection(hashes).deleteMany({ hash: 'late' });
     });
 
     it('should throw error if app name already exists', async () => {
@@ -1250,13 +1460,67 @@ describe('registryManager tests', () => {
       expect(queued()).to.deep.equal([]);
     });
 
-    it('should still uninstall it when the live spec is a re-registration of its name by someone else', async () => {
-      await database.collection(appsInformation).insertOne({ ...spec('TakenApp', 'newowner', 3007900, 88000), owner: '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu' });
-      installed = [spec('TakenApp', 'old', 3003310, 56)];
+    describe('another owner on the name of an installed app past its term', () => {
+      const { appsMessages } = config.database.appsglobal.collections;
+      const buyer = '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu';
+      const message = (type, hash, height, expire, signedFor) => ({
+        type, hash, height, timestamp: height, appSpecifications: { name: 'TakenApp', version: 3, owner: signedFor, expire },
+      });
 
-      await registryManager.expireGlobalApplications();
+      beforeEach(async () => {
+        await database.collection(appsMessages).deleteMany({});
+        // installed under the first owner, its term ending at 3003366
+        installed = [spec('TakenApp', 'old', 3003310, 56)];
+      });
 
-      expect(queued()).to.deep.equal(['TakenApp']);
+      afterEach(async () => {
+        await database.collection(appsMessages).deleteMany({});
+      });
+
+      it('should uninstall it when the other owner registered the name after the term', async () => {
+        await database.collection(appsMessages).insertMany([
+          message('fluxappregister', 'old', 3003310, 56, owner),
+          message('fluxappregister', 'newowner', 3007900, 88000, buyer),
+        ]);
+        await database.collection(appsInformation).insertOne({ ...spec('TakenApp', 'newowner', 3007900, 88000), owner: buyer });
+
+        await registryManager.expireGlobalApplications();
+
+        expect(queued()).to.deep.equal(['TakenApp']);
+      });
+
+      it('should keep it when the name reached the other owner by a transfer this node has not applied', async () => {
+        await database.collection(appsMessages).insertMany([
+          message('fluxappregister', 'old', 3003310, 56, owner),
+          // the owner's update naming the buyer, inside the installed term
+          message('fluxappupdate', 'sold', 3003350, 56, buyer),
+          // the buyer's update after the installed term ended
+          message('fluxappupdate', 'buyerupdate', 3007900, 88000, buyer),
+        ]);
+        await database.collection(appsInformation).insertOne({ ...spec('TakenApp', 'buyerupdate', 3007900, 88000), owner: buyer });
+
+        await registryManager.expireGlobalApplications();
+
+        expect(queued()).to.deep.equal([]);
+      });
+
+      it('should uninstall it when the other owner\'s spec is itself past its term', async () => {
+        await database.collection(appsMessages).insertMany([
+          message('fluxappregister', 'old', 3003310, 56, owner),
+          message('fluxappupdate', 'sold', 3003350, 56, buyer),
+        ]);
+        // read by the local branch only: the global pass found nothing to expire
+        const realFind = dbHelper.findInDatabase;
+        sinon.stub(dbHelper, 'findInDatabase').callsFake(async (dbase, collection, query, options) => {
+          if (collection === appsInformation && Object.keys(query).length === 0) return [];
+          if (collection === appsInformation) return [{ ...spec('TakenApp', 'sold', 3003350, 56), owner: buyer }];
+          return realFind(dbase, collection, query, options);
+        });
+
+        await registryManager.expireGlobalApplications();
+
+        expect(queued()).to.deep.equal(['TakenApp']);
+      });
     });
 
     it('should not uninstall an app whose installed record is stale but the network renewed', async () => {
@@ -1831,9 +2095,10 @@ describe('registryManager tests', () => {
 
   describe('appLocationFromEvents tests', () => {
     const eventsCollection = config.database.appsglobal.collections.appStateEvents;
-    const now = Date.now();
+    let now;
 
     beforeEach(async () => {
+      now = Date.now();
       try {
         await database.collection(eventsCollection).drop();
       } catch (err) {
@@ -1848,6 +2113,8 @@ describe('registryManager tests', () => {
         dedupKey: 'v2',
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
+        // as a node stores it: its storable apps' names lowercased beside it
+        appNames: apps.filter((app) => typeof app?.name === 'string' && typeof app?.hash === 'string').map((app) => app.name.toLowerCase()),
         data: {
           ip, version: 2, apps, broadcastedAt, osUptime: 1000, staticIp: true,
         },
@@ -1877,6 +2144,7 @@ describe('registryManager tests', () => {
         dedupKey: `appremoved:${appName}`,
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
+        appNameLower: appName.toLowerCase(),
         data: { ip, appName, broadcastedAt },
         envelope: { version: 1, timestamp: broadcastedAt, pubKey: '04abc', signature: 'sig' },
       };
@@ -1926,39 +2194,6 @@ describe('registryManager tests', () => {
       const names = result.map((r) => r.name).sort();
       expect(names).to.deep.equal(['AppA', 'AppB']);
       expect(result[0].ip).to.equal('1.2.3.4');
-    });
-
-    it('should derive locations from v1 events', async () => {
-      await database.collection(eventsCollection).insertOne(
-        makeV1Event('5.6.7.8', 'AppC', 'h3', now),
-      );
-
-      const result = await registryManager.appLocationFromEvents();
-      expect(result).to.be.an('array').with.lengthOf(1);
-      expect(result[0].name).to.equal('AppC');
-    });
-
-    it('should include v1 newer than latest v2 for same IP', async () => {
-      await database.collection(eventsCollection).insertMany([
-        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 60000),
-        makeV1Event('1.2.3.4', 'AppB', 'h2', now),
-      ]);
-
-      const result = await registryManager.appLocationFromEvents();
-      expect(result).to.be.an('array').with.lengthOf(2);
-      const names = result.map((r) => r.name).sort();
-      expect(names).to.deep.equal(['AppA', 'AppB']);
-    });
-
-    it('should exclude v1 older than latest v2 for same IP', async () => {
-      await database.collection(eventsCollection).insertMany([
-        makeV1Event('1.2.3.4', 'OldApp', 'h0', now - 120000),
-        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
-      ]);
-
-      const result = await registryManager.appLocationFromEvents();
-      expect(result).to.be.an('array').with.lengthOf(1);
-      expect(result[0].name).to.equal('AppA');
     });
 
     it('should exclude apps with newer appremoved event', async () => {
@@ -2113,18 +2348,15 @@ describe('registryManager tests', () => {
       expect(result[0].name).to.equal('AppA');
     });
 
-    it('should dedup v1 overriding same app in v2 with newer timestamp', async () => {
+    it('reads no version 1 event, which no node sends', async () => {
       await database.collection(eventsCollection).insertMany([
-        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'old' }, { name: 'AppB', hash: 'h2' }], now - 60000),
-        makeV1Event('1.2.3.4', 'AppA', 'new', now),
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 60000),
+        makeV1Event('1.2.3.4', 'AppB', 'h2', now),
+        makeV1Event('5.6.7.8', 'AppC', 'h3', now),
       ]);
 
       const result = await registryManager.appLocationFromEvents();
-      expect(result).to.be.an('array').with.lengthOf(2);
-      const appA = result.find((r) => r.name === 'AppA');
-      expect(appA.hash).to.equal('new');
-      const appB = result.find((r) => r.name === 'AppB');
-      expect(appB.hash).to.equal('h2');
+      expect(result.map((r) => r.name)).to.deep.equal(['AppA']);
     });
 
     it('should handle multiple IPs independently', async () => {
@@ -2164,6 +2396,8 @@ describe('registryManager tests', () => {
 });
 
 describe('registryManager registerAppGlobalyApi tests', () => {
+  after(releaseMongo);
+
   const spec = {
     version: 8,
     name: 'registertest',
@@ -2172,9 +2406,14 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     enterprise: 'blob',
   };
 
+  let statusCode;
   const register = (appSpecification) => new Promise((resolve) => {
     const req = new EventEmitter();
-    const res = { json: (response) => resolve(response) };
+    statusCode = 200;
+    const res = {
+      json: (response) => resolve(response),
+      status(code) { statusCode = code; return this; },
+    };
     registryManager.registerAppGlobalyApi(req, res);
     req.emit('data', JSON.stringify({
       appSpecification, timestamp: Date.now(), signature: 'sig', type: 'fluxappregister', version: 1,
@@ -2186,11 +2425,14 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
     sinon.stub(peerManager, 'outboundCount').get(() => 100);
     sinon.stub(peerManager, 'inboundCount').get(() => 100);
+    sinon.stub(peerManager, 'authenticatedIpCount').returns(3);
     sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 2500000 } });
+    process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
   });
 
   afterEach(() => {
     sinon.restore();
+    delete process.env.FLUXOS_PATH;
   });
 
   [
@@ -2219,5 +2461,28 @@ describe('registryManager registerAppGlobalyApi tests', () => {
       expect(response.status).to.equal('error');
       expect(response.data.message).to.equal('An enterprise app carries its compose and contacts encrypted in enterprise, and nothing in plain');
     });
+  });
+
+  it('should refuse at the door, before any check, below the quorum of authenticated links once the version floor is a release that tags', async () => {
+    peerManager.authenticatedIpCount.returns(2);
+    sinon.stub(unpaidAdmission, 'untaggedRefused').returns(true);
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.status).to.equal('error');
+    expect(response.data.name).to.equal('AdmissionUnavailable');
+    expect(statusCode).to.equal(503);
+  });
+
+  it('should refuse at the door with 501, whatever its links, on a node that is not ArcaneOS', async () => {
+    delete process.env.FLUXOS_PATH;
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.status).to.equal('error');
+    expect(response.data.name).to.equal('AdmissionNotSupported');
+    expect(statusCode).to.equal(501);
+  });
+
+  it('should answer any other refusal with the v1 status', async () => {
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.data.message).to.equal('Invalid app name or owner');
+    expect(statusCode).to.equal(200);
   });
 });

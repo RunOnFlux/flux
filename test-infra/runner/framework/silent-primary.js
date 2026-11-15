@@ -12,15 +12,14 @@ import { isDaemonUp, listFolderFiles } from './syncthing-real.js';
 // a synced copy and has read B off FDM, C holds nothing and keeps the discovery
 // ring closed.
 //
-// Locations and the node-list eviction outlive every wait a suite makes, so
-// neither releases the standby in place of what the suite is about.
+// Locations outlive every wait a suite makes, so they do not release the standby
+// in place of what the suite is about.
 
 export const A = 0;
 export const B = 1;
 export const C = 2;
 
 export const LOCATION_TTL_S = 30 * 60;
-const NODE_MONITOR_INTERVAL_MS = 60 * 60 * 1000;
 
 const appDir = (name) => `/mnt/appdata/flux-apps/flux${name}_${name}`;
 
@@ -61,7 +60,6 @@ export async function placeSilentPrimaryApp({
         minIncoming: 1,
         sigtermExpiryS,
         locationTtlS: LOCATION_TTL_S,
-        nodeMonitorIntervalMs: NODE_MONITOR_INTERVAL_MS,
       },
       ...(peers ? { peers } : {}),
       ...(system ? { system } : {}),

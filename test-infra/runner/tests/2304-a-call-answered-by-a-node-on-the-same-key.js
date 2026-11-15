@@ -8,6 +8,7 @@ import { redirectOutbound, clearOutboundRedirect } from '../framework/container.
 import { waitFor } from '../framework/wait.js';
 import { verifyBtcMessage } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // One operator's nodes behind one router, on one key. A call from outside to
 // one of them lands on the other, which answers truthfully as itself - with the
@@ -59,8 +60,7 @@ describe('a call to one node answered by another node on the same key', function
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (env && redirectRules.length) await clearOutboundRedirect(env.clients[A].container, redirectRules).catch(() => {});
     await env?.teardown();
   });

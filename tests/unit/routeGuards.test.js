@@ -6,6 +6,9 @@
 // them, because the ordering - guard first, cache second - is the whole point
 // and a direct call to the guard cannot show it.
 
+const http = require('node:http');
+const { once } = require('node:events');
+
 const { expect } = require('chai');
 const express = require('express');
 const request = require('supertest');
@@ -16,6 +19,7 @@ const {
   asyncRoute,
   cache,
   isDaemonUnavailable,
+  limitConcurrent,
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
@@ -23,6 +27,17 @@ const {
   requireRegistryReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+// apicache.clear() with no target empties the store but leaves each entry's
+// expiry timer armed; clearing entry by entry stops both.
+function clearCache() {
+  apicache.getIndex().all.forEach((key) => apicache.clear(key));
+}
+
+async function closeServer(server) {
+  server.close();
+  await once(server, 'close');
+}
 
 describe('routeGuards', () => {
   describe('rejectQueryParameters', () => {
@@ -33,7 +48,7 @@ describe('routeGuards', () => {
     // apicache's store and its expiry timers are module-global, so this suite
     // both starts clean and leaves nothing behind for whatever runs next
     beforeEach(() => {
-      apicache.clear();
+      clearCache();
       handlerCalls = 0;
       app = express();
       app.get(
@@ -47,9 +62,9 @@ describe('routeGuards', () => {
       );
     });
 
-    afterEach(() => {
-      apicache.clear();
-      if (server) { server.close(); server = null; }
+    afterEach(async () => {
+      clearCache();
+      if (server) { await closeServer(server); server = null; }
     });
 
     // One server for the test, rather than one per request. supertest binds a
@@ -139,9 +154,9 @@ describe('routeGuards', () => {
       });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       globalState.bootContainerStateSettled = settledBefore;
-      if (server) { server.close(); server = null; }
+      if (server) { await closeServer(server); server = null; }
     });
 
     const get = (path) => {
@@ -199,9 +214,9 @@ describe('routeGuards', () => {
       });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       globalState.policyReady = policyBefore;
-      if (server) { server.close(); server = null; }
+      if (server) { await closeServer(server); server = null; }
     });
 
     const get = (path) => {
@@ -290,8 +305,8 @@ describe('routeGuards', () => {
       });
     });
 
-    afterEach(() => {
-      if (server) { server.close(); server = null; }
+    afterEach(async () => {
+      if (server) { await closeServer(server); server = null; }
     });
 
     const get = (path) => {
@@ -380,7 +395,7 @@ describe('routeGuards', () => {
       let flagBefore;
 
       beforeEach(() => {
-        apicache.clear();
+        clearCache();
         flagBefore = globalState[flag];
         globalState[flag] = false;
         handlerCalls = 0;
@@ -391,10 +406,10 @@ describe('routeGuards', () => {
         });
       });
 
-      afterEach(() => {
+      afterEach(async () => {
         globalState[flag] = flagBefore;
-        apicache.clear();
-        if (server) { server.close(); server = null; }
+        clearCache();
+        if (server) { await closeServer(server); server = null; }
       });
 
       const get = () => {
@@ -433,6 +448,200 @@ describe('routeGuards', () => {
         expect(res.status).to.equal(503);
         expect(handlerCalls).to.equal(1);
       });
+    });
+  });
+
+  describe('limitConcurrent', () => {
+    let server;
+    let url;
+    let held;
+
+    function withoutHash(req) {
+      return !req.params.hash;
+    }
+
+    // The handler holds every request it takes open until the test answers it,
+    // as a long read holds its place.
+    beforeEach(async () => {
+      held = [];
+      const app = express();
+      app.get('/read/:hash?', limitConcurrent(2, 'Busy reading', { limited: withoutHash }), (req, res) => {
+        held.push(res);
+      });
+      server = http.createServer(app);
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      url = `http://127.0.0.1:${server.address().port}`;
+    });
+
+    afterEach(async () => {
+      server.closeAllConnections();
+      await closeServer(server);
+    });
+
+    /** Starts a GET, returning the client request; its answer is `answered`. */
+    function open(path) {
+      const req = http.get(`${url}${path}`);
+      req.answered = new Promise((resolve, reject) => {
+        req.on('response', function readBody(res) {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => { body += chunk; });
+          res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+        });
+        req.on('error', reject);
+      });
+      req.on('error', () => {});
+      return req;
+    }
+
+    async function untilHeld(count) {
+      const deadline = Date.now() + 1000;
+      while (held.length < count && Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+      }
+      expect(held).to.have.lengthOf(count);
+    }
+
+    it('admits as many requests at once as its limit', async () => {
+      open('/read');
+      open('/read');
+      await untilHeld(2);
+    });
+
+    it('refuses one more with a 503, the error envelope and when to come back', async () => {
+      open('/read');
+      open('/read');
+      await untilHeld(2);
+
+      const refused = await open('/read').answered;
+
+      expect(refused.status).to.equal(503);
+      expect(refused.headers['retry-after']).to.equal('10');
+      expect(JSON.parse(refused.body)).to.deep.equal({
+        status: 'error',
+        data: { code: 503, name: 'ServiceUnavailable', message: 'Busy reading' },
+      });
+      expect(held).to.have.lengthOf(2);
+    });
+
+    it('admits another once an answer has finished', async () => {
+      const first = open('/read');
+      open('/read');
+      await untilHeld(2);
+
+      held[0].json({ status: 'success' });
+      await first.answered;
+      open('/read');
+
+      await untilHeld(3);
+    });
+
+    it('admits another once a client has gone without its answer', async () => {
+      const first = open('/read');
+      open('/read');
+      await untilHeld(2);
+
+      const closed = once(held[0], 'close');
+      first.destroy();
+      await closed;
+      open('/read');
+
+      await untilHeld(3);
+    });
+
+    it('lets a request it does not limit straight through, however many it is holding', async () => {
+      open('/read');
+      open('/read');
+      await untilHeld(2);
+
+      open('/read/abc');
+
+      await untilHeld(3);
+    });
+  });
+
+  describe('limitConcurrent with a limit per caller', () => {
+    let server;
+    let url;
+    let held;
+
+    // Two places, one per caller address; the handler holds each request open
+    // until the test closes it.
+    beforeEach(async () => {
+      held = [];
+      const app = express();
+      app.get('/read', limitConcurrent(2, 'Busy reading', { perCaller: 1 }), (req, res) => {
+        held.push(res);
+      });
+      server = http.createServer(app);
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      url = `http://127.0.0.1:${server.address().port}`;
+    });
+
+    afterEach(async () => {
+      server.closeAllConnections();
+      await closeServer(server);
+    });
+
+    /** Starts a GET from `from` (any 127.0.0.x reaches the server); its answer is `answered`. */
+    function openFrom(from) {
+      const req = http.get(`${url}/read`, { localAddress: from });
+      req.answered = new Promise((resolve, reject) => {
+        req.on('response', function readBody(res) {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => { body += chunk; });
+          res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+        });
+        req.on('error', reject);
+      });
+      req.on('error', () => {});
+      return req;
+    }
+
+    async function untilHeld(count) {
+      const deadline = Date.now() + 1000;
+      while (held.length < count && Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+      }
+      expect(held).to.have.lengthOf(count);
+    }
+
+    it('refuses a caller a second place while it holds one, with a 503 and when to come back', async () => {
+      openFrom('127.0.0.1');
+      await untilHeld(1);
+
+      const refused = await openFrom('127.0.0.1').answered;
+
+      expect(refused.status).to.equal(503);
+      expect(refused.headers['retry-after']).to.equal('10');
+      expect(JSON.parse(refused.body).data.message).to.equal('Busy reading for one caller');
+      expect(held).to.have.lengthOf(1);
+    });
+
+    it('admits another caller beside it', async () => {
+      openFrom('127.0.0.1');
+      await untilHeld(1);
+
+      openFrom('127.0.0.2');
+
+      await untilHeld(2);
+    });
+
+    it('admits the caller again once its place has closed', async () => {
+      const first = openFrom('127.0.0.1');
+      await untilHeld(1);
+
+      const closed = once(held[0], 'close');
+      first.destroy();
+      await closed;
+      openFrom('127.0.0.1');
+
+      await untilHeld(2);
     });
   });
 

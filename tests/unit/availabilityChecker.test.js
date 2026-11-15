@@ -20,11 +20,26 @@ const portManager = require('../../ZelBack/src/services/appNetwork/portManager')
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const policyStore = require('../../ZelBack/src/services/policyStore');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
 
 const signer = { pubKey: 'pubkey', sign: () => 'signature' };
+// The test server's own close, for a server whose listen is stubbed: it ends
+// what the server's 'listening' started, and answers the callback as the close
+// of a server that bound its port does.
+const { close: closeTestServer } = fluxHttpTestServer.FluxHttpTestServer.prototype;
+function closeUnbound(callback) {
+  closeTestServer.call(this);
+  return callback && callback();
+}
+
 // the check with a node that can sign its port test
 const signingAvailabilityChecker = proxyquire('../../ZelBack/src/services/appMonitoring/availabilityChecker', {
   '../utils/nodeSigner': { nodeSigner: async () => signer },
+});
+
+// the check with a node that cannot sign its port test: it throws once it is listening
+const unsignedAvailabilityChecker = proxyquire('../../ZelBack/src/services/appMonitoring/availabilityChecker', {
+  '../utils/nodeSigner': { nodeSigner: async () => null },
 });
 
 describe('availabilityChecker tests', () => {
@@ -48,7 +63,7 @@ describe('availabilityChecker tests', () => {
       originalPortFailed: null,
       routerRefusalsSeen: 0,
     };
-    mockPortsNotWorking = new Set();
+    mockPortsNotWorking = new Map();
     mockFailedNodesCache = new Map();
     isArcane = false;
 
@@ -392,7 +407,7 @@ describe('availabilityChecker tests', () => {
           this.emit('listening');
           return this;
         });
-        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake((callback) => callback && callback());
+        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake(closeUnbound);
         portTestStub = sinon.stub(axios, 'post').resolves({ data: { status: 'success', data: { message: 'Ports reachable' } } });
       });
 
@@ -776,7 +791,7 @@ describe('availabilityChecker tests', () => {
           this.emit('listening');
           return this;
         });
-        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake((callback) => callback && callback());
+        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake(closeUnbound);
         portTestStub = sinon.stub(axios, 'post').callsFake(reading('ours', 'ours'));
       });
 
@@ -814,7 +829,7 @@ describe('availabilityChecker tests', () => {
 
         await pass();
 
-        expect(mockPortsNotWorking.has(mockDosState.testingPort)).to.equal(true);
+        expect(mockPortsNotWorking.get(mockDosState.testingPort)).to.equal('tcpOther');
       });
 
       it('takes a peer that does not read ports at its word', async () => {
@@ -848,6 +863,96 @@ describe('availabilityChecker tests', () => {
         sinon.assert.notCalled(portTestStub);
       });
 
+      describe('its claim on the port', () => {
+        const PORT = 31555;
+
+        beforeEach(() => {
+          mockDosState.nextTestingPort = PORT;
+        });
+
+        afterEach(() => {
+          expect(portClaims.claimedPorts(), 'a claim outlived its pass').to.deep.equal([]);
+        });
+
+        it('skips a port an installation holds, listening on nothing and asking no peer', async () => {
+          const installing = portClaims.claim([PORT], portClaims.ClaimKind.INSTALL, 'installingapp');
+          try {
+            await pass();
+
+            sinon.assert.notCalled(fluxHttpTestServer.FluxHttpTestServer.prototype.listen);
+            sinon.assert.notCalled(portTestStub);
+            expect(udpServers).to.have.length(0);
+            expect(portClaims.holderOf([PORT]), 'the installation\'s claim').to.equal(installing);
+          } finally {
+            portClaims.release(installing);
+          }
+        });
+
+        it('holds the port while it listens, and releases it once its servers have closed', async () => {
+          let heldWhileAsking = null;
+          portTestStub.callsFake(async (url, body) => {
+            heldWhileAsking = portClaims.holderOf([PORT]);
+            return reading('ours', 'ours')(url, body);
+          });
+          let heldAtClose;
+          fluxHttpTestServer.FluxHttpTestServer.prototype.close.callsFake(function close(callback) {
+            heldAtClose = portClaims.holderOf([PORT]);
+            return closeUnbound.call(this, callback);
+          });
+
+          await pass();
+
+          expect(heldWhileAsking).to.include({ kind: portClaims.ClaimKind.CHECK });
+          expect(heldAtClose, 'released before the server closed').to.include({ kind: portClaims.ClaimKind.CHECK });
+        });
+
+        it('releases the port after a pass whose peer could not be reached', async () => {
+          portTestStub.rejects(new Error('connect ECONNREFUSED'));
+
+          await pass();
+
+          sinon.assert.calledOnce(portTestStub);
+        });
+
+        it('ends a peer\'s answer that never completes at 10 s in all, and releases the port', async () => {
+          const deadline = new AbortController();
+          const timeoutStub = sinon.stub(AbortSignal, 'timeout').returns(deadline.signal);
+          let onAsked;
+          const askedPromise = new Promise((resolve) => { onAsked = resolve; });
+          portTestStub.callsFake((url, body, config) => new Promise((resolve, reject) => {
+            onAsked(config);
+            config.signal.addEventListener('abort', () => reject(new Error('canceled')));
+          }));
+
+          const passed = pass();
+          const asked = await askedPromise;
+          expect(portClaims.holderOf([PORT]), 'held while the peer answers').to.include({ kind: portClaims.ClaimKind.CHECK });
+          deadline.abort();
+          await passed;
+
+          sinon.assert.calledOnceWithExactly(timeoutStub, 10_000);
+          expect(asked.signal).to.equal(deadline.signal);
+        });
+
+        it('releases the port after a pass that could not listen on it', async () => {
+          fluxHttpTestServer.FluxHttpTestServer.prototype.listen.callsFake(function listen() {
+            this.emit('error', new Error('listen EADDRINUSE'));
+            return this;
+          });
+
+          await pass();
+
+          sinon.assert.notCalled(portTestStub);
+        });
+
+        it('releases the port after a pass that failed part way', async () => {
+          await unsignedAvailabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
+
+          sinon.assert.calledOnce(fluxHttpTestServer.FluxHttpTestServer.prototype.listen);
+          sinon.assert.notCalled(portTestStub);
+        });
+      });
+
       // UDP loses datagrams: one peer's silence is tested again by another.
       it('counts nothing on one peer\'s silence over UDP, and tests the port again with another peer', async () => {
         portTestStub.callsFake(reading('ours', null));
@@ -869,9 +974,9 @@ describe('availabilityChecker tests', () => {
       // A pass whose TCP passes is a passing pass for TCP, whatever UDP needs next.
       it('clears its failed ports and lifts its DOS on a TCP pass whose first peer heard nothing over UDP, and still retests UDP', async () => {
         const count = sinon.spy(fluxEventBus, 'count');
-        mockPortsNotWorking.add(1234);
+        mockPortsNotWorking.set(1234, 'tcp');
         mockDosState.portFailureScore = 8;
-        mockDosState.dosMessage = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1234]';
+        mockDosState.dosMessage = 'Ports tested from outside failed. No answer over TCP: [1234].';
         mockDosState.dosStateValue = 100;
         portTestStub.callsFake(reading('ours', null));
 
@@ -922,7 +1027,7 @@ describe('availabilityChecker tests', () => {
         await pass();
         await pass();
 
-        expect(mockPortsNotWorking.has(mockDosState.testingPort)).to.equal(true);
+        expect(mockPortsNotWorking.get(mockDosState.testingPort)).to.equal('udp');
         expect(fluxNetworkHelper.getUdpReachability().reachable).to.equal(false);
       });
 
@@ -1008,8 +1113,25 @@ describe('availabilityChecker tests', () => {
     });
   });
 
+  describe('portsDosMessage', () => {
+    it('states what each failed test found, one clause per kind, and no advice', () => {
+      expect(availabilityChecker.portsDosMessage(new Map([[49521, 'tcp']])))
+        .to.equal('Ports tested from outside failed. No answer over TCP: [49521].');
+      expect(availabilityChecker.portsDosMessage(new Map([[21436, 'udp'], [21437, 'udp']])))
+        .to.equal('Ports tested from outside failed. No answer over UDP: [21436,21437].');
+      expect(availabilityChecker.portsDosMessage(new Map([[3921, 'tcpOther']])))
+        .to.equal('Ports tested from outside failed. Answered by something other than this node over TCP: [3921].');
+    });
+
+    it('names every kind that occurred when the ports failed differently', () => {
+      const message = availabilityChecker.portsDosMessage(new Map([[49521, 'tcp'], [21436, 'udp'], [3921, 'tcpOther'], [21437, 'udp']]));
+
+      expect(message).to.equal('Ports tested from outside failed. No answer over UDP: [21436,21437]. No answer over TCP: [49521]. Answered by something other than this node over TCP: [3921].');
+    });
+  });
+
   describe('releaseOwnDos', () => {
-    const ports = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1]';
+    const ports = 'Ports tested from outside failed. No answer over TCP: [1].';
 
     it('ends its count, and the node\'s DOS when the message is this check\'s', () => {
       const state = { dosMessage: ports, dosStateValue: 100, portFailureScore: 100 };
@@ -1037,7 +1159,7 @@ describe('availabilityChecker tests', () => {
   });
 
   describe('countPortFailure', () => {
-    const ports = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1]';
+    const ports = 'Ports tested from outside failed. No answer over TCP: [1].';
 
     it('counts four a failure toward its own threshold, leaving the node\'s DOS alone below it', () => {
       const state = { dosMessage: null, dosStateValue: 3, portFailureScore: 92 };

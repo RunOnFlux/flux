@@ -1,11 +1,24 @@
 import { afterEach, after } from 'mocha';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { activeTestEnvs } from './test-env.js';
 import { execInContainer } from './container.js';
 import { SYNCTHING_HOME } from './syncthing-real.js';
 import { thawEveryNode } from './host-stall.js';
 import failedHooksModule from './failed-hooks.cjs';
+
+// DUMP_LOGS=always dumps per-node logs after every test (pass or fail), not just
+// failures, to measure timing on green runs. DUMP_LOGS_SUITES=507,1503 does the
+// same for the named suites only, so a gate can carry the node logs of every test
+// of a suite under study while the others dump on failure as usual.
+const ALWAYS = process.env.DUMP_LOGS === 'always';
+const ALWAYS_SUITES = new Set((process.env.DUMP_LOGS_SUITES || '').split(',').map((s) => s.trim()).filter(Boolean));
+
+function dumpsEveryTest(test) {
+  if (ALWAYS) return true;
+  if (!ALWAYS_SUITES.size || !test?.file) return false;
+  return ALWAYS_SUITES.has(basename(test.file).split('-')[0]);
+}
 
 const { failedHooks } = failedHooksModule;
 
@@ -83,6 +96,41 @@ for f in /dat/var/log/syncthing*.log* "${SYNCTHING_HOME}"/syncthing*.log*; do
   echo "=== $f ==="
   cat "$f"
 done
+`;
+
+// What a node's syncthing holds about each folder when the test failed: its status,
+// its completion against each device it shares the folder with, the first files it
+// still needs, its errors and its config, with the daemon's connections, devices and
+// version. The daemon's state leaves with the node, and its log says what it did,
+// not what it was waiting for. A node with no daemon answering writes nothing.
+const SYNCTHING_STATE = `
+H="${SYNCTHING_HOME}"
+K=$(sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' "$H/config.xml" 2>/dev/null | head -1)
+[ -n "$K" ] || exit 0
+API_KEY="$K" python3 -c '
+import json, os, urllib.parse, urllib.request
+def get(path):
+    request = urllib.request.Request("http://127.0.0.1:8384" + path, headers={"X-API-Key": os.environ["API_KEY"]})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)
+    except Exception as error:
+        return {"unreadable": str(error)}
+state = {path: get(path) for path in ("/rest/system/version", "/rest/system/connections", "/rest/config/devices")}
+folders = get("/rest/config/folders")
+state["folders"] = {}
+for folder in folders if isinstance(folders, list) else []:
+    q = urllib.parse.quote(folder["id"])
+    state["folders"][folder["id"]] = {
+        "config": folder,
+        "status": get("/rest/db/status?folder=" + q),
+        "need": get("/rest/db/need?perpage=20&folder=" + q),
+        "errors": get("/rest/folder/errors?folder=" + q),
+        "completion": {d["deviceID"]: get("/rest/db/completion?folder=" + q + "&device=" + urllib.parse.quote(d["deviceID"]))
+                       for d in folder.get("devices", [])},
+    }
+print(json.dumps(state, indent=1))
+' 2>&1
 `;
 
 const APP_LOGS = `
@@ -170,6 +218,7 @@ export function dumpLogsOnFailure(getEnv) {
     )));
     const nodeFilesByEnv = await Promise.all(envs.map(async (env) => ({
       syncthing: await readFromNodes(env, SYNCTHING_LOGS),
+      'syncthing-state': await readFromNodes(env, SYNCTHING_STATE),
       apps: await readFromNodes(env, APP_LOGS),
       network: await readFromNodes(env, NETWORK_STATE),
     })));
@@ -234,12 +283,8 @@ export function dumpLogsOnFailure(getEnv) {
     }
   }
 
-  // DUMP_LOGS=always dumps per-node logs after every test (pass or fail), not just
-  // failures — used to measure timing on green runs while investigating flakes.
-  const always = process.env.DUMP_LOGS === 'always';
-
   afterEach(async function () {
-    if (always || this.currentTest.state === 'failed') await dump(this.currentTest.fullTitle());
+    if (dumpsEveryTest(this.currentTest) || this.currentTest.state === 'failed') await dump(this.currentTest.fullTitle());
   });
 
   // afterEach never fires for a failed hook, which is when setup blew up and the

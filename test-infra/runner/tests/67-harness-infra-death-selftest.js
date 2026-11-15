@@ -1,9 +1,10 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { getContainerRuntimeClient } from 'testcontainers';
 import { createTestEnv } from '../framework/test-env.js';
 import { infraDeathError } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A self-test of the harness's own infra-death kill-switch (framework/infra-death.js
 // plus the death watch in test-env.js). Every other suite trusts that an infra
@@ -82,8 +83,7 @@ describe('harness infra-death guard', function () {
     mongoId = mongoEntry.container.getId();
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     // Idempotent: the teardown test below already ran this on a green run, and
     // this is the only teardown on a red one.
     await env?.teardown().catch(() => {});
@@ -225,8 +225,7 @@ describe('harness infra-death guard does not leak into the next env', function (
     env = await createTestEnv({ hookCtx: this, nodes: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

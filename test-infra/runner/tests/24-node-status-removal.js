@@ -1,7 +1,7 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { dbClient } from '../framework/db-client.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 
@@ -15,6 +15,7 @@ import {
 } from '../framework/wait.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -52,12 +53,7 @@ async function seedAndWaitForInstall(env, appName) {
     }],
   });
 
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    await dc.seedGlobalAppSpec(app.spec);
-    await dc.seedPermanentMessage(app.permanentMessage);
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
+  await deliverApp(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
 
   const installed = await Promise.any(
     env.clients.map(async (c, i) => {
@@ -81,8 +77,7 @@ describe('Confirmation loss removes installed apps', function () {
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -121,8 +116,7 @@ describe('Daemon stale removes installed apps', function () {
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

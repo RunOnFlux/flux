@@ -7,7 +7,7 @@ const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'fixtures', 'node
 
 function databaseConfig(prefix) {
   return {
-    url: '31.200.0.2',
+    url: '25.192.0.2',
     port: 27017,
     local: {
       database: `${prefix}zelfluxlocal`,
@@ -25,16 +25,14 @@ function databaseConfig(prefix) {
         nodeLocations: 'nodelocations',
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
         upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
+        unannouncedRemovals: 'unannouncedremovals', // removals this node could not announce when it made them, until their location row would have expired
       },
     },
     daemon: {
       database: `${prefix}zelcashdata`,
       collections: {
         scannedHeight: 'scannedheight',
-        utxoIndex: 'utxoindex',
-        addressTransactionIndex: 'addresstransactionindex',
         appsHashes: 'zelappshashes',
-        coinbaseFusionIndex: 'coinbasefusionindex',
       },
     },
     appslocal: {
@@ -49,6 +47,7 @@ function databaseConfig(prefix) {
         appsMessages: 'zelappsmessages',
         appsInformation: 'zelappsinformation',
         appsTemporaryMessages: 'zelappstemporarymessages',
+        appsHeldMessages: 'zelappsheldmessages',
         appsLocations: 'zelappslocation',
         appsInstallingLocations: 'appsinstallinglocations',
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations',

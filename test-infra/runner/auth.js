@@ -6,11 +6,18 @@ function hash256(data) {
   return sha256(sha256(data));
 }
 
+// Bitcoin's CompactSize: one byte below 253, then 0xfd + 2 bytes, 0xfe + 4.
 function encodeVarint(n) {
   if (n < 253) return Buffer.from([n]);
-  const buf = Buffer.alloc(3);
-  buf[0] = 0xfd;
-  buf.writeUInt16LE(n, 1);
+  if (n <= 0xffff) {
+    const buf = Buffer.alloc(3);
+    buf[0] = 0xfd;
+    buf.writeUInt16LE(n, 1);
+    return buf;
+  }
+  const buf = Buffer.alloc(5);
+  buf[0] = 0xfe;
+  buf.writeUInt32LE(n, 1);
   return buf;
 }
 

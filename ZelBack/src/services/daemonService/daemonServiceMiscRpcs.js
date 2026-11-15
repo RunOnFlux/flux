@@ -153,10 +153,29 @@ function setLastSuccessfulRpcCall(newValue) {
   lastSuccessfulRpcCall = newValue;
 }
 
+// A chain fact since the PON fork.
+const BLOCK_MS = 30 * 1000;
+
+/**
+ * The chain's height now: while the daemon is synced to the chain's tip, the
+ * height it last reported and a block for every BLOCK_MS since it reported it;
+ * 0 - unknown - otherwise. The daemon is still taken as synced for a while after
+ * its last answer, and the chain moves on meanwhile. A daemon behind the tip,
+ * catching up or re-syncing, reports a height below the heights recorded while
+ * it was synced, and would read every one of them as recent.
+ * @returns {number}
+ */
+function chainHeight() {
+  const { synced, height } = isDaemonSynced().data;
+  if (!synced || !(height > 0)) return 0;
+  return height + Math.max(0, Math.floor((Date.now() - lastSuccessfulRpcCall) / BLOCK_MS));
+}
+
 module.exports = {
   isInsightExplorer,
   // == NON Daemon ==
   isDaemonSynced,
+  chainHeight,
   daemonBlockchainInfoService,
   onDaemonHeight,
 

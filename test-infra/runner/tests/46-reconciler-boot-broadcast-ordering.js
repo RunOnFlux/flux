@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
@@ -6,6 +6,7 @@ import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { waitForUp } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // B3 end-to-end: the first post-boot fluxapprunning broadcast.
 //  (a) a peer's appsLocations rows for the rebooting node SURVIVE its first
@@ -53,8 +54,7 @@ describe('first post-boot broadcast: complete, never empty, never destructive', 
     expect(rows.length, 'peer must hold a location row before the reboot').to.be.greaterThan(0);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

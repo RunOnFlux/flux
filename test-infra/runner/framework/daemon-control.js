@@ -47,6 +47,18 @@ export async function mineBlock(tx) {
   return post('/advance-block', { block: { tx } });
 }
 
+// Replaces the chain from fromHeight to the tip with a branch of the same length:
+// new hashes and none of the replaced blocks' transactions. The tip's height does
+// not change; the next block mined is the first a node can see the fork from.
+export async function forkChain(fromHeight) {
+  return post('/fork', { fromHeight });
+}
+
+// The transactions getrawmempool answers with.
+export async function setMempool(txids) {
+  return post('/mempool', { txids });
+}
+
 export async function advanceBlocks(count) {
   for (let i = 0; i < count; i++) {
     // eslint-disable-next-line no-await-in-loop
@@ -158,8 +170,8 @@ export async function setHeight(height) {
   return post('/set-height', { height });
 }
 
-export async function queueAppTx(appHash) {
-  return post('/queue-app-tx', { appHash });
+export async function queueAppTx(appHash, { valueSat } = {}) {
+  return post('/queue-app-tx', { appHash, ...(valueSat === undefined ? {} : { valueSat }) });
 }
 
 // -- A node's daemon behind the chain's tip --
@@ -210,6 +222,31 @@ export async function clearDaemonBehind(node) {
  */
 export async function setNodeAddress(node, reported, { scope = 'all' } = {}) {
   return post(`/node-address/${String(node).split(':')[0]}`, { reported, scope });
+}
+
+/**
+ * Tells the stub a node's container now holds `to` instead of `from`, so its
+ * requests from `to` are that node's. What the stub answers about the node is
+ * unchanged: that is setNodeAddress.
+ *
+ * @param {string} from Bare address the container held.
+ * @param {string} to Bare address it holds now.
+ */
+export async function recordNodeMove(from, to) {
+  const r = await post('/node-moved', { from, to });
+  if (r.error) throw new Error(`the daemon stub refused the move ${from} -> ${to}: ${r.error}`);
+  return r;
+}
+
+/**
+ * The address fluxd decides `node` is at, as fluxd 9.2.0 reports it in
+ * getnetworkinfo's decided_address: FluxOS takes it as the node's own address in
+ * place of FluxBench's. `address` null makes the node's fluxd one that decides none.
+ * @param {string} node The node's listed address.
+ * @param {string|null} address
+ */
+export async function setDecidedAddress(node, address) {
+  return post(`/decided-address/${String(node).split(':')[0]}`, { address });
 }
 
 /**

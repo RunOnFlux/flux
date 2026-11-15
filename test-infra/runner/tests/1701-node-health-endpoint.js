@@ -1,8 +1,9 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitForDaemonReady, waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // GET /flux/health reports node fitness from a real node, and gates on the same
 // checks loginPhrase does. The unit tests cover checkNodeFitness with every
@@ -52,8 +53,7 @@ FLEETS.forEach(({ name, options }) => {
       );
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 

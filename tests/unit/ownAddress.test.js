@@ -15,10 +15,16 @@ const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUnins
 const enterpriseHelper = require('../../ZelBack/src/services/utils/enterpriseHelper');
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const nodeDosState = require('../../ZelBack/src/services/nodeDosState');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const log = require('../../ZelBack/src/lib/log');
 const { Collection } = require('mongodb');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('fluxNetworkHelper own address tests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const PEERS = ['203.0.113.201:16127', '203.0.113.202:16127', '203.0.113.203:16127'];
@@ -277,7 +283,7 @@ describe('fluxNetworkHelper own address tests', () => {
     const stop = fluxNetworkHelper.startOwnAddressWatch();
     expect(fluxNetworkHelper.startOwnAddressWatch(), 'a second start returns the same watch').to.be.a('function');
     await fluxNetworkHelper.handleOwnAddress('198.51.100.7:16157');
-    stop();
+    await stop();
     fluxNetworkHelper.setLocalSocketAddress(null);
 
     sinon.assert.calledOnceWithExactly(moved, '198.51.100.7:16127', '198.51.100.7:16157', sinon.match.number);
@@ -291,7 +297,7 @@ describe('fluxNetworkHelper own address tests', () => {
     const stop = fluxNetworkHelper.startOwnAddressWatch();
     fluxNetworkHelper.setLocalSocketAddress('198.51.100.10:16157');
     await fluxNetworkHelper.handleOwnAddress('198.51.100.10:16157');
-    stop();
+    await stop();
     fluxNetworkHelper.setLocalSocketAddress('198.51.100.10:16167');
     await fluxNetworkHelper.handleOwnAddress('198.51.100.10:16157');
     fluxNetworkHelper.setLocalSocketAddress(null);
@@ -299,48 +305,261 @@ describe('fluxNetworkHelper own address tests', () => {
     sinon.assert.calledOnceWithExactly(moved, '198.51.100.10:16127', '198.51.100.10:16157', sinon.match.number);
   });
 
-  describe('where this node is, for an address benchmark reports', () => {
-    it('gives the address it moved to for one it moved away from, and any other as given', async () => {
-      configure('198.51.100.31');
-      await adopt('198.51.100.31:16127');
+  it('settles a stop of the watch only once the work the watch queued has finished', async () => {
+    configure('198.51.100.11');
+    await adopt('198.51.100.11:16127');
+    let told;
+    moved.onFirstCall().callsFake(() => new Promise((resolve) => { told = resolve; }));
 
-      await fluxNetworkHelper.handleOwnAddress('198.51.100.32:16127');
+    const stop = fluxNetworkHelper.startOwnAddressWatch();
+    try {
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.11:16157');
+      const giveUpAt = Date.now() + 10000;
+      // eslint-disable-next-line no-await-in-loop
+      while (!told && Date.now() < giveUpAt) await new Promise((resolve) => { setImmediate(resolve); });
+      expect(told, 'fixture: the watch\'s pass is telling the move').to.be.a('function');
+      let stopped = false;
+      const stopping = stop().then(() => { stopped = true; });
+      await new Promise((resolve) => { setImmediate(resolve); });
 
-      expect(fluxNetworkHelper.ownAddressFor('198.51.100.31:16127')).to.equal('198.51.100.32:16127');
-      expect(fluxNetworkHelper.ownAddressFor('198.51.100.31')).to.equal('198.51.100.32:16127');
-      expect(fluxNetworkHelper.ownAddressFor('198.51.100.32:16127')).to.equal('198.51.100.32:16127');
-      expect(fluxNetworkHelper.ownAddressFor('198.51.100.33:16127')).to.equal('198.51.100.33:16127');
+      expect(stopped, 'settled while the pass it queued was running').to.equal(false);
+      told();
+      await stopping;
+    } finally {
+      told?.();
+      await stop();
+      fluxNetworkHelper.setLocalSocketAddress(null);
+    }
+  });
+
+  describe('this node\'s address through its own move', () => {
+    let recordedAtSwitch;
+    const settle = () => new Promise((resolve) => { setImmediate(resolve); });
+    // Lets the event loop run until `reached()` holds, failing rather than spinning.
+    // A wait the code under test may never satisfy takes a budget inside the
+    // test's own timeout, so its `finally` still runs.
+    async function until(reached, label, budgetMs = 10000) {
+      const giveUpAt = Date.now() + budgetMs;
+      while (!reached() && Date.now() < giveUpAt) await settle(); // eslint-disable-line no-await-in-loop
+      if (!reached()) throw new Error(`${label} never happened`);
+    }
+
+    // A node that holds `socketAddress` as its own, recorded and in use.
+    async function holding(socketAddress, movedFrom = null) {
+      await adopt(socketAddress, movedFrom);
+      await fluxNetworkHelper.handleOwnAddress(socketAddress);
+      fluxNetworkHelper.setLocalSocketAddress(socketAddress);
+    }
+
+    beforeEach(() => {
+      recordedAtSwitch = sinon.stub().resolves();
+      fluxNetworkHelper.setOnOwnAddressRecorded(recordedAtSwitch);
     });
 
-    it('gives the address it holds now for both, after moving away and back', async () => {
-      configure('198.51.100.34');
-      await adopt('198.51.100.34:16127');
-
-      await fluxNetworkHelper.handleOwnAddress('198.51.100.35:16127');
-      await fluxNetworkHelper.handleOwnAddress('198.51.100.34:16127');
-
-      expect(fluxNetworkHelper.ownAddressFor('198.51.100.35:16127')).to.equal('198.51.100.34:16127');
-      expect(fluxNetworkHelper.ownAddressFor('198.51.100.34:16127')).to.equal('198.51.100.34:16127');
+    afterEach(() => {
+      fluxNetworkHelper.setOnOwnAddressRecorded(null);
     });
 
-    it('knows a move recorded before this process started, once it reads the record', async () => {
-      configure('198.51.100.36');
-      await adopt('198.51.100.37:16127', '198.51.100.36:16127');
+    it('switches to the new address only once the move is recorded with its rows, before telling the network', async () => {
+      configure('198.51.100.131');
+      await holding('198.51.100.131:16127');
+      let heldWhileRecording;
+      recordedAtSwitch.callsFake(async () => { heldWhileRecording = fluxNetworkHelper.getKnownLocalSocketAddress(); });
 
-      await fluxNetworkHelper.handleOwnAddress('198.51.100.37:16127');
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.132:16127');
 
-      expect(fluxNetworkHelper.ownAddressFor('198.51.100.36:16127')).to.equal('198.51.100.37:16127');
+      sinon.assert.calledOnceWithExactly(recordedAtSwitch, '198.51.100.131:16127', '198.51.100.132:16127', sinon.match.number);
+      expect(heldWhileRecording, 'the address while the move is recorded').to.equal('198.51.100.131:16127');
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.132:16127');
+      sinon.assert.callOrder(recordedAtSwitch, moved);
     });
 
-    it('holds the new address from the moment the move carries its rows', async () => {
-      configure('198.51.100.38');
-      await adopt('198.51.100.38:16127');
-      let seenWhileMoving;
-      moved.callsFake(async () => { seenWhileMoving = fluxNetworkHelper.ownAddressFor('198.51.100.38:16127'); });
+    it('switches once per move: a later pass of it carries no rows at the address it left', async () => {
+      configure('198.51.100.141');
+      await holding('198.51.100.141:16127');
+      // A pass that does not settle the move, so the next one reconciles it again.
+      daemonServiceFluxnodeRpcs.createConfirmationTransaction.resolves({ status: 'error' });
 
-      await fluxNetworkHelper.handleOwnAddress('198.51.100.39:16127');
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.142:16127');
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.142:16127');
 
-      expect(seenWhileMoving).to.equal('198.51.100.39:16127');
+      expect((await records.findOne({ _id: 'own' })).settledAt, 'fixture: the move is not settled').to.not.equal((await records.findOne({ _id: 'own' })).movedAt);
+      sinon.assert.calledOnce(recordedAtSwitch);
+    });
+
+    it('serves the address it holds while a new one reported for it is being moved to', async () => {
+      configure('198.51.100.133');
+      await holding('198.51.100.133:16127');
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.134:16127' } });
+      let release;
+      recordedAtSwitch.onFirstCall().callsFake(() => new Promise((resolve) => { release = resolve; }));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      let switched = false;
+      try {
+        expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal('198.51.100.133:16127');
+        expect(fluxNetworkHelper.pendingOwnMove()).to.equal('198.51.100.134:16127');
+        await until(() => release, 'the move reaching its record');
+        expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true }), 'while its rows are carried').to.equal('198.51.100.133:16127');
+        release();
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.134:16127');
+        switched = true;
+        expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.134:16127');
+        expect(fluxNetworkHelper.pendingOwnMove()).to.equal(null);
+      } finally {
+        if (!switched) release?.();
+        await stop();
+      }
+    });
+
+    it('holds a move under way from its report until the network has been told, and says so once each way', async () => {
+      configure('198.51.100.171');
+      await holding('198.51.100.171:16127');
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.172:16127' } });
+      const changes = [];
+      fluxNetworkHelper.onOwnMoveUnderwayChange((underway) => changes.push(underway));
+      let told;
+      moved.onFirstCall().callsFake(() => new Promise((resolve) => { told = resolve; }));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      try {
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        expect(fluxNetworkHelper.ownMoveUnderway(), 'once reported').to.equal(true);
+        await until(() => told, 'the move being told');
+        expect(fluxNetworkHelper.getKnownLocalSocketAddress(), 'fixture: it has switched').to.equal('198.51.100.172:16127');
+        expect(fluxNetworkHelper.ownMoveUnderway(), 'switched and not yet told').to.equal(true);
+        told();
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.172:16127');
+        expect(fluxNetworkHelper.ownMoveUnderway(), 'told').to.equal(false);
+        expect(changes).to.deep.equal([true, false]);
+      } finally {
+        told?.();
+        await stop();
+      }
+    });
+
+    it('keeps a move under way when a pass of an earlier move ends while the next is reported', async () => {
+      configure('198.51.100.173');
+      await holding('198.51.100.173:16127');
+      const report = sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.174:16127' } });
+      let told;
+      moved.onFirstCall().callsFake(() => new Promise((resolve) => { told = resolve; }));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      try {
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await until(() => told, 'the first move being told');
+        report.resolves({ status: 'success', data: { ipaddress: '198.51.100.175:16127' } });
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        const changes = [];
+        fluxNetworkHelper.onOwnMoveUnderwayChange((underway) => changes.push(underway));
+        told();
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.175:16127');
+        expect(moved.callCount, 'fixture: both moves were told').to.equal(2);
+        expect(changes, 'one end, after the second move').to.deep.equal([false]);
+      } finally {
+        told?.();
+        await stop();
+      }
+    });
+
+    it('hands a reported move to the watch once, however often it is read while under way', async () => {
+      configure('198.51.100.178');
+      await holding('198.51.100.178:16127');
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.179:16127' } });
+      // A move that does not settle, so every pass of the watch reaches the reconcile.
+      daemonServiceFluxnodeRpcs.createConfirmationTransaction.resolves({ status: 'error' });
+      const checkpoint = sinon.stub(fluxEventBus, 'checkpoint').resolves();
+      const reconciles = () => checkpoint.getCalls().filter((call) => call.args[0] === fluxEventBus.Checkpoint.OWN_ADDRESS_BEFORE_RECONCILE).length;
+      let release;
+      recordedAtSwitch.onFirstCall().callsFake(() => new Promise((resolve) => { release = resolve; }));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      try {
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await until(() => release, 'the move reaching its record');
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        expect(fluxNetworkHelper.pendingOwnMove(), 'fixture: read while under way').to.equal('198.51.100.179:16127');
+        release();
+        await until(() => fluxNetworkHelper.getKnownLocalSocketAddress() === '198.51.100.179:16127', 'the switch');
+      } finally {
+        release?.();
+        await stop();
+      }
+
+      // The report's pass, and the pass of the address change its switch makes.
+      expect(reconciles()).to.equal(2);
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.179:16127');
+    });
+
+    it('hands a reported move to the watch again on its next report once handling it failed', async () => {
+      configure('198.51.100.180');
+      await holding('198.51.100.180:16127');
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.181:16127' } });
+      const failed = sinon.spy(log, 'error');
+      recordedAtSwitch.onFirstCall().rejects(new Error('database unavailable'));
+      const stop = fluxNetworkHelper.startOwnAddressWatch();
+      try {
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await until(() => failed.calledWithMatch(/database unavailable/), 'the first pass failing');
+        expect(fluxNetworkHelper.getKnownLocalSocketAddress(), 'fixture: not switched').to.equal('198.51.100.180:16127');
+
+        await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
+        await until(() => fluxNetworkHelper.getKnownLocalSocketAddress() === '198.51.100.181:16127', 'the move handed over again', 1000);
+      } finally {
+        await stop();
+      }
+      sinon.assert.calledTwice(recordedAtSwitch);
+    });
+
+    it('ends a move the network is not told of, once the node has switched', async () => {
+      configure('198.51.100.176');
+      await holding('198.51.100.176:16127');
+      await fluxNetworkHelper.adjustExternalIp('198.51.100.176:16127', '198.51.100.177:16127', { announceMove: false });
+
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.177:16127');
+      expect(fluxNetworkHelper.ownMoveUnderway()).to.equal(false);
+    });
+
+    it('takes an address reported for it that it has moved away from as lagging its move, not as a move', async () => {
+      configure('198.51.100.136');
+      await holding('198.51.100.136:16127', '198.51.100.135:16127');
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.135:16127' } });
+
+      expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal('198.51.100.136:16127');
+      expect(fluxNetworkHelper.pendingOwnMove()).to.equal(null);
+    });
+
+    it('switches inside the announcement cycle lock', async () => {
+      configure('198.51.100.137');
+      await holding('198.51.100.137:16127');
+      let cycleLocked;
+      recordedAtSwitch.callsFake(async () => { cycleLocked = globalState.announceCycle.locked; });
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.138:16127');
+
+      expect(cycleLocked).to.equal(true);
+      expect(globalState.announceCycle.locked).to.equal(false);
+    });
+
+    it('lets no read of the location table straddle the switch', async () => {
+      configure('198.51.100.139');
+      await holding('198.51.100.139:16127');
+      let release;
+      recordedAtSwitch.onFirstCall().callsFake(() => new Promise((resolve) => { release = resolve; }));
+      const moving = fluxNetworkHelper.handleOwnAddress('198.51.100.140:16127');
+      await until(() => release, 'the move reaching its record');
+
+      let readWith = null;
+      const reading = fluxNetworkHelper.withSteadyOwnAddress(async (own) => { readWith = own; });
+      try {
+        await settle();
+        expect(readWith, 'a read waits for the switch').to.equal(null);
+      } finally {
+        release();
+        await moving;
+      }
+      await reading;
+
+      expect(readWith).to.equal('198.51.100.140:16127');
     });
   });
 
@@ -545,36 +764,34 @@ describe('fluxNetworkHelper own address tests', () => {
     const HEIGHT = 50000;
     const IP_CHANGES = 'IP changes over the limit allowed, one in 20 hours';
     const fullRecord = () => records.findOne({ _id: 'own' });
-    let synced;
-    let reportedAt;
+    let height;
     let held;
-    // The chain height the daemon holds: a daemon synced to the tip at `at` that
-    // has just reported it, or, at 0, one that is not synced.
-    const chainAt = (at) => {
-      synced.returns({ data: { synced: at > 0, height: at, header: at } });
-      reportedAt.returns(Date.now());
-    };
+    let stopListening;
+    // The chain's height, or 0 while the daemon is not synced to the tip.
+    const chainAt = (at) => { height.returns(at); };
 
     // what a FluxOS restart leaves of the hold: only what the record holds
     const restart = () => {
       fluxNetworkHelper.setIpChangeHold(null);
-      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.IP_CHANGES);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.IP_CHANGES);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     };
 
     beforeEach(() => {
-      synced = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
-      reportedAt = sinon.stub(daemonServiceMiscRpcs, 'getLastSuccessfulRpcCall');
+      height = sinon.stub(daemonServiceMiscRpcs, 'chainHeight');
       chainAt(HEIGHT);
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      held = sinon.spy();
-      fluxNetworkHelper.onIpChangeHold(held);
       restart();
+      // called with the reason, each time the node is newly held for its IP changes
+      held = sinon.spy();
+      stopListening = nodeDosState.onStickyDos((owner, reason) => {
+        if (owner === nodeDosState.StickyDosOwner.IP_CHANGES) held(reason);
+      });
     });
 
     afterEach(() => {
-      fluxNetworkHelper.offIpChangeHold(held);
+      stopListening();
       restart();
     });
 
@@ -585,9 +802,9 @@ describe('fluxNetworkHelper own address tests', () => {
 
       await fluxNetworkHelper.handleOwnAddress('198.51.100.58:16127');
 
-      sinon.assert.calledOnceWithExactly(held, 2);
+      sinon.assert.calledOnceWithExactly(held, IP_CHANGES);
       expect(fluxNetworkHelper.getMaxNumberOfIpChanges()).to.equal(2);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
+      expect(nodeDosState.getDosMessage()).to.equal(IP_CHANGES);
       const { ipChangeHeights, ipChangeHold } = await fullRecord();
       expect(ipChangeHeights).to.deep.equal([HEIGHT - 2399, HEIGHT]);
       expect(ipChangeHold).to.deep.equal({ fromHeight: HEIGHT });
@@ -616,13 +833,13 @@ describe('fluxNetworkHelper own address tests', () => {
       answerStaleRead();
       await Promise.all([stalePass, moving]);
 
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
+      expect(nodeDosState.isNodeDos()).to.equal(true);
+      expect(nodeDosState.getDosMessage()).to.equal(IP_CHANGES);
     });
 
     describe('a daemon not synced to the chain\'s tip', () => {
-      // a daemon behind the tip: its own height, below the chain's
-      const behind = (at) => synced.returns({ data: { synced: false, height: at, header: HEIGHT } });
+      // a daemon behind the tip: the chain's height is not known
+      const behind = () => chainAt(0);
 
       beforeEach(() => {
         appQueryService.installedApps.resolves({ status: 'success', data: [{ name: 'kept', version: 4 }] });
@@ -631,19 +848,19 @@ describe('fluxNetworkHelper own address tests', () => {
       it('records a change it sees without a height, and judges nothing until the daemon is synced', async () => {
         configure('198.51.100.80');
         await records.insertOne({ _id: 'own', socketAddress: '198.51.100.80:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 100] });
-        behind(HEIGHT - 50);
+        behind();
 
         await fluxNetworkHelper.handleOwnAddress('198.51.100.81:16127');
 
         expect((await fullRecord()).ipChangeHeights).to.deep.equal([HEIGHT - 100, null]);
-        expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+        expect(nodeDosState.isNodeDos()).to.equal(false);
         sinon.assert.notCalled(held);
       });
 
       it('judges the change once the daemon is synced: out of service, told held once', async () => {
         configure('198.51.100.82');
         await records.insertOne({ _id: 'own', socketAddress: '198.51.100.82:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 100] });
-        behind(HEIGHT - 50);
+        behind();
         await fluxNetworkHelper.handleOwnAddress('198.51.100.83:16127');
 
         chainAt(HEIGHT);
@@ -652,7 +869,7 @@ describe('fluxNetworkHelper own address tests', () => {
         chainAt(HEIGHT + 1);
         await fluxNetworkHelper.enforceIpChangeHold();
 
-        expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+        expect(nodeDosState.isNodeDos()).to.equal(true);
         const { ipChangeHeights, ipChangeHold } = await fullRecord();
         expect(ipChangeHeights).to.deep.equal([HEIGHT - 100, HEIGHT]);
         expect(ipChangeHold).to.deep.equal({ fromHeight: HEIGHT });
@@ -664,14 +881,14 @@ describe('fluxNetworkHelper own address tests', () => {
       it('counts no old change while the daemon re-syncs from far behind, nor once it is synced', async () => {
         configure('198.51.100.84');
         await records.insertOne({ _id: 'own', socketAddress: '198.51.100.84:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 2400] });
-        behind(100);
+        behind();
 
         await fluxNetworkHelper.handleOwnAddress('198.51.100.85:16127');
         expect(await fluxNetworkHelper.enforceIpChangeHold(), 'while re-syncing').to.equal(false);
 
         chainAt(HEIGHT);
         expect(await fluxNetworkHelper.enforceIpChangeHold(), 'once synced').to.equal(false);
-        expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+        expect(nodeDosState.isNodeDos()).to.equal(false);
         expect((await fullRecord()).ipChangeHeights).to.deep.equal([HEIGHT]);
         sinon.assert.notCalled(held);
       });
@@ -687,7 +904,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
         chainAt(HEIGHT + 2400);
         expect(await fluxNetworkHelper.enforceIpChangeHold(), 'released a window after the change that started the hold').to.equal(true);
-        expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+        expect(nodeDosState.isNodeDos()).to.equal(true);
         sinon.assert.calledOnce(held);
 
         chainAt(HEIGHT + 3900);
@@ -698,16 +915,16 @@ describe('fluxNetworkHelper own address tests', () => {
         await records.insertOne({ _id: 'own', socketAddress: '198.51.100.86:16127', movedFrom: '198.51.100.87:16127', ipChangeHold: { fromHeight: HEIGHT - 2399 } });
         expect(await fluxNetworkHelper.enforceIpChangeHold(), 'fixture: held at the tip').to.equal(true);
 
-        behind(HEIGHT + 5000);
+        behind();
         expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
-        expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+        expect(nodeDosState.isNodeDos()).to.equal(true);
         expect((await fullRecord()).ipChangeHold).to.deep.equal({ fromHeight: HEIGHT - 2399 });
       });
 
       it('judges, after a restart, a change recorded without a height before it', async () => {
         configure('198.51.100.88');
         await records.insertOne({ _id: 'own', socketAddress: '198.51.100.88:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 100] });
-        behind(HEIGHT - 50);
+        behind();
         await fluxNetworkHelper.handleOwnAddress('198.51.100.89:16127');
 
         restart();
@@ -717,17 +934,13 @@ describe('fluxNetworkHelper own address tests', () => {
       });
     });
 
-    // The daemon is still taken as synced for a while after its last answer, and
-    // the chain moves on meanwhile: ten blocks in five minutes.
-    it('counts the blocks since the daemon last answered, so a change just out of the window stays out', async () => {
+    it('leaves a change just out of the window out', async () => {
       configure('198.51.100.92');
-      await records.insertOne({ _id: 'own', socketAddress: '198.51.100.92:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 2405] });
-      synced.returns({ data: { synced: true, height: HEIGHT - 10, header: HEIGHT - 10 } });
-      reportedAt.returns(Date.now() - 5 * 60 * 1000);
+      await records.insertOne({ _id: 'own', socketAddress: '198.51.100.92:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 2400] });
 
       await fluxNetworkHelper.handleOwnAddress('198.51.100.93:16127');
 
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(nodeDosState.isNodeDos()).to.equal(false);
       sinon.assert.notCalled(held);
       expect((await fullRecord()).ipChangeHeights).to.deep.equal([HEIGHT]);
     });
@@ -741,7 +954,7 @@ describe('fluxNetworkHelper own address tests', () => {
       await Promise.all([fluxNetworkHelper.enforceIpChangeHold(), fluxNetworkHelper.enforceIpChangeHold(), fluxNetworkHelper.enforceIpChangeHold()]);
       await fluxNetworkHelper.enforceIpChangeHold();
 
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+      expect(nodeDosState.isNodeDos()).to.equal(true);
       sinon.assert.calledOnce(held);
     });
 
@@ -752,7 +965,7 @@ describe('fluxNetworkHelper own address tests', () => {
       await fluxNetworkHelper.handleOwnAddress('198.51.100.60:16127');
 
       sinon.assert.notCalled(held);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(nodeDosState.getDosMessage()).to.equal(null);
       const record = await fullRecord();
       expect(record.ipChangeHeights).to.deep.equal([HEIGHT]);
       expect(record.ipChangeHold).to.equal(undefined);
@@ -777,14 +990,14 @@ describe('fluxNetworkHelper own address tests', () => {
       restart();
       chainAt(HEIGHT + 2399);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
-      expect(fluxNetworkHelper.isNodeDos(), 'out of service, so no app is placed on it').to.equal(true);
+      expect(nodeDosState.getDosMessage()).to.equal(IP_CHANGES);
+      expect(nodeDosState.isNodeDos(), 'out of service, so no app is placed on it').to.equal(true);
 
       chainAt(HEIGHT + 2400);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(false);
-      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(nodeDosState.isNodeDos()).to.equal(false);
       clock.restore();
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(nodeDosState.getDosMessage()).to.equal(null);
       expect((await fullRecord()).ipChangeHold).to.equal(null);
     });
 
@@ -820,15 +1033,15 @@ describe('fluxNetworkHelper own address tests', () => {
       try {
         await new Promise((resolve) => { setImmediate(resolve); });
         await fluxNetworkHelper.enforceIpChangeHold();
-        expect(fluxNetworkHelper.getDosMessage(), 'held from boot').to.equal(IP_CHANGES);
+        expect(nodeDosState.getDosMessage(), 'held from boot').to.equal(IP_CHANGES);
 
         restart();
         await reportHeight(HEIGHT + 1);
-        expect(fluxNetworkHelper.getDosMessage(), 'held again at a reported height').to.equal(IP_CHANGES);
+        expect(nodeDosState.getDosMessage(), 'held again at a reported height').to.equal(IP_CHANGES);
 
         chainAt(HEIGHT + 2400);
         await reportHeight(HEIGHT + 2400);
-        expect(fluxNetworkHelper.getDosMessage(), 'released once the chain passed the hold').to.equal(null);
+        expect(nodeDosState.getDosMessage(), 'released once the chain passed the hold').to.equal(null);
       } finally {
         stop();
       }
@@ -930,9 +1143,9 @@ describe('fluxNetworkHelper own address tests', () => {
 
       sinon.assert.notCalled(moved);
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      expect(nodeDosState.getDosStateValue()).to.equal(100);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
 
     it('takes a listing at the address benchmark now reports for it as its own, while the address it holds is the one before', async () => {
@@ -944,12 +1157,14 @@ describe('fluxNetworkHelper own address tests', () => {
       serviceHelper.axiosGet.withArgs(sinon.match(/198\.51\.100\.41:16127\/flux\/version/)).resolves({ data: { status: 'success' } });
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      // the move the report started, on the own-address queue
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.41:16127');
 
-      expect(fluxNetworkHelper.getDosStateValue(), 'this node held out of service by its own new address').to.equal(0);
+      expect(nodeDosState.getDosStateValue(), 'this node held out of service by its own new address').to.equal(0);
       expect(fluxNetworkHelper.getKnownLocalSocketAddress(), 'the address it holds').to.equal('198.51.100.41:16127');
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
+      nodeDosState.setDosMessage(null);
+      nodeDosState.setDosStateValue(0);
     });
   });
 });

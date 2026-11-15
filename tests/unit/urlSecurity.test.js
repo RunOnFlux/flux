@@ -1,6 +1,7 @@
 const http = require('http');
 const https = require('https');
 const net = require('net');
+const { once } = require('events');
 const axios = require('axios');
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -464,8 +465,9 @@ describe('urlSecurity', () => {
         internal.listen(0, '127.0.0.1', () => { ({ port } = internal.address()); done(); });
       });
 
-      after(() => {
+      after(async () => {
         internal.close();
+        await once(internal, 'close');
       });
 
       beforeEach(() => {
@@ -519,9 +521,10 @@ describe('urlSecurity', () => {
         registry.url = `http://127.0.0.1:${registryPort}/v2/`;
       });
 
-      after(() => {
+      after(async () => {
         internal.close();
         registry.close();
+        await Promise.all([once(internal, 'close'), once(registry, 'close')]);
       });
 
       beforeEach(() => {

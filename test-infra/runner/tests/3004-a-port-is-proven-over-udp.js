@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -12,6 +12,7 @@ import { execInContainer, restartFluxos, setNodeApiPort } from '../framework/con
 import { enableUpnpGateway, setUpnpProtocolFault, upnpGatewayState } from '../framework/external-http-control.js';
 import { waitFor, waitForAppInstalled, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Every app port is published for TCP and UDP, so a node proves both before it
 // installs an app, and its availability check proves both on a port of its own.
@@ -55,7 +56,7 @@ const APPS_PORT_CHECK = {
 // Enough attempts that a node always reaches two peers that answer.
 const PORT_TEST = { portTestMaxAttempts: 3 };
 
-const PORTS_DOS_PREFIX = 'Ports tested not reachable from outside';
+const PORTS_DOS_PREFIX = 'Ports tested from outside failed';
 const UPNP_DOS = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
 
 const appPinnedTo = async (name, port, index) => {
@@ -130,8 +131,7 @@ describe('a port is proven over UDP', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -215,8 +215,7 @@ describe('a node whose first peers cannot hear UDP replies', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -266,8 +265,7 @@ describe('a node behind UPnP tests one protocol a pass', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -343,8 +341,7 @@ describe('a node whose TCP comes back while its UDP is blocked', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -399,8 +396,7 @@ describe('a port closed over UDP, under the policy that counts it and turns the 
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -419,9 +415,13 @@ describe('a port closed over UDP, under the policy that counts it and turns the 
 
   it('takes the node out of service once the failures it confirms reach the threshold', async function () {
     this.timeout(600000);
-    await waitFor(async () => (await env.clients[BLOCKED].getDOSState()).data?.dosMessage?.startsWith(PORTS_DOS_PREFIX) === true, {
-      timeout: 540000, interval: 5000, label: 'the blocked node is out of service for its ports',
-    });
+    let dosMessage;
+    await waitFor(async () => {
+      ({ dosMessage } = (await env.clients[BLOCKED].getDOSState()).data ?? {});
+      return dosMessage?.startsWith(PORTS_DOS_PREFIX) === true;
+    }, { timeout: 540000, interval: 5000, label: 'the blocked node is out of service for its ports' });
+    expect(dosMessage, 'the message states the UDP failure and nothing it did not observe').to.match(/ No answer over UDP: \[[0-9,]+\]\./)
+      .and.not.match(/TCP|DMZ|UPNP/);
     expect(await udpCheck(env.clients[BLOCKED])).to.equal('degraded');
   });
 });
@@ -443,8 +443,7 @@ describe('a node whose peers do not probe UDP', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -60,13 +60,14 @@ const MIN_RESPONDING_PEER_FRACTION = 0.5;
  *
  * @param {string} socketAddr - the peer being asked
  * @param {string} challenge - this call's challenge
+ * @param {object} [fields] - what the question carries, which the signature covers
  * @returns {Promise<object|null>}
  */
-async function holdingsRequest(socketAddr, challenge) {
+async function signedPeerRequest(socketAddr, challenge, fields = {}) {
   const signer = await nodeSigner();
   if (!signer) return null;
   const body = {
-    target: socketAddr, timestamp: Date.now(), pubKey: signer.pubKey, challenge,
+    target: socketAddr, timestamp: Date.now(), pubKey: signer.pubKey, challenge, ...fields,
   };
   const signature = signer.sign(JSON.stringify(body));
   if (!signature) return null;
@@ -98,8 +99,11 @@ function readAnswer(answer) {
   // old to say, which reads as none, as that node's answer always has.
   const heldOut = Array.isArray(answer?.heldOut) ? answer.heldOut : [];
   const volumeGone = Array.isArray(answer?.volumeGone) ? answer.volumeGone : [];
+  // What each folder the peer sends holds in the index, in file bytes. Absent on a peer
+  // too old to say and on one that would not serve it to this caller: no evidence.
+  const published = (answer && typeof answer.published === 'object' && answer.published) || {};
   return {
-    reachable: true, answerable: true, ready, folders, holding, seeding, notLookedAt, heldOut, volumeGone,
+    reachable: true, answerable: true, ready, folders, holding, seeding, notLookedAt, heldOut, volumeGone, published,
   };
 }
 
@@ -156,7 +160,7 @@ async function probePeer(socketAddr) {
     socketAddr,
     '/apps/promotedfolders',
     AnswerPurpose.PROMOTED_FOLDERS,
-    async (challenge) => (await holdingsRequest(socketAddr, challenge)) ?? {},
+    async (challenge) => (await signedPeerRequest(socketAddr, challenge)) ?? {},
     { timeout: PROBE_TIMEOUT_MS },
   );
 
@@ -469,6 +473,7 @@ async function silenceVerdict(folderId, peerIp, liveness) {
 
 module.exports = {
   createPeerFolderLiveness,
+  signedPeerRequest,
   silenceVerdict,
   SilenceVerdict,
   PROBE_TIMEOUT_MS,

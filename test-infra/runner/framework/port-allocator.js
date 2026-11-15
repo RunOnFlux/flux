@@ -11,10 +11,7 @@
  * hashed the moment it is built. A port added afterwards leaves the app
  * carrying a hash of a specification that no longer exists.
  *
- * That is also the seam with no holes. The rule was first written into the nine
- * builders, which four suites route around by hand-writing their compose; then
- * into reconciler-suite.seedGlobalSpec, which five route around by seeding to
- * the database themselves. Every one of them calls buildSeedableApp.
+ * Every app a suite builds, whatever writes its compose, goes through it.
  */
 /**
  * The allocator owns everything from here up. A hand-written port must sit
@@ -86,8 +83,9 @@ export function assignPorts(components, appName, { allowPortReuse = false } = {}
     // Checked before allowPortReuse, because that opt-out is about two apps
     // sharing a port on purpose - it says nothing about reaching into the
     // allocator's range, which is never right.
+    const allocated = allocatedByApp.get(appName) ?? [];
     for (const port of declared.map(Number)) {
-      if (port >= ALLOCATION_BASE) {
+      if (port >= ALLOCATION_BASE && !allocated.includes(port)) {
         throw new Error(
           `'${appName}' asks for port ${port}, which is inside the range the harness hands out `
           + `(${ALLOCATION_BASE} and up). Leave the port off and one will be allocated, or name a port below `

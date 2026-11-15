@@ -12,12 +12,13 @@
 // packages. Both node types boot here because they reach for different things:
 // monitorSystem returns immediately on Arcane, so only the legacy node exercises
 // the apt path at all.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { expectNoUnexpectedDns, resetDnsAttempts, dnsAttempts } from '../framework/external-http-control.js';
 import { waitForPackagesChecked, waitForBootSettled } from '../framework/wait.js';
 import { execInContainer } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('95 the fleet reaches nothing outside itself', function suite() {
   this.timeout(600000);
@@ -34,7 +35,7 @@ describe('95 the fleet reaches nothing outside itself', function suite() {
       await resetDnsAttempts();
     });
 
-    after(async () => {
+    afterTeardown(async () => {
       await env?.teardown();
     });
 
@@ -60,7 +61,7 @@ describe('95 the fleet reaches nothing outside itself', function suite() {
       await resetDnsAttempts();
     });
 
-    after(async () => {
+    afterTeardown(async () => {
       await env?.teardown();
     });
 

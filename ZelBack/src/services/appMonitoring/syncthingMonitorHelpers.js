@@ -336,11 +336,18 @@ async function buildDeviceConfiguration(
  * conflict copies puts renamed losers into a single-writer app's data.
  * syncOwnership makes a synced file arrive owned by the uid that wrote it on
  * the primary, so the same image writes it there without a permissions sweep.
+ * caseSensitiveFS: an app volume is ext4, where names that differ by case are
+ * different files. Off, syncthing checks every path's case by listing each
+ * directory on it, and every file it creates, removes or renames empties those
+ * listings, so each file pulled re-lists its directory. A folder syncthing holds
+ * with it off differs from this, so the monitor's pass rewrites it, and syncthing
+ * restarts that folder once.
  */
 const OWNED_FOLDER_SETTINGS = Object.freeze({
   rescanIntervalS: SYNCTHING_RESCAN_INTERVAL_SECONDS,
   maxConflicts: SYNCTHING_MAX_CONFLICTS,
   syncOwnership: true,
+  caseSensitiveFS: true,
 });
 
 /**

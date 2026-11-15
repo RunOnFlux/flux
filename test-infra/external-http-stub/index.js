@@ -14,9 +14,9 @@ const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '3001', 10);
 const STORAGE_PORT = parseInt(process.env.STORAGE_PORT || '443', 10);
 const STORAGE_TLS_DIR = process.env.STORAGE_TLS_DIR || '/certs';
 
-// The harness fleet lives in 31.200.0.0/20.
-const HARNESS_NET_START = (31 * 2 ** 24) + (200 * 2 ** 16);
-const HARNESS_NET_END = HARNESS_NET_START + (16 * 2 ** 8) - 1;
+// The harness fleets live in 25.192.0.0/10 (runner/framework/subnet-config.js).
+const HARNESS_NET_START = (25 * 2 ** 24) + (192 * 2 ** 16);
+const HARNESS_NET_END = HARNESS_NET_START + (64 * 2 ** 16) - 1;
 
 const GEO_MAGIC = 'FLXGEO';
 const GEO_FORMAT = 2;
@@ -134,7 +134,7 @@ function regionAssignment(domains, withRegions) {
  * written against that keep their meaning while now exercising the real table
  * reader rather than skipping it.
  *
- * `domains: n` with a `subnet` (`31.200.5`) assigns that /24's addresses to n
+ * `domains: n` with a `subnet` (`25.196.0`) assigns that /24's addresses to n
  * organisations ROUND-ROBIN, one range per address. The harness gives its
  * nodes consecutive addresses from .10, so anything coarser than per-address
  * puts the whole fleet in one bucket; interleaving is what actually splits it.
@@ -155,12 +155,17 @@ function regionAssignment(domains, withRegions) {
  * classification should see: an organisation with no verdict is one nothing
  * enforces against.
  * @param {number} domains How many organisations to split across
- * @param {string} [subnet] Dotted /24 prefix to split, e.g. '31.200.5'
+ * @param {string} [subnet] Dotted /24 prefix to split, e.g. '25.196.0'
  * @param {boolean} [withRegions] Whether rows carry a region
+ * `countryByIp` places single addresses in another country - `{ '25.193.0.11':
+ * 'FR' }` - over whatever the rows above say, keeping each address's
+ * organisation. It is how a suite moves ONE node, chosen after the fleet is up,
+ * without moving its neighbours.
  * @param {object} [networkClasses] Organisation index -> 'residential'|'hosting'
+ * @param {object} [countryByIp] Dotted IPv4 address -> one of GEO_COUNTRIES
  * @returns {object} artifact in format 1
  */
-function buildIpLocationArtifact(domains, subnet, withRegions = false, networkClasses = null) {
+function buildIpLocationArtifact(domains, subnet, withRegions = false, networkClasses = null, countryByIp = null) {
   const orgs = Array.from({ length: Math.max(domains, 1) }, (unused, i) => `harness:org-${i}`);
   const countries = GEO_COUNTRIES;
   const { assigned } = regionAssignment(domains, withRegions);
@@ -182,6 +187,17 @@ function buildIpLocationArtifact(domains, subnet, withRegions = false, networkCl
     }
     if (base + 255 < HARNESS_NET_END) v4.push(row(base + 256, HARNESS_NET_END, 0, 0));
   }
+  Object.entries(countryByIp ?? {}).forEach(([ip, cc]) => {
+    const address = ip.split('.').map(Number).reduce((acc, octet) => (acc * 256) + octet, 0);
+    const index = v4.findIndex(([start, end]) => start <= address && address <= end);
+    if (index < 0) return;
+    const [start, end, org] = v4[index];
+    const pieces = [];
+    if (start < address) pieces.push(row(start, address - 1, org, v4[index][3]));
+    pieces.push(row(address, address, org, countries.indexOf(cc)));
+    if (address < end) pieces.push(row(address + 1, end, org, v4[index][3]));
+    v4.splice(index, 1, ...pieces);
+  });
   return {
     format: 1,
     generated: nextGenerated(),
@@ -214,7 +230,7 @@ function buildIpLocationArtifact(domains, subnet, withRegions = false, networkCl
 
 /**
  * Append one unsigned LEB128 varint. Plain arithmetic rather than shifts:
- * range bounds run past 2^31 (31.200.0.0 is 3,323,068,416), which the signed
+ * range bounds run past 2^31 (every address from 128.0.0.0), which the signed
  * 32-bit shift operators cannot carry.
  * @param {number[]} bytes Output byte list, appended in place
  * @param {number} value Non-negative integer
@@ -415,6 +431,9 @@ const state = {
   udpPortDos: null,
   // Whether the pre-install refusal over UDP is off. null is the document absent.
   udpInstallRefusalOff: null,
+  // The unpaid-message allowances and submitter ranges. null is the document absent, so a
+  // node uses its release defaults.
+  unpaidAllowances: null,
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
   // The syncthing the node image ships, read from the repository the image was built
@@ -425,7 +444,6 @@ const state = {
   // nothing at all.
   moduleMinimumVersions: { syncthing: imageSyncthingVersion(), docker: '26.1.2' },
   marketplaceApps: [],
-  appSpecsUsdPrice: [],
   // Fixed rates, so a price assertion is arithmetic rather than a bet on the market.
   // usdPerBtc * btcPerFlux is what the caller multiplies out, and it must equal usdPerFlux
   // so the coingecko fallback cannot change an answer.
@@ -552,6 +570,7 @@ function resignPolicy({ bumpSeq = true } = {}) {
       enterprisenodes: state.enterpriseNodes,
       ...(state.udpPortDos === null ? {} : { udpportdos: state.udpPortDos }),
       ...(state.udpInstallRefusalOff === null ? {} : { udpinstallrefusaloff: state.udpInstallRefusalOff }),
+      ...(state.unpaidAllowances === null ? {} : { unpaidallowances: state.unpaidAllowances }),
     },
     // Content-addressed, as the real publisher does it: the plain name is mutable and means
     // "the current table", so the bundle names the hash a fetch should produce. Derived from
@@ -975,9 +994,11 @@ app.get('/marketplace/listdevapps', (req, res) => {
   res.json({ status: 'success', data: state.marketplaceApps });
 });
 
-// Stats: per-spec USD pricing.
+// Stats: per-spec USD pricing. Unavailable, so a node prices by the USD table it
+// ships with (config fluxapps.usdprice), as it does whenever the stats service
+// does not answer.
 app.get('/apps/getappspecsusdprice', (req, res) => {
-  res.json({ status: 'success', data: state.appSpecsUsdPrice });
+  res.status(503).json({ status: 'error', data: { message: 'stats pricing unavailable' } });
 });
 
 // Pricing: viprates.runonflux.io/rates. The real service answers a two-element array -
@@ -1392,8 +1413,16 @@ control.post('/iplocation', (req, res) => {
     // Absent, the artifact carries an empty orgClasses section, so every node falls
     // back to deciding its own address - which is what the reader does with a
     // build that classified nothing.
+    // { countryByIp: { '25.193.0.11': 'FR' } } moves single addresses to another of
+    // the published countries.
+    const countryByIp = req.body.countryByIp ?? null;
+    const unknown = Object.values(countryByIp ?? {}).filter((cc) => !GEO_COUNTRIES.includes(cc));
+    if (unknown.length) {
+      res.status(400).json({ error: `countryByIp names countries the artifact does not carry: ${unknown.join(', ')}` });
+      return;
+    }
     serveIpLocation(
-      buildIpLocationArtifact(domains, req.body.subnet, withRegions, req.body.classes ?? null),
+      buildIpLocationArtifact(domains, req.body.subnet, withRegions, req.body.classes ?? null, countryByIp),
       { pad },
     );
     regions = regionAssignment(domains, withRegions);
@@ -1445,6 +1474,7 @@ control.post('/policy', (req, res) => {
       enterprisenodes: 'enterpriseNodes',
       udpportdos: 'udpPortDos',
       udpinstallrefusaloff: 'udpInstallRefusalOff',
+      unpaidallowances: 'unpaidAllowances',
     };
     for (const [name, value] of Object.entries(body.documents)) {
       if (!map[name]) return res.status(400).json({ error: `unknown document ${name}` });
@@ -1494,6 +1524,7 @@ control.post('/reset', (req, res) => {
   state.enterpriseNodes = {};
   state.udpPortDos = null;
   state.udpInstallRefusalOff = null;
+  state.unpaidAllowances = null;
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
   artifacts.clear();

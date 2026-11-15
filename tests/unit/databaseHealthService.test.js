@@ -6,12 +6,14 @@ const { MongoClient } = require('mongodb');
 const log = require('../../ZelBack/src/lib/log');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const databaseHealthService = require('../../ZelBack/src/services/databaseHealthService');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const { suspectWindowMs } = config.database;
 const MINUTE = 60 * 1000;
 
 describe('databaseHealthService tests', () => {
+  after(releaseMongo);
+
   let clock;
   let client;
 

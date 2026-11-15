@@ -35,6 +35,7 @@ RUN set -eu; \
     grep -q '^URIs:' /etc/apt/sources.list.d/ubuntu.sources; \
     apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    xz-utils \
     ca-certificates \
     sudo \
     ufw \
@@ -65,9 +66,16 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends "docker-ce${DOCKER_VERSION:+=$DOCKER_VERSION}" "docker-ce-cli${DOCKER_VERSION:+=$DOCKER_VERSION}" containerd.io \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# The network's NodeJS floor (minimumNodeJsAllowedVersion): a node below it takes itself out of
+# service at boot. Installed under /usr, where an Arcane node has it: fluxos.service runs
+# /usr/bin/node, and npm's global installs (pm2) follow it there. The archive's files carry its
+# builder's uid, which is fluxuser's here, so they are extracted as root's: ufw, and anything
+# else that checks who owns /usr, refuses or warns on a tree root does not own.
+ARG NODE_VERSION=24.14.1
+RUN curl -fsSL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz \
+    | tar -xJ -C /usr --strip-components=1 --no-same-owner \
+    && /usr/bin/node --version | grep -qx "v${NODE_VERSION}" \
+    && test -z "$(find /usr -maxdepth 2 ! -user root)"
 
 # The packages FluxOS installs on a legacy node, and the repository it installs
 # them from.

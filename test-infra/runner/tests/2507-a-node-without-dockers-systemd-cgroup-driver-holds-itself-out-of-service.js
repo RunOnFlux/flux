@@ -5,12 +5,13 @@
 // driver: the canary that the check passes a node that meets it. The fleet boots
 // first, since a node out of service refuses the login the harness boots a fleet
 // through.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartDockerd, restartFluxos } from '../framework/container.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const OFF_DRIVER = 0;
 const ON_DRIVER = 1;
@@ -41,7 +42,7 @@ describe('2507 a node without Docker\'s systemd cgroup driver holds itself out o
     await restartFluxos(node.container);
   });
 
-  after(async () => {
+  afterTeardown(async () => {
     await env?.teardown();
   });
 

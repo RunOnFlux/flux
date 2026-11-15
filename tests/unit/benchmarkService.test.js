@@ -745,4 +745,53 @@ describe('benchmarkService tests', () => {
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
     });
   });
+
+  describe('nodeAuthEncrypt tests', () => {
+    let runStub;
+
+    beforeEach(() => {
+      sinon.stub(fs, 'stat').resolves(true);
+      runStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should ask encryptmessage under the node-auth identity and answer the ciphertext', async () => {
+      runStub.resolves('{"message":"rEiRvMwsSgr1k8Fe/CFsHw==","status":"ok"}');
+
+      const result = await benchmarkService.nodeAuthEncrypt('x');
+
+      expect(result).to.equal('rEiRvMwsSgr1k8Fe/CFsHw==');
+      sinon.assert.calledOnce(runStub);
+      const [rpc, { params }] = runStub.firstCall.args;
+      expect(rpc).to.equal('encryptmessage');
+      expect(JSON.parse(params[0])).to.eql({
+        fluxID: 'ARCANEOS_NODE_AUTH', appName: 'ARCANEOS_SYSTEM', message: 'x', blockHeight: 0,
+      });
+    });
+
+    it('should answer the ciphertext when the client has already parsed the result', async () => {
+      runStub.resolves({ message: 'abc=', status: 'ok' });
+
+      expect(await benchmarkService.nodeAuthEncrypt('x')).to.equal('abc=');
+    });
+
+    it('should answer null when fluxbench refuses the identity', async () => {
+      runStub.rejects(new Error('System not Secure'));
+
+      expect(await benchmarkService.nodeAuthEncrypt('x')).to.equal(null);
+    });
+
+    it('should answer null for a result that is not ok or carries no ciphertext', async () => {
+      runStub.onCall(0).resolves('{"message":"abc=","status":"error"}');
+      runStub.onCall(1).resolves('{"status":"ok"}');
+      runStub.onCall(2).resolves('not json');
+
+      expect(await benchmarkService.nodeAuthEncrypt('x')).to.equal(null);
+      expect(await benchmarkService.nodeAuthEncrypt('x')).to.equal(null);
+      expect(await benchmarkService.nodeAuthEncrypt('x')).to.equal(null);
+    });
+  });
 });

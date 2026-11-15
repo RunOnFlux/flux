@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, restartDockerd } from '../framework/container.js';
@@ -9,6 +9,7 @@ import {
   waitForUp, waitForDown, assertNoEvent, waitForOperatorIntent,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // B6 end-to-end: a deliberate stop whose die event is LOST (docker event stream
 // down) must not wedge anything. The stoppingContainers flag is OPERATION-
@@ -35,8 +36,7 @@ describe('deliberate stop during an event-stream outage neither wedges nor flaps
     ({ index: idx } = await seedSimpleApp(env, appName));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

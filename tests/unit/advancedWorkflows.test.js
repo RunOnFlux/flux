@@ -3,6 +3,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const Dockerode = require('dockerode');
 const { performance } = require('perf_hooks');
 const { resetGlobalState } = require('./fixtures/globalState');
 const axios = require('axios');
@@ -28,10 +29,13 @@ const { PeerComponent } = require('../../ZelBack/src/services/appMonitoring/peer
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../../ZelBack/src/services/utils/addressMoveEvents');
 const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+const handbackTurns = require('../../ZelBack/src/services/utils/handbackTurns');
 const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
 const appRebuild = require('../../ZelBack/src/services/appLifecycle/appRebuild');
 const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const appControllerModule = require('../../ZelBack/src/services/appManagement/appController');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
@@ -56,6 +60,12 @@ const GIVE_UP_PASS = {
 };
 
 describe('advancedWorkflows tests', () => {
+  // Docker as a node with no app containers answers, for every path a test
+  // does not stub itself.
+  beforeEach(() => {
+    sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
+  });
+
   afterEach(() => {
     sinon.restore();
   });
@@ -155,6 +165,25 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.folderStates.get('fluxkept_softapp')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
       expect(globalState.folderStates.get('fluxadded_softapp')).to.deep.equal({ state: 'notLookedAt' });
       globalState.folderStates.clear();
+    });
+
+    it('removes the app and tells the network when its install fails', async () => {
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error pulling image'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      const res = makeRes();
+
+      const result = await advancedWorkflows.softRegisterAppLocally({
+        name: 'failedsoftapp', version: 4, compose: [{ name: 'web', containerData: '/data', cpu: 0.5, ram: 500, hdd: 5 }],
+      }, false, res);
+
+      expect(result).to.equal(InstallOutcome.FAILED);
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'failedsoftapp', res, true, false, true);
     });
 
     it('does not release a hold it never took', async () => {
@@ -366,6 +395,29 @@ describe('advancedWorkflows tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
+    });
+
+    it('hands a global redeploy its share for this node, which runs in process', async () => {
+      req.params = { appname: 'myapp', force: 'true', global: 'true' };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      const globalCommand = sinon.stub(appControllerModule, 'executeAppGlobalCommand').resolves();
+
+      await advancedWorkflows.redeployAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(globalCommand, 'myapp', 'redeploy', authOf(req), true, advancedWorkflows.redeployHere);
+    });
+
+    it('refuses the local share of a redeploy for an app with no specification', async () => {
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves(null);
+
+      let thrown;
+      try {
+        await advancedWorkflows.redeployHere('myapp', false);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown.message).to.equal('Application not found');
     });
   });
 
@@ -901,8 +953,9 @@ describe('advancedWorkflows tests', () => {
 
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
-      // default: this node has moved nowhere, so it is where benchmark says
-      ownAddressStub = sinon.stub(fluxNetworkHelper, 'ownAddressFor').callsFake((address) => address);
+      // the address a pass reads its location rows against: the one it was given
+      ownAddressStub = sinon.stub(fluxNetworkHelper, 'withSteadyOwnAddress')
+        .callsFake(async (read) => read(await fluxNetworkHelperStub.lastCall.returnValue));
 
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       registryManagerStub = sinon.stub(registryManager, 'appLocation');
@@ -3995,19 +4048,19 @@ describe('advancedWorkflows tests', () => {
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       });
 
-      it('knows itself at the address it has recorded moving to, before benchmark reports it there', async () => {
+      it('knows itself at the address it moved to when FDM names the one it left', async () => {
         const appName = 'movedselfwindow';
         const MOVED_TO = '192.168.1.6:16127';
         sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const runPass = electionFixture(appName, ['192.168.1.90:16127']);
-        // Benchmark still gives 192.168.1.5; the move this node recorded carried
-        // its rows to 192.168.1.6, and FDM's old IP resolves there.
+        // The move carried this node's rows to 192.168.1.6 and switched its
+        // address there; FDM's old IP resolves there.
+        fluxNetworkHelperStub.resolves(MOVED_TO);
         registryManagerStub.resolves([
           { name: appName, ip: MOVED_TO, runningSince: '2026-01-01T00:00:00.000Z' },
           { name: appName, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
         ]);
-        ownAddressStub.callsFake((address) => (address === '192.168.1.5:16127' ? MOVED_TO : address));
         primaryAddressStub.callsFake(async (name, ip) => (ip === '192.168.1.5' ? MOVED_TO : ip));
         serviceHelperStub.resetBehavior();
         serviceHelperStub.resolves(fdmNames('192.168.1.5'));
@@ -4019,7 +4072,7 @@ describe('advancedWorkflows tests', () => {
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       });
 
-      it('knows itself at the address it moves to while FDM\'s answer is looked up', async () => {
+      it('compares FDM\'s primary with the address it holds as the rows are read, not one it read before', async () => {
         const appName = 'movedselfmidpass';
         const MOVED_TO = '192.168.1.6:16127';
         sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
@@ -4029,13 +4082,10 @@ describe('advancedWorkflows tests', () => {
           { name: appName, ip: MOVED_TO, runningSince: '2026-01-01T00:00:00.000Z' },
           { name: appName, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
         ]);
-        // The move is recorded while the pass looks up the primary FDM named.
-        let moved = false;
-        ownAddressStub.callsFake((address) => (moved && address === '192.168.1.5:16127' ? MOVED_TO : address));
-        primaryAddressStub.callsFake(async (name, ip) => {
-          moved = true;
-          return ip === '192.168.1.5' ? MOVED_TO : ip;
-        });
+        // The pass read 192.168.1.5 before asking FDM; the switch to 192.168.1.6
+        // happened before the rows were read.
+        ownAddressStub.callsFake(async (read) => read(MOVED_TO));
+        primaryAddressStub.callsFake(async (name, ip) => (ip === '192.168.1.5' ? MOVED_TO : ip));
         serviceHelperStub.resetBehavior();
         serviceHelperStub.resolves(fdmNames('192.168.1.5'));
         axiosGetStub.resetBehavior();
@@ -5414,7 +5464,6 @@ describe('advancedWorkflows tests', () => {
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
       volGlobalState.folderStates.clear();
       volGlobalState.seedMarks.clear();
-      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // The volume search reads the real mount table through findmnt. Stubbing
       // it keeps these cases about the synced-mark rather than about whichever
@@ -5634,8 +5683,6 @@ describe('advancedWorkflows tests', () => {
     const component = { name: 'frontend', hdd: 1 };
 
     const withVolume = (availableGib) => {
-      // eslint-disable-next-line global-require
-      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // eslint-disable-next-line global-require
       const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
@@ -6013,6 +6060,72 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.backupInProgress).to.not.include(appname);
     });
 
+    describe('a volume that holds a link where a directory or the archive should be', () => {
+      /* eslint-disable global-require */
+      const nodeFs = require('node:fs');
+      const nodeOs = require('node:os');
+      const nodePath = require('node:path');
+      /* eslint-enable global-require */
+      let tmp;
+
+      beforeEach(() => {
+        tmp = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'backuplinks-'));
+        nodeFs.mkdirSync(nodePath.join(tmp, 'elsewhere'));
+        nodeFs.mkdirSync(nodePath.join(tmp, 'appdata'));
+        IOUtils.getVolumeInfo.resolves({ error: null, mounts: [{ mount: tmp }] });
+        sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+          status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+          reason: 'ok',
+        });
+      });
+
+      afterEach(() => {
+        nodeFs.rmSync(tmp, { recursive: true, force: true });
+      });
+
+      it('writes the archive through a plain volume', async () => {
+        const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.calledOnce(IOUtils.createTarGz);
+      });
+
+      it('refuses when backup/local is a link', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup'));
+        nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'backup', 'local'));
+
+        const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.createTarGz);
+        expect(globalState.backupInProgress).to.not.include(appname);
+      });
+
+      it('refuses when appdata is a link', async () => {
+        nodeFs.rmSync(nodePath.join(tmp, 'appdata'), { recursive: true });
+        nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'appdata'));
+
+        const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.createTarGz);
+      });
+
+      it('refuses when the archive it would replace is a link', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup', 'local'), { recursive: true });
+        nodeFs.symlinkSync(
+          nodePath.join(tmp, 'elsewhere', 'target'),
+          nodePath.join(tmp, 'backup', 'local', 'backup_palworld.tar.gz'),
+        );
+
+        const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.createTarGz);
+        sinon.assert.notCalled(IOUtils.removeFile);
+      });
+    });
+
     it('lets only one of two concurrent backups of the same app proceed', async () => {
       // Between the old check and its later claim sat auth, a spec fetch and a
       // sync probe per component; two requests could both pass the emptied
@@ -6165,6 +6278,110 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(log, 'info');
       sinon.stub(log, 'warn');
       sinon.stub(log, 'error');
+    });
+
+    // The volume is the owner's to fill, links included. Backup and restore act on it
+    // with the node's privileges, so a link where a directory or an archive should be
+    // is refused rather than followed.
+    describe('a volume that holds a link where a directory should be', () => {
+      /* eslint-disable global-require */
+      const nodeFs = require('node:fs');
+      const nodeOs = require('node:os');
+      const nodePath = require('node:path');
+      /* eslint-enable global-require */
+      let tmp;
+
+      const said = (res) => res.write.getCalls().map((c) => c.args[0]).join(' ');
+
+      beforeEach(() => {
+        tmp = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'restorelinks-'));
+        nodeFs.mkdirSync(nodePath.join(tmp, 'elsewhere'));
+        IOUtils.getVolumeInfo.resolves({ error: null, mounts: [{ mount: tmp, available: 100 * 1024 * 1024 * 1024 }] });
+      });
+
+      afterEach(() => {
+        nodeFs.rmSync(tmp, { recursive: true, force: true });
+      });
+
+      it('refuses when appdata is a link, before anything is cleared or unpacked', async () => {
+        nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'appdata'));
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ type: 'upload' }), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('appdata in the volume is not a plain directory');
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('refuses when backup/remote is a link, before it is cleared or written to', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup'));
+        nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'backup', 'remote'));
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('backup/remote in the volume is not a plain directory');
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.downloadFileFromUrl);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('refuses when the archive is a link', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup', 'upload'), { recursive: true });
+        nodeFs.writeFileSync(nodePath.join(tmp, 'elsewhere', 'other.tar.gz'), 'x');
+        nodeFs.symlinkSync(
+          nodePath.join(tmp, 'elsewhere', 'other.tar.gz'),
+          nodePath.join(tmp, 'backup', 'upload', 'backup_palworld.tar.gz'),
+        );
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ type: 'upload' }), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('the backup archive is not a regular file');
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('says why when backup/remote turns into a link while the download waits for the server', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup', 'remote'), { recursive: true });
+        IOUtils.downloadFileFromUrl.callsFake(async (url, dir, name, rename, options) => {
+          nodeFs.rmSync(nodePath.join(tmp, 'backup', 'remote'), { recursive: true });
+          nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'backup', 'remote'));
+          await options.beforeOpen();
+          return true;
+        });
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('backup/remote in the volume is not a plain directory');
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('refuses, and holds the app stopped, when appdata turns into a link while it is being cleared', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'appdata'));
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup', 'upload'), { recursive: true });
+        nodeFs.writeFileSync(nodePath.join(tmp, 'backup', 'upload', 'backup_palworld.tar.gz'), 'x');
+        IOUtils.removeDirectory.callsFake(async () => {
+          nodeFs.rmSync(nodePath.join(tmp, 'appdata'), { recursive: true });
+          nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'appdata'));
+          return true;
+        });
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ type: 'upload' }), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('appdata in the volume is not a plain directory');
+        sinon.assert.notCalled(IOUtils.untarFile);
+        // the clear had begun: it is handled as any failure after it
+        sinon.assert.calledWith(appReconciler.setControllerDesired, folderId, 'stopped', 'restore did not complete');
+      });
     });
 
     describe('input validation', () => {
@@ -6400,7 +6617,8 @@ describe('advancedWorkflows tests', () => {
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
-        sinon.assert.calledWithExactly(appController.executeAppGlobalCommand, appname, 'apprestart', 'auth', undefined, true);
+        // No share for this node: it is the one that has just restored.
+        sinon.assert.calledWithExactly(appController.executeAppGlobalCommand, appname, 'apprestart', 'auth');
       });
 
       it('leaves an unsynced app alone entirely - no peer holds its data', async () => {
@@ -7636,6 +7854,80 @@ describe('advancedWorkflows tests', () => {
       expect([...requestComplianceSweep.firstCall.args[0]]).to.deep.equal(['myapp']);
     });
 
+    // A released name registered again by someone else must not inherit the
+    // previous owner's install: the expiry sweep removes it, and a node that was
+    // catching up skipped that sweep.
+    it('removes, with its data, an install whose name was registered again by another owner after its term ended', async () => {
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves('removed');
+      const requestComplianceSweep = sinon.stub(imageManager, 'requestComplianceSweep').resolves();
+      dbHelper.findInDatabase.resolves([{ ...installedApp, height: 100, expire: 1000 }]);
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT', height: 5000,
+      });
+      const newOwner = '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT';
+      sinon.stub(registryManager, 'appMessagesThatCount').resolves([
+        { type: 'fluxappregister', height: 100, appSpecifications: { owner: installedApp.owner, expire: 1000 } },
+        { type: 'fluxappregister', height: 4000, appSpecifications: { owner: newOwner, expire: 1000 } },
+      ]);
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      // announced: peers still list this node for the name
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'myapp', null, true, false, true);
+      sinon.assert.notCalled(dbHelper.updateOneInDatabase);
+      sinon.assert.notCalled(requestComplianceSweep);
+    });
+
+    it('keeps the install of a transfer this node missed, updated again after the installed term ended', async () => {
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves('removed');
+      const newOwner = '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT';
+      dbHelper.findInDatabase.resolves([{ ...installedApp, height: 100, expire: 1000 }]);
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: newOwner, height: 5000,
+      });
+      sinon.stub(registryManager, 'appMessagesThatCount').resolves([
+        { type: 'fluxappregister', height: 100, appSpecifications: { owner: installedApp.owner, expire: 100000 } },
+        { type: 'fluxappupdate', height: 500, appSpecifications: { owner: newOwner, expire: 100000 } },
+        { type: 'fluxappupdate', height: 5000, appSpecifications: { owner: newOwner, expire: 100000 } },
+      ]);
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.notCalled(removeAppLocally);
+    });
+
+    it('keeps the install of an owner transfer that lands inside the term it renews', async () => {
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves('removed');
+      dbHelper.findInDatabase.resolves([{ ...installedApp, height: 100, expire: 1000 }]);
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT', height: 500,
+      });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.notCalled(removeAppLocally);
+      sinon.assert.calledOnce(dbHelper.updateOneInDatabase);
+    });
+
+    it('hands the uninstall of a v3 app its container identifier and the monitor to stop', async () => {
+      const { stopAppMonitoring } = require('../../ZelBack/src/services/appManagement/appInspector');
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      const v3 = {
+        version: 3, name: 'myapp', hash: 'oldhash', owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', hdd: 5, repotag: 'nginx:1.0',
+      };
+      dbHelper.findInDatabase.resolves([v3]);
+      dbHelper.findOneInDatabase.resolves({ ...v3, hash: 'newhash', repotag: 'nginx:2.0' });
+      const soft = sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      // eslint-disable-next-line global-require
+      sinon.stub(require('../../ZelBack/src/services/appLifecycle/appInstaller'), 'installApplicationSoft').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(soft);
+      expect(soft.firstCall.args[1]).to.equal(dockerService.getAppIdentifier('myapp'));
+      expect(soft.firstCall.args[4]).to.equal(stopAppMonitoring);
+    });
+
     // The canary for it: an application this pass redeploys is judged by the installer
     // that rebuilds it, so asking for it again buys a walk of the whole app table.
     it('does not ask the sweep about an application it redeployed', async () => {
@@ -8129,6 +8421,8 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
   }
 
   beforeEach(() => {
+    // Docker as a node with no app containers answers.
+    sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
     sinon.stub(generalService, 'checkSynced').resolves(true);
     sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(LOCAL);
     sinon.stub(appUninstaller, 'removeAppLocally').resolves(RemovalOutcome.REMOVED);
@@ -8535,6 +8829,195 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledWith(appUninstaller.removeAppLocally, appName);
+    });
+  });
+
+  describe('a copy that can write leaves in one attempt', () => {
+    const leavingCopy = require('../../ZelBack/src/services/appLifecycle/leavingCopy');
+    const stop = [{ identifier: 'web_appone', folderId: 'fluxweb_appone', unsyncedSubdirs: [] }];
+    const proven = { proven: true, code: 'PROVEN', reason: 'held' };
+
+    beforeEach(() => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      evacuationSafety.canSafelyRemoveApp.onFirstCall().resolves({
+        safe: false, code: 'STOP_REQUIRED', reason: 'stop first', stop,
+      });
+      evacuationSafety.canSafelyRemoveApp.onSecondCall().resolves({ safe: true, code: 'SYNCED_ELSEWHERE', reason: 'held' });
+      sinon.stub(leavingCopy, 'stopAndProve').resolves(proven);
+      sinon.stub(leavingCopy, 'giveBack');
+      sinon.stub(leavingCopy, 'removed');
+      sinon.stub(syncthingFolderStateMachine, 'findSyncedPeer');
+      sinon.stub(syncthingFolderStateMachine, 'folderHoldsNothing');
+      sinon.stub(registryManager, 'shuttingDownNodes').resolves([]);
+    });
+
+    it('removes on the attempt\'s proof and the gate again, on that one pass', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.stopAndProve, stop, sinon.match.func);
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+      const { handedBack } = evacuationSafety.canSafelyRemoveApp.secondCall.args[1];
+      expect([...handedBack]).to.deep.equal(['web_appone']);
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+      sinon.assert.calledOnceWithExactly(leavingCopy.removed, stop);
+      sinon.assert.notCalled(leavingCopy.giveBack);
+    });
+
+    it('proves a copy by a peer holding it', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves({ deviceID: 'PEER' });
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(true);
+      sinon.assert.notCalled(syncthingFolderStateMachine.folderHoldsNothing);
+    });
+
+    it('proves a copy with no synced peer by its holding nothing', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves(null);
+      syncthingFolderStateMachine.folderHoldsNothing.resolves(true);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(true);
+      sinon.assert.calledWith(syncthingFolderStateMachine.folderHoldsNothing, 'fluxweb_appone', []);
+    });
+
+    it('does not prove a copy no peer holds and that holds something', async () => {
+      syncthingFolderStateMachine.findSyncedPeer.resolves(null);
+      syncthingFolderStateMachine.folderHoldsNothing.resolves(false);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      const isHeld = leavingCopy.stopAndProve.firstCall.args[1];
+
+      expect(await isHeld(stop[0])).to.equal(false);
+    });
+
+    it('gives back an attempt that cannot prove, and acts on nothing else that pass', async () => {
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+      leavingCopy.stopAndProve.resolves({ proven: false, code: 'COPY_NOT_HELD', reason: 'no peer' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.calledOnce(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('gives back a proven attempt the gate then refuses', async () => {
+      evacuationSafety.canSafelyRemoveApp.onSecondCall().resolves({ safe: false, code: 'BELOW_INSTANCE_COUNT', reason: 'short' });
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('gives back a copy the removal did not remove', async () => {
+      appUninstaller.removeAppLocally.resolves(RemovalOutcome.BUSY);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+      sinon.assert.notCalled(leavingCopy.removed);
+    });
+
+    it('gives back a copy when the removal throws', async () => {
+      appUninstaller.removeAppLocally.rejects(new Error('docker gone'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+    });
+
+    it('gives back an attempt that outlived its turn', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      daemonServiceUtils.executeCall.withArgs('getBlockCount').resolves({ status: 'success', data: GIVE_UP_PASS.height + GIVE_UP_PASS.period });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(leavingCopy.giveBack, stop);
+    });
+  });
+
+  describe('a copy no peer holds', () => {
+    const strandedIndex = require('../../ZelBack/src/services/appMonitoring/strandedIndex');
+    const component = { identifier: 'server_appone', folderId: 'fluxserver_appone', syncMode: 'g' };
+    const noPeer = {
+      safe: false, code: 'NO_SYNCED_PEER', reason: 'no peer', component,
+    };
+
+    beforeEach(() => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      evacuationSafety.canSafelyRemoveApp.resolves(noPeer);
+      sinon.stub(strandedIndex, 'repairIfStranded').resolves({ code: 'NOTHING_STRANDED' });
+      peerIdentityService.askSigned.resolves({
+        verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+        answer: { held: [], purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+      });
+    });
+
+    const heldBy = (address) => peerIdentityService.askSigned.withArgs(address).resolves({
+      verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+      answer: { held: [component.folderId], purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+    });
+
+    it('asks about the node a peer shows is running the component, FDM or no FDM', async () => {
+      heldBy('5.6.7.8:16127');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnceWithExactly(strandedIndex.repairIfStranded, component.folderId, '5.6.7.8:16127', LOCAL);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does nothing more this pass once a folder has restarted', async () => {
+      heldBy('5.6.7.8:16127');
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+      strandedIndex.repairIfStranded.resolves({ code: 'REFETCHED' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledOnce(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('goes on to the next app when nothing restarted', async () => {
+      heldBy('5.6.7.8:16127');
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+    });
+
+    it('leaves a copy alone while no peer shows it runs the component', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('leaves a non-g: copy alone', async () => {
+      heldBy('5.6.7.8:16127');
+      evacuationSafety.canSafelyRemoveApp.resolves({ ...noPeer, component: { ...component, syncMode: 'r' } });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
+    });
+
+    it('leaves a refusal of any other kind alone', async () => {
+      heldBy('5.6.7.8:16127');
+      evacuationSafety.canSafelyRemoveApp.resolves({ ...noPeer, code: 'ONLY_HOST' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(strandedIndex.repairIfStranded);
     });
   });
 
@@ -9017,7 +9500,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       expect(releases(logWarn)).to.have.lengthOf(1);
-      expect(releases(logWarn)[0]).to.include('no longer evacuating');
+      expect(releases(logWarn)[0]).to.include('no longer leaving the app');
     });
 
     it('leaves a component it could not stop unmarked, so the next pass retries', async () => {
@@ -9055,6 +9538,217 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         .map((c) => String(c.args[0]))
         .filter((line) => line.includes('standing down as'));
       expect(stoodDown, 'reported a stand-down for a component still running').to.have.lengthOf(0);
+    });
+  });
+
+  describe('leaving an app whose geolocation no longer admits this node', () => {
+    const TABLE_FAIL = {
+      verdict: hwRequirements.GeoVerdict.FAIL, source: hwRequirements.GeoSource.TABLE, reason: 'not matching',
+    };
+    const KEYS = HOLDERS.map((holder) => holder.key);
+    const PASS_S = 1320;
+    let geolocationVerdict;
+
+    // The first turn at or after GIVE_UP_PASS's that `key` owns.
+    const turnOwnedBy = (key) => {
+      let turn = residentialNodeDosService.turnOf(GIVE_UP_PASS.time * 1000);
+      while (handbackTurns.turnOwner(KEYS, turn) !== key) turn += 1;
+      return turn;
+    };
+    // A pass due `offsetS` into a turn, the pass before it one pass earlier.
+    const passInto = (turn, offsetS) => {
+      const time = ((turn * residentialNodeDosService.TURN_MS) / 1000) + offsetS;
+      return { ...GIVE_UP_PASS, time, previousTime: time - PASS_S };
+    };
+    // Its pass before falls in the same turn.
+    const ownTurn = () => passInto(turnOwnedBy(OWN_KEY), 2 * PASS_S);
+    const releases = (published) => published.getCalls()
+      .filter((call) => call.args[0] === 'giveUp:standDownReleased')
+      .map((call) => call.args[1]);
+
+    beforeEach(() => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL));
+      registryManager.getApplicationGlobalSpecifications.resolves({
+        name: 'appone', version: 8, instances: 3, geolocation: ['acEU_GB'],
+      });
+      geolocationVerdict = sinon.stub(hwRequirements, 'appGeolocationVerdict').resolves(TABLE_FAIL);
+    });
+
+    it('removes the app in a turn it owns', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      expect(appUninstaller.removeAppLocally.firstCall.args[0]).to.equal('appone');
+    });
+
+    it('waits while another holder owns the turn', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(turnOwnedBy('key-b'), 2 * PASS_S));
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('waits on the first pass of a turn it owns', async () => {
+      // The pass before fell in the turn before.
+      await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(turnOwnedBy(OWN_KEY), PASS_S / 2));
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('judges the global specification, not the installed record', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledOnce(geolocationVerdict);
+      expect(geolocationVerdict.firstCall.args[0].geolocation).to.deep.equal(['acEU_GB']);
+    });
+
+    it('does not move an app on a FAIL that rests on the node\'s own report', async () => {
+      geolocationVerdict.resolves({ ...TABLE_FAIL, source: hwRequirements.GeoSource.SELF });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app on an UNKNOWN verdict', async () => {
+      geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.UNKNOWN, source: null, reason: 'unproven' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app whose global specification cannot be read', async () => {
+      registryManager.getApplicationGlobalSpecifications.resolves(null);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('stays while the gap a departure left is unfilled, and says so under its own reason', async () => {
+      // One holder has left and nothing correctly placed has taken the gap:
+      // this one keeps the app, and its data, where it is.
+      const logWarn = sinon.stub(log, 'warn');
+      registryManager.signedHoldersOf.resolves(HOLDERS.slice(0, 2));
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+
+      for (let pass = 0; pass < 12; pass += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+      }
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      const escalations = logWarn.getCalls()
+        .map((call) => String(call.args[0]))
+        .filter((line) => /refused 12 passes running \(MISPLACED, BELOW_INSTANCE_COUNT\)/.test(line));
+      expect(escalations).to.have.lengthOf(1);
+    });
+
+    it('leaves a spare copy to the surplus trim', async () => {
+      const holders = [...HOLDERS, { key: 'key-d', ip: 'key-d:16127', expireAt: new Date(4e12) }];
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'appone', instances: 3 },
+        locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127'),
+        LOCAL,
+        { turn: { ...TURN, holders }, misplaced: TABLE_FAIL },
+      );
+
+      expect(decision).to.include({ giveUp: false, reason: 'MISPLACED', code: 'ABOVE_INSTANCE_COUNT' });
+    });
+
+    it('does not remove once the chain has reached the next pass', async () => {
+      const pass = ownTurn();
+      daemonServiceUtils.executeCall.withArgs('getBlockCount').resolves({ status: 'success', data: pass.height + pass.period });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(pass);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not spend the evacuation interval on a misplaced departure', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
+    });
+
+    describe('a misplaced primary', () => {
+      let stop;
+
+      beforeEach(() => {
+        stop = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+        sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, indeterminate: false, running: false });
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop first', standDown: ['server_appone'],
+        });
+      });
+
+      it('stands down instead of removing the app', async () => {
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        sinon.assert.calledOnceWithExactly(stop, 'server_appone', 'stopped', 'standing down to hand the app back');
+        sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      });
+
+      it('stands for election again once the app is no longer misplaced', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+        geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.PASS, source: null, reason: null });
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'NOT_LEAVING' }]);
+      });
+
+      [
+        ['the read fails', () => geolocationVerdict.rejects(new Error('database busy'))],
+        ['the specification cannot be read', () => registryManager.getApplicationGlobalSpecifications.resolves(null)],
+        ['the region is unproven', () => geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.UNKNOWN, source: null, reason: 'not set' })],
+      ].forEach(([name, arrange]) => {
+        it(`stays stood down when ${name}`, async () => {
+          const published = sinon.spy(fluxEventBus, 'publish');
+          await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+          arrange();
+
+          await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+          expect(releases(published)).to.deep.equal([]);
+          sinon.assert.calledOnce(stop);
+        });
+      });
+
+      it('leaves on the owned turn however long the placement stays unread', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        const stoodDown = turnOwnedBy(OWN_KEY);
+        await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(stoodDown, 2 * PASS_S));
+        geolocationVerdict.rejects(new Error('database busy'));
+        let owned = stoodDown + 1;
+        while (handbackTurns.turnOwner(KEYS, owned) !== OWN_KEY) owned += 1;
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(owned + 1, 2 * PASS_S));
+
+        expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'OWNED_TURN_PASSED' }]);
+      });
+
+      it('stands for election again on the table no longer placing it wrong, whatever its own report', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+        geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.FAIL, source: hwRequirements.GeoSource.SELF, reason: 'report' });
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        expect(releases(published)).to.deep.equal([{ identifier: 'server_appone', reason: 'NOT_LEAVING' }]);
+      });
+
+      it('stays stood down while the app is still misplaced', async () => {
+        const published = sinon.spy(fluxEventBus, 'publish');
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        expect(releases(published)).to.deep.equal([]);
+      });
     });
   });
 

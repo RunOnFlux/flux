@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -7,6 +7,7 @@ import { waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { confirmTwoUpdatesInOneBlock } from '../framework/same-block-updates.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // When an owner's two updates to an app land in one block, every node holds the
 // one the owner signed last, and so does a node that has just restarted and
@@ -37,8 +38,7 @@ describe('an app\'s updates in one block leave every node holding the same spec'
     outcome = await confirmTwoUpdatesInOneBlock(env, name);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -14,7 +14,7 @@
  * and synced its apps, so the node is one of a peered fleet: the middle of three.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -24,6 +24,7 @@ import { enableUpnpGateway, setUpnpListFault, upnpGatewayState } from '../framew
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -60,8 +61,7 @@ describe('a node removes what it mapped on a router that will not list its table
     await giveNodeApiPort(env, SUBJECT, NEW_API_PORT);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

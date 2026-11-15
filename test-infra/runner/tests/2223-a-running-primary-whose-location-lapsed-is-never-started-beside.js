@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -15,6 +15,7 @@ import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/re
 import { isDaemonUp, listFolderFiles } from '../framework/syncthing-real.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A primary's FluxOS dies without announcing a shutdown. Its container and its
 // syncthing go on running, and its location lapses. The standby that remembers
@@ -23,8 +24,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // one still running: a silence it cannot explain is never a reason to.
 //
 // The location expiry and the shutdown window are short so the lapse happens
-// inside the suite; the node-list eviction is set beyond it, so nothing else
-// releases the standby.
+// inside the suite. The primary stays on the node list, so nothing else releases
+// the standby.
 //
 // A = the standby, B = the primary, C = a bystander the discovery ring needs.
 
@@ -61,7 +62,6 @@ describe('a running primary whose location lapsed is never started beside', func
           minIncoming: 1,
           sigtermExpiryS: SIGTERM_EXPIRY_S,
           locationTtlS: LOCATION_TTL_S,
-          nodeMonitorIntervalMs: 60 * 60 * 1000,
         },
       },
     });
@@ -89,8 +89,7 @@ describe('a running primary whose location lapsed is never started beside', func
     await waitForElectionDecisions(client(A), identifier, 'primaryObserved', 1, { timeout: 60000 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await resetFdm().catch(() => {});
     await env?.teardown();
   });

@@ -19,11 +19,6 @@ const log = require('../lib/log');
 
 const COMPLETE_ID = 'complete';
 
-// A router turn waits on a mapping's record (portReconciler.runLane), so each
-// write a turn makes ends within config.upnp.recordWriteLimitMs; one that does
-// not fails as any failed write does.
-const turnWrite = { timeoutMS: config.upnp.recordWriteLimitMs };
-
 // Writes made before the database was connected, by key: the document to write,
 // or null for a record ended.
 const unwritten = new Map();
@@ -31,9 +26,27 @@ const unwritten = new Map();
 // The last add of each mapping this FluxOS made, by key: { at, lease }.
 const lastAdds = new Map();
 
-function collection() {
+/**
+ * The record's collection, or null while the database is not connected.
+ * @param {function(object): object} [onClient] places the database on a client
+ *   other than the main one
+ * @returns {object|null}
+ */
+function collection(onClient = (database) => database) {
   const db = dbHelper.databaseConnection();
-  return db ? db.db(config.database.local.database).collection(config.database.local.collections.upnpMappings) : null;
+  return db ? onClient(db.db(config.database.local.database)).collection(config.database.local.collections.upnpMappings) : null;
+}
+
+/**
+ * The collection for the writes a router turn makes (portReconciler.runLane
+ * waits on them): on the quick client, so each ends within
+ * config.database.quickCallTimeoutMs, and a turn cut off at
+ * config.upnp.turnLimitMs still finishes its write before the next turn starts.
+ * A write that runs out fails as any failed write does.
+ * @returns {object|null}
+ */
+function turnCollection() {
+  return collection(dbHelper.onQuickClient);
 }
 
 const keyOf = (port, protocol) => `${port}/${String(protocol).toUpperCase()}`;
@@ -48,10 +61,10 @@ async function writeUnwritten(records) {
   for (const [key, document] of unwritten) {
     if (document) {
       // eslint-disable-next-line no-await-in-loop
-      await records.updateOne({ _id: key }, { $set: document }, { upsert: true, ...turnWrite });
+      await records.updateOne({ _id: key }, { $set: document }, { upsert: true });
     } else {
       // eslint-disable-next-line no-await-in-loop
-      await records.deleteOne({ _id: key }, turnWrite);
+      await records.deleteOne({ _id: key });
     }
     unwritten.delete(key);
   }
@@ -65,7 +78,7 @@ async function writeUnwritten(records) {
  */
 async function writeWaiting() {
   try {
-    const records = collection();
+    const records = turnCollection();
     if (records) await writeUnwritten(records);
   } catch (error) {
     log.error(`upnpMappingRecord - records made before the database was connected not written: ${error.message}`);
@@ -88,13 +101,13 @@ async function mapping(port, protocol, description, lease) {
   };
   lastAdds.set(key, { at: document.at, lease });
   try {
-    const records = collection();
+    const records = turnCollection();
     if (!records) {
       unwritten.set(key, document);
       return;
     }
     await writeUnwritten(records);
-    await records.updateOne({ _id: key }, { $set: document }, { upsert: true, ...turnWrite });
+    await records.updateOne({ _id: key }, { $set: document }, { upsert: true });
   } catch (error) {
     log.error(`upnpMappingRecord - ${keyOf(port, protocol)} not recorded: ${error.message}`);
   }
@@ -110,13 +123,13 @@ async function removed(port, protocol) {
   const key = keyOf(port, protocol);
   lastAdds.delete(key);
   try {
-    const records = collection();
+    const records = turnCollection();
     if (!records) {
       unwritten.set(key, null);
       return;
     }
     await writeUnwritten(records);
-    await records.deleteOne({ _id: key }, turnWrite);
+    await records.deleteOne({ _id: key });
   } catch (error) {
     log.error(`upnpMappingRecord - ${keyOf(port, protocol)} not cleared: ${error.message}`);
   }

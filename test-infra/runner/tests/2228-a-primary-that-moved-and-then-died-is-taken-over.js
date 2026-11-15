@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { crashFluxos, moveNodeAddress, stopAppContainer } from '../framework/container.js';
@@ -12,6 +12,7 @@ import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { placeSilentPrimaryApp, A, B, C } from '../framework/silent-primary.js';
 import { peerDeathMs } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The primary's public address moves, the network catches up with it, and then
 // the machine dies: no shutdown announcement, its app and its syncthing gone
@@ -54,8 +55,7 @@ describe('a primary that moved and then died is taken over', function () {
     movedIp = oldIp.replace(/\.\d+$/, '.240');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await clearNodeAddress(oldIp).catch(() => {});
     await resetFdm().catch(() => {});

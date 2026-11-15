@@ -29,6 +29,7 @@ const { AsyncGate } = require('../utils/asyncGate');
 //   operatorStopped (durable, appsRuntimeState) - user lock, wins over all.
 //   controllerDesired (in-memory, below)        - election/sync output for g:/r:.
 //   dataDesired       (in-memory, below)        - sync layer's local-appdata reset.
+//   leavingCopies     (in-memory, below)        - a copy being handed back, any mode.
 //   restart policy + actual exit code           - Docker-like restart policy.
 
 // id -> 'running' | 'stopped'. In-memory: re-derived from live truth (FDM
@@ -64,6 +65,10 @@ const controllerDesired = {
 // a start can never race it.
 const dataDesired = new Map();
 
+// Identifiers of copies an attempt to hand back holds stopped (leavingCopy). In
+// memory, as the attempt is: a FluxOS restart forgets both, and the copy runs.
+const leavingCopies = new Set();
+
 // Emits 'cleared' with a component's identifier once its local appdata has been
 // cleared as dataDesired asked.
 const dataEvents = new EventEmitter();
@@ -81,6 +86,7 @@ const dirty = new Set(); // ids re-requested while in flight -> reconcile again
 const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
 const unhandledFailures = new Map(); // id -> consecutive passes that threw
+let stopped = false; // set by stop(): nothing is enqueued or retried until start()
 
 // The boot-drain gate: opens once every boot-held component has completed ONE
 // reconcile pass (started, backoff-deferred, awaiting-controller, or failed
@@ -404,6 +410,7 @@ async function effectiveDesiredRunning(identifier, spec, exitCode) {
     const reason = operatorStop.startRequested ? 'startAwaitsElection' : 'operatorStopped';
     return { desired: false, reason, force: operatorStop.force };
   }
+  if (leavingCopies.has(identifier)) return { desired: false, reason: 'leavingCopy', force: false };
   if (spec.isG || spec.isR) {
     const cd = controllerDesired.get(identifier) ?? null;
     // No controller opinion yet. controllerDesired is in-memory, so a FluxOS
@@ -468,6 +475,7 @@ async function recreateMissing(identifier) {
   } else {
     await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   }
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_RECREATE, identifier);
   try {
     // Created, not started: the pass this enqueues starts it against the desired
     // state as it is then, which a recreate of minutes may have changed.
@@ -815,7 +823,8 @@ async function reconcile(rawIdentifier) {
     // controller everywhere else in this pass (see effectiveDesiredRunning) and
     // reading only the controller here was the one place it did not.
     const operatorStop = await appsRuntimeState.operatorStopState(identifier);
-    if (operatorStop.stopped || controllerDesired.get(identifier) === 'stopped') {
+    const leaving = leavingCopies.has(identifier);
+    if (operatorStop.stopped || leaving || controllerDesired.get(identifier) === 'stopped') {
       try {
         const actualNow = await dockerActual(identifier);
         if (actualNow.reachable && !actualNow.indeterminate && (actualNow.running || actualNow.paused)) {
@@ -823,7 +832,9 @@ async function reconcile(rawIdentifier) {
           // drain. Carried through here too, or an appkill against an unmounted
           // volume quietly becomes a graceful stop.
           const forceKill = operatorStop.stopped && operatorStop.force === true;
-          const reason = operatorStop.stopped ? 'operatorStopped' : 'controllerDesired';
+          let reason = 'controllerDesired';
+          if (operatorStop.stopped) reason = 'operatorStopped';
+          else if (leaving) reason = 'leavingCopy';
           log.info(`appReconciler - ${identifier} data volume unavailable but a stop is desired; ${forceKill ? 'killing' : 'stopping'} the container`);
           if (forceKill) {
             await dockerService.appDockerKill(identifier);
@@ -1200,6 +1211,7 @@ async function reconcile(rawIdentifier) {
 // --- workqueue (per-key single-flight, boot-gated) -----------------------
 
 function scheduleRetry(identifier, delayMs) {
+  if (stopped) return;
   if (backoffTimers.has(identifier)) clearTimeout(backoffTimers.get(identifier));
   const timer = setTimeout(() => {
     backoffTimers.delete(identifier);
@@ -1253,9 +1265,11 @@ function runReconcile(identifier) {
 /**
  * Schedule a reconcile of one component. Coalesces: if a reconcile for the
  * same identifier is in flight, it re-runs once when that finishes. Held until
- * the boot gate opens so nothing actuates before daemon/DB are ready.
+ * the boot gate opens so nothing actuates before daemon/DB are ready. Does
+ * nothing once the reconciler is stopped.
  */
 function enqueue(rawIdentifier) {
+  if (stopped) return null;
   const identifier = canonical(rawIdentifier);
   if (!globalState.bootContainerStateSettled) {
     bootPending.add(identifier);
@@ -1484,6 +1498,33 @@ async function setControllerDesiredAndWait(rawIdentifier, state, reason) {
   }, { awaitPass: true });
 }
 
+/**
+ * Holds a copy being handed back stopped, whatever its mode, until
+ * releaseLeavingCopy. Returns once the reconcile it causes has run.
+ * @param {string} rawIdentifier Component identifier.
+ * @returns {Promise<boolean>} False when nothing has acted on it yet - see applyIntent.
+ */
+async function holdLeavingCopy(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  return applyIntent(identifier, () => {
+    leavingCopies.add(identifier);
+    log.info(`appReconciler - ${identifier} held stopped: a copy being handed back`);
+    fluxEventBus.publish('reconciler:desiredChanged', { identifier, state: 'stopped', reason: 'leavingCopy' });
+  }, { awaitPass: true });
+}
+
+/**
+ * Ends holdLeavingCopy's hold; the component's other inputs decide again.
+ * @param {string} rawIdentifier Component identifier.
+ * @returns {void}
+ */
+function releaseLeavingCopy(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  if (!leavingCopies.delete(identifier)) return;
+  log.info(`appReconciler - ${identifier} no longer held: the copy stays`);
+  enqueue(identifier);
+}
+
 /** What a request to run a component came to (setRunningUnlessOperatorStopped). */
 const RunRequest = Object.freeze({
   WRITTEN: 'written',
@@ -1678,6 +1719,7 @@ function forgetDesiredState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   controllerDesired.delete(identifier);
   dataDesired.delete(identifier);
+  leavingCopies.delete(identifier);
   // A removed component keeps no failure history: these are keyed by identifier
   // and a reinstall under the same name would otherwise start part-way up the
   // count and reach the sweep sooner than a first failure should - or, for the
@@ -1710,6 +1752,7 @@ let started = false;
 async function start() {
   if (started) return;
   started = true;
+  stopped = false;
   await globalState.waitForBootContainerStateSettled();
   // drain everything enqueued during boot now that daemon/DB are ready
   const pending = [...bootPending];
@@ -1727,8 +1770,13 @@ async function start() {
   pending.forEach((id) => enqueue(id));
 }
 
+/**
+ * Stop reconciling: nothing is enqueued or retried until the next start(). A pass
+ * already running finishes, and schedules nothing.
+ */
 function stop() {
   started = false;
+  stopped = true;
   backoffTimers.forEach((t) => clearTimeout(t));
   backoffTimers.clear();
   unhandledFailures.clear();
@@ -1754,6 +1802,8 @@ module.exports = {
   adoptControllerDesired,
   forgetDesiredState,
   setControllerDesiredAndWait,
+  holdLeavingCopy,
+  releaseLeavingCopy,
   setRunningUnlessOperatorStopped,
   committedIdentifiers,
   requestStopAndClearData,

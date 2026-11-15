@@ -8,6 +8,7 @@ module.exports = {
     heartbeatIntervalMs: 30000,
     bootSyncTimeoutMs: 300000,
     bootDaemonTimeoutMs: 300000,
+    bootAppsReconcileTimeoutMs: 300000,
   },
   peers: {
     wsPingIntervalMs: 15000,
@@ -34,6 +35,23 @@ module.exports = {
     stuckIntervals: 6,
     stopWindowMs: 60 * 1000,
   },
+  // The least time between two fetches of the node list: under the 30 s block
+  // time, so the list refreshes on every block.
+  networkState: {
+    minFetchIntervalMs: 25000,
+  },
+  // A node that keeps going out of service is held out longer each time. Its
+  // episodes are counted over the last windowBlocks; a 1st or 2nd keeps it from
+  // new apps for quarantineBlocks once back in service, the 3rd holds it out for
+  // shortHoldBlocks and then from new apps for heldQuarantineBlocks, and the 4th
+  // and later hold it out for longHoldBlocks. 120 blocks is one hour of 30 s blocks.
+  dosRecurrence: {
+    windowBlocks: 2880,
+    quarantineBlocks: 120,
+    heldQuarantineBlocks: 720,
+    shortHoldBlocks: 720,
+    longHoldBlocks: 2880,
+  },
   database: {
     url: database,
     port: 27017,
@@ -42,8 +60,12 @@ module.exports = {
     // over four times the slowest healthy round trip seen on the fleet.
     // maintenanceCallTimeoutMs bounds the client for the named long operations:
     // index builds, the explorer restore's deletes and the registry rebuild.
+    // quickCallTimeoutMs bounds every step of a call on the client for callers
+    // that cannot wait long (dbHelper.onQuickClient), finding the server
+    // included. A local write takes milliseconds.
     callTimeoutMs: 60 * 1000,
     maintenanceCallTimeoutMs: 15 * 60 * 1000,
+    quickCallTimeoutMs: 5 * 1000,
     // The database is suspect, and the node takes on no new apps, once
     // suspectRoundTrips round trips have run out within suspectWindowMs. It stops
     // being suspect suspectWindowMs after the last one.
@@ -61,7 +83,10 @@ module.exports = {
         benchmark: 'benchmark',
         nodeStartupTracker: 'nodestartuptracker',
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
+        dosRecurrence: 'dosrecurrence', // the heights of this node's recent DOS episodes, and the holds they put on it
         upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
+        syncthingDroppedDevices: 'syncthingdroppeddevices', // each device this node took out of an app folder and has not added back
+        unannouncedRemovals: 'unannouncedremovals', // removals this node could not announce when it made them, until their location row would have expired
       },
     },
     daemon: {
@@ -69,11 +94,8 @@ module.exports = {
       collections: {
         // addreesIndex contains a) balance, b) list of all transacitons, c) list of utxos
         scannedHeight: 'scannedheight',
-        utxoIndex: 'utxoindex',
-        addressTransactionIndex: 'addresstransactionindex',
         fluxnodeAddresses: 'fluxnodeaddresses',
         appsHashes: 'zelappshashes',
-        coinbaseFusionIndex: 'coinbasefusionindex',
       },
     },
     appslocal: {
@@ -90,6 +112,8 @@ module.exports = {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
+        appsHeldMessages: 'zelappsheldmessages', // temp app messages received and not yet checked
+        appsMessagesStaging: 'zelappsmessagesstaging', // messages fetched from peers in bulk, held until this node has verified them
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsInstallingLocations',
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
@@ -119,7 +143,6 @@ module.exports = {
     longLivedLeaseS: 35 * 60,
     renewalTestLeaseS: 60,
     turnLimitMs: 60 * 1000,
-    recordWriteLimitMs: 500,
   },
   benchmark: {
     host: '127.0.0.1',
@@ -138,7 +161,7 @@ module.exports = {
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.0.0',
-  minimumNodeJsAllowedVersion: '20.8.0',
+  minimumNodeJsAllowedVersion: '24.14.1',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '28.1.1',
   minimumMongoDbAllowedVersion: '6.0.27',
@@ -330,6 +353,30 @@ module.exports = {
     installingTtlS: 900,
     installErrorTtlS: 86400,
     tempMsgTtlS: 3600,
+    clientTagCap: 20,
+    originKeyCap: 100,
+    linkHandshakesPerIp: 6,
+    linkHandshakeWindowMs: 600000,
+    linkHandshakeBackoffMs: 600000,
+    nodeAuthCallsConcurrent: 2,
+    nodeAuthCallsQueued: 32,
+    linkHandshakeDeadlineMs: 10000,
+    hashFetchRttMultiplier: 3,
+    hashFetchBaseMs: 100,
+    hashFetchDefaultMs: 500,
+    hashFetchLateMs: 50,
+    hashFetchMaxBackoff: 4,
+    hashFetchesMax: 5000,
+    hashFetchMissesToDisconnect: 20,
+    hashFetchMissesPerServed: 10,
+    hashFetchMissWindowMs: 600000,
+    hashFetchDisconnectFrom: '8.24.0',
+    untaggedRefusedFrom: '8.24.0',
+    admissionQuorum: 3,
+    admissionLinkTarget: 5,
+    admissionTimeoutMs: 10000,
+    admissionHoldMs: 25000,
+    admissionHoldMax: 500,
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,
@@ -372,6 +419,7 @@ module.exports = {
     discoveryFailRetryMs: 120000,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
+    addressMoveWaitMs: 1200000,
     spawnDeferrals: {
       staticIpMs: { enterprise: 1620000, standard: 3420000 },
       datacenterMs: { enterprise: 1620000, standard: 3420000 },
@@ -397,21 +445,30 @@ module.exports = {
     hashSyncPeersPerRound: 3,
     hashSyncEphemeralPeers: 5,
     hashSyncFallbackRecheckBlocks: 100,
+    messageReaderIdleMs: 30000,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,
+    discoveryMaxOutbound: 14,
+    discoveryMinUniqueOutboundIps: 9,
+    discoveryMaxInbound: 12,
+    discoveryMinUniqueInboundIps: 5,
+    discoveryMaxIterations: 100,
     nodeMonitorRemovalDelayMs: 5000,
     pullStallMs: 90000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
+    syncAnswerBatchBytes: 8 * 1024 * 1024,
+    gossipMessageMaxBytes: 8 * 1024 * 1024,
+    peerFrameMaxBytes: (8 * 1024 * 1024) + (64 * 1024),
+    wsMaxPayloadBytes: 100 * 1024 * 1024,
     residentialCheckIntervalMs: 21600000,
     residentialSettleMs: 86400000,
     residentialEvacuationIntervalMs: 21600000,
-    residentialTurnMs: 3600000, // 60m - must hold two 22m give-up passes, see ZelBack/config/default.js
+    handbackTurnMs: 3600000, // 60m - must hold two 22m give-up passes, see ZelBack/config/default.js
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
-    nodeMonitorCheckTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,
     imageUpdateInitialDelayMinMs: 600000,
     imageUpdateInitialDelayMaxMs: 1800000,

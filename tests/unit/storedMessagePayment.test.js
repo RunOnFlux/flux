@@ -10,9 +10,11 @@ const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('a stored message follows this node\'s payment record', () => {
+  after(releaseMongo);
+
   const { appsMessages, appsInformation } = config.database.appsglobal.collections;
   const { appsHashes } = config.database.daemon.collections;
   const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';

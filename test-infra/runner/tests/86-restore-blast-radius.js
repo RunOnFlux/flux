@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -12,6 +12,7 @@ import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/re
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The blast radius of a restore is the node it runs on.
 //
@@ -129,8 +130,7 @@ describe('a restore does not reach the other instances data', function () {
     expect(peerContainerBefore, 'peer container id').to.not.equal('none');
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetFdm().catch(() => {});
     await resetSyncState().catch(() => {});
     await env?.teardown();

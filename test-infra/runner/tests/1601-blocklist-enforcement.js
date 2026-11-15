@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -13,6 +13,7 @@ import {
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { dbClient } from '../framework/db-client.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const REGISTRY = REGISTRY_REPO_HOST;
 
@@ -86,8 +87,7 @@ describe('Blocklist enforcement over the published policy document', function ()
     expect(hostIndex).to.be.gte(0);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await setBlocklist([]).catch(() => {});
     await stopTicker().catch(() => {});
     await env?.teardown();

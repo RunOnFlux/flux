@@ -1,6 +1,11 @@
+const http = require('node:http');
+const net = require('node:net');
+const { once } = require('node:events');
 const { expect } = require('chai');
+const express = require('express');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('messageVerifier tests', () => {
   let messageVerifier;
@@ -157,8 +162,10 @@ describe('messageVerifier tests', () => {
     let updateOneInDatabaseStub;
     let verifierWithStubs;
     let buildVerifier;
+    let storeAppTemporaryMessageStub;
 
     beforeEach(() => {
+      storeAppTemporaryMessageStub = sinon.stub().resolves();
       getPreviousAppSpecsStub = sinon.stub();
       signatureVerifierStub = { verifySignature: sinon.stub().returns(true) };
       storeAppPermanentMessageStub = sinon.stub().resolves();
@@ -234,7 +241,7 @@ describe('messageVerifier tests', () => {
         },
         './messageStore': {
           storeAppPermanentMessage: storeAppPermanentMessageStub,
-          storeAppTemporaryMessage: sinon.stub().resolves(),
+          storeAppTemporaryMessage: storeAppTemporaryMessageStub,
         },
         '../utils/appUtilities': {
           appPricePerMonth: sinon.stub().returns(1000),
@@ -329,6 +336,39 @@ describe('messageVerifier tests', () => {
         expect(result).to.equal(true);
         expect(markedResolved()).to.be.true;
         expect(storeAppSpecificationInForceStub.calledBefore(updateOneInDatabaseStub)).to.be.true;
+      });
+
+      describe('the updates queued behind it', () => {
+        const queuedUpdate = (hash) => ({
+          message: { type: 'fluxappupdate', hash, appSpecifications: { name: 'testapp' } }, height: 2000001, release: sinon.stub(),
+        });
+
+        it('replays each, and gives back each one\'s place in its sender\'s allowance once every replay has run', async () => {
+          const queued = [queuedUpdate('u1'), queuedUpdate('u2')];
+          sinon.stub(globalState, 'getPendingUpdates').returns(queued);
+          const verifier = buildVerifier({ tempMessage: registration, paymentRecord: paidInFull });
+
+          await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+          sinon.assert.calledTwice(storeAppTemporaryMessageStub);
+          sinon.assert.calledWithExactly(storeAppTemporaryMessageStub.firstCall, queued[0].message, { authenticated: true });
+          queued.forEach(({ release }) => {
+            sinon.assert.calledOnce(release);
+            expect(release.firstCall.callId, 'a place was given back before its replay took one').to.be.above(storeAppTemporaryMessageStub.secondCall.callId);
+          });
+        });
+
+        it('gives back the place of every queued update when one fails and the rest are dropped', async () => {
+          const queued = [queuedUpdate('u1'), queuedUpdate('u2'), queuedUpdate('u3')];
+          sinon.stub(globalState, 'getPendingUpdates').returns(queued);
+          storeAppTemporaryMessageStub.onSecondCall().rejects(new Error('not valid'));
+          const verifier = buildVerifier({ tempMessage: registration, paymentRecord: paidInFull });
+
+          await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+          sinon.assert.calledTwice(storeAppTemporaryMessageStub);
+          queued.forEach(({ release }) => sinon.assert.calledOnce(release));
+        });
       });
 
       it('writes the row of a stored message when its hash is resolved again', async () => {
@@ -758,6 +798,95 @@ describe('messageVerifier tests', () => {
       expect(result).to.be.true;
       expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledOnce).to.be.true;
       expect(appUtilitiesStub.specificationFormatter.calledOnce).to.be.true;
+    });
+  });
+
+  describe('getAppsPermanentMessages, to a reader that takes nothing', () => {
+    // 40 MB of answer: more than the socket buffers at both ends hold, so a reader that stops
+    // reading leaves the server waiting for it.
+    const PADDING = 'x'.repeat(10 * 1024);
+    const ANSWER_MESSAGES = 4000;
+    const answer = Array.from({ length: ANSWER_MESSAGES }, (_, i) => ({ hash: `h${i}`, padding: PADDING }));
+    let server;
+
+    afterEach(async () => {
+      if (!server) return;
+      server.closeAllConnections();
+      server.close();
+      await once(server, 'close');
+      server = null;
+    });
+
+    /**
+     * Serves the route with the given reader limit, its messages read after `readMs`, and resolves
+     * `responseClosed` with how long after the request the response closed.
+     */
+    async function serveAnswer(readerIdleMs, readMs = 0) {
+      const findInDatabase = sinon.stub().callsFake(async () => {
+        await new Promise((resolve) => { setTimeout(resolve, readMs); });
+        return answer;
+      });
+      const verifier = proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
+        config: { ...configStub, fluxapps: { messageReaderIdleMs: readerIdleMs } },
+        '../dbHelper': { databaseConnection: () => ({ db: () => ({}) }), findInDatabase },
+        '../../lib/log': logStub,
+      });
+      let closed;
+      const responseClosed = new Promise((resolve) => { closed = resolve; });
+      const app = express();
+      app.get('/apps/permanentmessages', (req, res) => {
+        const at = Date.now();
+        res.once('close', () => closed(Date.now() - at));
+        verifier.getAppsPermanentMessages(req, res);
+      });
+      server = http.createServer(app);
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      return { port: server.address().port, responseClosed };
+    }
+
+    async function readWhole(port) {
+      const res = await new Promise((resolve, reject) => {
+        http.get(`http://127.0.0.1:${port}/apps/permanentmessages`, resolve).on('error', reject);
+      });
+      const chunks = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for await (const chunk of res) chunks.push(chunk);
+      return JSON.parse(Buffer.concat(chunks).toString());
+    }
+
+    it('closes the connection of a reader that takes nothing for messageReaderIdleMs', async function () {
+      this.timeout(10000);
+      const { port, responseClosed } = await serveAnswer(200);
+
+      const reader = net.connect(port, '127.0.0.1');
+      reader.on('error', () => {});
+      reader.write('GET /apps/permanentmessages HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');
+      reader.pause();
+
+      const closedAfterMs = await responseClosed;
+      reader.destroy();
+
+      expect(closedAfterMs, 'closed before the reader had been waited on for the limit').to.be.at.least(200);
+    });
+
+    it('answers in full a reader that keeps reading', async function () {
+      this.timeout(20000);
+      const { port } = await serveAnswer(500);
+
+      const body = await readWhole(port);
+
+      expect(body.status).to.equal('success');
+      expect(body.data).to.have.lengthOf(ANSWER_MESSAGES);
+    });
+
+    it('does not count the time this node spends reading the messages against the reader', async function () {
+      this.timeout(20000);
+      const { port } = await serveAnswer(200, 600);
+
+      const body = await readWhole(port);
+
+      expect(body.data).to.have.lengthOf(ANSWER_MESSAGES);
     });
   });
 });

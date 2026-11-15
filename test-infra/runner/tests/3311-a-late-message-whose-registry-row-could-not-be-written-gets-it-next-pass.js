@@ -9,7 +9,7 @@
  * the stored copies. The node must hold every app at its newest message within a few
  * passes, and must never have backed off one of those hashes.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
@@ -18,6 +18,7 @@ import { waitForDaemonReady, waitForOrchestratorState, waitFor } from '../framew
 import { failCommands } from '../framework/mongo-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODES = 4;
 // the running node: held back until the fleet is up
@@ -91,8 +92,7 @@ describe('a late message whose registry row could not be written gets it on the 
     step('fetched in bulk');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await release?.().catch(() => {});
     await env?.teardown();
   });

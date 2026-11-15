@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
@@ -13,6 +13,7 @@ import {
   waitForImageUpdateRedeploy, waitForImageUpdateRedeployComplete,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 function localRegistryCompose(appName) {
   return [{
@@ -87,8 +88,7 @@ describe('Non-enterprise image update redeploy', function () {
     installedNodeIndex = installed;
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -183,8 +183,7 @@ describe('Enterprise image update redeploy', function () {
     installedNodeIndex = installed;
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

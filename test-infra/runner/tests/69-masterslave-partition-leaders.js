@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -15,6 +15,7 @@ import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PARTITION_PEERS } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A g: app whose holders end up on opposite sides of a partition, with the syncthing
 // seed at a non-zero election index (see 68 for why that arrangement needs building).
@@ -99,8 +100,7 @@ describe('a g: app with holders on both sides of a partition', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.healPartition(groupA, groupB).catch(() => {});
     await resetSyncState().catch(() => {});
     await resetFdm().catch(() => {});

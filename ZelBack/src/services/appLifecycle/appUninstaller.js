@@ -97,11 +97,91 @@ function finishRemoval(appName, force, announce) {
   });
 }
 
+// This node's removals it could not announce when it made them.
+function unannouncedRemovals() {
+  return {
+    database: dbHelper.databaseConnection().db(config.database.local.database),
+    collection: config.database.local.collections.unannouncedRemovals,
+  };
+}
+
+/**
+ * Sends this node's fluxappremoved for an app, from `ip`.
+ * @param {string} appName
+ * @param {string} ip This node's socket address now.
+ * @returns {Promise<void>}
+ */
+async function sendRemoval(appName, ip) {
+  const appRemovedMessage = {
+    type: 'fluxappremoved',
+    version: 1,
+    appName,
+    ip,
+    broadcastedAt: Date.now(),
+  };
+  log.info(`Broadcasting appremoved message for ${appName} to the network`);
+  await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
+}
+
+/**
+ * Keeps a removal this node cannot announce now, to be announced once it can
+ * (announceKeptRemovals), for as long as a peer could still hold the app's
+ * location row on this node: until this node's own row of it expires. With no
+ * unexpired row there is nothing for the announcement to cancel, and nothing is
+ * kept.
+ * @param {string} appName
+ * @param {string|null} ip This node's socket address, when it knows it now.
+ * @returns {Promise<void>}
+ */
+async function keepRemoval(appName, ip) {
+  try {
+    const address = ip || fluxNetworkHelper.getKnownLocalSocketAddress();
+    const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+    const rows = address
+      ? await dbHelper.findInDatabase(database, config.database.appsglobal.collections.appsLocations, { name: appName, ip: address }, { projection: { _id: 0, expireAt: 1 } })
+      : [];
+    const expireAt = (rows || []).reduce((latest, row) => (row.expireAt && (!latest || row.expireAt > latest) ? row.expireAt : latest), null);
+    if (!expireAt || expireAt <= new Date()) {
+      log.warn(`${appName} removed without announcing it - peers do not accept this node's messages, and no location row of it on this node is left for an announcement to cancel`);
+      return;
+    }
+    const kept = unannouncedRemovals();
+    await dbHelper.updateOneInDatabase(kept.database, kept.collection, { appName }, { $set: { appName }, $max: { expireAt } }, { upsert: true });
+    log.warn(`${appName} removed while peers do not accept this node's messages; its removal is announced once they do`);
+  } catch (error) {
+    log.error(`${appName} removed without announcing it, and its removal could not be kept: ${error.message}`);
+  }
+}
+
+/**
+ * Announces each removal keepRemoval kept, from this node's address now, and
+ * forgets it. One whose location row has expired since, or whose app is installed
+ * here again, is forgotten unsent. For the announcement cycle, inside it, once
+ * peers accept this node's messages at its address.
+ * @param {Set<string>} installedNames The apps installed here now.
+ * @param {string} ip This node's socket address now.
+ * @returns {Promise<void>}
+ */
+async function announceKeptRemovals(installedNames, ip) {
+  if (!ip || !nodeConfirmationService.canSendMessages()) return;
+  const { database, collection } = unannouncedRemovals();
+  const kept = await dbHelper.findInDatabase(database, collection, {}, { projection: { _id: 0, appName: 1, expireAt: 1 } });
+  const now = new Date();
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { appName, expireAt } of kept) {
+    // eslint-disable-next-line no-await-in-loop
+    if (expireAt > now && !installedNames.has(appName)) await sendRemoval(appName, ip);
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.removeDocumentsFromCollection(database, collection, { appName });
+  }
+}
+
 /**
  * Tells the network this node no longer holds the app (fluxappremoved), and drops it
  * from the running apps cache. For an app whose removal from this node is complete or
- * committed. Sends nothing while peers would not accept this node's messages
- * (nodeConfirmationService.canSendMessages).
+ * committed. While peers would not accept this node's messages
+ * (nodeConfirmationService.canSendMessages) the removal is kept and announced once
+ * they would (keepRemoval).
  * @param {string} appName
  * @returns {Promise<void>}
  */
@@ -115,25 +195,10 @@ async function announceRemoval(appName) {
   // span has its own time limit.
   await globalState.announceCycle.waitReady({ waitAll: false });
   const ip = await fluxNetworkHelper.getLocalSocketAddress();
-  if (!ip) {
-    log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
-    return;
-  }
   // Read as the message would go out: whether this node can be heard changes
   // while a removal waits its turn.
-  if (!nodeConfirmationService.canSendMessages()) {
-    log.warn(`${appName} removed without announcing it - peers do not accept this node's messages, so they hold its location row until it expires`);
-    return;
-  }
-  const appRemovedMessage = {
-    type: 'fluxappremoved',
-    version: 1,
-    appName,
-    ip,
-    broadcastedAt: Date.now(),
-  };
-  log.info('Broadcasting appremoved message to the network');
-  await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
+  if (ip && nodeConfirmationService.canSendMessages()) await sendRemoval(appName, ip);
+  else await keepRemoval(appName, ip);
   // a removal still being finished has nothing left to tell
   const pending = unfinishedRemovals.get(appName);
   if (pending) pending.announce = false;
@@ -740,6 +805,22 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
 }
 
 /**
+ * Removes a container a soft uninstall takes down. One that is not there is
+ * already removed: a redeploy stopped part way leaves its app with no container,
+ * and the next one must not fail on it.
+ * @param {string} appId
+ * @returns {Promise<void>}
+ */
+async function removeContainerUnlessGone(appId) {
+  try {
+    await dockerService.appDockerRemove(appId);
+  } catch (error) {
+    if (!dockerService.isContainerNotFound(error)) throw error;
+    log.info(`Container ${appId} is not there; nothing to remove`);
+  }
+}
+
+/**
  * Soft uninstall a component (container and image removal only, keeps data)
  * @param {string} appName - Parent application name
  * @param {string} appId - Component ID
@@ -787,7 +868,7 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
     if (res.flush) res.flush();
   }
 
-  await dockerService.appDockerRemove(appId);
+  await removeContainerUnlessGone(appId);
 
   log.info(`Flux App component ${componentName} container removed`);
   if (res) {
@@ -873,7 +954,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
     if (res.flush) res.flush();
   }
 
-  await dockerService.appDockerRemove(appId);
+  await removeContainerUnlessGone(appId);
 
   log.info(`Flux App ${appName} container removed`);
   if (res) {
@@ -1356,6 +1437,17 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
 }
 
 /**
+ * This node's share of a global removal: the removal the route makes when it
+ * is sent neither force nor global.
+ *
+ * @param {string} appname - Application name
+ * @returns {Promise<string>} The removal outcome
+ */
+function removeHere(appname) {
+  return removeAppLocally(appname, null, false, true, true);
+}
+
+/**
  * API endpoint for removing application locally
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -1401,7 +1493,7 @@ async function removeAppLocallyApi(req, res) {
     if (global) {
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'appremove', authOf(req)); // do not wait
+      appController.executeAppGlobalCommand(appname, 'appremove', authOf(req), undefined, removeHere); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global reinstallation`);
       return res.json(appResponse);
     }
@@ -1424,6 +1516,7 @@ async function removeAppLocallyApi(req, res) {
 
 module.exports = {
   announceRemoval,
+  announceKeptRemovals,
   finishRemoval,
   hardUninstallComponent,
   hardUninstallApplication,
@@ -1433,5 +1526,6 @@ module.exports = {
   removeAppLocally,
   softRemoveAppLocally,
   removeAppLocallyApi,
+  removeHere,
   setOnComponentRemoved,
 };

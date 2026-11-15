@@ -22,7 +22,7 @@
 // own isolation rules, so the chain alone must hold.
 //
 // The harness host runs without br_netfilter; 2503 runs these paths with it loaded.
-import { describe, it, before, after, beforeEach, afterEach } from 'mocha';
+import { describe, it, before, beforeEach, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartDockerd, restartFluxos } from '../framework/container.js';
@@ -35,6 +35,7 @@ import { dumpLogsOnFailure, startCapture, stopCapture } from '../framework/log-o
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const NODE = 0;
 const OUTSIDE = 1;
@@ -270,7 +271,7 @@ describe('2502 app containers are kept off private networks and off each other\'
     await waitForBootSettled(node, RULES_TIMEOUT_MS, { afterId: restartedAt });
   });
 
-  after(async () => {
+  afterTeardown(async () => {
     await env?.teardown();
   });
 

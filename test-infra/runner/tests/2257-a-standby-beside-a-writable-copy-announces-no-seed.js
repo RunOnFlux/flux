@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -15,6 +15,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { isDaemonUp, listFolderFiles, getFolderConfig } from '../framework/syncthing-real.js';
 import { syncthingSeedIndex } from '../framework/g-app-placement.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A standby whose primary already holds the writable copy announces no intent to
 // seed it. The app holds no data anywhere, so no holder outranks another by what
@@ -75,8 +76,7 @@ describe('a standby beside a writable copy announces no seed', function () {
     await waitForElectionDecisions(client(A), identifier, 'primaryObserved', 1, { timeout: 120000 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await resetFdm().catch(() => {});
     await env?.teardown();
   });

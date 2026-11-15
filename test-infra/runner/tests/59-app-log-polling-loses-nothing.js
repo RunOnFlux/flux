@@ -33,7 +33,7 @@
  * checkable: a gap and a repeat are both visible in the sequence, and identical
  * lines would hide both.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
@@ -45,6 +45,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('a log poll answers at once and loses nothing between polls', function () {
   let env;
@@ -125,8 +126,7 @@ describe('a log poll answers at once and loses nothing between polls', function 
     );
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

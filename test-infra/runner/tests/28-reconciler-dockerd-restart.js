@@ -1,9 +1,9 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { getAppContainerStatus, restartDockerd } from '../framework/container.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
-import { dbClient } from '../framework/db-client.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
@@ -11,6 +11,7 @@ import {
   waitForAppInstalled, waitFor, waitForReconcileActuated,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Must-pass fleet gate. A dockerd restart underneath a running FluxOS leaves the
 // app containers exited with no die event reaching the watcher. When the docker
@@ -54,12 +55,7 @@ async function seedAndWaitForInstall(env, appName) {
     }],
   });
 
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    await dc.seedGlobalAppSpec(app.spec);
-    await dc.seedPermanentMessage(app.permanentMessage);
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
+  await deliverApp(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
 
   const installed = await Promise.any(
     env.clients.map(async (c, i) => {
@@ -84,8 +80,7 @@ describe('reconciler recovers orphaned containers after a dockerd restart', func
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

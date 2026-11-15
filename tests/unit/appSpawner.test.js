@@ -153,9 +153,11 @@ describe('appSpawner tests', () => {
       '../fluxNetworkHelper': {
         getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
         isPortOpen: sinon.stub().resolves(true),
-        isNodeDos: sinon.stub().returns(false),
         isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
         getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
+      },
+      '../nodeDosState': {
+        isNodeDos: sinon.stub().returns(false),
       },
       '../daemonService/daemonServiceMiscRpcs': {
         isDaemonSynced: daemonSyncStub,
@@ -1181,6 +1183,22 @@ describe('appSpawner tests', () => {
       sinon.assert.notCalled(installStub);
     });
 
+    it('stands down without blaming the network when another installation on this node holds a port', async () => {
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+      const portCheck = sinon.stub();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, installStub, portCheck,
+      });
+      portCheck.resolves({ ok: false, reason: 'portClaimed', port: 31001 });
+
+      const delay = await appSpawner.trySpawningGlobalApplication();
+
+      expect(delay).to.equal(60000);
+      sinon.assert.notCalled(installStub);
+      sinon.assert.calledWithMatch(logStub.info, /port 31001 of .* is held by another installation on this node/);
+      sinon.assert.neverCalledWithMatch(logStub.error, /not available publicly/);
+    });
+
     it('should test the ports for the application it is spawning, by name', async () => {
       const portCheck = sinon.stub();
       buildModule({
@@ -1342,6 +1360,14 @@ describe('appSpawner tests', () => {
       globalStateStub.spawnErrorsLongerAppCache.set('abc123', '');
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(logStub.info.args.some((a) => a[0]?.includes?.('No app currently to be processed'))).to.be.true;
+    });
+
+    it('selects an app it last found covered, now it is short of its count', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0 });
+      globalStateStub.trySpawningGlobalAppCache.set('abc123', 'covered');
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(logStub.info.args.some((a) => a[0]?.includes?.('No app currently to be processed'))).to.be.false;
+      expect(logStub.info.args.some((a) => a[0]?.includes?.('selected to try to spawn'))).to.be.true;
     });
 
     it('should filter apps in short-term cache from selection', async () => {
@@ -1805,6 +1831,7 @@ describe('appSpawner tests', () => {
         globalStateStub.trySpawningGlobalAppCache.has('abc123'),
         'dropped a decline that three running copies fully justify',
       ).to.be.true;
+      expect(globalStateStub.trySpawningGlobalAppCache.get('abc123'), 'recorded as an attempt').to.equal('covered');
     });
 
     it('still claims when the network is one instance short', async () => {

@@ -2,11 +2,13 @@ const { expect } = require('chai');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 // Against the database itself: the rule is decided inside the one write, so a
 // stand-in for that write could only restate it.
 describe('appsRuntimeState keyed restart requests', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const ID = 'web_restartkeyapp';

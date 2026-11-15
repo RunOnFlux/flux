@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus } from '../framework/container.js';
@@ -8,6 +8,7 @@ import {
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The events consumer is the EDGE half of the level-triggered design: it only
 // accelerates the same evaluation the periodic poll drives, so every stream
@@ -44,8 +45,7 @@ describe('syncthing events-stream outage degrades to the poll, never to wrong ac
     await setSyncing({ ip: subnet.nodeIp(1), folder: app.folder, percent: 40 });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await env?.teardown();
   });

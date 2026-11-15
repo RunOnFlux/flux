@@ -5,6 +5,7 @@ const { PeerRequests } = require('../utils/peerRequests');
 const dbHelper = require('../dbHelper');
 const appHashSyncService = require('./appHashSyncService');
 const peerNotification = require('./peerNotification');
+const tempMessageHold = require('./tempMessageHold');
 const registryManager = require('../appDatabase/registryManager');
 const globalState = require('../utils/globalState');
 const peerCodec = require('../utils/peerCodec');
@@ -71,6 +72,9 @@ function freshSyncCompletions() {
   };
 }
 
+// The orchestrator started and not yet stopped, read by the test-state snapshot.
+let running = null;
+
 class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
   #blockEmitter = null;
@@ -105,6 +109,12 @@ class AppSyncOrchestrator {
   #budgetStalled = false;
   #explorerSynced = false;
   #hashSyncComplete = false;
+  /**
+   * The initial hash sync failed every attempt it gets. Block-driven hash
+   * retries run once the initial sync has completed or given up.
+   * @type {boolean}
+   */
+  #hashSyncGaveUp = false;
   #dbRebuilt = false;
   #blocksSinceSyncStarted = 0;
   #blockReceivedHandler = null;
@@ -118,6 +128,7 @@ class AppSyncOrchestrator {
 
   #ephemeralWriteFailedHandler = null;
   #ephemeralProgressHandler = null;
+  #ephemeralBusyHandler = null;
   #hashUnresolvedHandler = null;
 
   #hashCheckRequestedHandler = null;
@@ -140,6 +151,10 @@ class AppSyncOrchestrator {
   // A completed sync paused at the authority checkpoint, so later answers do
   // not pause a second completion behind it.
   #completionHeld = false;
+  // A block timer that has run out grants authority once what was held is checked.
+  #timerHoldChecked = false;
+  // Peers whose chunks this node is working through, so no clock runs against them.
+  #workingOn = new Set();
   #syncTimeout = null;
   /**
    * The requests this node has outstanding, and how each ended.
@@ -194,6 +209,18 @@ class AppSyncOrchestrator {
     return this.#state;
   }
 
+  /**
+   * Where this node's state-sync attempt stands. While it is `open` the node
+   * asks each peer that connects for its app state; `complete` and
+   * `budgetSpent` ask nobody until the attempt starts again.
+   * @returns {'open'|'complete'|'budgetSpent'}
+   */
+  syncAttempt() {
+    if (this.#stateSyncComplete) return 'complete';
+    if (this.#syncBudgetSpent) return 'budgetSpent';
+    return 'open';
+  }
+
   #setState(newState) {
     const prevState = this.#state;
     if (prevState === newState) return;
@@ -211,6 +238,7 @@ class AppSyncOrchestrator {
   async start(bootContext) {
     if (this.#started) return;
     this.#started = true;
+    running = this;
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
 
     this.#bootContext = bootContext;
@@ -270,6 +298,9 @@ class AppSyncOrchestrator {
 
     this.#ephemeralProgressHandler = (peerKey) => this.#onEphemeralSyncProgress(peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_PROGRESS, this.#ephemeralProgressHandler);
+
+    this.#ephemeralBusyHandler = (peerKey) => this.#onEphemeralSyncBusy(peerKey);
+    appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_BUSY, this.#ephemeralBusyHandler);
 
     this.#hashUnresolvedHandler = () => this.#onHashUnresolved();
     appSyncEvents.on(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
@@ -344,38 +375,45 @@ class AppSyncOrchestrator {
       completions: answered.size,
       required: MIN_SYNC_COMPLETIONS,
     });
-    if (this.#completionHeld) return;
-    if (!Object.values(this.#syncCompletions).every((peers) => peers.size >= MIN_SYNC_COMPLETIONS)) return;
-    if (fluxEventBus.isCheckpointHeld(fluxEventBus.Checkpoint.APPSYNC_BEFORE_AUTHORITATIVE)) {
-      this.#completeStateSyncWhenReleased();
-      return;
-    }
-    this.#completeStateSync();
+    if (this.#completionHeld || !this.#allStreamsAnswered()) return;
+    this.#completeStateSyncOnceChecked();
+  }
+
+  #allStreamsAnswered() {
+    return Object.values(this.#syncCompletions).every((peers) => peers.size >= MIN_SYNC_COMPLETIONS);
   }
 
   /**
-   * Hold a completed sync at the authority checkpoint, and complete it on release.
+   * Complete the sync once everything it brought has been checked.
+   *
+   * The budget bounds waiting on peers, and every answer needed is in, so it stops
+   * here. What is left is this node's own work, which needs the registry.
    *
    * Released into a reset or a stop, it completes nothing: the answers it was
    * holding belong to an attempt that has ended.
    * @returns {Promise<void>}
    */
-  async #completeStateSyncWhenReleased() {
+  async #completeStateSyncOnceChecked() {
     const attempt = this.#syncCompletions;
     this.#completionHeld = true;
+    if (this.#syncTimeout) {
+      clearTimeout(this.#syncTimeout);
+      this.#syncTimeout = null;
+    }
+    await tempMessageHold.drained();
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.APPSYNC_BEFORE_AUTHORITATIVE);
     this.#completionHeld = false;
-    if (!this.#started || this.#stateSyncComplete || this.#syncCompletions !== attempt) return;
-    this.#completeStateSync();
+    if (!this.#started || this.#stateSyncComplete) return;
+    if (this.#syncCompletions === attempt) {
+      this.#completeStateSync();
+    } else if (this.#allStreamsAnswered()) {
+      this.#completeStateSyncOnceChecked();
+    }
   }
 
   #completeStateSync() {
     this.#stateSyncComplete = true;
     this.#publishStateSyncAuthority();
-    if (this.#syncTimeout) {
-      clearTimeout(this.#syncTimeout);
-      this.#syncTimeout = null;
-    }
     this.#closeRound('the sync completed');
     log.info('AppSyncOrchestrator - All state syncs complete');
     fluxEventBus.publish('ephemeralSync:allComplete', this.#completionCounts());
@@ -471,6 +509,21 @@ class AppSyncOrchestrator {
   }
 
   /**
+   * #closeRound, sparing the requests finishing work already received.
+   * @param {string} why For the log.
+   * @returns {void}
+   */
+  #closeUnfinishedRound(why) {
+    let outstanding = 0;
+    this.#requests.keys().forEach((peerKey) => {
+      if (!this.#requests.isFinishingWork(peerKey) && this.#closeRequest(peerKey, 'timedOut')) outstanding += 1;
+    });
+    if (outstanding) {
+      log.info(`AppSyncOrchestrator - ${outstanding} state-sync ${outstanding === 1 ? 'request was' : 'requests were'} still outstanding when ${why}`);
+    }
+  }
+
+  /**
    * Anything arriving from a peer proves it is working, so its clock restarts.
    *
    * The first arrival moves it off the short "never spoke" deadline and onto
@@ -483,10 +536,25 @@ class AppSyncOrchestrator {
    * @returns {void}
    */
   #onEphemeralSyncProgress(peerKey) {
+    this.#workingOn.delete(peerKey);
+    if (this.#requests.isFinishingWork(peerKey)) {
+      this.#closeRequest(peerKey, 'timedOut');
+      return;
+    }
     this.#requests.note(peerKey, {
       timeoutMs: STALL_MS,
       onTimeout: (key) => this.#onRequestDeadline(key, 'stopped mid-answer'),
     });
+  }
+
+  /**
+   * This node is working through what a peer sent, so the peer is not being waited on.
+   * @param {string} peerKey ip:port
+   * @returns {void}
+   */
+  #onEphemeralSyncBusy(peerKey) {
+    this.#workingOn.add(peerKey);
+    this.#requests.note(peerKey);
   }
 
   /**
@@ -550,6 +618,16 @@ class AppSyncOrchestrator {
   isSyncResponseWanted(peerSocket) {
     if (!peerSocket) return false;
     return this.#requests.isOpen(peerSocket.key, { channel: peerSocket.connectionId ?? null });
+  }
+
+  /**
+   * Whether a sync response arriving now is taken. A request finishing work already
+   * received takes nothing further, so no peer holds an attempt open past its budget.
+   * @param {{key: string, connectionId?: number}} peerSocket
+   * @returns {boolean}
+   */
+  isSyncArrivalWanted(peerSocket) {
+    return this.isSyncResponseWanted(peerSocket) && !this.#requests.isFinishingWork(peerSocket.key);
   }
 
   /**
@@ -785,9 +863,10 @@ class AppSyncOrchestrator {
         if (this.#syncTimeout !== budget) return;
         this.#syncTimeout = null;
         if (this.#stateSyncComplete) return;
-        this.#closeRound('the budget ran out');
+        this.#workingOn.forEach((peerKey) => this.#requests.finishWork(peerKey));
+        this.#closeUnfinishedRound('the budget ran out');
         this.#syncBudgetSpent = true;
-        this.#requests.discardAll();
+        this.#requests.discardAllButFinishing();
         const counts = this.#completionCounts();
         const answered = Object.entries(counts).map(([type, count]) => `${type}=${count}`).join(' ');
         log.warn(`AppSyncOrchestrator - Sync timeout, peers answered: ${answered}`);
@@ -843,11 +922,14 @@ class AppSyncOrchestrator {
     // set aside: the sync starts over, so a peer already tried is a peer to
     // try again rather than one to skip.
     this.#requests.discardAll();
+    this.#workingOn.clear();
+    this.#timerHoldChecked = false;
     this.#syncBudgetSpent = false;
     this.#syncCompletions = freshSyncCompletions();
     this.#stateSyncComplete = false;
     this.#publishStateSyncAuthority();
     this.#hashSyncAttempts = 0;
+    this.#hashSyncGaveUp = false;
     if (this.#syncTimeout) {
       clearTimeout(this.#syncTimeout);
       this.#syncTimeout = null;
@@ -920,13 +1002,13 @@ class AppSyncOrchestrator {
   }
 
   #onHashUnresolved() {
-    if (!this.#hashSyncComplete) return;
+    if (!this.#hashSyncComplete && !this.#hashSyncGaveUp) return;
     // New unresolved hash — schedule immediate check on next block
     this.#nextHashRetryHeight = 0;
   }
 
   async #checkHashRetry(blockHeight) {
-    if (!this.#hashSyncComplete) return;
+    if (!this.#hashSyncComplete && !this.#hashSyncGaveUp) return;
     if (!this.#canSendMessages) return;
     if (this.#syncInProgress) return;
     if (blockHeight < this.#nextHashRetryHeight) return;
@@ -1022,7 +1104,9 @@ class AppSyncOrchestrator {
           this.#runHashSync().then(() => this.#checkReadiness());
         }, HASH_SYNC_RETRY_MS);
       } else {
-        log.warn('AppSyncOrchestrator - Hash sync retries exhausted, falling back to block timer');
+        log.warn('AppSyncOrchestrator - Hash sync retries exhausted, falling back to block timer and block-driven hash retries');
+        this.#hashSyncGaveUp = true;
+        this.#nextHashRetryHeight = this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS;
       }
     } finally {
       this.#syncInProgress = false;
@@ -1031,6 +1115,7 @@ class AppSyncOrchestrator {
 
   async #rebuildDb() {
     try {
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.APPSYNC_BEFORE_REBUILD);
       log.info('AppSyncOrchestrator - Rebuilding globalAppsInformation');
       await registryManager.reindexGlobalAppsInformation();
       this.#dbRebuilt = true;
@@ -1064,7 +1149,9 @@ class AppSyncOrchestrator {
 
   #isStateSyncReady() {
     if (this.#stateSyncComplete) return true;
-    return this.#isBlockTimerExpired();
+    if (!this.#isBlockTimerExpired()) return false;
+    this.#timerHoldChecked ||= tempMessageHold.isEmpty();
+    return this.#timerHoldChecked;
   }
 
   /**
@@ -1209,21 +1296,25 @@ class AppSyncOrchestrator {
     this.#heartbeatInterval = setInterval(writeHeartbeat, config.system.heartbeatIntervalMs ?? 30000);
   }
 
+  /**
+   * Records why this process is stopping, for the next boot to read. Made on the
+   * quick client, so a stalled database holds the shutdown for at most
+   * config.database.quickCallTimeoutMs.
+   * @param {string} reason
+   * @returns {Promise<void>}
+   */
   static async writeShutdownReason(reason) {
     try {
       const db = dbHelper.databaseConnection();
       if (!db) return;
-      const database = db.db(config.database.local.database);
-      await Promise.race([
-        dbHelper.findOneAndUpdateInDatabase(
-          database,
-          config.database.local.collections.nodeStartupTracker,
-          { _id: 'heartbeat' },
-          { $set: { shutdownReason: reason } },
-          { upsert: true },
-        ),
-        new Promise((_, reject) => { setTimeout(() => reject(new Error('shutdown write timeout')), 3000); }),
-      ]);
+      const database = dbHelper.onQuickClient(db.db(config.database.local.database));
+      await dbHelper.findOneAndUpdateInDatabase(
+        database,
+        config.database.local.collections.nodeStartupTracker,
+        { _id: 'heartbeat' },
+        { $set: { shutdownReason: reason } },
+        { upsert: true },
+      );
     } catch (error) {
       log.error(`Failed to write shutdown reason: ${error.message}`);
     }
@@ -1240,6 +1331,7 @@ class AppSyncOrchestrator {
    */
   async stop() {
     this.#started = false;
+    if (running === this) running = null;
     if (this.#heartbeatInterval) {
       clearInterval(this.#heartbeatInterval);
       this.#heartbeatInterval = null;
@@ -1249,6 +1341,7 @@ class AppSyncOrchestrator {
     }
     if (this.#ephemeralProgressHandler) {
       appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_PROGRESS, this.#ephemeralProgressHandler);
+      appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_BUSY, this.#ephemeralBusyHandler);
     }
     if (this.#ephemeralRefusedHandler) {
       appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_REFUSED, this.#ephemeralRefusedHandler);
@@ -1296,5 +1389,9 @@ class AppSyncOrchestrator {
     globalState.appStateAuthoritative = false;
   }
 }
+
+// The state this node's running orchestrator is in now, and where its state-sync
+// attempt stands - harness-only, see fluxEventBus.js.
+fluxEventBus.snapshot('orchestrator', () => ({ state: globalState.appSyncState, attempt: running?.syncAttempt() ?? null }));
 
 module.exports = { AppSyncOrchestrator, STATES };

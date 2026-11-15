@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
@@ -11,6 +11,7 @@ import {
 import { waitFor } from '../framework/wait.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Withdrawing an installing claim.
 //
@@ -142,8 +143,7 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     [holder] = await waitForInstanceCount(env, appName, 1, { timeout: 240000, stableMs: 15000 });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

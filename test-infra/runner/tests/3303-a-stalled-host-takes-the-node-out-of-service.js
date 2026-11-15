@@ -17,6 +17,7 @@ import {
   DOCKERD_UNIT, freezeUnit, restartFluxos, unitCgroup,
 } from '../framework/systemd-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A host that stops returning the disk under docker, on a real kernel: the
 // filesystem the node's docker keeps its data on is frozen (framework/host-stall.js)
@@ -132,8 +133,7 @@ describe('a stalled host takes the node out of service', function () {
     await waitForUp(client, appName, 'the app is up');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

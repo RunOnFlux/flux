@@ -12,18 +12,20 @@
  * `blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0`, every 16 to 36
  * blocks here, so the drive is budgeted in blocks.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableLegacyApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { execInContainer, getAppContainerId } from '../framework/container.js';
 import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { failWrites } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const PASS_BLOCKS = 144;
 const FAILS = 0;
@@ -107,16 +109,15 @@ describe('an app upgraded from the old format is rebuilt', function () {
     upgraded = await upgradeOf(env, legacyUpgrading);
     const otherUpdate = await buildSeedableUpdate(otherApp, (spec) => { spec.compose[0].description = `${other} second`; });
     anchors = env.clients.map((client) => client?.getLastEventId());
-    await seedSpecUpdate(env, failingUpgrade, [FAILS]);
-    await seedSpecUpdate(env, otherUpdate, [FAILS]);
-    await seedSpecUpdate(env, upgraded, [UPGRADES]);
+    await deliverApp(env, failingUpgrade, [FAILS]);
+    await deliverApp(env, otherUpdate, [FAILS]);
+    await deliverApp(env, upgraded, [UPGRADES]);
     await stopTicker();
     release = await failWrites(FAILS + 1, 'localzelapps', 'zelappsinformation', { times: 1 });
     step('the reinstall pass is due');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await release?.().catch(() => {});
     await env?.teardown();
   });

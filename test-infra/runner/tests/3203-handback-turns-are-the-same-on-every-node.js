@@ -9,7 +9,7 @@
  * eviction, an address move, a spare copy, a lapsing announcement, a decision the chain outran, a
  * removal still running - and checks the turn did not move with it.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { dbClient } from '../framework/db-client.js';
 import {
@@ -24,11 +24,12 @@ import {
   bootResidentialFleet, seedApp, returnToService, elapseSettleWindow, departureWaitMs, retireSeededApps, expectHoldsOnly,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOf } from '../framework/handback-turns.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const FLEET = [1, 2, 3, 4, 5];
 const HOLDERS = keysOf(FLEET);
 const PERIOD = PASS_PERIOD_BLOCKS * 4;
-const TURN_MS = RESIDENTIAL_PACING.residentialTurnMs;
+const TURN_MS = RESIDENTIAL_PACING.handbackTurnMs;
 
 const eventsOf = (client, name, predicate = () => true, afterId = 0) => client.getEventBuffer()
   .filter((e) => e.id > afterId && e.event === name && predicate(e.data));
@@ -66,8 +67,7 @@ describe('handback turns are the same on every node', function () {
     env = await bootResidentialFleet(this);
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     await Promise.all((env?.clients ?? []).map((client) => client.releaseAllCheckpoints().catch(() => {})));
     await clearSystemSecure().catch(() => {});
     await stopTicker().catch(() => {});
@@ -233,7 +233,17 @@ describe('handback turns are the same on every node', function () {
 
     expect(ran, 'the held node did not run the pass late').to.include(due + 2);
     expect(late.data.turn, 'the late node read the turn of the block it reached the tip on').to.equal(onTime.data.turn);
-    expect(late.data.owner).to.equal(onTime.data.owner);
+    // A holder that hands the app back on the due pass is no holder to a node that
+    // judges the pass after it, so the two count the same holders but for that one.
+    const uncounted = onTime.data.holders.filter((key) => !late.data.holders.includes(key));
+    expect(late.data.holders.every((key) => onTime.data.holders.includes(key)), 'holders only the late node counted').to.equal(true);
+    if (uncounted.length === 0) {
+      expect(late.data.owner, 'the owner the late node read').to.equal(onTime.data.owner);
+    } else {
+      expect(uncounted, 'the holders the late node did not count').to.deep.equal([onTime.data.owner]);
+      expect(onTime.data.owner, 'a holder that left on the due pass is the on-time node').to.equal(keysOf([TARGET])[0]);
+      expect(departuresOf(one, 'lateapp', anchorOne), 'the owner handed the app back on the due pass').to.have.lengthOf(1);
+    }
     } finally {
       await three.releaseCheckpoint('explorer:beforeBlock').catch(() => {});
       await startTicker();

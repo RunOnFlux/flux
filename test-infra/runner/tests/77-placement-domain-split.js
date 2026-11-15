@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -9,6 +9,7 @@ import {
 } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The other half of the placement share, and the half the /16 key could never
 // express: a fleet that LOOKS like one network but is several fault domains.
@@ -62,8 +63,7 @@ describe('placement share spreads synced instances across table fault domains', 
     await Promise.all(env.clients.map((client) => waitForLocationTable(client, { domains: 3 })));
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     // leave the stub on its single-domain default for whatever runs next
     await fetch(`${env?.stubControl}/iplocation`, {
       method: 'POST',

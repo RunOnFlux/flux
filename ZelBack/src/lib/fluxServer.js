@@ -7,6 +7,7 @@ const morgan = require('morgan');
 const compression = require('compression');
 const routes = require('../routes');
 const { analyticsMiddleware, startFlushTimer } = require('../services/analyticsService');
+const { MESSAGE_LOG_CONTENT_TYPE } = require('../services/appMessaging/permanentMessageLog');
 
 const { socketHandlers, admitUpgrade } = require('./socketHandlers');
 const socketIoHandlers = require('./socketIoHandlers');
@@ -17,6 +18,18 @@ const { FluxSocketIoServer } = require('./socketIoServer');
  * Combines an http(s) server, classic websocket server, and socket.io server
  */
 class FluxServer {
+  /**
+   * compression's own filter, which also takes the permanent message log: its content type is
+   * not in the list of compressible types compression consults.
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   * @returns {boolean}
+   */
+  static shouldCompress(req, res) {
+    const contentType = String(res.getHeader('Content-Type') ?? '').split(';')[0].trim();
+    return contentType === MESSAGE_LOG_CONTENT_TYPE || compression.filter(req, res);
+  }
+
   static defaultMode = 'http';
 
   static servers = { http: nodeHttp, https: nodeHttps };
@@ -24,7 +37,7 @@ class FluxServer {
   static supportedModes = ['http', 'https'];
 
   static defaultMiddlewares = [
-    compression(),
+    compression({ filter: FluxServer.shouldCompress }),
     morgan('combined'),
     express.json(),
     cors(),

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
@@ -9,6 +9,7 @@ import {
 import { waitFor } from '../framework/wait.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The spawner places the requested number of instances across the network by
 // independent per-node self-selection (trySpawningGlobalApplication) — no central
@@ -96,8 +97,7 @@ describe('spawner places the requested number of instances', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -183,8 +183,7 @@ describe('spawner places on every node when instances == nodeCount', function ()
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

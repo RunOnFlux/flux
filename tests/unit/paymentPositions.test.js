@@ -12,7 +12,7 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const { appPaymentAddresses, appPaymentPositions } = require('../../ZelBack/src/services/appPaymentPositions');
 const { backfillPaymentPositions, BACKFILL_BATCH } = require('../../ZelBack/src/services/migrations/paymentPositions');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -22,6 +22,8 @@ const delta = (txid, height, blockindex, satoshis = 500000000) => ({
 });
 
 describe('app payment positions', () => {
+  after(releaseMongo);
+
   let executeCall;
 
   beforeEach(() => {

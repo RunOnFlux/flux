@@ -19,7 +19,7 @@
  * A = the standby, B = the primary, C = the new standby.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import {
@@ -37,6 +37,7 @@ import { clearMaster } from '../framework/fdm-control.js';
 import { waitFor } from '../framework/wait.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const SIGTERM_EXPIRY_S = 120;
 // The harness's syncthing monitor passes every 3s; this is several of them.
@@ -92,8 +93,7 @@ describe('a primary that went quiet and then died is taken over', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await fleet?.env?.teardown();
   });
@@ -178,9 +178,11 @@ describe('a primary that went quiet and then died is taken over', function () {
     expect(await readPath(client(A), `${root}/${SAVE}`), 'the primary\'s file is gone from the standby').to.equal(SAVE_CONTENT);
     expect(await readPath(client(A), `${root}/${FENCED}`), 'the dead primary\'s write from after its location expired reached the standby').to.equal(null);
     expect((await readPath(client(A), `${root}/appdata/seed-data`))?.trim(), 'the primary\'s data is gone from the standby').to.equal('seeded');
-    const kept = client(A).getEventBuffer().some((e) => e.id > afterDeath && e.event === 'syncthing:localChangesKept'
-      && e.data?.folder === folder);
-    expect(kept, 'the standby did not keep the change no other device holds').to.equal(true);
+    const afterDeathEvents = client(A).getEventBuffer().filter((e) => e.id > afterDeath && e.data?.folder === folder);
+    expect(afterDeathEvents.some((e) => e.event === 'syncthing:localChangesChecked' && e.data.onlyCopy === true),
+      'the standby did not find the change to be the only copy').to.equal(true);
+    expect(afterDeathEvents.filter((e) => e.event === 'syncthing:localChangesReverted'),
+      'the standby reverted the change no other device holds').to.deep.equal([]);
     expect(fleet.twoRan, 'two nodes ran the app at once').to.deep.equal([]);
   });
 

@@ -69,7 +69,7 @@ export async function buildSeedableApp({
   // for which the collision IS the subject - 98 - says so.
   allowPortReuse = false,
   // Pin the app to named nodes. An entry names a node EITHER by socket address
-  // ('31.200.1.0:16127') or by collateral outpoint ('<txhash>:<outidx>') - both
+  // ('25.192.0.10:16127') or by collateral outpoint ('<txhash>:<outidx>') - both
   // are live on the network, and nodeOutpoint() below builds the second form.
   //
   // Set HERE and nowhere else: the signature and the hash are taken over
@@ -78,6 +78,9 @@ export async function buildSeedableApp({
   // different one. Nothing rejects that - the node simply decides the app is
   // obsolete and reinstalls it forever.
   nodes = [],
+  // The owner's geolocation, in the spec's own vocabulary ('acEU_DE',
+  // 'a!cEU_FR'). Set here for the same reason as `nodes`: it is signed.
+  geolocation = [],
 }) {
   const appOwner = owner ?? ownerKey.zelid;
 
@@ -106,7 +109,7 @@ export async function buildSeedableApp({
     }],
     instances,
     contacts: [],
-    geolocation: [],
+    geolocation,
     expire,
     nodes,
     staticip,
@@ -161,6 +164,30 @@ export async function buildSeedableApp({
   const specWithMeta = { ...spec, hash, height };
 
   return { spec: specWithMeta, permanentMessage, hashEntry, hash, txid };
+}
+
+/**
+ * Temp messages as a peer stores them: unpaid registrations, signed by their owner, which a
+ * node checks in full. Ports are shared, as nothing installs them.
+ * @param {number} count
+ * @param {number} ttlMs How long they are held.
+ * @returns {Promise<object[]>} Rows for dbClient.seedTempMessages.
+ */
+export async function buildTempMessages(count, ttlMs) {
+  const stamp = Date.now();
+  const rows = [];
+  for (let i = 0; i < count; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const { permanentMessage } = await buildSeedableApp({ name: `e2etemp${i}x${stamp}`, allowPortReuse: true });
+    const receivedAt = new Date();
+    const {
+      type, version, appSpecifications, hash, timestamp, signature,
+    } = permanentMessage;
+    rows.push({
+      type, version, appSpecifications, hash, timestamp, signature, receivedAt, expireAt: new Date(receivedAt.getTime() + ttlMs), arcaneSender: true,
+    });
+  }
+  return rows;
 }
 
 /**
@@ -558,72 +585,6 @@ export async function buildSeedableIndexRefApp({
     ];
 
   return buildSeedableApp({ name, compose, ...rest });
-}
-
-export function buildRunningState({ appName, nodeIps, hash, broadcastedAt = null }) {
-  const ts = broadcastedAt ?? Date.now();
-
-  const locations = nodeIps.map((ip) => ({
-    name: appName,
-    ip,
-    hash,
-    broadcastedAt: ts,
-    runningSince: ts - 60000,
-  }));
-
-  const stateEvents = nodeIps.map((ip) => ({
-    type: 'apprunning',
-    ip,
-    dedupKey: 'v2',
-    broadcastedAt: new Date(ts),
-    expireAt: new Date(ts + 125 * 60 * 1000),
-    receivedAt: new Date(ts),
-    data: {
-      apps: [{ name: appName, hash, runningSince: ts - 60000 }],
-      ip,
-      broadcastedAt: ts,
-    },
-  }));
-
-  return { locations, stateEvents };
-}
-
-export async function seedAppOnAllNodes(dbClients, {
-  name, compose, height, instances, env,
-} = {}) {
-  const app = await buildSeedableApp({
-    name, compose, height, instances, env,
-  });
-
-  const seedPromises = dbClients.map(async (dbc) => {
-    await dbc.seedGlobalAppSpec(app.spec);
-    await dbc.seedPermanentMessage(app.permanentMessage);
-    await dbc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  });
-  await Promise.all(seedPromises);
-
-  return app;
-}
-
-export async function seedAppWithRunningState(dbClients, nodeIps, {
-  name, compose, height, instances, env,
-} = {}) {
-  const app = await seedAppOnAllNodes(dbClients, {
-    name, compose, height, instances, env,
-  });
-  const state = buildRunningState({ appName: name, nodeIps, hash: app.hash });
-
-  const seedPromises = dbClients.map(async (dbc, i) => {
-    for (const loc of state.locations) {
-      await dbc.seedAppLocation(loc);
-    }
-    for (const evt of state.stateEvents) {
-      await dbc.seedAppStateEvent(evt);
-    }
-  });
-  await Promise.all(seedPromises);
-
-  return { ...app, locations: state.locations, stateEvents: state.stateEvents };
 }
 
 /**

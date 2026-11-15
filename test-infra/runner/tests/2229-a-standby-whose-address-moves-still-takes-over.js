@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { moveNodeAddress } from '../framework/container.js';
@@ -14,6 +14,7 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { placeSilentPrimaryApp, A, B, C } from '../framework/silent-primary.js';
 import { peerDeathMs } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The standby's public address moves. The primary goes on running the app and
 // nothing starts beside it; the standby's peers hear the move, and the standby
@@ -52,8 +53,7 @@ describe('a standby whose address moves still takes over', function () {
     movedIp = oldIp.replace(/\.\d+$/, '.240');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await clearNodeAddress(oldIp).catch(() => {});
     await resetFdm().catch(() => {});

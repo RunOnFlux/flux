@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -10,6 +10,7 @@ import {
 } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A synced app whose running copy's fault domain already holds its share. The node
 // in that domain steps aside for the domain-share window, so another domain may take
@@ -123,8 +124,7 @@ describe('the domain share steps aside, then places', function () {
       await bootFleet(env);
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 
@@ -154,8 +154,7 @@ describe('the domain share steps aside, then places', function () {
       await bootFleet(env);
     });
 
-    after(async function () {
-      this.timeout(30000);
+    afterTeardown(async function () {
       await env?.teardown();
     });
 

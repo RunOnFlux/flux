@@ -1,6 +1,7 @@
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
+const bodyLimit = require('../utils/bodyLimit');
 
 let response = messageHelper.createErrorMessage();
 
@@ -14,6 +15,7 @@ async function getAddressTxids(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -82,6 +84,7 @@ async function getAddressBalance(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -132,6 +135,7 @@ async function getAddressDeltas(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -212,6 +216,7 @@ async function getAddressUtxos(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -268,6 +273,7 @@ async function getAddressMempool(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);

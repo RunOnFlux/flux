@@ -54,21 +54,46 @@ const Checkpoint = Object.freeze({
   // A reconcile pass has stopped a component whose local appdata is to be
   // cleared and has not yet cleared it. Keyed by the component identifier.
   RECONCILER_BEFORE_DATA_CLEAR: 'reconciler:beforeDataClear',
+  // A reconcile pass has found a component's container missing and has not yet
+  // recreated it. Keyed by the component identifier.
+  RECONCILER_BEFORE_RECREATE: 'reconciler:beforeRecreate',
   // An election pass is about to decide a g: component it does not skip. Keyed
   // by the component identifier.
   MASTERSLAVE_BEFORE_DECISION: 'masterSlave:beforeDecision',
+  // The hash sync is done and the registry has not begun to be rebuilt, so
+  // dbReady is still closed.
+  APPSYNC_BEFORE_REBUILD: 'appSync:beforeRebuild',
   // A state-sync attempt's budget has run out and the attempt is still open.
   APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
   // A state sync has every answer it needs and the node has not yet become
   // authoritative from them, so it still refuses to answer a peer's sync.
   APPSYNC_BEFORE_AUTHORITATIVE: 'appSync:beforeAuthoritative',
-  // The explorer is about to process a block, and has not fetched it yet.
+  // The explorer is about to process a block, and has not fetched it yet. Keyed
+  // by the block's height.
   EXPLORER_BEFORE_BLOCK: 'explorer:beforeBlock',
+  // A rebuild of the app registry has built its new copy from the message log and
+  // holds the registry lock; the copy has not yet replaced the registry.
+  REGISTRY_BEFORE_SWAP: 'registry:beforeSwap',
+  // A new IP location baseline is in its staging collection, and the staging
+  // collection has not yet replaced the live table.
+  IPLOCATION_BEFORE_SWAP: 'ipLocation:beforeSwap',
+  // A rebuilt address record is in its staging collection, and the staging
+  // collection has not yet replaced the record.
+  ADDRESS_RECORD_BEFORE_SWAP: 'addressRecord:beforeSwap',
   // A give-up pass holds the pass lock and has not yet read anything.
   GIVEUP_BEFORE_PASS: 'giveUp:beforePass',
+  // The spawn loop is between passes: the last pass, and any install it started,
+  // has finished, and the next has read nothing.
+  SPAWNER_BEFORE_PASS: 'spawner:beforePass',
   // A give-up pass has decided to hand an app back and has not yet checked the
   // chain height or started the removal. Keyed by the app name.
   GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',
+  // A copy is stopped to be handed back and its folder is not yet scanned. Keyed by
+  // the folder id.
+  LEAVING_COPY_BEFORE_SCAN: 'leavingCopy:beforeScan',
+  // A node's folder records request is admitted and syncthing not yet read. Keyed by
+  // the folder id.
+  FOLDER_RECORDS_BEFORE_READ: 'folderRecords:beforeRead',
   // A removal is committed, has told the network if it tells it, and has not yet
   // torn anything down. Keyed by the app name.
   REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',
@@ -78,6 +103,18 @@ const Checkpoint = Object.freeze({
   // An install has its app's image verified and has not started pulling it.
   // Keyed by the app name.
   INSTALL_BEFORE_PULL: 'install:beforePull',
+  // An install's port test is listening on the app's ports and has not yet
+  // asked a peer to reach them. Keyed by the app name.
+  INSTALL_PORT_TEST_LISTENING: 'install:portTestListening',
+  // The availability check is listening on the port it tests and has not yet
+  // asked a peer to reach it. Keyed by the port.
+  AVAILABILITY_LISTENING: 'availability:listening',
+  // A bulk hash sync has staged what its peers sent and has not yet verified
+  // any of it.
+  HASHSYNC_BEFORE_VERIFY: 'hashSync:beforeVerify',
+  // A node serving its permanent message log by height is about to write the
+  // next piece of it. Keyed by the number of pieces it has written.
+  MESSAGE_LOG_BEFORE_PIECE: 'messageLog:beforePiece',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
@@ -122,24 +159,33 @@ const Checkpoint = Object.freeze({
   // This node has recorded a move of its own address and has not yet acted on
   // it. Keyed by the address it moved to.
   OWN_ADDRESS_BEFORE_RECONCILE: 'ownAddress:beforeReconcile',
+  // This node finds an address with location rows the node list does not hold,
+  // and has not yet evicted it. Keyed by the address.
+  LOCATIONS_BEFORE_EVICTION: 'locations:beforeEviction',
   // Boot has read the location record of an app it held unconfirmed, and has not
   // yet released the app or acted on the answer. Keyed by app name.
   BOOT_BEFORE_LOCATION_DECISION: 'boot:beforeLocationDecision',
+  // Boot, before it waits a bounded time for the database: held, the wait starts
+  // only on release.
+  BOOT_BEFORE_SYNC_WAIT: 'boot:beforeSyncWait',
   // A removal has taken an app's containers and volume down and has not yet
   // deleted its row. Keyed by app name.
   REMOVAL_BEFORE_ROW_DELETE: 'removal:beforeRowDelete',
   // A port refresh has read the installed apps and not yet mapped this app's
   // ports. Keyed by app name.
   PORTS_REFRESH_BEFORE_APP: 'portsRefresh:beforeApp',
-  // An availability pass listens on its test port, found nothing of this node's
-  // on it, and has not yet asked the router to map it. Keyed by the port.
-  AVAILABILITY_BEFORE_TEST_MAPPING: 'availability:beforeTestMapping',
-  // A hard install has mapped a component's ports and has not yet pulled its
-  // image or created its container. Keyed by the app's name.
-  INSTALL_AFTER_PORTS: 'install:afterPorts',
   // Boot has wanted every installed app's ports and has not yet mapped any of
   // them. Keyed 'boot'.
   BOOT_AFTER_PORTS_DECLARED: 'boot:afterPortsDeclared',
+  // A peer has checked an unpaid app message another node proposed and has not
+  // yet answered held. Keyed by the message hash.
+  ADMISSION_BEFORE_HELD: 'admission:beforeHeld',
+  // A copy of a gossiped message is marked as verifying and is not yet verified.
+  // Keyed by the message hash.
+  GOSSIP_BEFORE_VERIFY: 'gossip:beforeVerify',
+  // The local removal queue has taken an app as the one it removes next, and has
+  // not started removing it. Keyed by app name.
+  REMOVAL_QUEUE_BEFORE_REMOVAL: 'removalQueue:beforeRemoval',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.
@@ -190,6 +236,11 @@ class FluxEventBus extends EventEmitter {
     // code paths paused at a checkpoint: { name, key, resume }
     this.#parked = [];
     this.#snapshots = new Map();
+    // Held from the moment the process starts, for a path that runs before the
+    // harness can reach the node: its boot.
+    if (this.#enabled && config.has('testCheckpointsHeldAtStart')) {
+      config.get('testCheckpointsHeldAtStart').forEach((name) => this.holdCheckpoint(name));
+    }
   }
 
   get enabled() { return this.#enabled; }

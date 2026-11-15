@@ -256,7 +256,7 @@ function ensureNumber(parameter) {
  */
 function ensureObject(parameter) {
   if (typeof parameter === 'object') {
-    return parameter;
+    return parameter || {};
   }
   if (!parameter) {
     return {};
@@ -267,7 +267,8 @@ function ensureObject(parameter) {
   } catch (e) {
     param = qs.parse(parameter);
   }
-  if (typeof param !== 'object') {
+  // typeof null is 'object': a body of `null` parses to it
+  if (typeof param !== 'object' || param === null) {
     return {};
   }
   return param;

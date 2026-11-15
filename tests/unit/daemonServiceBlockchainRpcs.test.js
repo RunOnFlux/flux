@@ -705,55 +705,6 @@ describe('daemonServiceBlockchainRpcs tests', () => {
     });
   });
 
-  describe('getChainTips tests', () => {
-    let daemonServiceUtilsStub;
-
-    beforeEach(() => {
-      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should trigger rpc, no response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceBlockchainRpcs.getChainTips();
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getChainTips', []);
-    });
-
-    it('should trigger rpc, and pass blockheight parameter', async () => {
-      daemonServiceUtilsStub.returns('success');
-
-      const expectedResponse = 'success';
-
-      const req = { params: { minheight: 55555 } };
-
-      const result = await daemonServiceBlockchainRpcs.getChainTips(req);
-
-      expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getChainTips', [55555]);
-    });
-
-    it('should trigger rpc, response passed', async () => {
-      daemonServiceUtilsStub.returns('success');
-
-      const res = generateResponse();
-      const expectedResponse = 'success';
-
-      const result = await daemonServiceBlockchainRpcs.getChainTips(undefined, res);
-
-      expect(result).to.equal(`Response: ${expectedResponse}`);
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getChainTips', []);
-    });
-  });
-
   describe('getDifficulty tests', () => {
     let daemonServiceUtilsStub;
 

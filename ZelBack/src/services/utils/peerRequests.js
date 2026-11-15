@@ -89,6 +89,31 @@ class PeerRequests {
   }
 
   /**
+   * Stop waiting on the peer while what it already sent is worked through. The request
+   * stays open for that work and takes nothing further.
+   * @param {string} peerKey ip:port
+   * @returns {boolean} Whether a request was open.
+   */
+  finishWork(peerKey) {
+    const request = this.#requests.get(peerKey);
+    if (!request || request.outcome) return false;
+    if (request.timer) clearTimeout(request.timer);
+    request.timer = null;
+    request.finishingWork = true;
+    return true;
+  }
+
+  /**
+   * Whether a request is open only for work already received.
+   * @param {string} peerKey ip:port
+   * @returns {boolean}
+   */
+  isFinishingWork(peerKey) {
+    const request = this.#requests.get(peerKey);
+    return Boolean(request && !request.outcome && request.finishingWork);
+  }
+
+  /**
    * End every request still open, because whatever they belong to has.
    * @param {string} outcome
    * @returns {number} How many were still open.
@@ -120,6 +145,12 @@ class PeerRequests {
   /** Forget all of them. */
   discardAll() {
     [...this.#requests.keys()].forEach((peerKey) => this.discard(peerKey));
+  }
+
+  /** Forget all but those finishing work already received. */
+  discardAllButFinishing() {
+    [...this.#requests.keys()].filter((peerKey) => !this.isFinishingWork(peerKey))
+      .forEach((peerKey) => this.discard(peerKey));
   }
 
   /**

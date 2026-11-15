@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -12,6 +12,7 @@ import {
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The restore no longer tells the other instances to rebuild themselves; it
 // relies on syncthing carrying the restored folder to them. Every other suite
@@ -75,8 +76,7 @@ describe('a restore reaches the other instances through syncthing', function () 
     auth = await authenticate(env.clients[0].url, appOwnerKey());
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

@@ -8,16 +8,17 @@
  * A = the standby, B = the primary, C = holds nothing.
  */
 import {
-  describe, it, before, after, afterEach,
+  describe, it, before, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import {
   placeSilentPrimaryApp, A, B,
 } from '../framework/silent-primary.js';
 import { crashFluxos, releaseFluxos, execInContainer } from '../framework/container.js';
-import { readPath, scanFolder } from '../framework/syncthing-real.js';
+import { getFolderStatus, readPath, scanFolder } from '../framework/syncthing-real.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const SIGTERM_EXPIRY_S = 120;
 const BEFORE_ANSWER = 'syncthing:beforeLocalChangeAnswer';
@@ -54,6 +55,13 @@ describe('a standby\'s local changes are checked off the monitor pass', function
     await waitFor(async () => (await sh(A, `ls ${root}/appdata/many | wc -l`)).trim() === String(FILES), {
       timeout: 600000, interval: 5000, label: 'the primary\'s files reached the standby',
     });
+    // syncthing 2.0.15 scans the directory a pull wrote into as a local change, which
+    // the standby reverts. Settled here, so a revert a test reads is of its own write.
+    await scanFolder(client(A), folder);
+    await waitFor(async () => {
+      const status = await getFolderStatus(client(A), folder);
+      return status.receiveOnlyChangedFiles === 0 && status.receiveOnlyChangedDirectories === 0;
+    }, { timeout: 120000, interval: 2000, label: 'the standby holds no local changes' });
   });
 
   // A test that fails holding a check would hold the next test's checks too.
@@ -61,8 +69,7 @@ describe('a standby\'s local changes are checked off the monitor pass', function
     await client(A)?.releaseAllCheckpoints().catch(() => {});
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await client(A)?.releaseAllCheckpoints().catch(() => {});
     fleet?.stop();
     await fleet?.env?.teardown();

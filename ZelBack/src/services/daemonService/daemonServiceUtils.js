@@ -258,6 +258,20 @@ function waitForFluxd() {
 }
 
 /**
+ * Whether an answer is asked for by a height. A height names whichever block is
+ * on fluxd's active chain at it, which a reorganisation changes; a block hash
+ * names one block for ever. Such an answer is never kept.
+ * @param {string} rpc
+ * @param {Array} params
+ * @returns {boolean}
+ */
+function askedByHeight(rpc, params) {
+  if (rpc === 'getBlockHash') return true;
+  if (rpc === 'getBlock') return !/^[0-9a-f]{64}$/i.test(String(params[0]));
+  return false;
+}
+
+/**
  * To execute a remote procedure call (RPC).
  * @param {string} rpc Remote procedure call.
  * @param {string[]} params RPC parameters.
@@ -266,7 +280,7 @@ function waitForFluxd() {
  */
 async function executeCall(rpc, params, options = {}) {
   const rpcparameters = params || [];
-  const useCache = options.useCache ?? true;
+  const useCache = (options.useCache ?? true) && !askedByHeight(rpc, rpcparameters);
 
   if (!fluxdClient) {
     try {

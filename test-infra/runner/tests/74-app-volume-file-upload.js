@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach, after } from 'mocha';
+import { describe, it, before, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import crypto from 'node:crypto';
 import { createTestEnv } from '../framework/test-env.js';
@@ -15,6 +15,7 @@ import {
   volumeRoot, resetVolume, seedVolumeTree, treeOf, contentOf, exists,
   stagingEntries,
 } from '../framework/volume-fixture.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Uploading, over HTTP, onto a real volume.
 //
@@ -167,8 +168,7 @@ describe('app volume file upload', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

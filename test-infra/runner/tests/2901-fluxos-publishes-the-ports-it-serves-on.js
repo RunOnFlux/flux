@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -6,6 +6,7 @@ import {
 } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // FluxOS publishes the ports it is serving on, and its process id, in
 // /run/fluxos/fluxos.json, and takes the file away when it stops cleanly, so
@@ -43,8 +44,7 @@ describe('FluxOS publishes the ports it serves on', function () {
     await waitForPortFile('the port file after boot');
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

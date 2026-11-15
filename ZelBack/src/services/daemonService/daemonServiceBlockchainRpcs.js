@@ -3,6 +3,7 @@ const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
 const { Privilege, authOf } = require('../utils/privileges');
+const bodyLimit = require('../utils/bodyLimit');
 
 let response = messageHelper.createErrorMessage();
 
@@ -72,12 +73,12 @@ async function getBlockCount(req, res) {
 /**
  * To get block hash. Index required as parameter for RPC call.
  * @param {object} req Request.
- * @param {object} res Response.
+ * @param {object} [res] Response. Without one, the message is returned.
  * @returns {object} Message.
  */
 async function getBlockHash(req, res) {
   let { index } = req.params;
-  index = index || req.query.index; // no default value, show help
+  index = index || req.query?.index; // no default value, show help
 
   const rpccall = 'getBlockHash';
   const rpcparameters = [];
@@ -88,7 +89,7 @@ async function getBlockHash(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  return res.json(response);
+  return res ? res.json(response) : response;
 }
 
 /**
@@ -162,6 +163,7 @@ async function getBlockHashesPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -182,13 +184,13 @@ async function getBlockHashesPost(req, res) {
 /**
  * To get block header. Hash and verbose (defaults to true) required as parameters for RPC call.
  * @param {object} req Request.
- * @param {object} res Response.
+ * @param {object} [res] Response. Without one, the message is returned.
  * @returns {object} Message.
  */
 async function getBlockHeader(req, res) {
   let { hash, verbose } = req.params;
-  hash = hash || req.query.hash;
-  verbose = verbose ?? req.query.verbose ?? true;
+  hash = hash || req.query?.hash;
+  verbose = verbose ?? req.query?.verbose ?? true;
 
   const rpccall = 'getBlockHeader';
   const rpcparameters = [];
@@ -196,29 +198,6 @@ async function getBlockHeader(req, res) {
     verbose = serviceHelper.ensureBoolean(verbose);
     rpcparameters.push(hash);
     rpcparameters.push(verbose);
-  }
-
-  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
-  return res.json(response);
-}
-
-/**
- * To get chain tips.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function getChainTips(req, res) {
-  let { minheight } = req?.params || {};
-  minheight = minheight || req?.query?.minheight;
-
-  const rpccall = 'getChainTips';
-  const rpcparameters = [];
-
-  if (minheight !== undefined && minheight !== null) {
-    minheight = serviceHelper.ensureNumber(minheight);
-    rpcparameters.push(minheight);
   }
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
@@ -420,6 +399,7 @@ async function getSpentInfoPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -448,7 +428,6 @@ module.exports = {
   getBlockHashesPost, // experimental feataure, insight explorer
   getBlockHash,
   getBlockHeader,
-  getChainTips,
   getDifficulty,
   getMempoolInfo,
   getRawMemPool,

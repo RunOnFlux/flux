@@ -14,7 +14,7 @@
  * nothing.
  */
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import {
@@ -30,6 +30,7 @@ import { dbClient } from '../framework/db-client.js';
 import { clearMaster, electMaster } from '../framework/fdm-control.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const SIGTERM_EXPIRY_S = 120;
 // A machine that dies closes none of its connections, so a holder's syncthing keeps
@@ -85,8 +86,7 @@ describe('a former primary left the only holder keeps what it wrote as the prima
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await fleet?.env?.teardown();
   });
@@ -120,6 +120,14 @@ describe('a former primary left the only holder keeps what it wrote as the prima
     step('A, now the primary, dies');
     await machineDies(A, B);
 
+    // A syncthing that scans a directory a file lands in as changed gives the directory a
+    // version from the node that scanned it. B's change to an item another device has a
+    // version of is a change to that device's data, which B keeps for that reason first.
+    const ownShortId = (await getDeviceId(client(B))).substring(0, 7);
+    const histories = await Promise.all([FILE, DIR].map((item) => historyOf(B, item)));
+    const anothersData = histories.some((history) => history.some((counter) => !counter.startsWith(`${ownShortId}:`)));
+    const expectedReason = anothersData ? 'onlyCopy' : 'noHolderRunsTheApp';
+
     step('B\'s copy of its own file and directory changes on its disk');
     const changedAt = client(B).getLastEventId();
     await sh(B, `chmod 600 ${root}/${FILE} && chmod 700 ${root}/${DIR}`);
@@ -135,7 +143,7 @@ describe('a former primary left the only holder keeps what it wrote as the prima
       timeout: 300000, interval: 2000, label: 'B decides what to do with its changes',
     });
     expect(decisions()[0].event, 'B reverted the only copy of what it wrote as the primary').to.equal('syncthing:localChangesKept');
-    expect(decisions()[0].data.reason, 'why B kept its changes').to.equal('noHolderRunsTheApp');
+    expect(decisions()[0].data.reason, `why B kept its changes (histories ${JSON.stringify(histories)})`).to.equal(expectedReason);
     expect(await readPath(client(B), `${root}/${FILE}`), 'B\'s file is gone').to.equal(CONTENT);
 
     step('B takes the app over');

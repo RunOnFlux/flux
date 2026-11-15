@@ -5,6 +5,11 @@ const MONGO_URL = process.env.MONGO_URL || `mongodb://${getSubnetConfig().mongo}
 
 let sharedClient = null;
 
+// The checkpoints FluxOS passes just before renaming a staging collection over a
+// live one, and the staging collections themselves.
+const SWAP_CHECKPOINTS = ['registry:beforeSwap', 'ipLocation:beforeSwap', 'addressRecord:beforeSwap'];
+const STAGING_COLLECTIONS = new Set(['zelappsinformation_rebuild', 'ipranges_next', 'fluxnodeaddresses_rebuild']);
+
 async function getClient() {
   if (!sharedClient) {
     sharedClient = new MongoClient(MONGO_URL);
@@ -39,6 +44,72 @@ export function dbClient(nodeNum) {
   return {
     prefix,
     dbNames,
+    // Makes this node's databases a copy of another node's, as a machine started
+    // from a clone of that node's disk holds them. For a node not yet started.
+    //
+    // FluxOS replaces three collections whole, by renaming a staging collection
+    // over the live one: the app registry, the IP location table and the address
+    // record. A rename over a collection being read ends the read. The source's
+    // three swaps are held at their checkpoints for the copy, so none starts its
+    // rename while the copy runs; a swap already past its checkpoint when the hold
+    // took effect renames once more at most. The copy compares every collection's
+    // uuid before and after, and copies again while one changed: three writers
+    // allow at most three such passes. Staging collections are scratch each
+    // writer drops and refills before use, and are not copied.
+    //
+    // @param {number} sourceNum The source node's number.
+    // @param {object} sourceClient The source node's client, which holds the checkpoints.
+    async cloneFrom(sourceNum, sourceClient) {
+      const client = await getClient();
+      const source = dbClient(sourceNum);
+      const uuids = async () => {
+        const seen = new Map();
+        // eslint-disable-next-line no-restricted-syntax
+        for (const name of Object.keys(dbNames)) {
+          // eslint-disable-next-line no-await-in-loop
+          const collections = await client.db(source.dbNames[name]).listCollections({ type: 'collection' }).toArray();
+          collections
+            .filter(({ name: collection }) => !STAGING_COLLECTIONS.has(collection))
+            .forEach(({ name: collection, info }) => seen.set(`${name}.${collection}`, info.uuid.toString('hex')));
+        }
+        return seen;
+      };
+      const copy = async () => {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const name of Object.keys(dbNames)) {
+          const from = client.db(source.dbNames[name]);
+          // eslint-disable-next-line no-await-in-loop
+          await client.db(dbNames[name]).dropDatabase();
+          // eslint-disable-next-line no-await-in-loop
+          const collections = await from.listCollections({ type: 'collection' }, { nameOnly: true }).toArray();
+          // eslint-disable-next-line no-restricted-syntax
+          for (const { name: collection } of collections.filter((c) => !STAGING_COLLECTIONS.has(c.name))) {
+            // eslint-disable-next-line no-await-in-loop
+            await from.collection(collection).aggregate([{ $out: { db: dbNames[name], coll: collection } }]).toArray();
+          }
+        }
+      };
+      const unchanged = (before, after) => before.size === after.size
+        && [...before].every(([key, uuid]) => after.get(key) === uuid);
+
+      await Promise.all(SWAP_CHECKPOINTS.map((name) => sourceClient.holdCheckpoint(name)));
+      try {
+        for (let pass = 1; pass <= SWAP_CHECKPOINTS.length + 1; pass += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const before = await uuids();
+          // eslint-disable-next-line no-await-in-loop
+          const copied = await copy().then(() => true, (err) => {
+            if (!/renamed|dropped|NamespaceNotFound|QueryPlanKilled/i.test(err.message)) throw err;
+            return false;
+          });
+          // eslint-disable-next-line no-await-in-loop
+          if (copied && unchanged(before, await uuids())) return;
+        }
+        throw new Error(`cloneFrom: node ${sourceNum} replaced a collection on every pass with its swaps held`);
+      } finally {
+        await Promise.all(SWAP_CHECKPOINTS.map((name) => sourceClient.releaseCheckpoint(name).catch(() => {})));
+      }
+    },
 
     async hashCounts() {
       const explorerDb = await db('explorer');
@@ -113,9 +184,38 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappsinformation').countDocuments({});
     },
 
+    // A pending app message as the node stores it, client tag included, or null.
+    async pendingMessage(hash) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappstemporarymessages').findOne({ hash }, { projection: { _id: 0 } });
+    },
+
     async tempMessageCount() {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappstemporarymessages').countDocuments({});
+    },
+
+    // How many pending app messages the node stores that match a query on their stored fields.
+    async pendingMessageCount(query) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappstemporarymessages').countDocuments(query);
+    },
+
+    async seedTempMessages(rows) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappstemporarymessages').insertMany(rows.map((row) => ({ ...row })));
+    },
+
+    async tempMessageHashes() {
+      const globalDb = await db('appsGlobal');
+      const rows = await globalDb.collection('zelappstemporarymessages').find({}, { projection: { _id: 0, hash: 1 } }).toArray();
+      return rows.map((row) => row.hash).sort();
+    },
+
+    async heldMessageHashes() {
+      const globalDb = await db('appsGlobal');
+      const rows = await globalDb.collection('zelappsheldmessages').find({}, { projection: { _id: 0, 'message.hash': 1 } }).toArray();
+      return rows.map((row) => row.message.hash).sort();
     },
 
     async locationCount() {
@@ -354,6 +454,12 @@ export function dbClient(nodeNum) {
       if (result.deletedCount !== 1) throw new Error(`no permanent message for ${hash}`);
     },
 
+    // Every unpromoted copy of a message this node holds; answers how many there were.
+    async deleteTemporaryMessages(hash) {
+      const globalDb = await db('appsGlobal');
+      return (await globalDb.collection('zelappstemporarymessages').deleteMany({ hash })).deletedCount;
+    },
+
     async deleteAppHash(hash) {
       const explorerDb = await db('explorer');
       await explorerDb.collection('zelappshashes').deleteOne({ hash });
@@ -375,11 +481,6 @@ export function dbClient(nodeNum) {
     // caller's app fixture is reused - seeded on several nodes, and read again to
     // build the app's next specification. An _id carried into that lands in the
     // hashed payload and in a later replaceOne, where mongo refuses it outright.
-    async seedGlobalAppSpec(spec) {
-      const globalDb = await db('appsGlobal');
-      await globalDb.collection('zelappsinformation').insertOne({ ...spec });
-    },
-
     // The specification row this node holds for one app. What a replayed
     // message has to produce on a node that was never given the message.
     async globalAppSpec(name) {
@@ -396,14 +497,20 @@ export function dbClient(nodeNum) {
       }).toArray();
     },
 
-    // zelappsinformation holds one row per app - the CURRENT specification. An
-    // update replaces it, the way hash sync does when the chain carries a newer
-    // message; inserting a second row leaves the node reading whichever it finds
-    // first.
-    async replaceGlobalAppSpec(spec) {
+    // Puts a registry row back to an older specification behind the node's back: a
+    // registry out of step with its message log, which only a rebuild repairs. For a
+    // suite whose subject is that repair; a specification reaches a node through
+    // app-delivery.js.
+    async writeStaleGlobalAppSpec(spec) {
       const globalDb = await db('appsGlobal');
       const { _id: _ignored, ...replacement } = spec;
       await globalDb.collection('zelappsinformation').replaceOne({ name: spec.name }, replacement, { upsert: true });
+    },
+
+    // A message as the node holds one it received and has not yet seen paid for.
+    async seedTemporaryMessage(msg) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappstemporarymessages').insertOne({ ...msg });
     },
 
     async seedPermanentMessage(msg) {
@@ -433,6 +540,12 @@ export function dbClient(nodeNum) {
     async permanentMessages(query = {}) {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappsmessages').find(query, { projection: { _id: 0 } }).toArray();
+    },
+
+    // The collections of one of the node's databases, by the key `db` takes ('appsGlobal', ...).
+    async collectionNames(which) {
+      const database = await db(which);
+      return (await database.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
     },
 
     async appHashRecords(query = {}) {
@@ -590,24 +703,6 @@ export function dbClient(nodeNum) {
     async deletePolicyBundle() {
       const localDb = await db('local');
       await localDb.collection('policydocuments').deleteOne({ _id: 'networkPolicy' });
-    },
-
-    async failpointFind(collection, { times = 1, errorCode = 50 } = {}) {
-      const client = await getClient();
-      const namespace = `${dbNames.explorer}.${collection}`;
-      await client.db('admin').command({
-        configureFailPoint: 'failCommand',
-        mode: { times },
-        data: { failCommands: ['find'], errorCode, namespace },
-      });
-    },
-
-    async failpointClear() {
-      const client = await getClient();
-      await client.db('admin').command({
-        configureFailPoint: 'failCommand',
-        mode: 'off',
-      });
     },
   };
 }

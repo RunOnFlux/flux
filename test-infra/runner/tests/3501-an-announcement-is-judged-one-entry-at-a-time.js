@@ -1,6 +1,6 @@
 // weight: medium
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -10,9 +10,9 @@ import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.
 import { assertNoEvent } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
-import { execInContainer } from '../framework/container.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A version 2 apprunning message names every app its sender holds. Each entry is
 // judged on its own: one without a name and a hash is refused and the rest of the
@@ -90,11 +90,7 @@ describe('an announcement is judged one entry at a time', function () {
     stub = env.stubPeerClients.get(STUB_INDEX);
     // Nodes 1 and 2 cannot reach the stub, cut off before the fleet peers so
     // neither ever holds a connection to it.
-    await Promise.all(BEHIND_RELAY.map(async (i) => {
-      const cut = await execInContainer(env.clients[i].container,
-        `iptables -I INPUT -s ${stubIp()} -j DROP && iptables -I OUTPUT -d ${stubIp()} -j DROP`);
-      if (cut.exitCode !== 0) throw new Error(`fixture: node ${i} could not cut the stub off (exit ${cut.exitCode}): ${cut.output}`);
-    }));
+    await env.cutOff(BEHIND_RELAY, STUB_INDEX);
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     const peeredWithStub = await Promise.all(BEHIND_RELAY.map(async (i) => {
       const [outgoing, incoming] = await Promise.all([env.clients[i].getPeers(), env.clients[i].getIncomingPeers()]);
@@ -104,8 +100,7 @@ describe('an announcement is judged one entry at a time', function () {
     expect(await stub.connectedNodes(), 'fixture: the stub holds connections beyond node 0').to.equal(1);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -136,33 +131,32 @@ describe('an announcement is judged one entry at a time', function () {
 
   // An empty v2 message deletes the sender's rows. A message whose entries were
   // all refused named apps: it stores nothing, goes no further, and is never
-  // read as one that named none.
+  // read as one that named none. A report is the sender's whole list, so the
+  // marker after it names both apps the stub runs.
   it('stores and relays nothing of a message whose every entry is refused, and keeps the sender\'s rows', async function () {
     this.timeout(180000);
     const held = `e2eentryheld${stamp}`;
     const refusedOnly = `e2eentryrefusedonly${stamp}`;
     const marker = `e2eentrymarker${stamp}`;
+    const runningSince = new Date().toISOString();
+    const heldEntry = { name: held, hash: `hash-${held}`, runningSince };
     let afterIds = marks();
-    await stub.runApp(held, { hash: `hash-${held}` });
+    await stub.broadcast(message([heldEntry]));
     await everyNodeStored(afterIds, stubIp(), held);
 
     afterIds = marks();
     await stub.broadcast(message([{ name: refusedOnly }]));
-    // A node handles one peer's messages in the order they were sent, so a node
-    // that stored this has handled the refused message before it.
-    await stub.runApp(marker, { hash: `hash-${marker}` });
-    await everyNodeStored(afterIds, stubIp(), marker);
-
     const [onNodeZero] = await handledBy([0], afterIds, stubIp(), refusedOnly);
     expect(onNodeZero).to.deep.include({ apps: [], refused: [refusedOnly], cleared: false, relayed: false });
+    expect(await rowNamesAt(0, stubIp()), 'node 0 deleted the sender\'s rows').to.include(held);
+
+    // A node handles one peer's messages in the order they were sent, so a node
+    // that stored this has handled the refused message before it.
+    await stub.broadcast(message([heldEntry, { name: marker, hash: `hash-${marker}`, runningSince }]));
+    await everyNodeStored(afterIds, stubIp(), marker);
     // Relayed, it would have reached them before the marker did.
     await Promise.all(BEHIND_RELAY.map((i) => assertNoEvent(env.clients[i], 'network:apprunning',
       (d) => d.refused?.includes(refusedOnly), 0, { afterId: afterIds[i] })));
-    // eslint-disable-next-line no-restricted-syntax
-    for (const i of realNodes) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(await rowNamesAt(i, stubIp()), `node ${i} deleted the sender's rows`).to.include(held);
-    }
   });
 
   // What the case above guards against is real: a message naming no apps does

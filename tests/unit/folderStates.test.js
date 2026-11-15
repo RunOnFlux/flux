@@ -1,14 +1,54 @@
 const { expect } = require('chai');
 const folderStates = require('../../ZelBack/src/services/appMonitoring/folderStates');
-const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
+const { folderStates: folderStateMap, publishedFileBytes } = require('../../ZelBack/src/services/utils/globalState');
 
 describe('folderStates tests', () => {
   beforeEach(() => {
     folderStateMap.clear();
+    publishedFileBytes.clear();
   });
 
   afterEach(() => {
     folderStateMap.clear();
+  });
+
+  describe('published', () => {
+    it('answers what a writable folder holds in the index, zero included', () => {
+      folderStates.published('fluxempty_app', 0);
+      folderStates.published('fluxfull_app', 4096);
+
+      expect(folderStates.answer(new Set(['fluxempty_app', 'fluxfull_app'])).published)
+        .to.deep.equal({ fluxempty_app: 0, fluxfull_app: 4096 });
+    });
+
+    it('answers nothing for a folder that no longer sends', () => {
+      folderStates.published('fluxr_app', 0);
+
+      expect(folderStates.answer(new Set()).published).to.deep.equal({});
+    });
+
+    it('withdraws the figure when the status cannot be read', () => {
+      folderStates.published('fluxr_app', 0);
+      folderStates.published('fluxr_app', null);
+
+      expect(folderStates.answer(new Set(['fluxr_app'])).published).to.deep.equal({});
+    });
+
+    it('tells a folder publishing bytes from one publishing nothing or unread', () => {
+      folderStates.published('fluxfull_app', 4096);
+      folderStates.published('fluxempty_app', 0);
+
+      expect(folderStates.publishesBytes('fluxfull_app')).to.equal(true);
+      expect(folderStates.publishesBytes('fluxempty_app')).to.equal(false);
+      expect(folderStates.publishesBytes('fluxunread_app')).to.equal(false);
+    });
+
+    it('forgets a removed folder', () => {
+      folderStates.published('fluxr_app', 0);
+      folderStates.removed('fluxr_app');
+
+      expect(publishedFileBytes.has('fluxr_app')).to.equal(false);
+    });
   });
 
   describe('installed', () => {
@@ -81,7 +121,7 @@ describe('folderStates tests', () => {
       folderStates.sending('fluxa');
 
       expect(folderStates.answer(new Set())).to.deep.equal({
-        holding: { fluxa: { unreadable: true } }, notLookedAt: [], heldOut: [], volumeGone: [],
+        holding: { fluxa: { unreadable: true } }, notLookedAt: [], heldOut: [], volumeGone: [], published: {},
       });
     });
 
@@ -120,6 +160,7 @@ describe('folderStates tests', () => {
         notLookedAt: ['fluxwait'],
         heldOut: ['fluxout'],
         volumeGone: ['fluxgone'],
+        published: {},
       });
     });
 

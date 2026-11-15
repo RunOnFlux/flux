@@ -15,7 +15,7 @@
  * A = the standby, B = the primary, C = holds nothing.
  */
 import {
-  describe, it, before, after, afterEach,
+  describe, it, before, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import {
@@ -28,6 +28,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const SIGTERM_EXPIRY_S = 120;
 const BEFORE_REVERT = 'syncthing:beforeLocalChangeRevert';
@@ -87,8 +88,7 @@ describe('a standby reverts its local changes while the primary keeps writing', 
     await client(A)?.releaseAllCheckpoints().catch(() => {});
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     writing = false;
     await writer;
     await client(A)?.releaseAllCheckpoints().catch(() => {});

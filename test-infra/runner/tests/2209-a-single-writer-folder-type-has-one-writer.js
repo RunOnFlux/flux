@@ -1,5 +1,5 @@
 import {
-  describe, it, before, after, afterEach,
+  describe, it, before, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -22,6 +22,7 @@ import {
 import { bootAndPeer, placeGAppInOrder, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { destroyVolume } from '../framework/volume-fixture.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A single-writer (g:) folder's syncthing type has one writer, the primary role
 // on each node, and every FluxOS write to a folder's config goes out one at a
@@ -138,8 +139,7 @@ describe('a single-writer folder type has one writer', function () {
     await resetSyncState();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetSyncState().catch(() => {});
     await resetFdm().catch(() => {});
     await env?.teardown();

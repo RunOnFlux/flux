@@ -3,6 +3,7 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const networkStateService = require('./networkStateService');
 const { AsyncGate } = require('./utils/asyncGate');
+const { peerManager } = require('./utils/FluxPeerManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const log = require('../lib/log');
 
@@ -53,6 +54,24 @@ function onDaemonStale(callback) {
 
 function onMessageCapabilityChange(callback) {
   messageCapabilityListeners.push(callback);
+}
+
+/**
+ * Asks whether this node can be heard, when something that decides it may have
+ * changed and the daemon holds it confirmed.
+ * @returns {void}
+ */
+function recheckMessageCapability() {
+  if (daemonConfirmed) checkMessageCapability().catch((error) => log.error(error));
+}
+
+/**
+ * The node can no longer say what it is: asked again only while that can change
+ * the answer, since the check itself reads the address.
+ * @returns {void}
+ */
+function recheckWhileCapable() {
+  if (messageCapable) recheckMessageCapability();
 }
 
 async function poll() {
@@ -124,14 +143,15 @@ async function poll() {
     return;
   }
 
-  await checkMessageCapability();
+  if (prevDaemonConfirmed !== daemonConfirmed) await checkMessageCapability();
 }
 
 /**
- * Whether this node can be heard: the address benchmark reports is listed under
- * this node's key. Told to the capability listeners when it changes. One check
- * runs at a time, so a check started by a poll and one started by the node
- * learning its address cannot both report the same change.
+ * Whether this node can be heard: it is listed at the address it reports, under
+ * its key, it holds the peers its messages travel by (the peer threshold), and
+ * no move of its own is under way. Asked when any of those changes, and told to
+ * the capability listeners when the answer does. One check runs at a time, so two
+ * started together cannot both report the same change.
  * @returns {Promise<void>}
  */
 function checkMessageCapability() {
@@ -157,7 +177,7 @@ async function readMessageCapability() {
     // FluxBench's benchmark results. A value served from memory answers the
     // address and not the question.
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
-    if (localSocketAddr && ourPubkey) {
+    if (localSocketAddr && ourPubkey && peerManager.isAboveThreshold() && !fluxNetworkHelper.ownMoveUnderway()) {
       const node = await networkStateService.getFluxnodeBySocketAddress(localSocketAddr);
       if (node && node.pubkey === ourPubkey) {
         newMessageCapable = true;
@@ -179,15 +199,6 @@ async function readMessageCapability() {
   }
 }
 
-/**
- * The node has an address after having none: whether it can be heard is asked
- * at once.
- * @returns {void}
- */
-function onOwnAddressKnown() {
-  if (daemonConfirmed) checkMessageCapability().catch((error) => log.error(error));
-}
-
 function scheduleNext() {
   setTimeout(async () => {
     await poll();
@@ -198,7 +209,13 @@ function scheduleNext() {
 async function start() {
   if (started) return;
   started = true;
-  fluxNetworkHelper.onLocalSocketAddressKnown(onOwnAddressKnown);
+  fluxNetworkHelper.onLocalSocketAddressKnown(recheckMessageCapability);
+  fluxNetworkHelper.onLocalSocketAddressChange(recheckMessageCapability);
+  fluxNetworkHelper.onLocalSocketAddressUnresolved(recheckWhileCapable);
+  fluxNetworkHelper.onOwnMoveUnderwayChange(recheckMessageCapability);
+  networkStateService.onUpdated(recheckMessageCapability);
+  peerManager.on('peerThresholdReached', recheckMessageCapability);
+  peerManager.on('peersBelowThreshold', recheckMessageCapability);
   await poll();
   confirmationStatusGate.open();
   scheduleNext();

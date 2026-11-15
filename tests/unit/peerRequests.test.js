@@ -27,6 +27,36 @@ describe('peerRequests tests', () => {
     });
   });
 
+  describe('finishing work already received', () => {
+    it('stops the deadline and leaves the request open', async () => {
+      const requests = new PeerRequests();
+      let expired = false;
+      requests.open(PEER, { timeoutMs: 5, onTimeout: () => { expired = true; } });
+      requests.finishWork(PEER);
+      await tick(15);
+      expect(expired).to.equal(false);
+      expect(requests.isOpen(PEER)).to.equal(true);
+      expect(requests.isFinishingWork(PEER)).to.equal(true);
+    });
+
+    it('is not finishing once settled', () => {
+      const requests = new PeerRequests();
+      requests.open(PEER);
+      requests.finishWork(PEER);
+      requests.settle(PEER, 'answered');
+      expect(requests.isFinishingWork(PEER)).to.equal(false);
+    });
+
+    it('survives the discard that forgets the rest', () => {
+      const requests = new PeerRequests();
+      requests.open(PEER);
+      requests.open('10.0.0.2:16127');
+      requests.finishWork(PEER);
+      requests.discardAllButFinishing();
+      expect(requests.keys()).to.deep.equal([PEER]);
+    });
+  });
+
   describe('which request an answer belongs to', () => {
     it('ignores an answer naming a different request', () => {
       const requests = new PeerRequests();

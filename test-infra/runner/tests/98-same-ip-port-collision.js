@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -17,6 +17,7 @@ import {
 import { dbClient } from '../framework/db-client.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Several Flux nodes commonly share one public IP - four behind one home router
 // is an ordinary setup. Each is its own machine with its own docker and its own
@@ -102,8 +103,7 @@ describe('a port another Flux node at this address holds', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await restoreToNodeList(siblingIp).catch(() => {});
     await env?.teardown();
   });
@@ -360,8 +360,7 @@ describe('a port another Flux node at this address holds, asked by a node that s
     expect(record.movedFrom, 'fixture: the asker adopted the shared address, it did not move to it').to.equal(null);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

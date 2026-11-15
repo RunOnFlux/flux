@@ -17,7 +17,7 @@ const espree = require('espree');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { withRegistryWrite } = require('../../ZelBack/src/services/appDatabase/registryWriteLock');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 const MESSAGES = 'zelappsmessages';
 const INFO = 'zelappsinformation';
@@ -359,6 +359,8 @@ describe('registry rebuild: who holds a name', () => {
 });
 
 describe('registry writes', () => {
+  after(releaseMongo);
+
   const SRC = path.join(__dirname, '../../ZelBack/src');
   const sourceFiles = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);

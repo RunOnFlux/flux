@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, pm2Registration, AS_PM2_OPERATOR } from '../framework/container.js';
@@ -7,6 +7,7 @@ import { waitFor } from '../framework/wait.js';
 import { isDaemonUp } from '../framework/syncthing-real.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // fleet: 3
 //
@@ -120,8 +121,7 @@ chmod 755 "$p"`);
     expect(r.exitCode, `fixture: ${r.output}`).to.equal(0);
   };
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

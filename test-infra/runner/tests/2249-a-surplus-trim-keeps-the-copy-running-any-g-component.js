@@ -1,5 +1,5 @@
 // weight: heavy
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, crashFluxos, releaseFluxos } from '../framework/container.js';
@@ -20,6 +20,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Trimming a surplus copy of an app with two single-writer (g:) components, when
 // the copy the surplus rule picks - the newest - is the app's primary, running its
@@ -164,8 +165,7 @@ describe('a surplus trim keeps the copy running any g: component', function () {
     })));
   });
 
-  after(async function () {
-    this.timeout(120000);
+  afterTeardown(async function () {
     held?.stop();
     await startTicker().catch(() => {});
     await env?.teardown();

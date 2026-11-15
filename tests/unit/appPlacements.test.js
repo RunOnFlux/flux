@@ -3,9 +3,11 @@ const config = require('config');
 const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
-const { requireMongo } = require('./dbTestHelper');
+const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('appPlacements', () => {
+  after(releaseMongo);
+
   before(requireMongo);
 
   const me = '203.0.113.50:16127';

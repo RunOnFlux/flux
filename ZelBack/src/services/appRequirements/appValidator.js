@@ -16,11 +16,11 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 const enterpriseConfig = require('../utils/enterpriseConfig');
 const portManager = require('../appNetwork/portManager');
+const bodyLimit = require('../utils/bodyLimit');
 
 /**
  * Verify type correctness of application specification
@@ -1529,6 +1529,7 @@ async function verifyAppRegistrationParameters(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -1544,10 +1545,7 @@ async function verifyAppRegistrationParameters(req, res) {
         appSpecification.version >= 8 && appSpecification.enterprise,
       );
 
-      if (isEnterprise) {
-        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
-      }
-      verifyEnterpriseCarriesNoPlainSpec(appSpecification);
+      verifyEncryptedSpec(appSpecification);
 
       // Decrypt enterprise specifications if needed
       const appSpecDecrypted = await checkAndDecryptAppSpecs(
@@ -1574,6 +1572,10 @@ async function verifyAppRegistrationParameters(req, res) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
             await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
+          }
+          if (appComponent.repoauth) {
+            // eslint-disable-next-line no-await-in-loop
+            await imageManager.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
           }
         }
       }
@@ -1625,10 +1627,7 @@ async function validateAppUpdate(appSpecification) {
     appSpecification.version >= 8 && appSpecification.enterprise,
   );
 
-  if (isEnterprise) {
-    verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
-  }
-  verifyEnterpriseCarriesNoPlainSpec(appSpecification);
+  verifyEncryptedSpec(appSpecification);
 
   const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
 
@@ -1642,6 +1641,10 @@ async function validateAppUpdate(appSpecification) {
       if (appComponent.secrets) {
         // eslint-disable-next-line no-await-in-loop
         await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+      }
+      if (appComponent.repoauth) {
+        // eslint-disable-next-line no-await-in-loop
+        await imageManager.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
       }
     }
   }
@@ -1690,6 +1693,7 @@ async function verifyAppUpdateApi(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {

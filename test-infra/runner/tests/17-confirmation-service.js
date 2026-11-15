@@ -1,4 +1,4 @@
-import { describe, it, before, after, afterEach } from 'mocha';
+import { describe, it, before, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -6,9 +6,11 @@ import {
 } from '../framework/wait.js';
 import {
   advanceBlock, enableRpcFailure, disableAllRpcFailure,
-  removeFromNodeList, resetNodeList, driveUntil,
+  removeFromNodeList, resetNodeList, driveUntil, stopTicker,
 } from '../framework/daemon-control.js';
+import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('Confirmation service: CONFIRMED detection', function () {
   let env;
@@ -20,8 +22,7 @@ describe('Confirmation service: CONFIRMED detection', function () {
     await waitForDaemonReady(env.clients[0]);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -41,12 +42,12 @@ describe('Confirmation service: node list removal → message capability lost', 
     env = await createTestEnv({ hookCtx: this, nodes: 3, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
-    await advanceBlock();
+    await bootAndPeer(env);
+    await stopTicker();
     await waitForMessageCapabilityChanged(env.clients[0], true, 30000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await resetNodeList();
     await env?.teardown();
   });
@@ -90,8 +91,7 @@ describe('Confirmation service: RPC failure windows', function () {
     await disableAllRpcFailure();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

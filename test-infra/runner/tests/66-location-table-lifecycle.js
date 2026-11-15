@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -12,6 +12,7 @@ import { appOwnerKey } from '../framework/keys.js';
 import { assignPorts } from '../framework/port-allocator.js';
 import { signBtcMessage } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The location table's LIFE, as opposed to its first fetch.
 //
@@ -331,8 +332,7 @@ describe('the location table survives restarts and refuses bad publications', fu
     [fleetContinent] = Object.keys(tree.continents);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     // leave the stub on its single-domain default for whatever runs next
     await fetch(`${env?.stubControl}/iplocation`, {
       method: 'POST',
@@ -707,8 +707,7 @@ describe('a fleet with no artifact to fetch holds the tableless posture', functi
     );
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

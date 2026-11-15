@@ -1,6 +1,6 @@
 // weight: medium
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import { restartFluxos } from '../framework/container.js';
 import { setBenchmarkUnresolved } from '../framework/daemon-control.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node's location rows are filed under its address, and an installed app
 // without a placement record is dated from this node's own row. A node that
@@ -91,8 +92,7 @@ describe('a node that boots without its address dates its records once it has on
     await env.clients[idx].waitForEvent('app:running', (d) => runningSinceIn(d) !== null, 120000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (holder) await setBenchmarkUnresolved(holder, false).catch(() => {});
     await env?.teardown();
   });

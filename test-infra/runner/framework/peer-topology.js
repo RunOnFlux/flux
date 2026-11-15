@@ -51,8 +51,8 @@ export async function askToBeDialed(asker, dialer, port = 16127) {
 }
 
 // A stub holds an index in the sorted node list, so the ring routes through it,
-// but it never dials and never answers addoutgoingpeer - it cannot supply a
-// connection in either direction.
+// but it never dials and never answers addoutgoingpeer. A node's own dial reaches
+// it; nothing else connects them.
 export function dialerCount(nodeCount, stubCount = 0) {
   return Math.max(nodeCount - stubCount, 1);
 }
@@ -154,6 +154,179 @@ export function deriveReadinessThresholds(nodeCount, stubCount, shared) {
   };
 }
 
+// Production's admissionQuorum and admissionLinkTarget (ZelBack/config/default.js);
+// tests/unit/peerTopology.test.js holds them together.
+export const PRODUCTION_ADMISSION_QUORUM = 3;
+export const PRODUCTION_ADMISSION_LINK_TARGET = 5;
+
+/**
+ * The admission quorum a fleet of this shape can meet. A node admits an unpaid
+ * app message only while it holds admissionQuorum authenticated links on distinct
+ * IPs, and only an Arcane node listed at its own address authenticates, so the
+ * quorum is what the node that fares worst can count: reachablePeers, less every
+ * node no link authenticates with, since one may sit in any arc, less the margin production keeps above its quorum
+ * (admissionLinkTarget - admissionQuorum), so a peer or two can be away and a
+ * registration still goes through. A fleet that carries production's links keeps
+ * production's quorum; a smaller one gets what it carries past the margin, and a
+ * node with nothing past it admits on its own. Injected as the fleet's config like
+ * the thresholds above; a suite TESTING the quorum sets its own and that wins.
+ * @param {number} nodeCount
+ * @param {number} absentCount Stubs and deferred nodes.
+ * @param {number} unlinkableCount Dialing nodes no link authenticates with:
+ *   legacy nodes, and nodes not listed at their own address.
+ * @param {number} [minOutgoing] The fewest peers any node of the fleet dials, when a
+ *   suite runs the fleet below its ring.
+ * @returns {number}
+ */
+export function deriveAdmissionQuorum(nodeCount, absentCount, unlinkableCount, minOutgoing = Infinity) {
+  const reachable = reachablePeers(dialerCount(nodeCount, absentCount), absentCount, minOutgoing);
+  const margin = PRODUCTION_ADMISSION_LINK_TARGET - PRODUCTION_ADMISSION_QUORUM;
+  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - unlinkableCount - margin));
+}
+
+/**
+ * The peers the worst-placed node of a ring can hold once it has closed: its two
+ * arcs, less any slot in one that nothing answers on. A stub or a deferred node
+ * answers neither a dial nor an addoutgoingpeer request, so the nodes whose arcs
+ * reach it are short by one and no waiting changes that. It is the nodes at the
+ * START of the list that pay, because index 0's backward arc is the one that
+ * wraps onto the absent end of the ring.
+ *
+ * Each arc is as long as the nodes dial: the ring's, or fewer when a suite runs
+ * the fleet below it, since a node is dialled only by the nodes behind it.
+ *
+ * Conservative on both counts: ringArc is the disjoint arc, so a suite that
+ * overrode minOutgoing higher only ever holds MORE than this, and the
+ * subtraction assumes every absent slot lands inside the arc.
+ * @param {number} dialers
+ * @param {number} absentCount Stubs and deferred nodes.
+ * @param {number} [minOutgoing] The fewest peers any node dials, below the ring's arc.
+ * @returns {number}
+ */
+export function reachablePeers(dialers, absentCount = 0, minOutgoing = Infinity) {
+  const arc = Math.min(ringArc(dialers), minOutgoing);
+  return Math.max(0, Math.min(dialers - 1, (2 * arc) - absentCount));
+}
+
+/**
+ * What a node holds in each direction once the ring has closed, against the door's
+ * floors. It dials the slots ahead of it and is dialled from the slots behind it.
+ * A slot nothing answers on supplies neither, a stub only takes a dial, and a peer
+ * in both arcs ends up in whichever direction connects first, so it counts in
+ * neither.
+ *
+ * @param {number} index The node.
+ * @param {number[]} ring Every listed index, in list order.
+ * @param {object} shape
+ * @param {number} shape.minOutgoing
+ * @param {number} shape.minIncoming
+ * @param {number[]} [shape.absent] Listed indices nothing answers on.
+ * @param {number[]} [shape.stubs] Listed indices that take a dial and never make one.
+ * @returns {{outbound: number, inbound: number}}
+ */
+export function ringPeerFloors(index, ring, {
+  minOutgoing, minIncoming, absent = [], stubs = [],
+}) {
+  const size = ring.length;
+  const position = ring.indexOf(index);
+  const arc = (step) => Array.from(
+    { length: Math.min(size, minOutgoing) },
+    (_unused, i) => ring[(((position + (step * (i + 1))) % size) + size) % size],
+  ).filter((peer) => peer !== index && !absent.includes(peer));
+  const ahead = arc(1);
+  const behind = arc(-1);
+  return {
+    outbound: Math.min(minOutgoing, ahead.filter((peer) => !behind.includes(peer)).length),
+    inbound: Math.min(minIncoming, behind.filter((peer) => !ahead.includes(peer) && !stubs.includes(peer)).length),
+  };
+}
+
+/**
+ * The nodes each node is connected to once discovery has run its deterministic
+ * ring: a node dials the `arcOf(i)` slots after it and asks as many before it to
+ * dial it back (fluxCommunication.js). A stub takes a dial and makes none, and a
+ * slot nothing answers on supplies nothing. `extra` adds connections made outside
+ * the ring, such as a stub's peerings.
+ *
+ * @param {number[]} ring Every listed index, in list order.
+ * @param {object} shape
+ * @param {function(number): number} shape.arcOf A dialer's minOutgoing.
+ * @param {number[]} shape.dialers Listed indices that dial and answer asks.
+ * @param {number[]} [shape.stubs] Indices that take a dial and never make one.
+ * @param {Array<[number, number]>} [shape.extra] Further connections, as pairs.
+ * @returns {Map<number, Set<number>>} Each dialer's and stub's connections.
+ */
+export function ringConnections(ring, {
+  arcOf, dialers, stubs = [], extra = [],
+}) {
+  const connections = new Map([...dialers, ...stubs].map((i) => [i, new Set()]));
+  const connect = (a, b) => {
+    if (a === b || !connections.has(a) || !connections.has(b)) return;
+    connections.get(a).add(b);
+    connections.get(b).add(a);
+  };
+  const size = ring.length;
+  dialers.forEach((i) => {
+    const position = ring.indexOf(i);
+    if (position < 0) return;
+    for (let step = 1; step <= Math.min(size, arcOf(i)); step += 1) {
+      connect(i, ring[(position + step) % size]);
+      const behind = ring[(((position - step) % size) + size) % size];
+      if (dialers.includes(behind)) connect(i, behind);
+    }
+  });
+  extra.forEach(([a, b]) => connect(a, b));
+  return connections;
+}
+
+/**
+ * The nodes that start with their app state already synced, so that every other
+ * node completes its own state sync from its neighbours rather than waiting out
+ * the block fallback: the fewest of `candidates` that give each node outside them
+ * `needOf(i)` neighbours able to answer, the highest indices among sets of one
+ * size. `answering` are stubs that answer a sync.
+ *
+ * With no candidate there is nothing to choose: a node alone in its fleet has
+ * nobody to sync from. Otherwise throws, naming each node, when no choice of
+ * candidates reaches what it needs: that fleet's suite declares its synced nodes
+ * itself.
+ *
+ * @param {number[]} nodes The nodes that sync.
+ * @param {object} shape
+ * @param {number[]} shape.candidates The nodes that may start synced.
+ * @param {Map<number, Set<number>>} shape.connections From ringConnections.
+ * @param {function(number): number} shape.needOf A node's appSyncMinCompletions.
+ * @param {number[]} [shape.answering]
+ * @returns {number[]}
+ */
+export function chooseSyncedNodes(nodes, {
+  candidates, connections, needOf, answering = [],
+}) {
+  if (!candidates.length) return [];
+  const answerers = (i, synced) => [...(connections.get(i) ?? [])]
+    .filter((peer) => synced.includes(peer) || answering.includes(peer)).length;
+  const short = nodes.filter((i) => !candidates.includes(i) && answerers(i, candidates) < needOf(i));
+  if (short.length) {
+    throw new Error(`createTestEnv: node${short.length > 1 ? 's' : ''} ${short.join(', ')} cannot be connected to enough synced nodes to complete a state sync; declare syncedNodes`);
+  }
+  const satisfies = (synced) => nodes.every((i) => synced.includes(i) || answerers(i, synced) >= needOf(i));
+  const pool = [...candidates].sort((a, b) => b - a);
+  // Every set of `size` from pool[start..], in order of their highest indices.
+  const subsets = (start, size) => {
+    if (size === 0) return [[]];
+    const sets = [];
+    for (let i = start; i <= pool.length - size; i += 1) {
+      subsets(i + 1, size - 1).forEach((rest) => sets.push([pool[i], ...rest]));
+    }
+    return sets;
+  };
+  for (let size = 0; size <= pool.length; size += 1) {
+    const synced = subsets(0, size).find(satisfies);
+    if (synced) return synced.sort((a, b) => a - b);
+  }
+  return pool.sort((a, b) => a - b);
+}
+
 /**
  * The peer total each node reaches once the ring has closed. Used for the boot
  * wait: it is the same demand expressed as a sum, which is robust even if a
@@ -164,17 +337,7 @@ export function deriveReadinessThresholds(nodeCount, stubCount, shared) {
  * @param {number} dialers
  */
 export function expectedPeerTotal(outboundTarget, inboundTarget, dialers, stubCount = 0) {
-  const arc = ringArc(dialers);
-  // What a node can actually hold: its two arcs, less any stub that falls inside
-  // one. A stub answers neither a dial nor an addoutgoingpeer request, so the
-  // nodes whose arcs reach it are short by one and no waiting changes that. It
-  // is the nodes at the START of the list that pay, because index 0's backward
-  // arc is the one that wraps onto the stub's end of the ring.
-  //
-  // Conservative on both counts: ringArc is the disjoint arc, so a suite that
-  // overrode minOutgoing higher only ever holds MORE than this expects, and the
-  // stub subtraction assumes every stub lands inside the arc.
-  const reachable = Math.max(1, Math.min(dialers - 1, (2 * arc) - stubCount));
+  const reachable = Math.max(1, reachablePeers(dialers, stubCount));
   // The suite's own ask is the target when the fleet can carry it. When it
   // cannot, the fleet's shape is the binding constraint and no request changes
   // it - so take what is reachable rather than waiting out the budget proving

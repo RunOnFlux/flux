@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
@@ -7,6 +7,7 @@ import {
   bootAndPeer, seedSpawnerApp, waitForInstanceCount,
 } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Synced (g:/r:/s:) apps and the placement share. Every harness node sits in
 // one /16, i.e. one network fault domain - the WordPress-in-Bahrain incident
@@ -36,8 +37,7 @@ describe('spawner shares one fault domain among synced-app instances', function 
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

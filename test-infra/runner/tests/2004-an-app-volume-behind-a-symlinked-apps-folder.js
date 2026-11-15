@@ -12,7 +12,7 @@
  * and starts nothing over it, and the loop device is never switched to direct
  * I/O.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -23,6 +23,7 @@ import { crashAppContainer, execInContainer, getAppContainerId } from '../framew
 import { volumeRoot } from '../framework/volume-fixture.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const APPS_FOLDER_LINK = '/mnt/appdata/flux-apps-link';
 const APPS_FOLDER = '/mnt/appdata/flux-apps';
@@ -91,8 +92,7 @@ describe('an app volume behind a symlinked apps folder', function () {
     );
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

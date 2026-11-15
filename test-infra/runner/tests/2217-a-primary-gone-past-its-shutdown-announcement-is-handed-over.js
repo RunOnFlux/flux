@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { shutdownFluxosGracefully } from '../framework/container.js';
@@ -10,6 +10,7 @@ import { dbClient } from '../framework/db-client.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { placeSilentPrimaryApp, A, B } from '../framework/silent-primary.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A primary that announced its shutdown and has not come back is handed over
 // once the announcement has expired (sigtermExpiryS), and not before: until then
@@ -32,8 +33,7 @@ describe('a primary gone past its shutdown announcement is handed over', functio
     fleet = await placeSilentPrimaryApp({ hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     fleet?.stop();
     await resetFdm().catch(() => {});
     await fleet?.env.teardown();

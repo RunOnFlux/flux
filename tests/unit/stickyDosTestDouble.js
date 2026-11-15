@@ -1,9 +1,9 @@
 const sinon = require('sinon');
 
-const { StickyDosOwner } = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { StickyDosOwner } = require('../../ZelBack/src/services/nodeDosState');
 
 /**
- * An owner-keyed stand-in for the sticky DOS half of fluxNetworkHelper.
+ * An owner-keyed stand-in for the sticky DOS half of nodeDosState.
  *
  * Stateful, because the rules under test are written against reading back what
  * was written: a getter pinned to null lets a release that must not happen pass

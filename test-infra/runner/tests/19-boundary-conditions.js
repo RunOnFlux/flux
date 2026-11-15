@@ -1,4 +1,4 @@
-import { describe, it, before, after, afterEach } from 'mocha';
+import { describe, it, before, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -14,6 +14,7 @@ import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Suite 1: Peer threshold boundaries
 
@@ -40,8 +41,7 @@ describe('Boundary: peer thresholds', function () {
     await env.startDiscovery();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -102,8 +102,7 @@ describe('Boundary: DOS state', function () {
     await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -167,8 +166,7 @@ describe('Boundary: block timer', function () {
     await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -222,8 +220,7 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
     await waitForDaemonReady(env.clients[0]);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -258,8 +255,7 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

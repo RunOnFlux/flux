@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus } from '../framework/container.js';
@@ -6,6 +6,7 @@ import { waitForUp, assertNoEvent } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { holdCommands, releaseCommands } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A mongod that keeps leaving FluxOS's calls unanswered, held with mongo-control as
 // suite 3301 holds it. Once suspectRoundTrips round trips have run out within
@@ -69,8 +70,7 @@ describe('a database that keeps timing out takes on no new apps', function () {
     }
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     if (held) await releaseCommands().catch(() => {});
     await env?.teardown();
   });

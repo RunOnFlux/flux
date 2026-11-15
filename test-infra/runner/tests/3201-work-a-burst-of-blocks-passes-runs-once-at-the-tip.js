@@ -8,13 +8,14 @@
  * blocks it missed back to back, behind the tip, and reaches the tip on the last. It must run the
  * pass exactly once, on that block, and on none of the blocks behind it.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitFor, waitForBlockProcessed } from '../framework/wait.js';
 import { advanceBlock, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const HELD = 0;
 const CONTROL = 1;
@@ -70,8 +71,7 @@ describe('work a burst of blocks passes runs once, at the tip', function () {
     heldRuns = runsOf(held, heldFrom);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.clients[HELD]?.releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });

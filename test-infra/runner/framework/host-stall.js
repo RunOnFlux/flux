@@ -108,6 +108,46 @@ export async function containerCgroup(container, name) {
   return line.replace(/^0::/, '/sys/fs/cgroup');
 }
 
+// Runs inside the node, against its docker's API: `name` as it is, in no slice.
+const RECREATE_OUTSIDE_SLICES = `
+const http = require('http');
+const name = process.argv[1];
+const call = (method, path, body) => new Promise((resolve, reject) => {
+  const req = http.request({ socketPath: '/var/run/docker.sock', method, path, headers: { 'Content-Type': 'application/json' } }, (res) => {
+    let text = '';
+    res.on('data', (chunk) => { text += chunk; });
+    res.on('end', () => (res.statusCode < 300 ? resolve(text && JSON.parse(text)) : reject(new Error(method + ' ' + path + ': ' + res.statusCode + ' ' + text))));
+  });
+  req.on('error', reject);
+  req.end(body && JSON.stringify(body));
+});
+(async () => {
+  const held = name + '-sliced';
+  const { Config, HostConfig, NetworkSettings } = await call('GET', '/containers/' + name + '/json');
+  const EndpointsConfig = Object.fromEntries(Object.entries(NetworkSettings.Networks)
+    .map(([network, { IPAMConfig, Aliases }]) => [network, { IPAMConfig, Aliases }]));
+  await call('POST', '/containers/' + name + '/rename?name=' + held);
+  await call('POST', '/containers/create?name=' + name, {
+    ...Config, HostConfig: { ...HostConfig, CgroupParent: '' }, NetworkingConfig: { EndpointsConfig },
+  });
+  await call('DELETE', '/containers/' + held + '?force=true');
+  await call('POST', '/containers/' + name + '/start');
+})().catch((error) => { console.error(error.message); process.exit(1); });
+`;
+
+/**
+ * Replace a running app container with the same container in no slice, as a
+ * release that gave containers no slice made it: docker puts it in its own scope
+ * under system.slice. Hold reconciler:beforeStart on the app for the call, so the
+ * node starts nothing of its own in the moment the name is free.
+ * @param {object} container The node.
+ * @param {string} name The container's name inside the node.
+ * @returns {Promise<void>}
+ */
+export async function recreateOutsideSlices(container, name) {
+  await run(container, `node -e '${RECREATE_OUTSIDE_SLICES.replace(/'/g, "'\\''")}' ${name}`, `recreating ${name} outside the slices`);
+}
+
 /**
  * The processes in a cgroup and every cgroup below it that could still run:
  * neither gone nor with SIGKILL pending. Read inside the node, independently of

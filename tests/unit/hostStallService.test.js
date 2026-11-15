@@ -6,6 +6,7 @@ const path = require('path');
 const config = require('config');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const nodeDosState = require('../../ZelBack/src/services/nodeDosState');
 const hostStallService = require('../../ZelBack/src/services/hostStallService');
 
 const { stuckIntervals, readIntervalMs } = config.hostStall;
@@ -59,7 +60,14 @@ describe('hostStallService tests', () => {
     for (let i = 0; i < n; i += 1) await read(); // eslint-disable-line no-await-in-loop
   }
   const placementHeld = () => fluxNetworkHelper.isPlacementHeld();
-  const outOfService = () => fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+  const outOfService = () => nodeDosState.isStickyDosHeldBy(nodeDosState.StickyDosOwner.HOST_STALL);
+  // Calls `listener` each time the node is newly held for a host stall.
+  let stopListening = [];
+  const onHostStallHold = (listener) => {
+    stopListening.push(nodeDosState.onStickyDos((owner) => {
+      if (owner === nodeDosState.StickyDosOwner.HOST_STALL) listener();
+    }));
+  };
 
   beforeEach(() => {
     procRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hoststall-'));
@@ -72,9 +80,11 @@ describe('hostStallService tests', () => {
   });
 
   afterEach(async () => {
+    stopListening.forEach((stop) => stop());
+    stopListening = [];
     await hostStallService.stop();
     fluxNetworkHelper.clearPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL);
-    fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+    nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.HOST_STALL);
     fs.rmSync(procRoot, { recursive: true, force: true });
     sinon.restore();
   });
@@ -125,18 +135,18 @@ describe('hostStallService tests', () => {
     await read();
 
     expect(outOfService()).to.equal(true);
-    expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
-    expect(fluxNetworkHelper.getDosMessage()).to.include('Host stall: mongod thread 101');
+    expect(nodeDosState.isNodeDos()).to.equal(true);
+    expect(nodeDosState.getDosMessage()).to.include('Host stall: mongod thread 101');
   });
 
   it('keeps the reason it went out of service with while the thread stays stuck', async () => {
     stuckMongod();
     await readTimes(stuckIntervals + 1);
-    const reason = fluxNetworkHelper.getDosMessage();
+    const reason = nodeDosState.getDosMessage();
 
     await readTimes(3);
 
-    expect(fluxNetworkHelper.getDosMessage()).to.equal(reason);
+    expect(nodeDosState.getDosMessage()).to.equal(reason);
   });
 
   it('starts the count again for a thread that ran between readings, though it is in D again', async () => {
@@ -211,10 +221,10 @@ describe('hostStallService tests', () => {
     expect(outOfService()).to.equal(true);
   });
 
-  describe('onTrip', () => {
+  describe('the hold', () => {
     it('tells a listener the moment the node goes out of service, and not before', async () => {
       const listener = sinon.stub();
-      hostStallService.onTrip(listener);
+      onHostStallHold(listener);
       stuckMongod();
       await readTimes(stuckIntervals);
       sinon.assert.notCalled(listener);
@@ -231,7 +241,7 @@ describe('hostStallService tests', () => {
       await readTimes(stuckIntervals + 1);
       const listener = sinon.stub();
 
-      hostStallService.onTrip(listener);
+      onHostStallHold(listener);
 
       sinon.assert.calledOnce(listener);
     });
@@ -240,9 +250,9 @@ describe('hostStallService tests', () => {
       stuckMongod();
       await readTimes(stuckIntervals + 1);
       hostStallService.stop();
-      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+      nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.HOST_STALL);
       const listener = sinon.stub();
-      hostStallService.onTrip(listener);
+      onHostStallHold(listener);
 
       await hostStallService.start(paths);
 
@@ -253,7 +263,7 @@ describe('hostStallService tests', () => {
   describe('the kept state', () => {
     async function restart() {
       await hostStallService.stop();
-      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+      nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.HOST_STALL);
       await hostStallService.start(paths);
     }
 
@@ -262,7 +272,7 @@ describe('hostStallService tests', () => {
       await readTimes(stuckIntervals + 1);
 
       const { trip, threads } = kept();
-      expect(trip).to.equal(fluxNetworkHelper.getDosMessage());
+      expect(trip).to.equal(nodeDosState.getDosMessage());
       expect(threads.map(([, thread]) => [thread.tid, thread.intervals])).to.deep.equal([['101', stuckIntervals]]);
     });
 
@@ -276,12 +286,12 @@ describe('hostStallService tests', () => {
     it('restores the trip at a start', async () => {
       stuckMongod();
       await readTimes(stuckIntervals + 1);
-      const reason = fluxNetworkHelper.getDosMessage();
+      const reason = nodeDosState.getDosMessage();
 
       await restart();
 
       expect(outOfService()).to.equal(true);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(reason);
+      expect(nodeDosState.getDosMessage()).to.equal(reason);
     });
 
     it('carries a stuck thread\'s count through a restart', async () => {
@@ -455,7 +465,7 @@ describe('hostStallService tests', () => {
         stuckMongod();
         await readTimes(stuckIntervals);
         await hostStallService.stop();
-        fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+        nodeDosState.clearStickyDos(nodeDosState.StickyDosOwner.HOST_STALL);
         passMs(readIntervalMs);
         holding = true;
 
@@ -530,13 +540,13 @@ describe('hostStallService tests', () => {
       });
     });
 
-    it('takes the node out of service and tells its listeners when the state cannot be kept', async () => {
+    it('takes the node out of service, holding it, when the state cannot be kept', async () => {
       const writeFile = fs.promises.writeFile.bind(fs.promises);
       sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (file.startsWith(paths.stateFile)
         ? Promise.reject(new Error('read-only'))
         : writeFile(file, ...rest)));
       const listener = sinon.stub();
-      hostStallService.onTrip(listener);
+      onHostStallHold(listener);
       stuckMongod();
 
       await readTimes(stuckIntervals + 1);
@@ -569,18 +579,27 @@ describe('hostStallService tests', () => {
     });
 
     it('goes out of service only once the thread has been held for the configured intervals, however often FluxOS restarts', async () => {
-      const RESTART_EVERY_MS = 15000;
       stuckMongod();
-      await read();
-      const heldSince = uptimeMs;
-      while (!outOfService()) {
-        await hostStallService.stop(); // eslint-disable-line no-await-in-loop
-        passMs(RESTART_EVERY_MS);
-        await hostStallService.start(paths); // eslint-disable-line no-await-in-loop
-        expect(uptimeMs - heldSince, 'never went out of service').to.be.below(2 * stuckIntervals * readIntervalMs);
-      }
+      // A FluxOS start takes a reading at once: a restart is a reading at its
+      // uptime, carried from what the last FluxOS kept.
+      const restartAt = async (ms) => {
+        setUptime(ms);
+        await hostStallService.start(paths);
+        await hostStallService.stop();
+        return kept().threads.map(([, thread]) => thread.intervals);
+      };
+      let countedAt = uptimeMs;
+      expect(await restartAt(countedAt)).to.deep.equal([0]);
 
-      expect(uptimeMs - heldSince).to.be.within(stuckIntervals * readIntervalMs, stuckIntervals * readIntervalMs + RESTART_EVERY_MS);
+      for (let interval = 1; interval <= stuckIntervals; interval += 1) {
+        /* eslint-disable no-await-in-loop */
+        expect(await restartAt(countedAt + 1000), `a restart just after count ${interval - 1}`).to.deep.equal([interval - 1]);
+        expect(await restartAt(countedAt + readIntervalMs - 1000), `a restart just before interval ${interval} ends`).to.deep.equal([interval - 1]);
+        countedAt += readIntervalMs;
+        expect(await restartAt(countedAt), `a restart as interval ${interval} ends`).to.deep.equal([interval]);
+        /* eslint-enable no-await-in-loop */
+        expect(outOfService(), `out of service after ${interval} intervals`).to.equal(interval >= stuckIntervals);
+      }
     });
 
     it('takes no reading while the uptime cannot be read', async () => {

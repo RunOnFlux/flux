@@ -19,8 +19,10 @@ import { thawEveryNode } from './host-stall.js';
 import { waitFor } from './wait.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
-import { getSubnetConfig, REGISTRY_ALIAS, STORAGE_HOST } from './subnet-config.js';
-import { closeDb } from './db-client.js';
+import {
+  getSubnetConfig, setIpGroups, SLOT_WIDTH, REGISTRY_ALIAS, STORAGE_HOST,
+} from './subnet-config.js';
+import { closeDb, dbClient } from './db-client.js';
 import { FLUXD_PUBLISHED_PORT, newFluxdLogin, setFluxdLogin } from './fluxd-control.js';
 import {
   clearInfraDeath, infraDeathError, reportInfraDeath, sleepUnlessInfraDead,
@@ -28,7 +30,8 @@ import {
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import {
-  derivePeerThresholds, deriveReadinessThresholds, carriedPeers, ringArc, dialerCount,
+  derivePeerThresholds, deriveReadinessThresholds, deriveAdmissionQuorum, carriedPeers, ringArc, dialerCount,
+  ringConnections, chooseSyncedNodes,
 } from './peer-topology.js';
 import { pushImage, mirrorExecutorImage, executorImageReference } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
@@ -39,8 +42,11 @@ import { fluxTeamKey, nodeKey } from './keys.js';
 // pins and the key the stub signs with from drifting apart.
 import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
-import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
+import {
+  HARNESS_BLOCK_MS, assertCoupledRatios, assertListRefreshesEveryBlock, loadSharedConfig,
+} from './coupled-knobs.js';
 import { startSyncedDataKeeper } from './synced-data-keeper.js';
+import { startSyncthingTrace, tracedPackages } from './syncthing-trace.js';
 
 // How long after a re-attach the collector goes on treating an exact repeat as docker
 // replaying a line it already has. Docker's `since` is whole-second, so the replay is over
@@ -179,6 +185,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // The baseline a suite's overrides merge onto - read once, so the ratio check
 // sees what the node will actually run rather than only what the suite set.
 const sharedFluxapps = loadSharedConfig().fluxapps ?? {};
+const sharedNetworkState = loadSharedConfig().networkState ?? {};
 const fixturesDir = join(__dirname, '..', '..', 'fixtures');
 const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json'), 'utf-8'));
 // Identity for the fake-blockchain node list (collateral/pubkey/tier). Base-independent;
@@ -186,7 +193,7 @@ const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json')
 const deterministicList = JSON.parse(readFileSync(join(fixturesDir, 'deterministic-list.json'), 'utf-8'));
 
 // All infra/node addresses derive from the per-run subnet base (TEST_SUBNET_BASE,
-// default '31.200.0'); see subnet-config.js. The named constants below are kept so
+// default '25.192.0'); see subnet-config.js. The named constants below are kept so
 // downstream references are unchanged — only the base varies per run.
 const subnet = getSubnetConfig();
 const SUBNET = subnet.subnet;
@@ -350,7 +357,9 @@ function fdmExtraHosts(ip) {
 // attach, by path, to any /usr/sbin/sshd a node starts: the nodes run privileged,
 // so unconfined, and an unconfined exec takes the profile its path matches. A
 // legacy node never runs under it. On such a host every node runs under
-// flux-e2e-node (test-infra/apparmor), loaded into the kernel here once per process.
+// flux-e2e-node (test-infra/apparmor), loaded into the kernel here once per process
+// and left loaded: the kernel holds one copy for every run on the host, and a run
+// that removed it would leave another run's next container unable to start.
 const HOST_SSHD_PROFILE = '/etc/apparmor.d/usr.sbin.sshd';
 let nodeAppArmorProfile;
 function nodeAppArmor() {
@@ -363,20 +372,6 @@ function nodeAppArmor() {
     }
   }
   return nodeAppArmorProfile;
-}
-
-// Unloads the node profile this process loaded, so it does not outlive the run
-// in the host kernel, and resets the cache so a later env in the same process
-// reloads it. A no-op where none was loaded.
-function unloadNodeAppArmor() {
-  if (!nodeAppArmorProfile) return;
-  const profile = fileURLToPath(new URL('../../apparmor/flux-e2e-node', import.meta.url));
-  try {
-    execFileSync('sudo', ['-n', 'apparmor_parser', '-R', profile], { stdio: 'pipe' });
-  } catch {
-    // leaving a profile loaded does not fail the run; it is unloaded next time
-  }
-  nodeAppArmorProfile = undefined;
 }
 
 class StaticIpContainer extends GenericContainer {
@@ -623,6 +618,14 @@ function makeEnvShell(networkName) {
   let infraLogSnapshot = null; // infra logs captured at teardown when the run is void
   let tornDown = false;
 
+  // The containers whose output the failure dump keeps: the infra, and every stub
+  // peer, whose log records each link handshake and what it sealed.
+  const diagnosedContainers = () => [
+    ...infraContainers,
+    // eslint-disable-next-line no-use-before-define
+    ...[...env.stubContainers].map(([index, container]) => ({ name: `stubPeer-${index}`, container })),
+  ];
+
   const env = {
     networkName,
     containers: {},
@@ -633,6 +636,8 @@ function makeEnvShell(networkName) {
     infraContainers,
     stubPeerClients: new Map(),
     stubContainers: new Map(),
+    // Node index -> the listed indices cutOff has cut it off from.
+    peerCuts: new Map(),
     // The death watch (armed by createTestEnv) reads both: `stopping` tells it
     // the exits from here on are ours, `infraWatch` is its docker event stream.
     stopping: false,
@@ -683,21 +688,20 @@ function makeEnvShell(networkName) {
     // the caller is already reporting a failure and must not lose it to this.
     async infraDiagnostics() {
       if (infraLogSnapshot) return infraLogSnapshot;
-      return readInfraLogs(infraContainers)
+      return readInfraLogs(diagnosedContainers())
         .catch((err) => [{ name: 'infra', text: '', error: err.message }]);
     },
 
     async teardown() {
       if (tornDown) return;
       tornDown = true;
+      // the next fleet in this process places its own nodes
+      setIpGroups({});
+      env.stopSyncthingTrace?.();
       const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
-      // Every step below is a docker round trip with no timeout of its own, and until
-      // now they printed only on THROW - and being slow is not throwing. The `after`
-      // hook that calls this fails the suite on its own budget: on the bc5d86154 gate
-      // seven suites (36, 45, 46, 47, 48, 51, 53) died on "after all hook: Timeout of
-      // 30000ms exceeded" with every one of their tests green, and nothing anywhere
-      // recorded which step had spent the 30 seconds. So each step reports as it
-      // COMPLETES: the step whose line is missing is the one that ran out of budget.
+      // Every step below is a docker round trip with no timeout of its own, so each reports
+      // its time as it COMPLETES: a teardown that does not finish is the step whose line is
+      // missing. The hook that calls this has no limit of its own (afterTeardown).
       const tStart = Date.now();
       let tPrev = tStart;
       const step = (name) => {
@@ -721,7 +725,7 @@ function makeEnvShell(networkName) {
       // removes it, taking its logs with it. Snapshot them first - exactly why
       // the SSE buffers are snapshotted below.
       if (infraDeathError()) {
-        infraLogSnapshot = await readInfraLogs(infraContainers).catch(() => null);
+        infraLogSnapshot = await readInfraLogs(diagnosedContainers()).catch(() => null);
       }
       step('infra-snapshot');
       // disconnectEventStream wipes the client's event buffer — snapshot first so
@@ -749,15 +753,10 @@ function makeEnvShell(networkName) {
         ).catch((e) => warn('immutable-flag sweep', e));
       }));
       step(`immutable-sweep(${clients.filter(Boolean).length} nodes)`);
-      // STOPPED CONCURRENTLY, because this is the step the budget is spent on.
-      // The per-step timing above put 3.6-13.9s of a 3.8-14.4s teardown in here
-      // on a quiet box, with every other step in milliseconds: sixteen
-      // containers at ~200-870ms each, one after another. That is work that
-      // scales with the fleet under an `after` hook budget that is a flat 30s in
-      // 123 of 137 suites, which is how seven suites lost a gate to it with
-      // every one of their tests green. The serial loop bought no politeness
-      // either - the docker daemon serialises stops across every concurrent
-      // suite regardless - only latency.
+      // STOPPED CONCURRENTLY: this is where a teardown spends its time, sixteen containers
+      // at ~200-870ms each on a quiet box, and the docker daemon serialises stops across
+      // every concurrent suite whatever order this asks in, so asking one after another
+      // only adds latency.
       //
       // The one ordering that means anything is kept: every node goes down
       // before any infra does, so a node is never left running against a
@@ -781,10 +780,8 @@ function makeEnvShell(networkName) {
       // has already marked the server Unknown and the call is skipped, but when it
       // has not, close() commits to an operation whose server goes Unknown
       // mid-flight, and waits out the full 30s serverSelectionTimeoutMS before
-      // squashError swallows the error. An `after all` budget that is a flat 30s
-      // cannot absorb that, so the suite fails with every one of its tests green -
-      // which is how suite 02 lost the f8fe3db1b gate: `db 32831ms`, against the
-      // other 145 teardowns in that same gate at 0-2ms.
+      // squashError swallows the error: `db 32831ms`, against 0-2ms in every other
+      // teardown.
       //
       // Measured on chud, six suite-02 runs at a time so the stops land together:
       // closing after the stop was slow in 27 of 30 runs at ~33s, the in-flight
@@ -840,10 +837,6 @@ function makeEnvShell(networkName) {
       for (const cfg of nodeConfigs) {
         if (cfg.bootIdDir) rmSync(cfg.bootIdDir, { recursive: true, force: true });
       }
-      // The nodes are down, so the profile they ran under is no longer needed;
-      // unload it rather than leave it in the host kernel after the run.
-      unloadNodeAppArmor();
-      step('apparmor-unload');
       http.globalAgent.destroy();
       console.log(`# teardown [${networkName}] complete ${Date.now() - tStart}ms`);
     },
@@ -989,6 +982,110 @@ function nodeReadyWaitStrategy(nodeIp) {
 // What can be wrong with a node's own syncthing, for createTestEnv's syncthingFaults.
 export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STARTED: 'notStarted' });
 
+/**
+ * The per-node config that decides how each node of a fleet reaches state-sync
+ * readiness: a fallback of 0 blocks for a node that cannot carry its peer
+ * threshold, and for the nodes that start synced. Pure: createTestEnv applies it,
+ * and anything checking a fleet's shape reads the same answer.
+ * @param {object} fleet createTestEnv's options, and its stubs' peerings.
+ * @returns {{peerlessOverrides: object, syncedOverrides: object}}
+ */
+export function fleetSyncOverrides({
+  nodes, deferredNodes = 0, stubPeers = [], syncedNodes = null, configOverrides = null, nodeConfigOverrides = {},
+  collateralOf = {}, answeringSyncPeers = [], stubPeerings,
+}) {
+  // A FLEET TOO SMALL TO PEER CANNOT USE THE PEER-GATED FALLBACK.
+  //
+  // The block fallback only advances while the peer count is above
+  // appSyncPeerThreshold and resets when it falls below appSyncDegradedThreshold
+  // (appSyncOrchestrator), which is the whole of "a peerless node must not
+  // spawn". A one-node fleet has no peers at all and a two-node ring gives each
+  // node one, so neither can ever cross the threshold - and in such a fleet the
+  // fallback is not slow, it is unreachable, so nothing ever leaves SYNCING.
+  //
+  // Zero is the honest value there rather than a workaround. The fallback asks
+  // "have you had long enough to hear from everyone", and a node with nobody to
+  // hear from cannot answer it - which is the same reason the synced nodes below
+  // exist and the same value they use.
+  //
+  // Counted against EVERY other fleet member, stubs included, so the guard errs
+  // towards not firing: a stub that does carry a connection is counted as one.
+  // A suite that declares its own appSyncFallbackMinutes is testing this budget
+  // and keeps what it asked for.
+  const reachablePeers = carriedPeers(nodes, stubPeers.length + deferredNodes);
+  // What the fleet runs when no suite sets them - see deriveReadinessThresholds.
+  const readiness = deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps);
+  const peerlessOverrides = {};
+  for (let index = 0; index < nodes; index += 1) {
+    const declaredFallback = nodeConfigOverrides[index]?.fluxapps?.appSyncFallbackMinutes
+      ?? configOverrides?.fluxapps?.appSyncFallbackMinutes;
+    if (declaredFallback !== undefined) continue;
+    const threshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
+      ?? configOverrides?.fluxapps?.appSyncPeerThreshold
+      ?? readiness.appSyncPeerThreshold;
+    if (reachablePeers >= threshold) continue;
+    // A node with nobody to carry its messages meets a threshold of none, or it
+    // could never be heard. A suite that declares a threshold keeps what it asked for.
+    const declaredThreshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
+      ?? configOverrides?.fluxapps?.appSyncPeerThreshold;
+    peerlessOverrides[index] = mergeConfigs(
+      { fluxapps: { appSyncFallbackMinutes: 0, ...(declaredThreshold === undefined ? { appSyncPeerThreshold: 0, appSyncDegradedThreshold: 0 } : {}) } },
+      nodeConfigOverrides[index] ?? null,
+    );
+  }
+
+  // THE SYNCED NODES, unless the suite names them. A node completes its sync only
+  // from peers it is connected to, so they are chosen from the ring discovery
+  // builds: enough that every joining node has as many synced neighbours as it
+  // needs answers, and never node 0, which is by convention the node under test,
+  // and a subject that is authoritative before it starts is a subject whose sync
+  // cannot be observed. Stubs answer a state sync only when declared answering,
+  // and deferred nodes have not booted.
+  //
+  // A node with a fallback of 0 blocks - peerless above, or so declared - is
+  // authoritative from the start and answers like a synced one. A node whose
+  // suite declares its fallback is testing that budget: it is neither required
+  // to complete by sync nor made synced.
+  const fallbackOf = (index) => nodeConfigOverrides[index]?.fluxapps?.appSyncFallbackMinutes
+    ?? configOverrides?.fluxapps?.appSyncFallbackMinutes
+    ?? (peerlessOverrides[index] ? 0 : undefined);
+  const firstDeferredIndex = nodes - deferredNodes;
+  const unlisted = Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1);
+  const booted = Array.from({ length: nodes }, (_unused, i) => i)
+    .filter((i) => i < firstDeferredIndex && !stubPeers.includes(i));
+  const syncedFromStart = booted.filter((i) => fallbackOf(i) === 0);
+  const joining = booted.filter((i) => fallbackOf(i) === undefined && !unlisted.includes(i));
+  let establishedNodes = syncedNodes;
+  if (!establishedNodes) {
+    const arc = derivePeerThresholds(nodes, stubPeers.length + deferredNodes).minOutgoing;
+    const connections = ringConnections(
+      Array.from({ length: nodes }, (_unused, i) => i).filter((i) => !unlisted.includes(i)),
+      {
+        arcOf: (i) => nodeConfigOverrides[i]?.fluxapps?.minOutgoing ?? configOverrides?.fluxapps?.minOutgoing ?? arc,
+        dialers: booted,
+        stubs: stubPeers,
+        extra: [...stubPeerings].flatMap(([stubIdx, indices]) => indices.map((i) => [stubIdx, i])),
+      },
+    );
+    establishedNodes = chooseSyncedNodes(joining, {
+      candidates: joining.filter((i) => i !== 0),
+      connections,
+      needOf: (i) => nodeConfigOverrides[i]?.fluxapps?.appSyncMinCompletions
+        ?? configOverrides?.fluxapps?.appSyncMinCompletions
+        ?? sharedFluxapps.appSyncMinCompletions ?? 3,
+      answering: [...syncedFromStart, ...answeringSyncPeers],
+    });
+  }
+  const syncedOverrides = {};
+  for (const index of establishedNodes) {
+    syncedOverrides[index] = mergeConfigs(
+      { fluxapps: { appSyncFallbackMinutes: 0 } },
+      nodeConfigOverrides[index] ?? null,
+    );
+  }
+  return { peerlessOverrides, syncedOverrides };
+}
+
 // `syncthing` selects what each node talks to. 'stub' (the default) is the
 // shared control-plane stub: it serves every node, moves no files, and is what
 // the gate runs on. 'binary' gives each node its own real daemon from the image
@@ -997,7 +1094,7 @@ export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STAR
 // nothing else should.
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], unprivilegedNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
-  unverifiableSyncPeers = [], policyUnawarePeers = [], stubPeeredWith = null,
+  unverifiableSyncPeers = [], answeringSyncPeers = [], policyUnawarePeers = [], arcaneStubPeers = [], stubPeeredWith = null,
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   // How many blocks after its last confirmation each node confirms again: 1, or
@@ -1019,7 +1116,21 @@ export async function createTestEnv({
   // adds its own on top. true for every node, or a list of node indices. Off
   // unless E2E_FIREWALL=1 turns it on for the whole run.
   firewall = process.env.E2E_FIREWALL === '1',
+  // Nodes placed in another /16 of the run's slot, by node index: { index: group },
+  // group 1..SLOT_WIDTH-1. A node not named sits in the slot's first /16 with the
+  // infra. FluxOS never dials a peer in its own /16 or a second in one it already
+  // has a peer in, so this is how a fleet holds peers a node may dial at will.
+  ipGroups = {},
 } = {}) {
+  for (const [index, group] of Object.entries(ipGroups)) {
+    if (!Number.isInteger(Number(index)) || Number(index) < 0 || Number(index) >= nodes) {
+      throw new Error(`createTestEnv: ipGroups names node ${index}, outside a fleet of ${nodes}`);
+    }
+    if (!Number.isInteger(group) || group < 1 || group >= SLOT_WIDTH) {
+      throw new Error(`createTestEnv: ipGroups places node ${index} in group ${group}; a slot has groups 1..${SLOT_WIDTH - 1} besides the first`);
+    }
+  }
+  setIpGroups(Object.fromEntries(Object.entries(ipGroups).map(([index, group]) => [Number(index) + 1, group])));
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
   }
@@ -1098,39 +1209,12 @@ export async function createTestEnv({
   //
   // That is a network-wide cold start, and it is not what a booting node meets.
   // Production joins a network that has been up for hours. So the default is an
-  // established fleet - the minimum number of nodes another node needs for its
-  // sync to complete - and the cold start is asked for by name with [].
+  // established fleet, chosen by fleetSyncOverrides, and the cold start is asked
+  // for by name with [].
   //
-  // Taken from the TOP of the fleet because index 0 is by convention the node
-  // under test, and a subject that is authoritative before it starts is a
-  // subject whose sync cannot be observed. Stubs cannot answer a state sync and
-  // deferred nodes have not booted, so neither can serve.
-  // Enough for ANY node in this fleet to complete, not just a default one: a
-  // suite that raises the requirement on the node it is watching needs that
-  // many peers able to answer, and a default sized for the shared config would
-  // leave it one short and looking like the product had stalled.
-  const completionsAsked = [
-    configOverrides?.fluxapps?.appSyncMinCompletions ?? sharedFluxapps.appSyncMinCompletions ?? 3,
-    ...Object.values(nodeConfigOverrides)
-      .map((o) => o?.fluxapps?.appSyncMinCompletions)
-      .filter((n) => Number.isInteger(n)),
-  ];
-  const completionsNeeded = Math.max(...completionsAsked);
-  const firstDeferredIndex = nodes - deferredNodes;
-  const canAnswer = Array.from({ length: nodes }, (_unused, i) => i)
-    .filter((i) => i < firstDeferredIndex && !stubPeers.includes(i));
-  // Never the whole fleet. If there is nobody left over to do the joining then
-  // a sync is not a thing that can happen here at all - a lone node has no peer
-  // to ask - and making every node authoritative would only change how the
-  // subject itself reaches readiness, which is the opposite of the point.
-  const established = canAnswer.length > completionsNeeded
-    ? canAnswer.slice(-completionsNeeded)
-    : [];
-  const establishedNodes = syncedNodes ?? established;
-
   // Refused rather than clamped: an index outside the fleet is a suite asking
   // for a synced peer and silently not getting one, which reads as covered.
-  for (const index of establishedNodes) {
+  for (const index of syncedNodes ?? []) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes) {
       throw new Error(`createTestEnv: syncedNodes index ${index} is not a node in a fleet of ${nodes}`);
     }
@@ -1200,6 +1284,16 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: stub ${index} cannot be both silent and unverifiable`);
     }
   }
+  // A stub that answers a state sync with the events a suite gives it
+  // (stubPeerClient.answerSyncWith), signed as a real responder signs.
+  for (const index of answeringSyncPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: answeringSyncPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+    if (silentSyncPeers.includes(index) || unverifiableSyncPeers.includes(index)) {
+      throw new Error(`createTestEnv: stub ${index} cannot both answer and be silent or unverifiable`);
+    }
+  }
   // A stub from before the policy protocol: it advertises no policyBundle capability, so a
   // node neither asks it for policy nor announces an adoption to it. Only a stub can be one -
   // the fleet runs a single image, so every real node advertises what that image speaks.
@@ -1208,49 +1302,19 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: policyUnawarePeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
     }
   }
-  const syncedOverrides = {};
-  for (const index of establishedNodes) {
-    syncedOverrides[index] = mergeConfigs(
-      { fluxapps: { appSyncFallbackMinutes: 0 } },
-      nodeConfigOverrides[index] ?? null,
-    );
+  // A stub that speaks as an Arcane node: it advertises arcaneLink, authenticates
+  // its links and MACs what it sends, so what it relays is taken as from any
+  // Arcane peer. Every other stub stays unauthenticated, as a legacy node is.
+  for (const index of arcaneStubPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: arcaneStubPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
   }
-
-  // A FLEET TOO SMALL TO PEER CANNOT USE THE PEER-GATED FALLBACK.
-  //
-  // The block fallback only advances while the peer count is above
-  // appSyncPeerThreshold and resets when it falls below appSyncDegradedThreshold
-  // (appSyncOrchestrator), which is the whole of "a peerless node must not
-  // spawn". A one-node fleet has no peers at all and a two-node ring gives each
-  // node one, so neither can ever cross the threshold - and in such a fleet the
-  // fallback is not slow, it is unreachable, so nothing ever leaves SYNCING.
-  //
-  // Zero is the honest value there rather than a workaround. The fallback asks
-  // "have you had long enough to hear from everyone", and a node with nobody to
-  // hear from cannot answer it - which is the same reason establishedNodes above
-  // exists and the same value it uses.
-  //
-  // Counted against EVERY other fleet member, stubs included, so the guard errs
-  // towards not firing: a stub that does carry a connection is counted as one.
-  // A suite that declares its own appSyncFallbackMinutes is testing this budget
-  // and keeps what it asked for.
-  const reachablePeers = carriedPeers(nodes, stubPeers.length + deferredNodes);
   // What the fleet runs when no suite sets them - see deriveReadinessThresholds.
   const readiness = deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps);
-  const peerlessOverrides = {};
-  for (let index = 0; index < nodes; index += 1) {
-    const declaredFallback = nodeConfigOverrides[index]?.fluxapps?.appSyncFallbackMinutes
-      ?? configOverrides?.fluxapps?.appSyncFallbackMinutes;
-    if (declaredFallback !== undefined) continue;
-    const threshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
-      ?? configOverrides?.fluxapps?.appSyncPeerThreshold
-      ?? readiness.appSyncPeerThreshold;
-    if (reachablePeers >= threshold) continue;
-    peerlessOverrides[index] = mergeConfigs(
-      { fluxapps: { appSyncFallbackMinutes: 0 } },
-      nodeConfigOverrides[index] ?? null,
-    );
-  }
+  const { peerlessOverrides, syncedOverrides } = fleetSyncOverrides({
+    nodes, deferredNodes, stubPeers, syncedNodes, configOverrides, nodeConfigOverrides, collateralOf, answeringSyncPeers, stubPeerings,
+  });
 
   // WHETHER ANYTHING MAY WAIT FOR THIS FLEET TO HOLD POLICY, which is two questions of
   // different kinds and the framework may only answer one of them.
@@ -1262,10 +1326,6 @@ export async function createTestEnv({
   // does, and it cannot be wrong. Twenty-seven fleets in this suite set are one or two
   // nodes and have no opinion about policy at all; their authors should not have to know
   // this wait exists.
-  //
-  // A threshold of zero would not rescue them: FluxPeerManager sets #aboveThreshold only
-  // inside addPeer, so a node with no peers never flips the latch whatever the threshold
-  // is set to.
   //
   // DOES IT WANT TO is intent, and only the fixture knows. A source can answer perfectly
   // and serve a bundle the node is right to refuse - a signer the fleet does not pin, a
@@ -1324,6 +1384,12 @@ export async function createTestEnv({
   const networkName = await createNetwork();
   const env = makeEnvShell(networkName);
   env.rejoinOnRestart = rejoinOnRestart;
+  env.arcaneStubPeers = arcaneStubPeers;
+  // Indices of the nodes and stubs on another's collateral: not listed at their
+  // own address, so no link of theirs authenticates.
+  env.unlistedNodes = Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1);
+  env.releaseImageNodes = releaseImageNodes(nodeImageTags);
+  env.answeringSyncPeers = answeringSyncPeers;
   activeEnvs.add(env);
   // A previous env's death must not fail this one's waits.
   clearInfraDeath();
@@ -1333,7 +1399,9 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
+    const tracePackages = syncthing === 'binary' ? tracedPackages() : [];
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, arcaneStubPeers, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
+    env.stopSyncthingTrace = startSyncthingTrace(env.clients, tracePackages);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1362,7 +1430,23 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
+/**
+ * @param {Object<string, string>} nodeImageTags Image tag by node index.
+ * @returns {number[]} The indices of the nodes on another image than this build's.
+ */
+function releaseImageNodes(nodeImageTags) {
+  return Object.entries(nodeImageTags).filter(([, tag]) => tag !== IMAGE_TAG).map(([index]) => Number(index));
+}
+
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
+  // The dialing nodes no link authenticates with: legacy nodes, nodes not listed
+  // at their own address because they run on another's collateral, and nodes on
+  // a release that has no links.
+  const unlinkableNodeCount = new Set([
+    ...legacyNodes,
+    ...Object.keys(collateralOf).map((nodeNumber) => Number(nodeNumber) - 1).filter((i) => !stubPeers.includes(i)),
+    ...releaseImageNodes(nodeImageTags),
+  ]).size;
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1393,8 +1477,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // this one mongod at boot, and on disk each creation waits on a sync, which
   // makes a ten-node fleet's setup take about a minute; on tmpfs, a few seconds.
   // The data lives as long as the container, which is the fleet's lifetime.
+  // FluxOS runs no server-side JavaScript, so a fleet's mongod holds none.
   const mongo = await new StaticIpContainer('mongo:8@sha256:a706cb4e493bcd0262f345b3b0c78732ca0e54301f0d7bbe2b66f26313ce7ccb')
-    .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
+    .withCommand(['--noscripting', '--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withUlimits({ nofile: { soft: 65536, hard: 65536 } })
     .withTmpFs({ '/data/db': 'rw,size=4g' })
     .withStaticIp(networkName, MONGO_IP)
@@ -1417,6 +1502,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       BENCHD_PORT: '16224',
       CONTROL_PORT: '18232',
       TICKER_AUTOSTART: tickerAutostart ? 'true' : 'false',
+      BLOCK_INTERVAL_MS: String(HARNESS_BLOCK_MS),
       NODE_COUNT: String(nodes),
       INITIAL_HEIGHT: String(initialHeight),
       CONFIRMATION_INTERVAL_BLOCKS: String(confirmationIntervalBlocks),
@@ -1435,7 +1521,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // Render the deterministic node list for this run: identity from the committed
   // fixture, addresses from subnet-config (the single source of truth for node IPs).
   // POST before any node boots; /set-node-list also resets the stub's restore/reset
-  // baseline. A no-op-equivalent when base === '31.200.0'.
+  // baseline.
   const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({
     ...n, ip: subnet.nodeIp(idx + 1), pubkey: nodeKey(keyNumber(sharedKeys, idx + 1)).pubkey,
   })).filter((n, idx) => collateralOf[idx + 1] === undefined);
@@ -1784,10 +1870,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (aptBadSource && isLegacy) nodeEnv.FLUX_APT_BAD_SOURCE = 'true';
     if (firewall === true || (Array.isArray(firewall) && firewall.includes(i))) nodeEnv.FLUX_FIREWALL = 'true';
     // Point the node's config at the base-derived infra IPs. The mounted config
-    // files carry the default 31.200.0 addresses; this is written into the node's
-    // config directory as local.js, which node-config loads after them, so under a
-    // non-default base these overrides take effect (and are a no-op when
-    // base === '31.200.0'). Explicit test overrides still win (merged on top of this).
+    // files carry the default slot's addresses; this is written into the node's
+    // config directory as local.js, which node-config loads after them, so under
+    // another slot these overrides take effect. Explicit test overrides still win
+    // (merged on top of this).
     const infraOverride = {
       database: { url: MONGO_IP },
       daemon: { host: DAEMON_IP },
@@ -1856,6 +1942,11 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // The readiness thresholds keep production's share of the peers a node
         // carries, for the same reason - see peer-topology.js.
         ...deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps),
+        // And the admission quorum, for the same reason - see peer-topology.js.
+        admissionQuorum: deriveAdmissionQuorum(nodes, stubPeers.length + deferredNodes, unlinkableNodeCount, Math.min(
+          ...[configOverrides, ...Object.values(nodeConfigOverrides)]
+            .map((o) => o?.fluxapps?.minOutgoing).filter((n) => Number.isInteger(n)),
+        )),
         // Travels as configuration, like every other override. It used to be an
         // env var the entrypoint sed into shared.js - but the merged config is
         // written by REQUIRING the per-node file, which spreads shared.js at
@@ -1879,6 +1970,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // whose ratio has inverted still runs and still goes green, having quietly
     // stopped testing the thing the suite is named after.
     assertCoupledRatios({ ...sharedFluxapps, ...(nodeConfig.fluxapps ?? {}) });
+    assertListRefreshesEveryBlock({ ...sharedNetworkState, ...(nodeConfig.networkState ?? {}) });
     // Handed over as a file rather than as NODE_CONFIG. The config package merges
     // that variable over every file, which is a redirect no hash can see, so the
     // entry points delete it - production has no environment path into config at
@@ -1912,7 +2004,19 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (nodeAppArmor()) builder.withAppArmorProfile(nodeAppArmor());
 
     nodeConfigs.push({
-      index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir, journalDir, imageTag,
+      index: i,
+      builder,
+      ip: nodeIp,
+      num: i + 1,
+      logCollector,
+      bootIdDir,
+      journalDir,
+      imageTag,
+      // Only an Arcane node authenticates links, and admits once it holds this many.
+      arcane: !isLegacy,
+      admissionQuorum: nodeConfig.fluxapps.admissionQuorum,
+      minOutgoing: nodeConfig.fluxapps.minOutgoing,
+      minIncoming: nodeConfig.fluxapps.minIncoming,
     });
   }
 
@@ -1946,7 +2050,11 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         NODE_IP: nodeIp,
         SILENT_APP_STATE_SYNC: String(silentSyncPeers.includes(stubIdx)),
         UNVERIFIABLE_APP_STATE_SYNC: String(unverifiableSyncPeers.includes(stubIdx)),
+        ANSWERING_APP_STATE_SYNC: String(env.answeringSyncPeers.includes(stubIdx)),
         POLICY_UNAWARE: String(policyUnawarePeers.includes(stubIdx)),
+        ARCANE_LINK: String(arcaneStubPeers.includes(stubIdx)),
+        // Where the stub asks for the node-auth encryption, as FluxOS asks.
+        BENCH_URL: `http://${DAEMON_IP}:16224/`,
         // Every stub asks, for the nodes it is declared a peer of. It repeats
         // on an interval, so a node held back at boot is asked once it starts.
         DIAL_TARGETS: (stubPeerings.get(stubIdx) ?? [])
@@ -2107,6 +2215,36 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       env.syncedDataKeeper?.watch(client);
       deferredBuilders.delete(index);
       return client;
+    },
+
+    // Makes deferred node `to`, not yet started, a machine started from a copy of
+    // node `from`'s disk: its databases, and its volume, which holds its apps'
+    // data, their volume images and docker's data root with the apps' containers
+    // and images. The volume is copied with `from` paused, so the copy is one
+    // moment of it, as a disk snapshot is.
+    async cloneNodeDisk(from, to) {
+      if (!deferredBuilders.has(to)) throw new Error(`cloneNodeDisk: node ${to} is not a deferred node yet to start`);
+      await dbClient(to + 1).cloneFrom(from + 1, clients[from]);
+      const { dockerode } = (await getContainerRuntimeClient()).container;
+      const source = dockerode.getContainer(clients[from].container.getId());
+      const copy = await dockerode.createContainer({
+        Image: image('flux-e2e-fluxos-01'),
+        Entrypoint: ['bash', '-c', 'set -o pipefail; tar --xattrs --xattrs-include="*" --acls -S -C /from -cpf - . | tar --xattrs --xattrs-include="*" --acls -C /to -xpf -'],
+        HostConfig: { Binds: [`${volumeNames[from]}:/from:ro`, `${volumeNames[to]}:/to`] },
+        Labels: runLabels(),
+      });
+      await source.pause();
+      try {
+        await copy.start();
+        const { StatusCode } = await copy.wait();
+        if (StatusCode !== 0) {
+          const output = (await copy.logs({ stdout: true, stderr: true })).toString();
+          throw new Error(`cloneNodeDisk: copying node ${from}'s volume exited ${StatusCode}: ${output.slice(-2000)}`);
+        }
+      } finally {
+        await source.unpause();
+        await copy.remove({ force: true }).catch(() => {});
+      }
     },
 
     // Starts the FluxOS of a node created held (fluxosHeldNodes).
@@ -2327,6 +2465,21 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       await Promise.all(runningIndices.map((node) => fluxNodes[node].container.exec(
         ['sh', '-c', `iptables -D INPUT -s ${pendingIp} -j DROP || true`],
       )));
+    },
+
+    // Cuts `nodes` off from the listed peer at index `peer`, both ways, and records
+    // it in peerCuts: bootAndPeer counts no such slot in a node's peer floors. Any
+    // cut made before the fleet peers goes through here.
+    async cutOff(nodes, peer) {
+      const peerIp = getSubnetConfig().nodeIp(peer + 1);
+      await Promise.all(nodes.map(async (node) => {
+        const res = await fluxNodes[node].container.exec(['sh', '-c',
+          `iptables -I INPUT -s ${peerIp} -j DROP && iptables -I OUTPUT -d ${peerIp} -j DROP`]);
+        if (res.exitCode !== 0) {
+          throw new Error(`cutOff: node ${node} from ${peerIp} failed (exit ${res.exitCode}): ${res.output}`);
+        }
+        env.peerCuts.set(node, [...(env.peerCuts.get(node) ?? []), peer]);
+      }));
     },
 
     async partitionGroups(groupA, groupB, { awaitSever = true, severTimeoutMs = 60000 } = {}) {

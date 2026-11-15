@@ -5,6 +5,7 @@ const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const nodeDosState = require('../nodeDosState');
 const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
@@ -25,6 +26,12 @@ const appQueryService = require('../appQuery/appQueryService');
 // an app this node was excluded from becoming one it may take again, which is
 // the thing a caller wants to know and the thing no log line makes assertable.
 const lastCandidacy = new Map();
+
+// The spawn cache's entry for an app this node found covered by running copies. It says
+// nothing once the app is short again, unlike an attempt the node made, which paces the
+// app for the cache's twelve hours: candidates are the apps short of their count, so the
+// entry keeps a covered app from being looked at and leaves a short one to be taken.
+const APP_COVERED = 'covered';
 
 /**
  * Which stage removed each app, from the survivor snapshots taken through the
@@ -117,6 +124,7 @@ async function spawnLoop() {
   spawnLoopRunning = true;
   try {
     while (!globalState.spawnerPaused) {
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SPAWNER_BEFORE_PASS);
       const delayMs = await trySpawningGlobalApplication();
       if (delayMs > 0) await serviceHelper.delay(delayMs);
     }
@@ -190,7 +198,7 @@ async function trySpawningGlobalApplication() {
       return installDelay;
     }
 
-    if (fluxNetworkHelper.isNodeDos()) {
+    if (nodeDosState.isNodeDos()) {
       log.info('Node is in DOS state. Global applications will not be installed');
       fluxEventBus.publish('spawner:blocked', { reason: 'dos' });
       return installDelay;
@@ -447,7 +455,8 @@ async function trySpawningGlobalApplication() {
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
         && !globalState.spawnErrorsLongerAppCache.has(app.hash)
-        && !globalState.trySpawningGlobalAppCache.has(app.hash)
+        && (!globalState.trySpawningGlobalAppCache.has(app.hash)
+          || globalState.trySpawningGlobalAppCache.get(app.hash) === APP_COVERED)
         && !appsToBeCheckedLater.some((appAux) => appAux.appName === app.name));
       survivors.afterAlreadyHeldOrTried = globalAppNamesLocation.length;
       stages.push(['afterAlreadyHeldOrTried', nameSet()]);
@@ -716,6 +725,8 @@ async function trySpawningGlobalApplication() {
       // installed.
       if (runningAppList.length < minInstances) {
         globalState.trySpawningGlobalAppCache.delete(appHash);
+      } else {
+        globalState.trySpawningGlobalAppCache.set(appHash, APP_COVERED);
       }
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
@@ -981,6 +992,8 @@ async function trySpawningGlobalApplication() {
       // installed.
       if (runningAppList.length < minInstances) {
         globalState.trySpawningGlobalAppCache.delete(appHash);
+      } else {
+        globalState.trySpawningGlobalAppCache.set(appHash, APP_COVERED);
       }
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
@@ -1152,6 +1165,17 @@ async function trySpawningGlobalApplication() {
     // a peer read them, and the install keeps the mappings it makes.
     testedPorts = { ports: appPorts, appName: appSpecifications.name, holder: {} };
     const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name, { holder: testedPorts.holder });
+    if (portVerdict.ok === false && portVerdict.reason === 'portClaimed') {
+      log.info(`trySpawningGlobalApplication - port ${portVerdict.port} of ${appSpecifications.name} is held by another installation on this node`);
+      await withdrawInstallingClaim('port claimed');
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'port_claimed',
+        port: portVerdict.port,
+        delayMs: shortDelayTime,
+      });
+      return shortDelayTime;
+    }
     if (portVerdict.ok === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
       await withdrawInstallingClaim('ports not available');

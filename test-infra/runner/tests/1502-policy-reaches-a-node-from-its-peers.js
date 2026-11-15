@@ -1,6 +1,6 @@
 // weight: medium
 import {
-  describe, it, before, after, afterEach,
+  describe, it, before, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -11,6 +11,7 @@ import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { buildAppSpec } from '../framework/app-helper.js';
 import { execInContainer, fluxosPid } from '../framework/container.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Policy arriving from a PEER rather than from the published source.
 //
@@ -145,8 +146,7 @@ describe('policy reaching a node from its peers', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await stub(env, '/policy', { available: true }).catch(() => {});
     await env?.teardown();
   });
@@ -409,8 +409,7 @@ describe('a node that restored STALE policy catches up before it acts', function
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -479,8 +478,7 @@ describe('a fleet that has never obtained policy', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -575,8 +573,7 @@ describe('a node whose source answered with something that did not verify', func
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -671,8 +668,7 @@ describe('a fleet where only the source has the new policy', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -757,8 +753,7 @@ describe('the peer threshold is what licenses a fetch from the source', function
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await stub(env, '/policy', { available: true }).catch(() => {});
     await env?.teardown();
   });
@@ -842,8 +837,7 @@ describe('a fleet too small to finish peering never asks the source', function (
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -928,8 +922,7 @@ describe('the location table follows the bundle that names it', function () {
     await Promise.all(env.clients.map((client) => waitForLocationTable(client, { domains: 2 })));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await publishTable({ domains: 1 }).catch(() => {});
     await env?.teardown();
   });
@@ -1019,8 +1012,7 @@ describe('a node acts on every peer that answers, not just the first', function 
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -1101,8 +1093,7 @@ describe('a node whose peers all predate the policy protocol', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -1187,8 +1178,7 @@ describe('a node does not open its gate on fewer peers than it takes', function 
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -1301,8 +1291,7 @@ describe('a peer that cannot make its claim good is not asked in a loop', functi
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

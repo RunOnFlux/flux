@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach, after } from 'mocha';
+import { describe, it, before, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
@@ -13,6 +13,7 @@ import { appOwnerKey } from '../framework/keys.js';
 import {
   volumeRoot, resetVolume, seedVolumeTree, seedLargeFile, treeOf, exists, stagingEntries,
 } from '../framework/volume-fixture.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // How an operation behaves around the things that happen TO it: a node that has
 // never held the executor image, the prune that runs before every app install,
@@ -106,8 +107,7 @@ describe('app volume file operations - lifecycle', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

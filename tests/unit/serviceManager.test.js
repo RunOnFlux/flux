@@ -9,12 +9,14 @@ const { prepareDatabaseSchema, dosState, startRouterAddressUpkeep } = require('.
 const { untilSucceeds } = require('../../ZelBack/src/services/utils/untilSucceeds');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const nodeDosState = require('../../ZelBack/src/services/nodeDosState');
 const appTamperingDetectionService = require('../../ZelBack/src/services/appTamperingDetectionService');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
+const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
+const enterpriseRows = require('../../ZelBack/src/services/migrations/enterpriseRows');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 
@@ -67,20 +69,87 @@ describe('serviceManager prepareDatabaseSchema', () => {
   });
 });
 
+describe('serviceManager prepareDatabaseSchema, temp messages and install errors', () => {
+  afterEach(() => sinon.restore());
+
+  async function prepared() {
+    const deletes = {};
+    const collection = (name) => ({ collectionName: name, deleteMany: async (query) => { deletes[name] = query; } });
+    sinon.stub(dbHelper, 'maintenanceConnection').returns({ db: () => ({ collection }) });
+    sinon.stub(dbHelper, 'updateInDatabase').resolves();
+    sinon.stub(dbHelper, 'dropCollection').resolves();
+    const indexes = sinon.stub(dbHelper, 'ensureIndexes').resolves();
+    sinon.stub(dbHelper, 'ensureNewestAppMessageIndex').resolves();
+    sinon.stub(appTamperingDetectionService, 'prepareIncidentRollup').resolves();
+    sinon.stub(appTamperingDetectionService, 'checkNodeReboot').resolves();
+    sinon.stub(appsRuntimeState, 'prepareCollection').resolves();
+    sinon.stub(appPlacements, 'prepareCollection').resolves();
+    sinon.stub(upnpMappingRecord, 'writeWaiting').resolves();
+    sinon.stub(explorerService, 'prepareCollections').resolves();
+    const lowercased = sinon.stub(messageStore, 'lowercaseStoredAppNames').resolves();
+    const blanked = sinon.stub(enterpriseRows, 'blankStoredEnterpriseSecrets').resolves(0);
+    sinon.stub(dbHelper, 'repairNanInAppsMessagesDb').rejects(new Error('stop here'));
+    await expect(prepareDatabaseSchema()).to.be.rejectedWith('stop here');
+    return {
+      deletes, indexes, lowercased, blanked,
+    };
+  }
+
+  const specsOf = (indexes, name) => indexes.getCalls().find((c) => c.args[0].collectionName === name).args[1];
+
+  it('holds a temp message once, ended by its expireAt', async () => {
+    const { indexes } = await prepared();
+    const specs = specsOf(indexes, 'zelappstemporarymessages');
+    expect(specs.find((s) => s.key.hash === 1).unique).to.equal(true);
+    expect(specs.find((s) => s.key.expireAt === 1).expireAfterSeconds).to.equal(0);
+    expect(specs.find((s) => s.key.receivedAt === 1).expireAfterSeconds, 'a ttl on receipt still runs').to.equal(undefined);
+  });
+
+  it('keeps an unannounced removal until its expireAt', async () => {
+    const { indexes } = await prepared();
+    const specs = specsOf(indexes, 'unannouncedremovals');
+    expect(specs.find((s) => s.key.expireAt === 1).expireAfterSeconds).to.equal(0);
+  });
+
+  it('holds one row per message for checking, ended by its expireAt', async () => {
+    const { indexes } = await prepared();
+    const specs = specsOf(indexes, 'zelappsheldmessages');
+    expect(specs.find((s) => s.key.key === 1).unique).to.equal(true);
+    expect(specs.find((s) => s.key.expireAt === 1).expireAfterSeconds).to.equal(0);
+  });
+
+  it('gives the stored events their app names lowercased, once their indexes are in place', async () => {
+    const { indexes, lowercased } = await prepared();
+    sinon.assert.calledOnceWithMatch(lowercased, { collectionName: 'appstateevents' });
+    const eventIndexes = indexes.getCalls().find((c) => c.args[0].collectionName === 'appstateevents');
+    expect(eventIndexes.calledBefore(lowercased.firstCall), 'the names were lowercased before their indexes were in place').to.equal(true);
+  });
+
+  it('blanks the installed enterprise apps\' components and contacts', async () => {
+    const { blanked } = await prepared();
+    sinon.assert.calledOnceWithMatch(blanked, { collectionName: 'zelappsinformation' });
+  });
+
+  it('removes install error rows a ttl index cannot', async () => {
+    const { deletes } = await prepared();
+    expect(deletes.appsInstallingErrorsLocations).to.deep.equal({ expireAt: { $not: { $type: 'date' } } });
+  });
+});
+
 describe('serviceManager apps availability DOS state', () => {
   afterEach(() => {
-    fluxNetworkHelper.setDosMessage(null);
-    fluxNetworkHelper.setDosStateValue(0);
+    nodeDosState.setDosMessage(null);
+    nodeDosState.setDosStateValue(0);
   });
 
   it('writes its message as the node\'s own', () => {
-    dosState.dosMessage = 'Ports tested not reachable from outside';
+    dosState.dosMessage = 'Ports tested from outside failed. No answer over TCP: [49521].';
 
-    chai.expect(fluxNetworkHelper.getDosMessage()).to.equal('Ports tested not reachable from outside');
+    chai.expect(nodeDosState.getDosMessage()).to.equal('Ports tested from outside failed. No answer over TCP: [49521].');
   });
 
   it('reads the node\'s own message, whoever set it', () => {
-    fluxNetworkHelper.setDosMessage('Flux IP detection failed');
+    nodeDosState.setDosMessage('Flux IP detection failed');
 
     chai.expect(dosState.dosMessage).to.equal('Flux IP detection failed');
   });

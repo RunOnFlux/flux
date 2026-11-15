@@ -49,6 +49,7 @@ function syncedComponents(spec) {
       : spec.name;
     acc.push({
       name: component.name || spec.name,
+      unsyncedSubdirs: mountParser.getUnsyncedSubdirs(component.containerData || ''),
       syncMode,
       // The key masterSlaveApps elects on, and the name the container carries
       // once the prefix is stripped - so a caller can ask whether THIS node is
@@ -91,11 +92,15 @@ function otherHostCount(locations, localSocketAddr) {
  * @param {Function} deps.appLocation Instance locations for an app name.
  * @param {Function} deps.getApplicationGlobalSpecifications Global spec for an app name.
  * @param {Function} deps.findSyncedPeer Connected peer that holds a folder, or null.
+ * @param {Function} deps.folderHoldsNothing Whether this node's copy of a folder holds
+ *   nothing of the owner's. Required.
  * @param {Function} deps.isElectedPrimary Three-state: true if this node is the
  *   elected `g:` primary, false if another node provably is, null if the
  *   election cannot say. Required - null and false are not interchangeable here.
  * @param {Function} deps.isComponentRunningLocally Whether a component
  *   identifier is running on this node right now. Required.
+ * @param {Set<string>} [deps.handedBack] Identifiers of the r: and s: components an
+ *   attempt has stopped, scanned and proven (leavingCopy).
  * @returns {Promise<{safe: boolean, code: string, reason: string}>} `code` is
  *   the machine-readable verdict - a refusal because the election cannot answer
  *   reads identically to an idle pass without it, and a node stuck that way
@@ -106,9 +111,11 @@ async function canSafelyRemoveApp(appName, deps) {
     appLocation,
     getApplicationGlobalSpecifications,
     findSyncedPeer,
+    folderHoldsNothing,
     isElectedPrimary,
     isComponentRunningLocally,
     shuttingDownDevices,
+    handedBack = new Set(),
   } = deps;
 
   try {
@@ -119,8 +126,8 @@ async function canSafelyRemoveApp(appName, deps) {
     // safe, so the omission throws and the catch below turns it into a refusal
     // that says so.
     if (typeof isElectedPrimary !== 'function' || typeof isComponentRunningLocally !== 'function'
-      || typeof shuttingDownDevices !== 'function') {
-      throw new Error('isElectedPrimary, isComponentRunningLocally and shuttingDownDevices are required');
+      || typeof shuttingDownDevices !== 'function' || typeof folderHoldsNothing !== 'function') {
+      throw new Error('isElectedPrimary, isComponentRunningLocally, shuttingDownDevices and folderHoldsNothing are required');
     }
     if (globalState.backupInProgress.includes(appName)) {
       return { safe: false, code: 'BACKUP_IN_PROGRESS', reason: 'backup in progress' };
@@ -192,11 +199,14 @@ async function canSafelyRemoveApp(appName, deps) {
     for (const component of synced) {
       // eslint-disable-next-line no-await-in-loop
       const peer = await findSyncedPeer(component.folderId, { exclude });
-      if (!peer) {
+      // A copy holding nothing has nothing a peer needs to hold.
+      // eslint-disable-next-line no-await-in-loop
+      if (!peer && !(await folderHoldsNothing(component.folderId, component.unsyncedSubdirs))) {
         return {
           safe: false,
           code: 'NO_SYNCED_PEER',
           reason: `no connected peer that is staying up holds ${component.folderId} in full`,
+          component,
         };
       }
     }
@@ -241,6 +251,19 @@ async function canSafelyRemoveApp(appName, deps) {
           standDown: runningIdentifiers,
         };
       }
+    }
+
+    // The other copies of an r: or s: component run alongside this one, so there is no
+    // role to hand over: everything else has passed, and what is left is that this
+    // copy can write after any check. `stop` names what the attempt stops.
+    const stop = synced.filter((component) => component.syncMode !== 'g' && !handedBack.has(component.identifier));
+    if (stop.length) {
+      return {
+        safe: false,
+        code: 'STOP_REQUIRED',
+        reason: 'a copy that can write is stopped and scanned before it is removed',
+        stop,
+      };
     }
 
     return {

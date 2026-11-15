@@ -41,7 +41,7 @@
  * is the regression that change could cause: an absence FluxOS did not create must
  * still be reported, which is the last test below.
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -56,6 +56,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 describe('a component redeploy replaces that component and leaves the app alone', function () {
   let env;
@@ -146,8 +147,7 @@ describe('a component redeploy replaces that component and leaves the app alone'
     auth = await authenticate(holder.url, appOwnerKey());
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

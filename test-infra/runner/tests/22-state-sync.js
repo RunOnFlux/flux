@@ -1,8 +1,9 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dbClient } from '../framework/db-client.js';
+import { deliverApp } from '../framework/app-delivery.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { startTicker, advanceBlock, queueAppTx } from '../framework/daemon-control.js';
 import {
@@ -11,6 +12,7 @@ import {
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -59,12 +61,7 @@ describe('State sync: app running state (0x21)', function () {
         repoauth: '',
       }],
     });
-    for (let i = 1; i <= 10; i++) {
-      const dc = dbClient(i);
-      await dc.seedGlobalAppSpec(app.spec);
-      await dc.seedPermanentMessage(app.permanentMessage);
-      await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-    }
+    await deliverApp(env, app, Array.from({ length: 10 }, (_, i) => i));
 
     // Put hash in a block so late-joiner's explorer finds it
     await queueAppTx(app.hash);
@@ -82,8 +79,7 @@ describe('State sync: app running state (0x21)', function () {
     );
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -141,8 +137,7 @@ describe('State sync: hash resolution', function () {
     await advanceBlock();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -204,11 +199,9 @@ describe('State sync: 3-peer ephemeral sync', function () {
       }],
     });
 
+    await deliverApp(env, app, Array.from({ length: 10 }, (_, i) => i));
     for (let i = 1; i <= 10; i++) {
       const dc = dbClient(i);
-      await dc.seedGlobalAppSpec(app.spec);
-      await dc.seedPermanentMessage(app.permanentMessage);
-      await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
       // Seed running locations on each source node so they have ephemeral data to sync.
       // Distinct fake in-/24 app-location IPs (.100+ avoids gateway/.1, services/.2-.7,
       // and node IPs/.10+); must stay in the FluxOS-accepted base or sync drops them.
@@ -232,8 +225,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

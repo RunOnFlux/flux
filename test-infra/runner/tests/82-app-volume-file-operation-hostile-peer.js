@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach, after } from 'mocha';
+import { describe, it, before, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import { createServer, request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
@@ -23,6 +23,7 @@ import { appOwnerKey } from '../framework/keys.js';
 import {
   volumeRoot, resetVolume, seedVolumeTree, exists,
 } from '../framework/volume-fixture.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // What a node accepts from another node that is lying to it.
 //
@@ -243,8 +244,7 @@ describe('app volume file operations - a peer that does not play fair', function
     });
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     behaviour = null;
     openResponses.forEach((res) => res.destroy());
     openResponses.clear();

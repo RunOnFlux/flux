@@ -1,6 +1,6 @@
 // upgrades-from: release
 import { fileURLToPath } from 'node:url';
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushTestApp } from '../framework/registry-helper.js';
@@ -11,6 +11,7 @@ import { isDaemonUp, isFolderSynced, getFolderConfig } from '../framework/syncth
 import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { upgradeBase } from '../framework/upgrade-base.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An app with two single-writer (g:) components, held by two nodes on the release,
 // upgraded to this tree one node at a time: the standby first, then the primary. Real
@@ -81,8 +82,7 @@ describe('a rolling upgrade, standby first, keeps every g: component on the prim
     }, { timeout: 300000, interval: 3000, label: 'the standby has the primary\'s data of every component' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

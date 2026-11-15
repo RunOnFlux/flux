@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -14,6 +14,7 @@ import {
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { isDaemonUp, listFolderFiles, getFolderConfig } from '../framework/syncthing-real.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node installing a g: app afresh clears the folder's local appdata before it
 // takes any of the app's data: the folder syncthing is given is paused until the
@@ -75,8 +76,7 @@ describe('a fresh install takes no data until its folder is cleared', function (
     await execInContainer(client(B).container, `echo held-by-the-primary > ${appDir(appName)}/${FILE}`);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await client(A)?.releaseAllCheckpoints().catch(() => {});
     await resetFdm().catch(() => {});
     await env?.teardown();

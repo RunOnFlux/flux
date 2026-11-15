@@ -27,16 +27,17 @@ const imageVerifier = require('../utils/imageVerifier');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
 const portReconciler = require('../portReconciler');
+const portClaims = require('../appNetwork/portClaims');
 const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const mountParser = require('../utils/mountParser');
 const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
-const { findCommonArchitectures } = require('../utils/appUtilities');
+const { findCommonArchitectures, getAppPorts } = require('../utils/appUtilities');
 const log = require('../../lib/log');
-const { localAppsInformation } = require('../utils/appConstants');
+const { localAppsInformation, INSTALL_ERROR_MAX_LENGTH } = require('../utils/appConstants');
 const appPlacements = require('../appManagement/appPlacements');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
@@ -356,6 +357,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
   // announcement is built from that table, so the row is the claim, and the
   // teardown below has one to take back only once it exists.
   let claimed = false;
+  // This install's claim on the host ports it starts containers on, held until
+  // the install ends.
+  let portClaim = null;
   try {
     if (globalState.removalInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
@@ -392,6 +396,18 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // A test install holds nothing: it writes the app's row like any other install
     // and throws it away, so the announcement must not read that row as a claim.
     if (test) globalState.testInstallingApps.add(appSpecs.name);
+    const hostPorts = componentSpecs ? (componentSpecs.ports ?? []).map(Number) : getAppPorts(appSpecs);
+    const ports = await portClaims.claimForInstall(hostPorts, appSpecs.name, portClaims.InstallStep.INSTALL);
+    if (!ports.claim) {
+      const rStatus = messageHelper.createWarningMessage(`Port ${ports.heldBy.ports.find((port) => hostPorts.includes(port))} of Flux App ${appSpecs.name} is held by an installation of ${ports.heldBy.owner}. Installation not possible`);
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        if (res.flush) res.flush();
+      }
+      return InstallOutcome.BUSY;
+    }
+    portClaim = ports.claim;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
@@ -618,7 +634,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
           version: 1,
           name: appSpecifications.name,
           hash: appSpecifications.hash, // hash of application specifics that are running
-          error: serviceHelper.ensureString(errorResponse),
+          error: serviceHelper.ensureString(errorResponse).slice(0, INSTALL_ERROR_MAX_LENGTH),
           ip: localSocketAddr,
           broadcastedAt,
         };
@@ -690,6 +706,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // costs the node every install, redeploy, spawn and reinstall pass it is offered
     // until FluxOS restarts.
     if (acquired) globalState.installationInProgress = false;
+    portClaims.release(portClaim);
     // The mark is bound to the hold: it is set under the hold with nothing awaited
     // in between, so a call that took the hold has a mark to take back. The
     // teardown is bound to the row: a call that never wrote one created nothing,
@@ -861,7 +878,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   // Setup firewall and UPnP ports (fail fast before downloading images)
   await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
-  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_AFTER_PORTS, appName);
 
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
@@ -1182,7 +1198,10 @@ async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStati
   }
 
   if (!skipGeolocation) {
-    await hwRequirements.checkAppGeolocationRequirements(appSpecs);
+    const geo = await hwRequirements.appGeolocationVerdict(appSpecs);
+    if (geo.verdict !== hwRequirements.GeoVerdict.PASS) {
+      throw new Error(geo.reason);
+    }
   }
 
   return true;
@@ -1244,7 +1263,7 @@ async function testAppInstall(req, res) {
           res.json(errMessage);
           return;
         }
-        verifyEnterpriseCarriesNoPlainSpec(tempMessage.appSpecifications);
+        verifyEncryptedSpec(tempMessage.appSpecifications);
         // The hash is the message's, not the specification's.
         appSpecifications = { ...tempMessage.appSpecifications, hash: tempMessage.hash };
       }
@@ -1278,7 +1297,7 @@ async function testAppInstall(req, res) {
       if (!appSpecifications) {
         const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
-          verifyEnterpriseCarriesNoPlainSpec(permMessage.appSpecifications);
+          verifyEncryptedSpec(permMessage.appSpecifications);
           appSpecifications = { ...permMessage.appSpecifications, hash: permMessage.hash, height: permMessage.height };
         }
       }

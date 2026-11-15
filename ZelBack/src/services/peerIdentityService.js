@@ -60,6 +60,7 @@ const INTRODUCTION_PURPOSE = 'fluxnodeIntroduction';
 const AnswerPurpose = Object.freeze({
   HELD_COMPONENTS: 'fluxnodeHeldComponents',
   PROMOTED_FOLDERS: 'fluxnodePromotedFolders',
+  FOLDER_RECORDS: 'fluxnodeFolderRecords',
 });
 
 /**

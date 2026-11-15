@@ -221,7 +221,10 @@ describe('volumeExecutor tests', () => {
     });
   });
 
-  afterEach(() => sinon.restore());
+  afterEach(() => {
+    volumeExecutor.stopImagePrefetch();
+    sinon.restore();
+  });
 
   describe('run - container configuration', () => {
     it('binds only the app volume, and binds the mount the session resolved', async () => {
@@ -765,7 +768,6 @@ describe('volumeExecutor tests', () => {
     });
 
     afterEach(() => {
-      volumeExecutor.stopImagePrefetch();
       globalThis.userconfig.initial.ipaddress = originalAddress;
     });
 
@@ -2405,10 +2407,10 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - an upload streamed into the container', () => {
-    const { Readable, Writable } = require('node:stream');
-
     let socket;
     let exit;
+    // Sources that never end on their own, destroyed after each test.
+    const unended = [];
 
     // A stand-in for the hijacked duplex socket. Records what reached the
     // container, and reports whether the transfer was ENDED - which is the
@@ -2429,8 +2431,9 @@ describe('volumeExecutor tests', () => {
     // first.
     const deferredExit = () => {
       let settle;
-      const promise = new Promise((resolve) => { settle = resolve; });
-      return { promise, finish: (StatusCode) => settle({ StatusCode }) };
+      let fail;
+      const promise = new Promise((resolve, reject) => { settle = resolve; fail = reject; });
+      return { promise, finish: (StatusCode) => settle({ StatusCode }), fail };
     };
 
     const sending = (chunks) => Readable.from(chunks);
@@ -2439,8 +2442,21 @@ describe('volumeExecutor tests', () => {
     // container gives up. Paced, because the socket here is a stand-in that
     // accepts instantly - a real one back-pressures, and an unpaced source
     // would fill this process's memory rather than the test's purpose.
-    const neverEnds = () => new Readable({
-      read() { setTimeout(() => this.push(Buffer.alloc(16)), 5); },
+    const neverEnds = () => {
+      let pacing = null;
+      const source = new Readable({
+        read() { pacing = setTimeout(() => this.push(Buffer.alloc(16)), 5); },
+        destroy(error, callback) {
+          clearTimeout(pacing);
+          callback(error);
+        },
+      });
+      unended.push(source);
+      return source;
+    };
+
+    afterEach(() => {
+      unended.splice(0).forEach((source) => source.destroy());
     });
 
     beforeEach(() => {
@@ -2452,6 +2468,8 @@ describe('volumeExecutor tests', () => {
       // resolving up front and racing the transfer.
       socket.on('finish', () => exit.finish(0));
       containerStub.stop = sinon.stub().callsFake(async () => exit.finish(143));
+      // A container removed before it ran has no exit: its wait ends with the container.
+      containerStub.remove = sinon.stub().callsFake(async () => exit.fail(new Error('no such container')));
       containerStub.wait = sinon.stub().returns(exit.promise);
       // The two attaches are told apart by what they ask for. Returning the
       // socket for both would let a test pass while the executor attached
@@ -2467,6 +2485,35 @@ describe('volumeExecutor tests', () => {
       });
     };
 
+    // A caller sending one byte every 40ms, on a clock the test moves. The
+    // executor's ticker and its idle measure run on the same clock, so the rate
+    // it judges is exactly this one, however slowly the process itself runs.
+    // Sends `bytes` bytes and then ends the input, or never ends it; returns what
+    // the upload settled with (null when it resolved).
+    // The first byte goes once the executor pipes the input into the container,
+    // which it does with its ticker already running. Each step also gives the
+    // process one real turn, for the I/O the executor waits on between ticks;
+    // only mocha's timeout bounds the wait.
+    const trickleOnTheClock = async (clock, trickle, uploading, { bytes = Infinity } = {}) => {
+      let settled = false;
+      let piped = false;
+      socket.once('pipe', () => { piped = true; });
+      const outcome = uploading.then(() => null, (error) => error);
+      outcome.then(() => { settled = true; });
+      const step = async (ms) => {
+        await clock.tickAsync(ms);
+        await new Promise((resolve) => { setImmediate(resolve); });
+      };
+      while (!piped && !settled) await step(0); // eslint-disable-line no-await-in-loop
+      for (let sent = 0; !settled; sent += 1) {
+        if (sent < bytes) trickle.push('.');
+        if (sent === bytes) trickle.push(null);
+        await step(40); // eslint-disable-line no-await-in-loop
+      }
+      return outcome;
+    };
+    const executorClock = () => sinon.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'hrtime'] });
+
     it('is not stopped while the caller is still sending, however slowly', async () => {
       // A client trickling a small file over a slow link moves no whole
       // filesystem block for minutes, so the volume says nothing is happening
@@ -2474,19 +2521,23 @@ describe('volumeExecutor tests', () => {
       // they are exact where a block is rounded.
       configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
       // Scaled with the window, the same thousandfold as 120ms stands in for
-      // ten minutes: this sender manages ~200 bit/s, comfortably over.
+      // ten minutes: one byte per 40ms is 200 bit/s, over the floor.
       configStub.fluxapps.volumeOperations.minUploadBitsPerSecond = 64;
       // The volume never moves: too little has arrived to fill a block.
       fsStub.statfs = sinon.stub().resolves({ bsize: 4096, blocks: 100000, bfree: 99500 });
 
-      const trickle = new Readable({ read() {} });
-      const sendingSlowly = setInterval(() => trickle.push('.'), 40);
-      setTimeout(() => { clearInterval(sendingSlowly); trickle.push(null); }, 400);
-
       const vol = await openSession();
-      await upload(vol, trickle);
+      const clock = executorClock();
+      const trickle = new Readable({ read() {} });
+      let outcome;
+      try {
+        // 20 bytes over 800ms: six windows of 120ms.
+        outcome = await trickleOnTheClock(clock, trickle, upload(vol, trickle), { bytes: 20 });
+      } finally {
+        clock.restore();
+      }
 
-      clearInterval(sendingSlowly);
+      expect(outcome, 'the upload failed').to.equal(null);
       // Without ticks past the window, "not stopped" would say nothing.
       expect(fsStub.statfs.callCount, 'FIXTURE: the ticker never polled').to.be.above(3);
       expect(containerStub.stop.called, 'a caller that was still sending was stopped').to.equal(false);
@@ -2499,20 +2550,25 @@ describe('volumeExecutor tests', () => {
       // hours later - and four of those take every file operation slot the node
       // has. The same trickle as above, against a floor it cannot keep.
       configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
-      // 1000 bit/s over a 120ms window asks for 15 bytes. The sender manages ~3.
+      // 1000 bit/s over a 120ms window asks for 15 bytes. The sender manages 3.
       configStub.fluxapps.volumeOperations.minUploadBitsPerSecond = 1000;
       // The volume never moves either, so the bytes are the only thing that
       // could have spoken for this transfer.
       fsStub.statfs = sinon.stub().resolves({ bsize: 4096, blocks: 100000, bfree: 99500 });
 
-      const trickle = new Readable({ read() {} });
-      const sendingSlowly = setInterval(() => trickle.push('.'), 40);
-      setTimeout(() => { clearInterval(sendingSlowly); trickle.push(null); }, 500);
-
       const vol = await openSession();
-      await expect(upload(vol, trickle)).to.be.rejectedWith('under the 1000 bit/s');
+      const clock = executorClock();
+      // The sender never finishes: only the floor can end this transfer.
+      const trickle = new Readable({ read() {} });
+      let outcome;
+      try {
+        outcome = await trickleOnTheClock(clock, trickle, upload(vol, trickle));
+      } finally {
+        clock.restore();
+        trickle.push(null);
+      }
 
-      clearInterval(sendingSlowly);
+      expect(outcome?.message).to.include('under the 1000 bit/s');
       expect(containerStub.stop.called, 'a caller under the floor was left running').to.equal(true);
     });
 

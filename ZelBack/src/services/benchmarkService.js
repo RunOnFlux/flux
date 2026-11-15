@@ -13,6 +13,8 @@ const fluxRpc = require('./utils/fluxRpc');
 const dbHelper = require('./dbHelper');
 const { Privilege, authOf } = require('./utils/privileges');
 const { isValidAppNameAndOwner } = require('./utils/appIdentity');
+const linkCrypto = require('./utils/linkCrypto');
+const bodyLimit = require('./utils/bodyLimit');
 
 // eslint-disable-next-line no-unused-vars
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -258,6 +260,7 @@ async function signFluxTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -333,6 +336,33 @@ async function decryptRSAMessage(message) {
  */
 async function encryptMessage(message) {
   return executeAppCall('encryptmessage', message);
+}
+
+/**
+ * fluxbench's encryption of `text` under the node-auth identity: the same bytes
+ * on every Arcane node and unobtainable anywhere else. A legacy node's fluxbench
+ * refuses the identity.
+ *
+ * Called with executeCall, not executeAppCall: the identity is not an app name
+ * and owner (ARCANEOS_SYSTEM carries an underscore, ARCANEOS_NODE_AUTH is not an
+ * address). The result never leaves this node.
+ * @param {string} text
+ * @returns {Promise<string|null>} The base64 ciphertext, or null when fluxbench
+ *   refused or did not answer.
+ */
+async function nodeAuthEncrypt(text) {
+  const response = await executeCall('encryptmessage', [linkCrypto.nodeAuthRequest(text)]);
+  if (response.status !== 'success') return null;
+  let result = response.data;
+  if (typeof result === 'string') {
+    try {
+      result = JSON.parse(result);
+    } catch {
+      return null;
+    }
+  }
+  if (result?.status !== 'ok' || typeof result.message !== 'string' || !result.message) return null;
+  return result.message;
 }
 
 /**
@@ -499,4 +529,5 @@ module.exports = {
   getPublicKey,
   decryptRSAMessage,
   encryptMessage,
+  nodeAuthEncrypt,
 };

@@ -6,7 +6,7 @@
 // FluxOS's own rules are what make the switch worth having: each firewalled node
 // must end up with a rule only FluxOS writes, so a firewall that came up but that
 // FluxOS never saw as active fails here.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
@@ -15,6 +15,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { waitFor } from '../framework/wait.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const LEGACY = 0;
 const ARCANE = 1;
@@ -69,7 +70,7 @@ describe('2501 firewalled nodes', function suite() {
     });
   });
 
-  after(async () => {
+  afterTeardown(async () => {
     await env?.teardown();
   });
 
@@ -168,7 +169,7 @@ describe('2501 firewalled nodes', function suite() {
       // the form FluxOS opens an app port in
       'ufw allow proto tcp from 0.0.0.0/0 to any port 4103',
     ].join(' && '));
-    expect(seeded.exitCode, seeded.stdout).to.equal(0);
+    expect(seeded.exitCode, seeded.output).to.equal(0);
     const before = await rulesAdded(LEGACY);
     expect(before.filter(isOutbound), 'the seeded outbound rules').to.have.lengthOf(4);
     // The inbound and route rules seeded here. Other code opens and closes rules of
@@ -213,6 +214,10 @@ describe('2501 firewalled nodes', function suite() {
       await releaseUfwLock(LEGACY);
     }
     await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+    // FluxOS runs its ufw commands one at a time: a boot command waiting on a lock
+    // taken from here on would hold back the next test's change behind it.
+    await node.waitForEvent('firewall:purged', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+    await node.waitForEvent('boot:settled', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
     const { stdout: queued } = await execInContainer(node.container, 'for i in $(seq 1 100); do grep -q exit= /tmp/ufw-4242.out && break; sleep 0.2; done; cat /tmp/ufw-4242.out');
     expect(queued).to.match(/exit=0/);
     const rules = await rulesAdded(LEGACY);
@@ -255,11 +260,14 @@ describe('2501 firewalled nodes', function suite() {
     const opened = fetch(`${node.url}/flux/allowport/${fluxosPort}`, { headers: { zelidauth: auth.zelidauth } }).then((res) => res.json());
     // FluxOS's change is under way and waiting on the lock; a ufw command has
     // read the rules by now.
-    await waitFor(async () => (await execInContainer(node.container, `pgrep -f '[${String(fluxosPort)[0]}]${String(fluxosPort).slice(1)}'`)).exitCode === 0, {
-      timeout: 30000, interval: 200, label: 'FluxOS\'s ufw change to start',
-    });
-    await new Promise((resolve) => { setTimeout(resolve, 2000); });
-    await execInContainer(node.container, 'touch /tmp/ufw-holder-go');
+    try {
+      await waitFor(async () => (await execInContainer(node.container, `pgrep -f '[${String(fluxosPort)[0]}]${String(fluxosPort).slice(1)}'`)).exitCode === 0, {
+        timeout: 30000, interval: 200, label: 'FluxOS\'s ufw change to start',
+      });
+      await new Promise((resolve) => { setTimeout(resolve, 2000); });
+    } finally {
+      await execInContainer(node.container, 'touch /tmp/ufw-holder-go');
+    }
 
     const answer = await opened;
     expect(answer.status, JSON.stringify(answer)).to.equal('success');

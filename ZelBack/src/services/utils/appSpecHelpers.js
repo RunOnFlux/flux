@@ -14,6 +14,7 @@ const cacheManager = require('./cacheManager').default;
 const hwRequirements = require('../appRequirements/hwRequirements');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const log = require('../../lib/log');
+const bodyLimit = require('./bodyLimit');
 
 // Database collections
 const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
@@ -309,6 +310,7 @@ async function getAppFiatAndFluxPrice(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -317,7 +319,7 @@ async function getAppFiatAndFluxPrice(req, res) {
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
 
-      if (!appSpecification) {
+      if (!appSpecification || !Object.keys(appSpecification).length) {
         throw new Error('Invalid application specification provided.');
       }
 

@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey, fluxTeamKey } from '../framework/keys.js';
@@ -8,6 +8,7 @@ import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForNodeStatus }
 import { advanceBlock, startTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) {
@@ -67,8 +68,7 @@ describe('Hash sync: late-joining node', function () {
     await env.startDiscovery();
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -77,6 +77,11 @@ describe('Hash sync: late-joining node', function () {
     await waitForHashResolved(env.nodeCount, 0);
     const counts = await dbClient(env.nodeCount).hashCounts();
     expect(counts.resolved).to.be.greaterThan(0);
+  });
+
+  it('resolves it on the first pass, so the registry is built with it', async function () {
+    const record = await dbClient(env.nodeCount).appHashRecord(appHash);
+    expect(record.syncAttempts, 'a hash sync gave up on a message peers were answering').to.equal(0);
   });
 
   it('should create permanent message from resolved hash', async function () {
@@ -116,8 +121,7 @@ describe('Hash sync: network partition', function () {
     await waitForBlockProcessed(env.clients[env.lastNodeIndex], () => true, 60000);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -172,8 +176,7 @@ describe('Hash sync: stale state recovery', function () {
     audit = await node.reconstructHashes(auth.zelidauth);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

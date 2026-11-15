@@ -1,6 +1,6 @@
 // weight: heavy
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -15,6 +15,7 @@ import { pushTestApp } from '../framework/registry-helper.js';
 import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { crashFluxos, releaseFluxos } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Cold starts of an enterprise g: app where a holder comes back from a restart unable
 // to decrypt the app's spec: the benchmark refuses it the key. Its monitor pass does
@@ -108,8 +109,7 @@ describe('a holder that cannot decrypt an app\'s spec is left out of the seed', 
     await resetSyncState();
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await Promise.all((env?.clients ?? []).map((c) => c?.releaseAllCheckpoints().catch(() => {})));
     await Promise.all([0, 1, 2, 3].map((i) => clearRpcFailures(nodeIp(i)).catch(() => {})));
     await resetSyncState().catch(() => {});

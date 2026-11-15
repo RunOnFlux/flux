@@ -13,6 +13,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const mountParser = require('../utils/mountParser');
 const log = require('../../lib/log');
 const { Privilege, authOf } = require('../utils/privileges');
+const { appNameRegex } = require('../utils/appIdentity');
 
 const { globalCmdDelayMs } = config.fluxapps;
 // Guaranteed a finite non-negative integer, so a missing or malformed config
@@ -87,7 +88,7 @@ async function appLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query = { name: appNameRegex(appname) }; // case insensitive
   }
   const projection = {
     projection: {
@@ -107,15 +108,38 @@ async function appLocation(appname) {
 }
 
 /**
- * Execute a global command on an application across the network
+ * Run this node's share of a global command. Its errors are logged here: the
+ * global command has already been answered.
+ *
+ * @param {Function} runHere
+ * @param {string} appname
+ * @param {string} [paramA]
+ * @returns {Promise<void>}
+ */
+async function runGlobalCommandHere(runHere, appname, paramA) {
+  try {
+    await runHere(appname, paramA);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Execute a global command on an application across the network.
+ *
+ * Every other instance is sent the command's route over HTTP. This node is
+ * never sent a request: a node behind NAT cannot reach its own public address
+ * unless its router supports hairpinning, so this node's share runs in process
+ * through runHere instead. Without runHere, this node is left out.
+ *
  * @param {string} appname - Application name
  * @param {string} command - Command to execute
  * @param {string} zelidauth - Authorization header
  * @param {string} [paramA] - Additional parameter to append to URL
- * @param {boolean} [bypassMyIp] - Whether to bypass own IP
+ * @param {Function} [runHere] - This node's share, called as runHere(appname, paramA)
  * @returns {Promise<void>}
  */
-async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypassMyIp) {
+async function executeAppGlobalCommand(appname, command, zelidauth, paramA, runHere) {
   try {
     // get a list of the specific app locations
     const locations = await appLocation(appname);
@@ -124,31 +148,58 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
     const localPort = extractPort(localSocketAddr);
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
-      // HERE let the node we are connected to handle it
       const instanceIp = extractIp(appInstance.ip);
       const instancePort = extractPort(appInstance.ip);
-      if (bypassMyIp && localIp === instanceIp && localPort === instancePort) {
-        // eslint-disable-next-line no-continue
-        continue;
+      if (localIp === instanceIp && localPort === instancePort) {
+        // Fire-and-forget, as the other instances' deliveries are.
+        if (runHere) runGlobalCommandHere(runHere, appname, paramA);
+      } else {
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+        };
+        let url = `http://${instanceIp}:${instancePort}/apps/${command}/${appname}`;
+        if (paramA) {
+          url += `/${paramA}`;
+        }
+        // Fire-and-forget: each node's delivery, with its own bounded retry of a
+        // boot-gate 503, runs on its own while the loop paces the sends.
+        deliverGlobalCommand(url, axiosConfig);
       }
-      const axiosConfig = {
-        headers: {
-          zelidauth,
-        },
-      };
-      let url = `http://${instanceIp}:${instancePort}/apps/${command}/${appname}`;
-      if (paramA) {
-        url += `/${paramA}`;
-      }
-      // Fire-and-forget: each node's delivery, with its own bounded retry of a
-      // boot-gate 503, runs on its own while the loop paces the sends.
-      deliverGlobalCommand(url, axiosConfig);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(globalCmdDelayMs);
     }
   } catch (error) {
     log.error(error);
   }
+}
+
+/**
+ * This node's share of a global start, stop or restart: the intent the
+ * matching route writes, without holding for the reconciler's pass.
+ *
+ * @param {string} appname - Application or component name
+ * @returns {Promise<object>}
+ */
+function startHere(appname) {
+  return setAppOperatorStopped(appname, false);
+}
+
+/**
+ * @param {string} appname - Application or component name
+ * @returns {Promise<object>}
+ */
+function stopHere(appname) {
+  return setAppOperatorStopped(appname, true);
+}
+
+/**
+ * @param {string} appname - Application or component name
+ * @returns {Promise<object>}
+ */
+function restartHere(appname) {
+  return setAppOperatorStopped(appname, false, { alsoRestart: true });
 }
 
 /**
@@ -429,7 +480,7 @@ async function appStart(req, res) {
     }
 
     if (global) {
-      executeAppGlobalCommand(appname, 'appstart', authOf(req)); // do not wait
+      executeAppGlobalCommand(appname, 'appstart', authOf(req), undefined, startHere); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global start`);
       return res.json(appResponse);
     }
@@ -517,7 +568,7 @@ async function appStop(req, res) {
     }
 
     if (global) {
-      executeAppGlobalCommand(appname, 'appstop', authOf(req)); // do not wait
+      executeAppGlobalCommand(appname, 'appstop', authOf(req), undefined, stopHere); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global stop`);
       return res.json(appResponse);
     }
@@ -606,7 +657,7 @@ async function appRestart(req, res) {
     }
 
     if (global) {
-      executeAppGlobalCommand(appname, 'apprestart', authOf(req)); // do not wait
+      executeAppGlobalCommand(appname, 'apprestart', authOf(req), undefined, restartHere); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global restart`);
       return res.json(appResponse);
     }

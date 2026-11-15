@@ -1,9 +1,11 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { pushImage } from '../framework/registry-helper.js';
+import { buildSeedableApp } from '../framework/seed-helper.js';
+import { seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
@@ -11,6 +13,7 @@ import {
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 function localRegistryCompose(appName) {
   return [{
@@ -66,6 +69,17 @@ async function registerApp(env, appName, specOverrides = {}) {
   await waitForAppSpecStored(env.clients[0], appName);
 }
 
+// A legacy node refuses every unpaid registration at its door, so an app reaches
+// an all-legacy fleet as one registered elsewhere does: its message on every
+// node, for each spawner to place.
+async function seedApp(env, appName, { staticip }) {
+  await pushImage(appName, 'v1');
+  const app = await buildSeedableApp({
+    env, name: appName, compose: localRegistryCompose(appName), instances: 3, staticip,
+  });
+  await seedSpawnerApp(env, app);
+}
+
 function anyDeferralEvent(env, appName, reason) {
   return Promise.any(
     env.clients.map((c) => waitForSpawnerDeferred(c, appName, reason, 30000)),
@@ -96,8 +110,7 @@ describe('Arcane spawner deferrals', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -189,8 +202,7 @@ describe('Legacy spawner deferrals', function () {
     await bootAndPeer(env);
   });
 
-  after(async function () {
-    this.timeout(30000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -199,7 +211,7 @@ describe('Legacy spawner deferrals', function () {
 
     before(async function () {
       this.timeout(180000);
-      await registerApp(env, appName, { staticip: false });
+      await seedApp(env, appName, { staticip: false });
     });
 
     it('should defer with reason static_ip and standard delay', async function () {
@@ -222,7 +234,7 @@ describe('Legacy spawner deferrals', function () {
 
     before(async function () {
       this.timeout(180000);
-      await registerApp(env, appName, { staticip: true });
+      await seedApp(env, appName, { staticip: true });
     });
 
     it('should defer with reason datacenter and standard delay', async function () {

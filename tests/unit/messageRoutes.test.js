@@ -22,6 +22,7 @@ const GOSSIP_TYPES = [
   'fluxapprunning', 'fluxipchanged', 'fluxappremoved', 'fluxappinstalling',
   'fluxappinstallingerror', 'fluxnodesigterm', 'fluxapprequest',
   'fluxpolicyrequest', 'fluxpolicyseq', 'fluxpolicy',
+  'fluxlinknonce', 'fluxlinkconfirm',
 ];
 
 const ORDERED_TYPES = [
@@ -49,12 +50,12 @@ describe('messageRoutes tests', () => {
       expect(registeredTypes().filter(isOrdered).sort()).to.deep.equal([...ORDERED_TYPES].sort());
     });
 
-    it('declares only fluxpolicyseq as sent both ways', () => {
+    it('declares only the point-to-point types as sent both ways', () => {
       // VARIES is the type saying it travels in both directions, which makes it point to
       // point and never filtered on content. Anything relayed onward must never be VARIES,
       // or one node's copy of a fact suppresses every other route it arrives by.
       const varying = registeredTypes().filter((type) => declaredIntent(type) === INTENT.VARIES);
-      expect(varying).to.deep.equal(['fluxpolicyseq']);
+      expect(varying.sort()).to.deep.equal(['fluxlinkconfirm', 'fluxlinknonce', 'fluxpolicyseq']);
     });
 
     it('declares every relayed type an announcement', () => {

@@ -4,6 +4,7 @@ const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const mountParser = require('./mountParser');
+const { requirePlainMountSources } = require('./plainPaths');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const log = require('../../lib/log');
@@ -1126,6 +1127,10 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   // eslint-disable-next-line no-restricted-syntax
   for (const pathInfo of requiredPaths) {
     const fullPath = `${appsFolder}${appId}/${pathInfo.name}`;
+    // A link where a mount source belongs is refused, not followed: access()
+    // would pass it and the mount would bind what it points at.
+    // eslint-disable-next-line no-await-in-loop
+    await requirePlainMountSources([fullPath]);
     try {
       // eslint-disable-next-line no-await-in-loop
       await fs.access(fullPath);
@@ -1182,6 +1187,8 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
         ? `${appsFolder}${componentAppId}/appdata`
         : `${appsFolder}${componentAppId}/${mount.subdir}`;
 
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainMountSources([fullPath]);
       try {
         // eslint-disable-next-line no-await-in-loop
         await fs.access(fullPath);

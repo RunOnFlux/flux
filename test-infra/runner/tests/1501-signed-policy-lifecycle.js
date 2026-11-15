@@ -1,5 +1,5 @@
 // weight: medium
-import { describe, it, before, after, afterEach } from 'mocha';
+import { describe, it, before, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
@@ -13,6 +13,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { nodeOutpoint } from '../framework/seed-helper.js';
 import { buildEnterpriseBlob } from '../framework/enterprise-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // The signed policy bundle, end to end on one node: obtained, verified, persisted,
 // restored, and refused when it should be. Plus the validator rules that only mean
@@ -158,8 +159,7 @@ describe('the backstop tick', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -231,8 +231,7 @@ describe('the signed policy bundle on a peered fleet', function () {
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await stub(env, '/policy', { available: true, body: null, signer: 'pinned' }).catch(() => {});
     await env?.teardown();
   });
@@ -472,8 +471,7 @@ describe('a peered fleet where nobody holds policy and the source is gone', func
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await stub(env, '/policy', { available: true }).catch(() => {});
     await env?.teardown();
   });
@@ -597,8 +595,7 @@ describe('bundles a node must refuse', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await stub(env, '/policy', { available: true, body: null, signer: 'pinned' }).catch(() => {});
     await env?.teardown();
   });

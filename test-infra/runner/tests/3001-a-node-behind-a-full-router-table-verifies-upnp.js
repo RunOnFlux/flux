@@ -1,6 +1,6 @@
 // weight: light
 import {
-  describe, it, before, after,
+  describe, it, before,
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -9,6 +9,7 @@ import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 
@@ -54,8 +55,7 @@ describe('a node behind a full router table verifies UPnP', function () {
     await giveNodeApiPort(env, 0, API_PORT);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -100,8 +100,7 @@ describe('a node behind a full FRITZ!Box-style router table verifies UPnP', func
     await giveNodeApiPort(env, 0, API_PORT);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -142,8 +141,7 @@ describe('a node whose own ports fill its router\'s table verifies UPnP', functi
     await giveNodeApiPort(env, 0, API_PORT);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

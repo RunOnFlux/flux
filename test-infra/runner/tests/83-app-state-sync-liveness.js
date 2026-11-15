@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { advanceBlock } from '../framework/daemon-control.js';
@@ -12,6 +12,7 @@ import { nodeKey } from '../framework/keys.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { askToBeDialed } from '../framework/peer-topology.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 const subnet = getSubnetConfig();
 // nodeIp is 1-based and env.clients is 0-based, so the two are one apart. Suite
@@ -119,8 +120,7 @@ describe('a node that cannot answer a state sync declines it', function () {
     await env.clients[0].waitForEvent('peers:added', (d) => d.total >= 2, 120000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.clients[0].releaseCheckpoint(BUDGET_SPENT)
       .catch((err) => console.warn(`cleanup: budget checkpoint release failed: ${err.message}`));
     await env?.teardown();
@@ -329,8 +329,7 @@ describe('a state sync at the production requirement completes on three distinct
     await env.clients[ANSWERERS[0]].waitForEvent('peers:added', (d) => d.total >= 2, 120000);
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.clients[DECLINER].releaseCheckpoint(BEFORE_AUTHORITATIVE)
       .catch((err) => console.warn(`cleanup: authority checkpoint release failed: ${err.message}`));
     await env?.teardown();
@@ -468,8 +467,7 @@ describe('a state sync carries a peer\'s pending registrations', function () {
     )));
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 
@@ -560,8 +558,7 @@ describe('a peer whose connection dies mid-sync has had its turn', function () {
     }, { timeout: 180000, interval: 2000, label: 'node 0 holds every stub' });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

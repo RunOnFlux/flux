@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { isAppContainerRunning } from '../framework/container.js';
@@ -12,6 +12,7 @@ import {
 import { followPrimary } from '../framework/fdm-control.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A primary offers its folder to a new holder as soon as it lists the holder's
 // device, which can be before the holder's own monitor has created the folder.
@@ -88,8 +89,7 @@ describe('a folder a peer offers before this node has created it', function () {
     });
   });
 
-  after(async function () {
-    this.timeout(60000);
+  afterTeardown(async function () {
     await env?.teardown();
   });
 

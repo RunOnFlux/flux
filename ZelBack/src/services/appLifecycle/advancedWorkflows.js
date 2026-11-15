@@ -24,6 +24,7 @@ const { InstallOutcome } = require('../utils/installOutcome');
 const appRebuild = require('./appRebuild');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
+const hwRequirements = require('../appRequirements/hwRequirements');
 // eslint-disable-next-line no-unused-vars
 const upnpService = require('../upnpService');
 const {
@@ -37,20 +38,25 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { compareInstanceSeniority } = require('../utils/instanceOrdering');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { verifyEnterpriseCarriesNoPlainSpec } = require('../utils/enterpriseSpec');
-const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const { checkAndDecryptAppSpecs, withoutEnterpriseSecrets } = require('../utils/enterpriseHelper');
+const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const volumeService = require('../utils/volumeService');
+const { requirePlainDirectories, requireRegularFile } = require('../utils/plainPaths');
+const { isInForce, registeredByAnotherAfterTerm } = require('../utils/appMessageChain');
+const { sameSigningIdentity } = require('../signatureVerifier');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
 const primaryRole = require('./primaryRole');
+const leavingCopy = require('./leavingCopy');
+const handbackTurns = require('../utils/handbackTurns');
 const primaryRoleChanges = require('./primaryRoleChanges');
 const { createPeerFolderLiveness } = require('../appMonitoring/peerFolderLiveness');
 const {
   PeerComponent, peerComponentState, componentStateOnPeers, componentStateOnOtherHolders, peerUndecided,
 } = require('../appMonitoring/peerComponent');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
+const strandedIndex = require('../appMonitoring/strandedIndex');
 const syncthingServiceModule = require('../syncthingService');
 const registryManagerModule = require('../appDatabase/registryManager');
 const { getContainerDataFlags, requiresSyncing } = require('../appMonitoring/syncthingMonitorHelpers');
@@ -62,7 +68,10 @@ const folderStates = require('../appMonitoring/folderStates');
 const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
 const { AsyncLock } = require('../utils/asyncLock');
+const unpaidAdmission = require('../appMessaging/unpaidAdmission');
+const admissionQuorum = require('../appMessaging/admissionQuorum');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const bodyLimit = require('../utils/bodyLimit');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1294,12 +1303,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     // arriving after the close is ERR_STREAM_WRITE_AFTER_END on a response still
     // draining to a browser, which reaches apiServer's uncaughtException handler
     // and exits the node.
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false);
-    // The app is gone from this node, and removed without telling anyone -
-    // `sendMessage` is false above, so peers keep their location record until it
-    // expires. A caller that reads this outcome the same as a refusal either
-    // announces an installation that is not there, or destroys a running app
-    // over a scheduling collision.
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
+    // The app is gone from this node, and the network told. A caller that reads
+    // this outcome the same as a refusal either announces an installation that is
+    // not there, or destroys a running app over a scheduling collision.
     return InstallOutcome.FAILED;
   } finally {
     // The one place the hold is released, so every way out of this function
@@ -1645,13 +1652,12 @@ async function softRedeploy(appSpecs, res) {
       // and this is the only pass that would have put them back.
       //
       // BUSY is the node being held by another operation for the length of the
-      // delay above, DECLINED a check that would not pass. FAILED is the
-      // installer's own teardown, which removes locally without telling anyone
-      // (`sendMessage` is false at its call). So in every case this node ends
-      // with no containers, no row, and peers
-      // holding a location record until it expires on its own - nothing here
-      // announces the loss, and with no row there is nothing for the reconciler
-      // to converge either.
+      // delay above, DECLINED a check that would not pass: either leaves this
+      // node with no containers, no row, and peers holding a location record
+      // until it expires on its own - nothing here announces the loss, and with
+      // no row there is nothing for the reconciler to converge either. FAILED is
+      // the installer's own teardown, which removes the app and tells the
+      // network.
       //
       // Left as it is deliberately: v9 replaces this path with the operation
       // registry, which is where the recovery belongs. Uninstalling and
@@ -2186,6 +2192,25 @@ async function redeployComponentAPI(req, res) {
 }
 
 /**
+ * This node's share of a global redeploy.
+ *
+ * @param {string} appname - Application name
+ * @param {boolean} force - Hard redeploy when true, soft when false
+ * @returns {Promise<void>}
+ */
+async function redeployHere(appname, force) {
+  const specifications = await registryManagerModule.getApplicationSpecifications(appname);
+  if (!specifications) {
+    throw new Error('Application not found');
+  }
+  if (force) {
+    await hardRedeploy(specifications, null);
+  } else {
+    await softRedeploy(specifications, null);
+  }
+}
+
+/**
  * Redeploy app via API
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -2234,7 +2259,7 @@ async function redeployAPI(req, res) {
       // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'redeploy', authOf(req), force); // do not wait
+      appController.executeAppGlobalCommand(appname, 'redeploy', authOf(req), force, redeployHere); // do not wait
       const hardOrSoft = force ? 'hard' : 'soft';
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
       res.json(appResponse);
@@ -2929,6 +2954,10 @@ async function appendBackupTask(req, res) {
           const targetPath = `${mounts[0].mount}/appdata`;
           const tarGzPath = `${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
           // eslint-disable-next-line no-await-in-loop
+          await requirePlainDirectories(mounts[0].mount, ['appdata', 'backup', 'backup/local']);
+          // eslint-disable-next-line no-await-in-loop
+          await requireRegularFile(tarGzPath);
+          // eslint-disable-next-line no-await-in-loop
           const existStatus = await IOUtils.checkFileExists(`${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           if (existStatus === true) {
             // eslint-disable-next-line no-await-in-loop
@@ -2938,6 +2967,10 @@ async function appendBackupTask(req, res) {
           }
           // eslint-disable-next-line no-await-in-loop
           await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await requirePlainDirectories(mounts[0].mount, ['appdata', 'backup', 'backup/local']);
+          // eslint-disable-next-line no-await-in-loop
+          await requireRegularFile(tarGzPath);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
           if (tarStatus.status === false) {
@@ -3175,6 +3208,8 @@ async function appendRestoreTask(req, res) {
       target.mount = mounts[0].mount;
       target.appDataPath = `${mounts[0].mount}/appdata`;
       target.archivePath = `${mounts[0].mount}/backup/${type}/backup_${target.name.toLowerCase()}.tar.gz`;
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
     }
 
     if (type === 'remote') {
@@ -3184,13 +3219,30 @@ async function appendRestoreTask(req, res) {
           throw new Error(`Refused: no url given for ${target.name}`);
         }
         // eslint-disable-next-line no-await-in-loop
+        await requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']);
+        // eslint-disable-next-line no-await-in-loop
         await IOUtils.removeDirectory(`${target.mount}/backup/remote`, true);
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Downloading ${target.url}...\n`);
         // eslint-disable-next-line no-await-in-loop
-        const downloadStatus = await IOUtils.downloadFileFromUrl(target.url, `${target.mount}/backup/remote`, target.name, true);
+        let refusal = null;
+        const downloadStatus = await IOUtils.downloadFileFromUrl(
+          target.url,
+          `${target.mount}/backup/remote`,
+          target.name,
+          true,
+          {
+            // the destination is judged again from the open descriptor, which a swapped parent cannot fool
+            containedIn: target.mount,
+            // the owner's server answers when it likes, and the volume is theirs to change until it does
+            beforeOpen: () => requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']).catch((error) => {
+              refusal = error;
+              throw error;
+            }),
+          },
+        );
         if (downloadStatus !== true) {
-          throw new Error(`Error: Failed to download ${target.url}...`);
+          throw refusal || new Error(`Error: Failed to download ${target.url}...`);
         }
         // This copy is ours, so this task is the one that removes it
         target.downloaded = true;
@@ -3213,6 +3265,8 @@ async function appendRestoreTask(req, res) {
     // check below needs, and the compressed size cannot supply it.
     // eslint-disable-next-line no-restricted-syntax
     for (const target of targets) {
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // eslint-disable-next-line no-await-in-loop
       await sendChunk(res, `Checking archive for ${target.name.toLowerCase()}...\n`);
       // eslint-disable-next-line no-await-in-loop
@@ -3256,6 +3310,12 @@ async function appendRestoreTask(req, res) {
     for (const target of targets) {
       // eslint-disable-next-line no-await-in-loop
       await sendChunk(res, `Restoring ${target.name.toLowerCase()}...\n`);
+      // Nothing is destroyed yet: what the clear and the unpack work on is checked first,
+      // and again once the clear is done
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // from here the directory is neither copy. A clearing that reports
       // failure may still have removed most of it, so the mark goes on first.
       swapInFlight = target;
@@ -3264,6 +3324,12 @@ async function appendRestoreTask(req, res) {
       if (cleared !== true) {
         throw new Error(`Error: could not clear ${target.name.toLowerCase()} appdata before unpacking`);
       }
+      // Clearing takes as long as the data is large, and the volume is the owner's to
+      // change meanwhile: what the unpack reads and writes is checked once the clear is done
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // eslint-disable-next-line no-await-in-loop
       const tarStatus = await IOUtils.untarFile(target.appDataPath, target.archivePath);
       if (tarStatus.status === false) {
@@ -3331,7 +3397,7 @@ async function appendRestoreTask(req, res) {
       await sendChunk(res, 'Restarting other instances...\n');
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req), undefined, true); // do not wait
+      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req)); // do not wait
     }
 
     await sendChunk(res, 'Finalizing...\n');
@@ -3535,11 +3601,12 @@ function installationInProgressReset() {
  * @param {string} params.signature - Message signature
  * @param {string} params.type - Message type (fluxappupdate/zelappupdate)
  * @param {number} params.version - Message version
+ * @param {{remoteAddress?: string, headers?: object}} params.client - The request's socket peer and headers
  * @returns {Promise<string>} The message hash
  */
 async function updateAppGlobaly(params) {
   const {
-    appSpecification, timestamp, signature, type: messageType, version: typeVersion,
+    appSpecification, timestamp, signature, type: messageType, version: typeVersion, client,
   } = params;
 
   if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
@@ -3571,10 +3638,7 @@ async function updateAppGlobaly(params) {
   const daemonHeight = syncStatus.data.height;
 
   const appSpecObj = serviceHelper.ensureObject(appSpecification);
-  if (appSpecObj.version >= 8 && appSpecObj.enterprise) {
-    verifyAppNameAndOwner(appSpecObj.name, appSpecObj.owner);
-  }
-  verifyEnterpriseCarriesNoPlainSpec(appSpecObj);
+  verifyEncryptedSpec(appSpecObj);
   const appSpecDecrypted = await checkAndDecryptAppSpecs(appSpecObj, { daemonHeight });
   const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
@@ -3585,11 +3649,15 @@ async function updateAppGlobaly(params) {
   if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponent of appSpecFormatted.compose) {
+      // eslint-disable-next-line global-require
+      const appSecurity = require('../appSecurity/imageManager');
       if (appComponent.secrets) {
-        // eslint-disable-next-line global-require
-        const appSecurity = require('../appSecurity/imageManager');
         // eslint-disable-next-line no-await-in-loop
         await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+      }
+      if (appComponent.repoauth) {
+        // eslint-disable-next-line no-await-in-loop
+        await appSecurity.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
       }
     }
   }
@@ -3664,7 +3732,14 @@ async function updateAppGlobaly(params) {
   const message = cleanMessageType + cleanTypeVersion + JSON.stringify(appSpecFormatted) + cleanTimestamp + cleanSignature;
   const messageHASH = await generalService.messageHash(message);
 
-  const temporaryAppMessage = {
+  // A message the network already holds is answered with its hash, before the
+  // allowance counts it a second time.
+  if (await admissionQuorum.alreadyAdmitted(messageHASH)) return messageHASH;
+
+  const tag = await unpaidAdmission.tagSubmission(client, daemonHeight);
+
+  // As every node rebuilds it to check this node's signature on it.
+  const temporaryAppMessage = unpaidAdmission.admittedMessage({
     type: cleanMessageType,
     version: cleanTypeVersion,
     appSpecifications: appSpecFormatted,
@@ -3672,28 +3747,10 @@ async function updateAppGlobaly(params) {
     timestamp: cleanTimestamp,
     signature: cleanSignature,
     arcaneSender: isArcane,
-  };
-
-  // eslint-disable-next-line global-require
-  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-  await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-  await serviceHelper.delay(1200);
-  await appMessaging.requestAppMessage(messageHASH);
-  await serviceHelper.delay(1200);
-
-  let tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
-  for (let i = 0; i < 20; i += 1) {
-    if (!tempMessage) {
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
-      // eslint-disable-next-line no-await-in-loop
-      tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
-    }
-  }
-  if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-    return tempMessage.hash;
-  }
-  throw new Error('Unable to update application on the network. Try again later.');
+    ...tag,
+  });
+  await admissionQuorum.admit(temporaryAppMessage, { daemonHeight });
+  return messageHASH;
 }
 
 /**
@@ -3706,6 +3763,7 @@ async function updateAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -3723,6 +3781,7 @@ async function updateAppGlobalyApi(req, res) {
       if (peerManager.inboundCount < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
       }
+      admissionQuorum.requireQuorum();
 
       const processedBody = serviceHelper.ensureObject(body);
       const hash = await updateAppGlobaly({
@@ -3731,6 +3790,7 @@ async function updateAppGlobalyApi(req, res) {
         signature: processedBody.signature,
         type: processedBody.type,
         version: processedBody.version,
+        client: { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
       });
 
       const responseHash = messageHelper.createDataMessage(hash);
@@ -3742,6 +3802,10 @@ async function updateAppGlobalyApi(req, res) {
         error.name,
         error.code,
       );
+      // Another node may admit it: the status lets a client or balancer move on.
+      if (error instanceof admissionQuorum.AdmissionUnavailableError) res.status(503);
+      // No node of this kind ever admits it.
+      if (error instanceof admissionQuorum.AdmissionNotSupportedError) res.status(501);
       res.json(errorResponse);
     }
   });
@@ -3808,11 +3872,33 @@ function isElectedPrimaryHere(appName, localSocketAddr, now = Date.now()) {
 }
 
 /**
+ * The other holder running a component, in its own words: what the election reads, so it
+ * holds when FDM names nobody.
+ * @param {Array<{ip: string}>} locations The app's locations.
+ * @param {string} localSocketAddr This node, never asked.
+ * @param {object} ctx As peerComponentState, without `label` and `logPrefix`.
+ * @returns {Promise<string|null>} The holder's socket address.
+ */
+async function peerRunning(locations, localSocketAddr, ctx) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { ip } of locations) {
+    if (!socketAddressesMatch(ip, localSocketAddr)) {
+      // eslint-disable-next-line no-await-in-loop
+      const state = await peerComponentState(ip, { ...ctx, label: 'holder', logPrefix: 'Give-up-an-app pass' });
+      if (state === PeerComponent.RUNNING) return ip;
+    }
+  }
+  return null;
+}
+
+/**
  * Whether this node should give up an app, and why.
  *
- * Two reasons, one answer. SURPLUS: the app runs on more nodes than it needs and
- * this node holds the junior instance. EVACUATION: the node is shedding what it
- * holds because it is no longer fit to serve, and this app's turn has come.
+ * Three reasons, one answer. SURPLUS: the app runs on more nodes than it needs
+ * and this node holds the junior instance. EVACUATION: the node is shedding what
+ * it holds because it is no longer fit to serve, and this app's turn has come.
+ * MISPLACED: the published location table places this node outside the app's
+ * geolocation, and this app's turn has come.
  *
  * Only the reason is decided here. Whether it is SAFE to act on it is
  * appEvacuationSafety's question, and both must agree - a count has never been
@@ -3830,6 +3916,8 @@ function isElectedPrimaryHere(appName, localSocketAddr, now = Date.now()) {
  *   holders by their signed announcements.
  * @param {string} deps.turn.ownKey This node's signing key.
  * @param {{timeMs: number, previousTimeMs: number}} deps.turn.pass
+ * @param {object|null} [deps.misplaced] The app's geolocation verdict when it
+ *   is a FAIL on the location table's word, otherwise null.
  * @returns {Promise<{giveUp: boolean, reason: string, detail: string}>}
  */
 async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, deps = {}) {
@@ -3936,6 +4024,32 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     };
   }
 
+  // Misplaced holders leave one per refill, never all at once. A departure takes
+  // the app below its instance count, and every other misplaced holder waits
+  // until a correctly placed node has taken the gap. With nowhere correctly
+  // placed to go, the gap stays open and the rest stay where they are: an app
+  // running outside its geolocation keeps its data and keeps serving, which is
+  // better than an app that has neither.
+  if (deps.misplaced) {
+    const verdict = handbackTurns.mayHandBack(
+      deps.turn.holders,
+      deps.turn.ownKey,
+      minInstances,
+      deps.turn.pass,
+      residentialNodeDosService.TURN_MS,
+    );
+    if (verdict.ok) {
+      return {
+        giveUp: true,
+        reason: 'MISPLACED',
+        detail: `the location table places this node outside the app's geolocation (${deps.misplaced.reason})`,
+      };
+    }
+    return {
+      giveUp: false, reason: 'MISPLACED', code: verdict.code, detail: verdict.reason,
+    };
+  }
+
   if (surplusDeclined) {
     return {
       giveUp: false, reason: 'SURPLUS', code: surplusDeclined.code, detail: surplusDeclined.detail,
@@ -3973,6 +4087,8 @@ async function checkAndRemoveApplicationInstance({
   }
   giveUpPassLock.register();
   fluxEventBus.publish('giveUp:passStarted', { height });
+  // The copies under this pass's attempt: at most one app's, as a pass acts once.
+  let attempted = null;
   // To check if more than allowed instances of application are running
   // check if synced
   try {
@@ -4053,36 +4169,78 @@ async function checkAndRemoveApplicationInstance({
     for (const name of giveUpRefusals.keys()) {
       if (!heldNames.has(name)) giveUpRefusals.delete(name);
     }
-    // A stand-down for an app that left by any route has nothing left to hold,
-    // and one on a node no longer evacuating has nothing left to wait for.
     const evacuating = residentialNodeDosService.isEvacuating();
+    // The GLOBAL spec, the same authority the safety gate reads: an owner's
+    // geolocation change this node has not yet reinstalled from must not move
+    // the app on the strength of the spec it is about to replace. Only the
+    // table's word moves an installed app: the node's own ip-api report can be
+    // wrong about where it is, and an unproven region is not a wrong one; both
+    // still refuse an install. Anything that cannot be read moves nothing.
+    const readPlacement = async (appName) => {
+      try {
+        const spec = await registryManager.getApplicationGlobalSpecifications(appName);
+        if (!spec) return { misplaced: null, unread: true };
+        const geo = await hwRequirements.appGeolocationVerdict(spec);
+        const onTable = geo.verdict === hwRequirements.GeoVerdict.FAIL && geo.source === hwRequirements.GeoSource.TABLE;
+        return { misplaced: onTable ? geo : null, unread: geo.verdict === hwRequirements.GeoVerdict.UNKNOWN };
+      } catch (error) {
+        log.warn(`Give-up-an-app pass: geolocation of ${appName} unreadable: ${error.message}`);
+        return { misplaced: null, unread: true };
+      }
+    };
+    // Once per app per pass.
+    const placementByApp = new Map();
+    const placementOf = async (appName) => {
+      if (!placementByApp.has(appName)) placementByApp.set(appName, await readPlacement(appName));
+      return placementByApp.get(appName);
+    };
+    // A stand-down for an app that left by any route has nothing left to hold,
+    // and one for an app this node is no longer leaving has nothing left to
+    // wait for. Released here, before the pass acts on any app, so a stopped
+    // component is not held a pass longer by an action on another.
     // eslint-disable-next-line no-restricted-syntax
     for (const identifier of standingDown.keys()) {
-      if (!heldNames.has(standDownOwner(identifier))) {
+      const appName = standDownOwner(identifier);
+      const held = heldNames.has(appName);
+      // eslint-disable-next-line no-await-in-loop
+      const placement = held ? await placementOf(appName) : null;
+      // A placement that could not be read says nothing has changed: only an answer ends
+      // a leave, and the owned turn below ends it for good.
+      const stillLeaving = held && (evacuating || placement.misplaced !== null || placement.unread);
+      if (!held) {
         standingDown.delete(identifier);
-      } else if (!evacuating) {
+      } else if (!stillLeaving) {
         standingDown.delete(identifier);
-        log.warn(`${identifier} stood down on a node that is no longer evacuating; standing for election again`);
-        fluxEventBus.publish('giveUp:standDownReleased', { identifier, reason: 'NOT_EVACUATING' });
+        log.warn(`${identifier} stood down on a node no longer leaving the app; standing for election again`);
+        fluxEventBus.publish('giveUp:standDownReleased', { identifier, reason: 'NOT_LEAVING' });
       }
     }
     const pass = { timeMs: time * 1000, previousTimeMs: previousTime * 1000 };
     const currentTurn = residentialNodeDosService.turnOf(pass.timeMs);
-    const ownKey = evacuating ? await fluxNetworkHelper.getFluxNodePublicKey() : null;
+    // Read once, and only by a pass that has an app to hand back.
+    let ownKey = null;
 
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await registryManager.appLocation(installedApp.name);
       // eslint-disable-next-line no-await-in-loop
-      const holders = evacuating ? await registryManager.signedHoldersOf(installedApp.name, pass.timeMs) : [];
+      const { misplaced } = await placementOf(installedApp.name);
+      const leaving = evacuating || misplaced !== null;
+      const stoodDownHere = [...standingDown.keys()].some((identifier) => standDownOwner(identifier) === installedApp.name);
+      if ((leaving || stoodDownHere) && ownKey === null) {
+        // eslint-disable-next-line no-await-in-loop
+        ownKey = await fluxNetworkHelper.getFluxNodePublicKey();
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const holders = leaving || stoodDownHere ? await registryManager.signedHoldersOf(installedApp.name, pass.timeMs) : [];
       // A stood-down component that has owned a whole turn since, without the
       // app leaving, is released. A component stopped here and running nowhere
       // is a worse state than the one the stand-down exists to fix, so the node
       // gives up leaving and stands for election again rather than holding a
       // stopped app indefinitely.
       const holderKeys = holders.map((holder) => holder.key);
-      if (evacuating) {
+      if (leaving) {
         // What this node judged the turn on, so nodes judging one pass can be
         // compared.
         fluxEventBus.publish('giveUp:turn', {
@@ -4108,6 +4266,7 @@ async function checkAndRemoveApplicationInstance({
         isComponentRunningLocally,
         liveness,
         turn: { holders, ownKey, pass },
+        misplaced,
       });
       // Every pass reports what it decided about every app it holds. Without
       // this the pass is invisible: it logs nothing at all when it has nothing
@@ -4121,7 +4280,7 @@ async function checkAndRemoveApplicationInstance({
         detail: decision.detail,
       });
       if (!decision.giveUp) {
-        if (decision.reason === 'EVACUATION') {
+        if (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED') {
           // A node held below the instance count WANTS to leave and cannot, and
           // it is counted and escalated exactly as a safety refusal is - because
           // until the strength test moved into the pacing gate, that is where
@@ -4140,7 +4299,7 @@ async function checkAndRemoveApplicationInstance({
             const shortRefusals = (giveUpRefusals.get(installedApp.name) ?? 0) + 1;
             giveUpRefusals.set(installedApp.name, shortRefusals);
             if (shortRefusals % REFUSALS_BEFORE_ESCALATING === 0) {
-              log.warn(`${installedApp.name} has been refused ${shortRefusals} passes running (EVACUATION, ${decision.code}): ${decision.detail}`);
+              log.warn(`${installedApp.name} has been refused ${shortRefusals} passes running (${decision.reason}, ${decision.code}): ${decision.detail}`);
             } else {
               log.info(`${installedApp.name} not handed back yet: ${decision.detail}`);
             }
@@ -4152,23 +4311,47 @@ async function checkAndRemoveApplicationInstance({
         continue;
       }
 
-      // eslint-disable-next-line no-await-in-loop
-      const safety = await evacuationSafety.canSafelyRemoveApp(installedApp.name, {
+      const askSafety = (handedBack) => evacuationSafety.canSafelyRemoveApp(installedApp.name, {
         appLocation: registryManager.appLocation,
         getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
         findSyncedPeer: syncthingFolderStateMachine.findSyncedPeer,
+        folderHoldsNothing: syncthingFolderStateMachine.folderHoldsNothing,
         isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
         isComponentRunningLocally,
         shuttingDownDevices,
+        handedBack,
       });
-      fluxEventBus.publish('giveUp:safety', {
+      const reportSafety = (verdict) => fluxEventBus.publish('giveUp:safety', {
         appName: installedApp.name,
         reason: decision.reason,
-        safe: safety.safe,
-        code: safety.code,
-        detail: safety.reason,
+        safe: verdict.safe,
+        code: verdict.code,
+        detail: verdict.reason,
       });
-      if (safety.code === 'STAND_DOWN_REQUIRED' && decision.reason === 'EVACUATION') {
+      // eslint-disable-next-line no-await-in-loop
+      let safety = await askSafety();
+      reportSafety(safety);
+      if (safety.code === 'STOP_REQUIRED') {
+        // The attempt, and the gate again on what it leaves: the count, a peer that has
+        // since announced its shutdown and a backup are all a moment old by then.
+        attempted = safety.stop;
+        // eslint-disable-next-line no-await-in-loop
+        const exclude = await shuttingDownDevices();
+        // eslint-disable-next-line no-await-in-loop
+        const attempt = await leavingCopy.stopAndProve(attempted, async ({ folderId, unsyncedSubdirs }) => (
+          Boolean(await syncthingFolderStateMachine.findSyncedPeer(folderId, { exclude }))
+          || syncthingFolderStateMachine.folderHoldsNothing(folderId, unsyncedSubdirs)
+        ));
+        fluxEventBus.publish('giveUp:attempt', {
+          appName: installedApp.name, reason: decision.reason, proven: attempt.proven, code: attempt.code, detail: attempt.reason,
+        });
+        safety = attempt.proven
+          // eslint-disable-next-line no-await-in-loop
+          ? await askSafety(new Set(attempted.map(({ identifier }) => identifier)))
+          : { safe: false, code: attempt.code, reason: attempt.reason };
+        reportSafety(safety);
+      }
+      if (safety.code === 'STAND_DOWN_REQUIRED' && (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED')) {
         // Every other condition has already passed - a connected peer holds each
         // synced folder in full, and the app is at strength - so the only thing
         // between this node and leaving is that it is the one writing. Stop
@@ -4176,9 +4359,10 @@ async function checkAndRemoveApplicationInstance({
         // and the next pass finds the component not running here, re-proves the
         // peer is complete with nothing left to write, and removes.
         //
-        // EVACUATION only. SURPLUS picks the JUNIOR instance and the primary is
-        // the senior one, so a surplus giver-up is never the primary; wiring
-        // this there would stop a container for a case that cannot arise.
+        // EVACUATION and MISPLACED only. SURPLUS picks the JUNIOR instance and
+        // the primary is the senior one, so a surplus giver-up is never the
+        // primary; wiring this there would stop a container for a case that
+        // cannot arise.
         // eslint-disable-next-line no-restricted-syntax
         for (const identifier of safety.standDown) {
           // Marked before anything changes, so an election pass that reaches the
@@ -4231,6 +4415,26 @@ async function checkAndRemoveApplicationInstance({
         } else {
           log.warn(`${installedApp.name} has been refused ${refusals} passes running (${decision.reason}, ${safety.code}): ${safety.reason}`);
         }
+        // An attempt is the one action of a pass, and stopped a copy for it.
+        if (attempted) return;
+        // A copy of a g: component no peer can be shown to hold may be holding what the
+        // node running it deleted.
+        if (safety.code === 'NO_SYNCED_PEER' && safety.component?.syncMode === 'g') {
+          const { component } = safety;
+          // eslint-disable-next-line no-await-in-loop
+          const primary = await peerRunning(runningAppList, localSocketAddr, {
+            appIds: [component.folderId], identifier: component.identifier, appName: installedApp.name, liveness,
+          });
+          // eslint-disable-next-line no-await-in-loop
+          const stranded = primary ? await strandedIndex.repairIfStranded(component.folderId, primary, localSocketAddr) : null;
+          if (stranded) {
+            fluxEventBus.publish('giveUp:strandedIndex', {
+              appName: installedApp.name, folderId: component.folderId, code: stranded.code,
+            });
+          }
+          // A folder restart is the one action of this pass.
+          if (stranded?.code === strandedIndex.StrandedCode.REFETCHED) return;
+        }
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -4241,7 +4445,7 @@ async function checkAndRemoveApplicationInstance({
       // anything down, and one started within a pass of its decision leaves a
       // whole pass for that to reach every holder first. Later, it is left to a
       // later turn.
-      if (decision.reason === 'EVACUATION') {
+      if (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED') {
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GIVEUP_BEFORE_REMOVAL, installedApp.name);
         const dueHeight = Math.floor(height / period) * period;
@@ -4262,6 +4466,10 @@ async function checkAndRemoveApplicationInstance({
         return;
       }
       log.warn(`Application ${installedApp.name} locally removed`);
+      if (attempted) {
+        leavingCopy.removed(attempted);
+        attempted = null;
+      }
       if (decision.reason === 'EVACUATION') {
         residentialNodeDosService.noteEvacuated(installedApp.name);
       }
@@ -4272,6 +4480,7 @@ async function checkAndRemoveApplicationInstance({
   } catch (error) {
     log.error(error);
   } finally {
+    if (attempted) leavingCopy.giveBack(attempted);
     giveUpPassLock.disable();
     fluxEventBus.publish('giveUp:passEnded', { height });
   }
@@ -4372,6 +4581,41 @@ async function reinstallOldApplications() {
           }
           globalState.reinstallationOfOldAppsInProgress = true;
 
+          // A DIFFERENT OWNER ON A NAME WHOSE INSTALLED TERM HAD ENDED is a new
+          // registration of a released name, not the old app updated. The expiry
+          // sweep removes the install when it runs; a node that was catching up
+          // skipped it, and the comparison below leaves owner out, so this would
+          // rewrite the record in place and hand the old owner's files and data
+          // to the new registrant. An update that transfers an app lands inside
+          // the term it renews, and keeps the data as it always has.
+          //
+          // Heights cannot tell the two apart: a transfer this node missed, followed by
+          // an update after the installed term ended, looks the same. The message log
+          // does: another owner's registration after the installed term is a new tenure, a transfer is
+          // only ever an update.
+          if (!sameSigningIdentity(installedApp.owner, appSpecifications.owner)
+              && Number.isFinite(installedApp.height) && Number.isFinite(appSpecifications.height)
+              && !isInForce(installedApp.height, installedApp.expire, appSpecifications.height)
+              // eslint-disable-next-line no-await-in-loop
+              && registeredByAnotherAfterTerm(
+                // eslint-disable-next-line no-await-in-loop
+                await registryManagerModule.appMessagesThatCount(installedApp.name),
+                installedApp.height,
+                installedApp.expire,
+                installedApp.owner,
+                sameSigningIdentity,
+              )) {
+            log.warn(`REMOVAL REASON: ${installedApp.name} was registered again by another owner after its term ended - removing the previous owner's install and data`);
+            // eslint-disable-next-line global-require
+            const appUninstallerForOwner = require('./appUninstaller');
+            // Announced: peers still list this node as a location for the name, and would
+            // route the new registrant's domain here and count this node as an instance.
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstallerForOwner.removeAppLocally(installedApp.name, null, true, false, true);
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
           // Check if this is an enterprise app on non-arcane node FIRST
           // CRITICAL: Must check BEFORE updating local database or attempting redeployment
           // If we update the local DB with enterprise specs, we lose the container/port info needed for cleanup
@@ -4430,7 +4674,10 @@ async function reinstallOldApplications() {
               upsert: true,
             };
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
+            // An enterprise row keeps its compose and contacts blank, as the install
+            // writes it: they were decrypted for the comparison above and are not for
+            // the table, which the public listings read.
+            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: withoutEnterpriseSecrets([appSpecifications])[0] }, options);
             log.info(`Application ${installedApp.name} Database updated`);
             // OWNER IS DELETED FROM THE COMPARISON ABOVE, so an owner transfer reaches
             // this branch: the same components under a different owner, written without
@@ -4513,7 +4760,7 @@ async function reinstallOldApplications() {
               dbHelper.databaseConnection().db(config.database.appslocal.database),
               localAppsInformation,
               { name: appSpecifications.name },
-              { $set: appSpecifications },
+              { $set: withoutEnterpriseSecrets([appSpecifications])[0] },
               { upsert: true },
             );
 
@@ -4521,7 +4768,7 @@ async function reinstallOldApplications() {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
               // soft redeployment
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.softUninstallApplication(appSpecifications.name, null, appSpecifications, null, true);
+              await appUninstaller.softUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications);
             } else {
@@ -4529,7 +4776,7 @@ async function reinstallOldApplications() {
               log.warn(`REMOVAL REASON: Hard redeployment - ${appSpecifications.name} HDD changed from ${installedApp.hdd} to ${appSpecifications.hdd}`);
               // hard redeployment
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.hardUninstallApplication(appSpecifications.name, null, appSpecifications, null, true);
+              await appUninstaller.hardUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications);
             }
@@ -5316,15 +5563,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               continue;
             }
             // From here the primary is the full address it answers on: FDM's IP
-            // after a move is still that node, at its new address. This node's own
-            // address is the one it adopted when benchmark still reports one it has
-            // moved away from. Taken once FDM's answer is in, so a move recorded
-            // while it was asked counts for both.
-            if (ip) {
-              // eslint-disable-next-line no-await-in-loop
-              ip = await fdmPrimaryAddress(installedApp.name, ip);
-            }
-            localSocketAddr = fluxNetworkHelper.ownAddressFor(localSocketAddr);
+            // after a move is still that node, at its new address. It and this
+            // node's own address are read on the same side of a move of this
+            // node's own, and once FDM's answer is in, so a move recorded while it
+            // was asked counts for both.
+            // eslint-disable-next-line no-await-in-loop, no-loop-func
+            [ip, localSocketAddr] = await fluxNetworkHelper.withSteadyOwnAddress(async (own) => [
+              ip ? await fdmPrimaryAddress(installedApp.name, ip) : ip,
+              own,
+            ]);
             // FDM answered and `ip` is either a primary's address or null for
             // none. Both are verdicts, and it is the verdict rather than the
             // table entry that isElectedPrimaryHere reads - a null ip writes
@@ -5779,6 +6026,7 @@ module.exports = {
   softRedeployComponent,
   hardRedeployComponent,
   redeployAPI,
+  redeployHere,
   redeployComponentAPI,
   updateAppGlobaly,
   updateAppGlobalyApi,
