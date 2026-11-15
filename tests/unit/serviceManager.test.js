@@ -16,6 +16,7 @@ const appPlacements = require('../../ZelBack/src/services/appManagement/appPlace
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
+const enterpriseRows = require('../../ZelBack/src/services/migrations/enterpriseRows');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 
@@ -86,9 +87,12 @@ describe('serviceManager prepareDatabaseSchema, temp messages and install errors
     sinon.stub(upnpMappingRecord, 'writeWaiting').resolves();
     sinon.stub(explorerService, 'prepareCollections').resolves();
     const lowercased = sinon.stub(messageStore, 'lowercaseStoredAppNames').resolves();
+    const blanked = sinon.stub(enterpriseRows, 'blankStoredEnterpriseSecrets').resolves(0);
     sinon.stub(dbHelper, 'repairNanInAppsMessagesDb').rejects(new Error('stop here'));
     await expect(prepareDatabaseSchema()).to.be.rejectedWith('stop here');
-    return { deletes, indexes, lowercased };
+    return {
+      deletes, indexes, lowercased, blanked,
+    };
   }
 
   const specsOf = (indexes, name) => indexes.getCalls().find((c) => c.args[0].collectionName === name).args[1];
@@ -119,6 +123,11 @@ describe('serviceManager prepareDatabaseSchema, temp messages and install errors
     sinon.assert.calledOnceWithMatch(lowercased, { collectionName: 'appstateevents' });
     const eventIndexes = indexes.getCalls().find((c) => c.args[0].collectionName === 'appstateevents');
     expect(eventIndexes.calledBefore(lowercased.firstCall), 'the names were lowercased before their indexes were in place').to.equal(true);
+  });
+
+  it('blanks the installed enterprise apps\' components and contacts', async () => {
+    const { blanked } = await prepared();
+    sinon.assert.calledOnceWithMatch(blanked, { collectionName: 'zelappsinformation' });
   });
 
   it('removes install error rows a ttl index cannot', async () => {
