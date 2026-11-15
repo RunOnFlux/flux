@@ -286,7 +286,7 @@ async function prepareDatabaseSchema() {
   ]);
   log.info('Signed app installing errors broadcasts collection prepared');
 
-  await enterpriseRows.blankStoredEnterpriseSecrets();
+  await enterpriseRows.blankStoredEnterpriseSecrets(db.db(config.database.appslocal.database).collection(config.database.appslocal.collections.appsInformation));
 
   // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
   // we can remove this.

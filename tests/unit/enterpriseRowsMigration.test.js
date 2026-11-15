@@ -35,14 +35,14 @@ describe('enterprise app rows boot step', () => {
   it('blanks the components and contacts of an enterprise row holding them, and keeps every other field', async () => {
     await apps.insertOne(row('opened', { compose: [component], contacts: [contact] }));
 
-    expect(await blankStoredEnterpriseSecrets()).to.equal(1);
+    expect(await blankStoredEnterpriseSecrets(apps)).to.equal(1);
     expect(await stored('opened')).to.deep.equal(row('opened'));
   });
 
   it('blanks an enterprise row holding only its components, or only its contacts', async () => {
     await apps.insertMany([row('components', { compose: [component] }), row('contacts', { contacts: [contact] })]);
 
-    expect(await blankStoredEnterpriseSecrets()).to.equal(2);
+    expect(await blankStoredEnterpriseSecrets(apps)).to.equal(2);
     expect(await stored('components')).to.deep.equal(row('components'));
     expect(await stored('contacts')).to.deep.equal(row('contacts'));
   });
@@ -55,7 +55,7 @@ describe('enterprise app rows boot step', () => {
     ];
     await apps.insertMany(rows.map((r) => ({ ...r })));
 
-    expect(await blankStoredEnterpriseSecrets()).to.equal(0);
+    expect(await blankStoredEnterpriseSecrets(apps)).to.equal(0);
     expect(await stored('sealed')).to.deep.equal(rows[0]);
     expect(await stored('open')).to.deep.equal(rows[1]);
     expect(await stored('older')).to.deep.equal(rows[2]);
@@ -64,9 +64,9 @@ describe('enterprise app rows boot step', () => {
   it('changes nothing on a second run', async () => {
     await apps.insertOne(row('opened', { compose: [component], contacts: [contact] }));
 
-    await blankStoredEnterpriseSecrets();
+    await blankStoredEnterpriseSecrets(apps);
 
-    expect(await blankStoredEnterpriseSecrets()).to.equal(0);
+    expect(await blankStoredEnterpriseSecrets(apps)).to.equal(0);
     expect(await stored('opened')).to.deep.equal(row('opened'));
   });
 });

@@ -1,20 +1,15 @@
-const config = require('config');
-
 const log = require('../../lib/log');
-const dbHelper = require('../dbHelper');
 
 /**
  * Blanks `compose` and `contacts` on every installed enterprise app row that holds
  * them. An enterprise row keeps only its encrypted `enterprise` specification;
  * every reader that needs the components decrypts them from it. Every other field
  * of the row is left as it is.
+ * @param {import('mongodb').Collection} apps The installed apps collection.
  * @returns {Promise<number>} The rows blanked.
  */
-async function blankStoredEnterpriseSecrets() {
-  const db = dbHelper.databaseConnection();
-  const result = await dbHelper.updateInDatabase(
-    db.db(config.database.appslocal.database),
-    config.database.appslocal.collections.appsInformation,
+async function blankStoredEnterpriseSecrets(apps) {
+  const result = await apps.updateMany(
     {
       version: { $gte: 8 },
       enterprise: { $type: 'string', $ne: '' },
