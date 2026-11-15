@@ -56,6 +56,7 @@ const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const paymentPositions = require('./migrations/paymentPositions');
 const placements = require('./migrations/placements');
 const appMessageHashes = require('./migrations/appMessageHashes');
+const enterpriseRows = require('./migrations/enterpriseRows');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -284,6 +285,8 @@ async function prepareDatabaseSchema() {
     { key: { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, unique: true, recover: dbHelper.dedupeByKey },
   ]);
   log.info('Signed app installing errors broadcasts collection prepared');
+
+  await enterpriseRows.blankStoredEnterpriseSecrets();
 
   // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
   // we can remove this.
