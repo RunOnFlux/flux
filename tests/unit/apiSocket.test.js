@@ -13,6 +13,7 @@ const apiSocket = require('../../ZelBack/src/services/utils/apiSocket');
 const { FluxServer } = require('../../ZelBack/src/lib/fluxServer');
 const isLocal = require('../../ZelBack/src/middlewares/isLocal');
 const { resolveClientIp } = require('../../ZelBack/src/services/utils/ingressCapture');
+const { limitConcurrent } = require('../../ZelBack/src/services/utils/routeGuards');
 
 function requestOverSocket(socketPath, options) {
   return new Promise((resolve, reject) => {
@@ -115,6 +116,27 @@ describe('apiSocket tests', () => {
       server.app.get('/big', (req, res) => res.type('text/plain').send('x'.repeat(10000)));
       const { headers } = await requestOverSocket(socketPath, { path: '/big', headers: { 'accept-encoding': 'gzip' } });
       expect(headers['content-encoding']).to.equal(undefined);
+    });
+
+    it('holds a per-caller limit for each caller nginx names', async () => {
+      const held = [];
+      server.app.get('/limited', limitConcurrent(4, 'Busy', { perCaller: 1 }), (req, res) => { held.push(res); });
+      const from = (caller) => requestOverSocket(socketPath, { path: '/limited', headers: { 'x-forwarded-for': caller } });
+      const heldCount = async (count) => {
+        while (held.length < count) await new Promise((resolve) => { setImmediate(resolve); });
+        return 'held';
+      };
+
+      const first = from('203.0.113.7');
+      await heldCount(1);
+      const again = await from('203.0.113.7');
+      const other = from('203.0.113.8');
+      const otherOutcome = await Promise.race([heldCount(2), other.then(({ status }) => status)]);
+      held.forEach((res) => res.end());
+      await Promise.all([first, other]);
+
+      expect(again.status).to.equal(503);
+      expect(otherOutcome).to.equal('held');
     });
 
     it('replaces a stale socket', async () => {

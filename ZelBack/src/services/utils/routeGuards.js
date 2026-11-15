@@ -6,6 +6,7 @@ const messageHelper = require('../messageHelper');
 const globalState = require('./globalState');
 const { AsyncLock } = require('./asyncLock');
 const { resolveClientIp } = require('./ingressCapture');
+const { callerAddress } = require('./apiSocket');
 
 // What a caller turned away during boot is told to wait. The boot chain is
 // bounded by its own daemon and sync timeouts rather than by this number, so it
@@ -256,7 +257,7 @@ function limitConcurrent(maxConcurrent, busyMessage, { limited = everyRequest, p
     if (places.activeCount >= maxConcurrent) {
       return serviceUnavailable(res, busyMessage, BUSY_RETRY_AFTER_SECONDS);
     }
-    const { ip: caller } = resolveClientIp(req.socket?.remoteAddress, req.headers);
+    const { ip: caller } = resolveClientIp(callerAddress(req), req.headers);
     const callerHolds = placesByCaller.get(caller) || 0;
     if (callerHolds >= perCaller) {
       return serviceUnavailable(res, `${busyMessage} for one caller`, BUSY_RETRY_AFTER_SECONDS);
