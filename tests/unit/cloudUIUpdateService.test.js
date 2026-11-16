@@ -422,6 +422,92 @@ describe('cloudUIUpdateService tests', () => {
       expect(logged.length).to.be.below(5000);
     });
 
+    it('waits for a run another process holds the lock for', async () => {
+      const service = loadService();
+      spawnStub.callsFake(() => fakeChild());
+
+      await service.runUpdateScript();
+
+      expect(spawnStub.firstCall.args[1]).to.not.include('--if-idle');
+    });
+  });
+
+  describe('rebuildIfIdle tests', () => {
+    it('asks the script not to wait for another run', async () => {
+      const service = loadService();
+      spawnStub.callsFake(() => fakeChild());
+
+      expect(await service.rebuildIfIdle()).to.equal('installed');
+
+      expect(spawnStub.firstCall.args[1].slice(-1)).to.eql(['--if-idle']);
+    });
+
+    it('answers busy when another process holds the lock', async () => {
+      const service = loadService();
+      spawnStub.callsFake(() => fakeChild({ code: 75, stdout: 'Another CloudUI update is in progress.' }));
+
+      expect(await service.rebuildIfIdle()).to.equal('busy');
+
+      sinon.assert.notCalled(logStub.error);
+    });
+
+    it('answers failed when the script fails', async () => {
+      const service = loadService();
+      spawnStub.callsFake(() => fakeChild({ code: 1, stderr: 'stderr' }));
+
+      expect(await service.rebuildIfIdle()).to.equal('failed');
+    });
+
+    it('answers busy without starting a run while this process has one in flight', async () => {
+      const service = loadService();
+      let finish;
+      spawnStub.callsFake(() => {
+        const child = fakeChild({ wait: true });
+        finish = () => child.finish();
+
+        return child;
+      });
+
+      const running = service.runUpdateScript();
+      const rebuild = await service.rebuildIfIdle();
+      finish();
+
+      expect(rebuild).to.equal('busy');
+      expect(await running).to.equal(true);
+      sinon.assert.calledOnce(spawnStub);
+    });
+
+    it('is joined by an update that starts while it runs', async () => {
+      const service = loadService();
+      let finish;
+      spawnStub.callsFake(() => {
+        const child = fakeChild({ wait: true });
+        finish = () => child.finish();
+
+        return child;
+      });
+
+      const rebuild = service.rebuildIfIdle();
+      const update = service.runUpdateScript();
+      finish();
+
+      expect(await rebuild).to.equal('installed');
+      expect(await update).to.equal(true);
+      sinon.assert.calledOnce(spawnStub);
+    });
+
+    it('starts again once its run has finished', async () => {
+      const service = loadService();
+      spawnStub.callsFake(() => fakeChild());
+
+      await service.rebuildIfIdle();
+      await service.rebuildIfIdle();
+
+      sinon.assert.calledTwice(spawnStub);
+    });
+  });
+
+  describe('ownership', () => {
     it('names the watchdog as the owner of CloudUI on ArcaneOS alone', () => {
       expect(loadService({ FLUXOS_PATH: '/dat/usr/lib/fluxos' }).watchdogManagesCloudUI()).to.equal(true);
       expect(loadService().watchdogManagesCloudUI()).to.equal(false);

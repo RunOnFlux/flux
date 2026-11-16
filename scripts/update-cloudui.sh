@@ -7,8 +7,11 @@
 # The API base URL is required - see the note on API_BASE_URL below for why it is
 # an argument rather than a default or an environment variable.
 #
-# Usage: npm run update:cloudui -- <api-base-url>
-#        or: bash scripts/update-cloudui.sh <api-base-url>
+# Usage: npm run update:cloudui -- <api-base-url> [--if-idle]
+#        or: bash scripts/update-cloudui.sh <api-base-url> [--if-idle]
+#
+# Runs take turns: a run waits for the one in progress to finish. With --if-idle it does
+# not wait; when another run is in progress it exits with status 75 and changes nothing.
 #
 # Output:
 # - CloudUI, a symlink to the installed build in .cloudui/
@@ -54,6 +57,17 @@ if [ -z "$API_BASE_URL" ]; then
     exit 1
 fi
 RELEASE_API="$API_BASE_URL/repos/$REPO/releases/latest"
+
+IF_IDLE=false
+case "${2:-}" in
+    "") ;;
+    --if-idle) IF_IDLE=true ;;
+    *)
+        echo "Error: unknown option: $2"
+        echo "Usage: $0 <api-base-url> [--if-idle]"
+        exit 1
+        ;;
+esac
 
 echo "=========================================="
 echo "  FluxOS CloudUI Update Script"
@@ -113,7 +127,14 @@ cleanup() {
 # build another run is still unpacking.
 mkdir -p "$STORE_DIR"
 exec 9>"$STORE_DIR/.lock"
-flock 9
+if [ "$IF_IDLE" = true ]; then
+    if ! flock -n 9; then
+        echo "Another CloudUI update is in progress."
+        exit 75
+    fi
+else
+    flock 9
+fi
 
 trap cleanup EXIT
 

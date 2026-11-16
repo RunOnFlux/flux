@@ -517,13 +517,13 @@ describe('fluxService tests', () => {
   // while its tests stayed green.
   describe('rebuildUi tests', () => {
     let verifyPrivilegeStub;
-    let runUpdateScriptStub;
+    let rebuildIfIdleStub;
     let runCmdStub;
     let watchdogOwnsStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      runUpdateScriptStub = sinon.stub(cloudUIUpdateService, 'runUpdateScript');
+      rebuildIfIdleStub = sinon.stub(cloudUIUpdateService, 'rebuildIfIdle');
       watchdogOwnsStub = sinon.stub(cloudUIUpdateService, 'watchdogManagesCloudUI').returns(false);
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
@@ -547,30 +547,42 @@ describe('fluxService tests', () => {
       await fluxService.rebuildUi(undefined, res);
 
       sinon.assert.calledWithExactly(res.json, expectedResponse);
-      sinon.assert.notCalled(runUpdateScriptStub);
+      sinon.assert.notCalled(rebuildIfIdleStub);
     });
 
     it('should report success when the UI is fetched', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(true);
+      rebuildIfIdleStub.resolves('installed');
       const res = generateResponse();
 
       await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.calledOnce(runUpdateScriptStub);
+      sinon.assert.calledOnce(rebuildIfIdleStub);
       expect(res.json.firstCall.args[0].status).to.equal('success');
       expect(res.json.firstCall.args[0].data.message).to.equal('Flux UI successfully rebuilt');
     });
 
     it('should report an error when the fetch fails', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(false);
+      rebuildIfIdleStub.resolves('failed');
       const res = generateResponse();
 
       await fluxService.rebuildUi(undefined, res);
 
       expect(res.json.firstCall.args[0].status).to.equal('error');
       expect(res.json.firstCall.args[0].data.message).to.contain('Error rebuilding Flux UI');
+    });
+
+    it('answers at once that an update is in progress when another run holds the lock', async () => {
+      verifyPrivilegeStub.returns(true);
+      rebuildIfIdleStub.resolves('busy');
+      const res = generateResponse();
+
+      await fluxService.rebuildUi(undefined, res);
+
+      sinon.assert.calledOnce(rebuildIfIdleStub);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('already in progress');
     });
 
     // The script removes the served directory before it copies the new one in.
@@ -584,7 +596,7 @@ describe('fluxService tests', () => {
 
       await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.notCalled(runUpdateScriptStub);
+      sinon.assert.notCalled(rebuildIfIdleStub);
       expect(res.json.firstCall.args[0].status).to.equal('error');
       expect(res.json.firstCall.args[0].data.message).to.contain('managed by the watchdog');
     });
@@ -593,7 +605,7 @@ describe('fluxService tests', () => {
     // be deleted somewhere else without anything failing until a node runs it.
     it('should not spawn a package script of its own', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(true);
+      rebuildIfIdleStub.resolves('installed');
 
       await fluxService.rebuildUi(undefined, generateResponse());
 

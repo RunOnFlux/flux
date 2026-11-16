@@ -562,6 +562,14 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       expect(result.output).to.include('flock is required');
       expect(fs.existsSync(store())).to.equal(false);
     });
+
+    it('creates nothing when given an option it does not know', async () => {
+      const result = await runScript({ args: [baseUrl, '--if-busy'] }).done;
+
+      expect(result.code).to.equal(1);
+      expect(result.output).to.include('unknown option: --if-busy');
+      expect(fs.existsSync(store())).to.equal(false);
+    });
   });
 
   describe('a run that is stopped or killed', () => {
@@ -763,6 +771,37 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
 
       expect(results[0].code, results[0].output).to.equal(0);
       expect(results[1].code, results[1].output).to.equal(0);
+      expect(served()).to.equal('v1');
+      expectOnlyInstalledBuild();
+    });
+
+    it('with --if-idle, exits 75 at once and changes nothing while another run holds the lock', async () => {
+      await install('v1');
+      release = makeRelease('v2');
+      const { requested, answer } = holdNextTarball();
+
+      const first = runScript();
+      await requested;
+      const second = await within(10000, runScript({ args: [baseUrl, '--if-idle'] }).done);
+      const servedAfterSecond = served();
+      answer();
+      const firstResult = await first.done;
+
+      expect(second).to.not.equal('timed out');
+      expect(second.code, second.output).to.equal(75);
+      expect(second.output).to.include('Another CloudUI update is in progress.');
+      expect(servedAfterSecond, 'the refused run left the installed build in place').to.equal('v1');
+      expect(firstResult.code, firstResult.output).to.equal(0);
+      expect(served()).to.equal('v2');
+      expectOnlyInstalledBuild();
+    });
+
+    it('with --if-idle, installs when no other run holds the lock', async () => {
+      release = makeRelease('v1');
+
+      const result = await runScript({ args: [baseUrl, '--if-idle'] }).done;
+
+      expect(result.code, result.output).to.equal(0);
       expect(served()).to.equal('v1');
       expectOnlyInstalledBuild();
     });

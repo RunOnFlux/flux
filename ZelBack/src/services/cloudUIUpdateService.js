@@ -18,11 +18,15 @@ const METADATA_FILES = ['version', 'tag'];
 // as long as the download does.
 const MAX_OUTPUT_CHARS = 4000;
 
+// The script's exit status for a run started with --if-idle while another run holds its lock.
+const SCRIPT_BUSY = 75;
+
 // ArcaneOS nodes have watchdog handling CloudUI updates
 const isArcaneOS = Boolean(process.env.FLUXOS_PATH);
 
-// The run in progress, if there is one. A second caller joins it rather than
-// starting another: the rebuild it asked for is already happening.
+// This process's run in progress, if there is one: a promise of its outcome, 'installed',
+// 'failed' or 'busy'. runUpdateScript joins it rather than starting another, and
+// rebuildIfIdle answers 'busy' while it is set.
 let updateInFlight = null;
 
 /**
@@ -141,29 +145,48 @@ function watchdogManagesCloudUI() {
 }
 
 /**
- * Executes the update:cloudui script
- * @returns {Promise<boolean>}
+ * Executes the update:cloudui script. A run already in progress in this process is joined;
+ * one in another process (the watchdog's, or one started by hand) is waited for.
+ * @returns {Promise<boolean>} Whether the script installed the release.
  */
 function runUpdateScript() {
   if (updateInFlight) {
     log.info('CloudUI: an update is already running, waiting for it rather than starting another');
-    return updateInFlight;
+  } else {
+    updateInFlight = startUpdateScript().finally(() => { updateInFlight = null; });
   }
 
-  updateInFlight = startUpdateScript().finally(() => { updateInFlight = null; });
+  return updateInFlight.then((outcome) => outcome === 'installed');
+}
+
+/**
+ * Executes the update:cloudui script unless another run is in progress, in this process
+ * or any other, and then answers at once without waiting for it.
+ * @returns {Promise<'installed'|'failed'|'busy'>}
+ */
+function rebuildIfIdle() {
+  if (updateInFlight) {
+    log.info('CloudUI: an update is already running, not starting a rebuild');
+    return Promise.resolve('busy');
+  }
+
+  updateInFlight = startUpdateScript({ ifIdle: true }).finally(() => { updateInFlight = null; });
 
   return updateInFlight;
 }
 
 /**
- * Runs the update:cloudui script, unconditionally. Reached only through
- * runUpdateScript, which is what keeps two of them from overlapping.
+ * Runs the update:cloudui script, unconditionally. Reached only through runUpdateScript
+ * and rebuildIfIdle, which keep two of them in this process from overlapping.
  *
  * There is no time limit: the script gives up on a download that stops moving, and a
  * slow one takes as long as it takes.
- * @returns {Promise<boolean>}
+ * @param {object} [options]
+ * @param {boolean} [options.ifIdle] Passes --if-idle, so a run another process holds the
+ *   lock against exits at once.
+ * @returns {Promise<'installed'|'failed'|'busy'>}
  */
-function startUpdateScript() {
+function startUpdateScript({ ifIdle = false } = {}) {
   return new Promise((resolve) => {
     log.info('CloudUI: Running update script...');
 
@@ -171,7 +194,9 @@ function startUpdateScript() {
     // source of truth for every endpoint a node reaches, so a hardcoded URL in the script,
     // or one taken from the environment, would sit outside it and be unreachable by the
     // harness.
-    const child = spawn('npm', ['run', 'update:cloudui', '--', config.github.apiBaseUrl], {
+    const args = ['run', 'update:cloudui', '--', config.github.apiBaseUrl];
+    if (ifIdle) args.push('--if-idle');
+    const child = spawn('npm', args, {
       cwd: PROJECT_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -182,19 +207,24 @@ function startUpdateScript() {
 
     child.on('error', (error) => {
       log.error(`CloudUI update script error: ${error.message}`);
-      resolve(false);
+      resolve('failed');
     });
     child.on('close', (code, signal) => {
       const lastLines = output.trim().split('\n').slice(-5).join('\n');
       if (code === 0) {
         log.info('CloudUI: Update script completed');
         if (lastLines) log.info(`CloudUI update output:\n${lastLines}`);
-        resolve(true);
+        resolve('installed');
+        return;
+      }
+      if (ifIdle && code === SCRIPT_BUSY) {
+        log.info('CloudUI: another update is in progress, the rebuild did not start');
+        resolve('busy');
         return;
       }
       log.error(`CloudUI update script ${signal ? `killed by ${signal}` : `exited with code ${code}`}`);
       if (lastLines) log.error(`CloudUI update output:\n${lastLines}`);
-      resolve(false);
+      resolve('failed');
     });
   });
 }
@@ -289,6 +319,7 @@ module.exports = {
   startCloudUIUpdateCheck,
   cloudUIExists,
   runUpdateScript,
+  rebuildIfIdle,
   watchdogManagesCloudUI,
   getLocalVersionHash,
   getLocalVersionTag,
