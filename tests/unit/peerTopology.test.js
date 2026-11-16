@@ -18,7 +18,7 @@ describe('harness peer topology', () => {
 
   it('holds the readiness thresholds the fleet reads', () => {
     const { fluxapps } = proxyquire('../../ZelBack/config/default', {
-      '../../config/userconfig': { initial: { development: false } },
+      '../../config/userconfig': { initial: {} },
     });
 
     expect(topology.PRODUCTION_READINESS.peerThreshold).to.equal(fluxapps.appSyncPeerThreshold);

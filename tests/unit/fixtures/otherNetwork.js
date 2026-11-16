@@ -16,8 +16,6 @@ const appSpecsEnforcementHeights = {
 const portBlockheightChange = 0;
 
 module.exports = {
-  // userconfig.initial.development changes nothing on labnet.
-  developmentApplies: false,
   daemon: {
     chainValidHeight: 0,
     port: 36125,
@@ -57,13 +55,12 @@ module.exports = {
     // Storage links must be https at this host. labnet runs no storage service.
     storageHost: 'network.invalid',
     // Every receiver is the one lab address, so the receiver a deployment is
-    // told to pay is that address at every height, and a development node
+    // told to pay is that address at every height, and a node
     // accepts no other. As the multisig receivers, it also signs soft-fork
     // messages.
     address: LAB_PAYMENT_ADDRESS,
     addressMultisig: LAB_PAYMENT_ADDRESS,
     addressMultisigB: LAB_PAYMENT_ADDRESS,
-    addressDevelopment: LAB_PAYMENT_ADDRESS,
     multisigAddressChange: 0,
     // 1, not 0: the scan cursor is set to epochstart - 1 when the explorer
     // bootstrap fails, and the cursor holds heights from 0. Genesis carries no
@@ -108,13 +105,5 @@ module.exports = {
   },
   analytics: {
     url: '',
-  },
-  // Never read (developmentApplies is false); the production values above, so
-  // the key set matches every other profile's.
-  development: {
-    fluxapps: {
-      appSpecsEnforcementHeights,
-      portBlockheightChange,
-    },
   },
 };
