@@ -517,7 +517,8 @@ class NetworkStateManager extends EventEmitter {
     if (!sort) return clone;
 
     // A total order: ascending by the block a node joined in, then descending
-    // by txhash. Nodes that joined in the same block must come out in the same
+    // by txhash, then ascending by output index, for collaterals one transaction
+    // funded. Nodes that joined in the same block must come out in the same
     // order on every call, or the deterministic peers drawn from this list move
     // between them on each discovery pass.
     clone.sort((a, b) => {
@@ -525,7 +526,7 @@ class NetworkStateManager extends EventEmitter {
       if (b.added_height > a.added_height) return -1;
       if (b.txhash > a.txhash) return 1;
       if (a.txhash > b.txhash) return -1;
-      return 0;
+      return Number(a.outidx) - Number(b.outidx);
     });
 
     return clone;

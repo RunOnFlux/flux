@@ -1400,5 +1400,30 @@ describe('networkStateManager tests', () => {
         nodeIn(1002, 1).txhash,
       ]);
     });
+
+    it('orders collaterals one transaction funded by their output index, as numbers', async () => {
+      const fundedTogether = ['0', '2', '10'].map((outidx, i) => ({
+        ...nodeIn(1000, 50 + i),
+        txhash: 'f'.repeat(64),
+        outidx,
+      }));
+      const block = [...fundedTogether, nodeIn(1000, 1), nodeIn(1000, 2)];
+      const outidxOrder = async (nodes) => {
+        fetcher.callsFake(async () => nodes);
+        const nsm = new NetworkStateManager(fetcher);
+        await nsm.start();
+        const order = nsm.state({ sort: true })
+          .filter((node) => node.txhash === 'f'.repeat(64))
+          .map((node) => node.outidx);
+        await nsm.stop();
+        return order;
+      };
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const nodes of [block, [...block].reverse(), [block[2], block[0], block[4], block[1], block[3]]]) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await outidxOrder(nodes)).to.deep.equal(['0', '2', '10']);
+      }
+    });
   });
 });
