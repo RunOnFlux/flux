@@ -1031,6 +1031,10 @@ async function reconcile(rawIdentifier) {
       fluxEventBus.publish('reconciler:actuated', {
         identifier, action: 'stopped', reason, forced: forceKill,
       });
+    } else {
+      // a pass that found the component where it is meant to be, and why: the
+      // only record of a decision to leave a stopped component stopped
+      fluxEventBus.count('reconciler:held', identifier, reason);
     }
     return;
   }

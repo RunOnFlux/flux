@@ -4688,7 +4688,6 @@ describe('advancedWorkflows tests', () => {
 
       sinon.assert.calledWith(counted, 'masterSlave:decision', identifier, 'runStateUnknown');
       sinon.assert.notCalled(holdAsPrimary);
-      sinon.assert.notCalled(serviceHelperStub);
     });
 
     it('stops the g: component on a UPnP standby when FDM names a different primary IP', async () => {

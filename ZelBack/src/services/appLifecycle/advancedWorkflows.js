@@ -5493,18 +5493,6 @@ async function masterSlaveApps(globalStateParam, installedApps, https) {
           fluxEventBus.count('masterSlave:decision', identifier, 'operatorStartPending');
           log.info(`masterSlaveApps: ${resumingMembers.map((member) => member.identifier).join(', ')} was started by its operator - deciding it with the stop lock held`);
         }
-        // Read for this app, after its backup/restore check - never once for the
-        // whole pass.
-        // eslint-disable-next-line no-await-in-loop
-        const runHere = await runningHere(members);
-        if (runHere === null) {
-          fluxEventBus.count('masterSlave:decision', identifier, 'runStateUnknown');
-          log.warn(`masterSlaveApps: docker cannot answer for app:${installedApp.name}, skipping it this cycle`);
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-        const runsHere = members.some((member) => runHere.includes(member.identifier));
-        const start = () => startMembers(members, runHere);
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_DECISION, identifier);
         // Get master IP from FDM using the new /appips endpoint
@@ -5518,6 +5506,18 @@ async function masterSlaveApps(globalStateParam, installedApps, https) {
           // eslint-disable-next-line no-continue
           continue;
         }
+        // Read for this app once FDM has answered, where its decisions are made -
+        // never once for the whole pass.
+        // eslint-disable-next-line no-await-in-loop
+        const runHere = await runningHere(members);
+        if (runHere === null) {
+          fluxEventBus.count('masterSlave:decision', identifier, 'runStateUnknown');
+          log.warn(`masterSlaveApps: docker cannot answer for app:${installedApp.name}, skipping it this cycle`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        const runsHere = members.some((member) => runHere.includes(member.identifier));
+        const start = () => startMembers(members, runHere);
         if (fdmOk) {
           // no ip means there was no row with ip on fdm
           // down means there was a row ip with status down
