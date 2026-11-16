@@ -290,18 +290,4 @@ class FluxRpc {
   }
 }
 
-async function main() {
-  const auth = {
-    username: 'test',
-    password: 'test',
-  };
-
-  const fluxRpc = new FluxRpc('http://127.0.0.1:16124', { auth });
-  console.log(await fluxRpc.run('getfluxnodestatus'));
-}
-
-if (require.main === module) {
-  main();
-}
-
 module.exports = { FluxRpc };
