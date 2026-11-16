@@ -165,6 +165,9 @@ describe('a restore with no peer to fall back on', function () {
     expect(lock.exitCode, `could not make appdata immutable: ${lock.output}`).to.equal(0);
 
     const afterId = client.getLastEventId();
+    const startedSince = () => client.getEventBuffer().filter((e) => e.id > afterId
+      && e.event === 'reconciler:actuated' && e.data?.identifier === idOf(plainApp)
+      && ['started', 'recreated', 'restarted'].includes(e.data?.action));
     try {
       const body = await client.appendRestoreTask(
         plainApp, [{ component: `${plainApp}c`, restore: true }], 'local', auth.zelidauth,
@@ -174,8 +177,13 @@ describe('a restore with no peer to fall back on', function () {
       // Nothing here syncs, so there is no folder to demote and nothing that
       // could ever repair the directory. The container must still be held: what
       // is on disk is not a copy anyone chose, and starting on it writes new
-      // state over the wreckage.
-      await waitForReconcilerDesiredChanged(client, idOf(plainApp), 'stopped', 120000, { afterId });
+      // state over the wreckage. The reconciler decides about it: held for the
+      // unfinished restore, or started.
+      await waitFor(async () => (await client.getDecisionCount('reconciler:held', idOf(plainApp), 'restoreUnfinished')) >= 1
+        || startedSince().length > 0, {
+        timeout: 120000, interval: 2000, label: 'the reconciler decides about the component after the restore',
+      });
+      expect(startedSince(), 'started on a half-replaced directory').to.deep.equal([]);
     } finally {
       await execInContainer(client.container, `chattr -i ${dirOf(plainApp)}/appdata 2>/dev/null || true`);
     }

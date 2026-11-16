@@ -390,6 +390,8 @@ export function nodeClient(nodeNum) {
         'message:dispatched',
         'reconciler:actuated',
         'reconciler:desiredChanged',
+        // a backup or restore holding a component stopped through the reconciler, or releasing it
+        'reconciler:operationHold',
         'app:operatorIntent',
         'reconciler:swept',
         'giveUp:considered',

@@ -1,25 +1,27 @@
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { getAppContainerStatus, restartDockerd, execInContainer } from '../framework/container.js';
+import {
+  getAppContainerStatus, restartDockerd, execInContainer, containerStartedAt,
+} from '../framework/container.js';
 import {
   setSynced, resetSyncState, resetFolderWrites, getPauseWrites,
 } from '../framework/syncthing-control.js';
-import { getSubnetConfig } from '../framework/subnet-config.js';
+import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
-import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
-import { waitForUp, assertNoEvent, waitFor } from '../framework/wait.js';
+import { bootAndPeer, seedSyncthingApp, installOnNodes } from '../framework/reconciler-suite.js';
+import { buildSeedableApp } from '../framework/seed-helper.js';
+import { waitForUp, waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
 
-// B1 end-to-end: backup holds a lease on the WHOLE app under its bare main
-// name. While the lease is held, no reconcile of any component may actuate -
-// including the reconnect sweep fired by a dockerd restart mid-backup (the
-// exact key-format seam the unit tests cannot see: the producer writes the
-// bare name, the consumer derives it from the component identifier). After the
-// backup releases, the app must be running again (the backup's own restart
-// tail or the next reconcile both satisfy the level-based contract).
+// A backup stops its app through the reconciler, which holds each component
+// stopped while the archive is taken and keeps acting on it: a reconnect sweep
+// fired by a dockerd restart mid-backup starts nothing the backup holds. Lifting
+// the hold brings each component back where its other inputs put it - an
+// operator-stopped one stays down - and FDM keeps routing to the node for the
+// containers the backup took down, and for no other.
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -28,7 +30,7 @@ async function isUp(client, appName) {
 
 const subnet = getSubnetConfig();
 
-describe('backup leases the whole app against the reconciler', function () {
+describe('a backup holds its app stopped through the reconciler', function () {
   let env;
   dumpLogsOnFailure(() => env);
   const appName = `e2eblease${Date.now()}`;
@@ -61,26 +63,37 @@ describe('backup leases the whole app against the reconciler', function () {
     await env?.teardown();
   });
 
-  it('reconnect sweep mid-backup does not actuate the leased app; app runs again after release', async function () {
+  it('starts nothing the backup holds when a reconnect sweep runs mid-backup, and runs the app again after', async function () {
     this.timeout(300000);
     const client = env.clients[0];
     const auth = await authenticate(client.url, appOwnerKey());
 
+    const heldBefore = await client.getDecisionCount('reconciler:held', app.identifier, 'operationHold');
     const afterId = client.getLastEventId();
-    // start the backup but do NOT await: the unresolved promise IS the lease window
+    // not awaited: the unresolved promise is the backup's window
     const backupDone = client.appendBackupTask(appName, [appName], auth.zelidauth);
+    const hold = await client.waitForEvent('reconciler:operationHold',
+      (d) => d.identifier === app.identifier && d.held === true, 120000, { afterId });
 
-    // fire the reconnect sweep inside the window
+    // the reconnect sweep, inside the window
     await restartDockerd(client.container);
-
-    // while leased, the reconciler must not start/stop/recreate any component
-    await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === app.identifier && (d.action === 'started' || d.action === 'stopped' || d.action === 'recreated'), 10000);
 
     const body = await backupDone;
     expect(body).to.not.match(/Unauthorized/i);
+    const release = client.getEventBuffer().find((e) => e.id > hold.id && e.event === 'reconciler:operationHold'
+      && e.data?.identifier === app.identifier && e.data?.held === false);
+    expect(release, 'the backup lifted its hold').to.not.equal(undefined);
 
-    // lease released: the level-based contract converges the app back to running
-    await waitFor(async () => isUp(client, appName), { timeout: 120000, interval: 3000, label: 'app running again after backup released the lease' });
+    const startedWhileHeld = client.getEventBuffer().filter((e) => e.id > hold.id && e.id < release.id
+      && e.event === 'reconciler:actuated' && e.data?.identifier === app.identifier
+      && ['started', 'recreated', 'restarted'].includes(e.data?.action));
+    expect(startedWhileHeld, 'the reconciler started what the backup held').to.deep.equal([]);
+    // canary: with docker back, the reconciler met the stopped component and left
+    // it down for the hold
+    expect(await client.getDecisionCount('reconciler:held', app.identifier, 'operationHold'),
+      'the reconciler kept it down for the backup').to.be.above(heldBefore);
+
+    await waitFor(async () => isUp(client, appName), { timeout: 120000, interval: 3000, label: 'app running again once the backup lifted its hold' });
   });
 
   it('a monitor pass during the backup does not un-pause the folder it is holding', async function () {
@@ -132,5 +145,55 @@ describe('backup leases the whole app against the reconciler', function () {
     const body = await backupDone;
     expect(body).to.not.match(/Unauthorized/i);
     await waitFor(async () => isUp(client, appName), { timeout: 120000, interval: 3000, label: 'app running again after the hold released' });
+  });
+
+  it('leaves an operator-stopped component down through a backup, and routes only to what the backup took down', async function () {
+    this.timeout(420000);
+    const subject = 4;
+    const client = env.clients[subject];
+    const pair = `e2ebpair${Date.now()}`;
+    const web = `web_${pair}`;
+    const side = `side_${pair}`;
+    const component = (name) => ({
+      name,
+      description: `${name} of ${pair}`,
+      repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
+      ports: [],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts: [80],
+      containerData: '/tmp',
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    });
+    const up = async (name) => (await getAppContainerStatus(client.container, name))?.status?.startsWith('Up') === true;
+    await installOnNodes(env, await buildSeedableApp({
+      name: pair, env, instances: 1, compose: [component('web'), component('side')],
+    }), [subject]);
+    await waitFor(async () => (await up(web)) && (await up(side)), { timeout: 180000, interval: 2000, label: 'both components run' });
+
+    const owner = await authenticate(client.url, appOwnerKey());
+    await client.getAuthed(`/apps/appstop/${side}`, owner.zelidauth);
+    await waitFor(async () => !(await up(side)), { timeout: 120000, interval: 2000, label: 'the operator stopped one component' });
+    const sideStartedAt = await containerStartedAt(client.container, `flux${side}`);
+
+    const backupDone = client.appendBackupTask(pair, ['web'], owner.zelidauth);
+    await waitFor(async () => !(await up(web)), { timeout: 120000, interval: 1000, label: 'the backup took the running component down' });
+    const routed = (await client.get(`/apps/listrunningapps?_=${Date.now()}`)).data.map((c) => c.Names[0]);
+    expect(routed, 'FDM is told the component the backup took down still runs').to.include(`/flux${web}`);
+    expect(routed, 'FDM is told an operator-stopped component runs').to.not.include(`/flux${side}`);
+
+    const body = await backupDone;
+    expect(body).to.not.match(/Unauthorized|Refused/i);
+    await waitFor(async () => up(web), { timeout: 120000, interval: 2000, label: 'the component the backup took down runs again' });
+    expect(await containerStartedAt(client.container, `flux${side}`), 'the backup started a component its operator stopped')
+      .to.equal(sideStartedAt);
+    // canary: the reconciler decided about the operator-stopped one after the backup
+    await waitFor(async () => (await client.getDecisionCount('reconciler:held', side, 'operatorStopped')) >= 1, {
+      timeout: 120000, interval: 2000, label: 'the reconciler kept the operator-stopped component down',
+    });
   });
 });

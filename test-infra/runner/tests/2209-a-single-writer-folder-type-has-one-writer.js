@@ -44,6 +44,7 @@ const BEFORE_START = 'masterSlave:beforeStart';
 const BEFORE_RUN = 'masterSlave:beforeRun';
 const AFTER_FOLDER_READ = 'syncthing:afterFolderRead';
 const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
+const BEFORE_DECISION = 'masterSlave:beforeDecision';
 
 // A time well past FluxOS's timeout on a syncthing call.
 const SLOW_MS = 8000;
@@ -426,6 +427,42 @@ describe('a single-writer folder type has one writer', function () {
     await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
       'a FluxOS write stops the folder holding partial data sending');
     expect((await getFolderConfig(ipOf(a.primary), a.folder))?.type).to.equal('receiveonly');
+  });
+
+  // An election pass that reached the app before a restore of it began decides
+  // once the restore has failed: it must decide from what FluxOS now intends for
+  // the component - held stopped over its half-replaced data - and not from what
+  // ran when the pass began. The pass is held at its decision until the restore
+  // has failed and released the app.
+  it('keeps a failed restore\'s folder receiving through an election pass that began before the restore', async function () {
+    this.timeout(900000);
+    const a = await settle(`e2erestorerace${stamp}`);
+    const client = env.clients[a.primary];
+    await electMaster(a.appName, client.ip);
+
+    // the pass reaches the app and stops before deciding
+    const held = client.getLastEventId();
+    await client.holdCheckpoint(BEFORE_DECISION, a.identifier);
+    await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_DECISION && d.key === a.identifier, 180000, { afterId: held });
+
+    const from = client.getLastEventId();
+    const writesBefore = (await writesTo(a.primary, a.folder)).length;
+    await restoreFailingPartWay(a);
+    await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
+    await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
+      'the failed restore stops the folder sending');
+
+    // the held pass decides, and the passes after it
+    const notReadyFrom = await electionCount(a.primary, a.appName, 'notReady');
+    const afterRestore = (await writesTo(a.primary, a.folder)).length;
+    await client.releaseCheckpoint(BEFORE_DECISION, a.identifier);
+    await passesFromNow([a.primary], (i) => folderPasses(i, a.appName), 'folder');
+    const sent = (await writesTo(a.primary, a.folder)).slice(afterRestore).filter((w) => w.body?.type === 'sendreceive');
+    expect(sent, 'a write made the half-replaced folder send').to.deep.equal([]);
+    expect((await getFolderConfig(ipOf(a.primary), a.folder))?.type).to.equal('receiveonly');
+    // canary: the released pass decided about the app - named its primary, it
+    // found the component not held here and its copy not ready, and started nothing
+    expect(await electionCount(a.primary, a.appName, 'notReady'), 'the election decided about the app').to.be.above(notReadyFrom);
   });
 
   it('writes a folder only once the write before it is applied', async function () {
