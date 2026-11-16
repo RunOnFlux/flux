@@ -422,24 +422,25 @@ describe('cloudUIUpdateService tests', () => {
       expect(logged.length).to.be.below(5000);
     });
 
-    it('waits for a run another process holds the lock for', async () => {
+    it('waits for a run another process holds the lock for, and leaves an installed release alone', async () => {
       const service = loadService();
       spawnStub.callsFake(() => fakeChild());
 
       await service.runUpdateScript();
 
       expect(spawnStub.firstCall.args[1]).to.not.include('--if-idle');
+      expect(spawnStub.firstCall.args[1]).to.not.include('--force');
     });
   });
 
   describe('rebuildIfIdle tests', () => {
-    it('asks the script not to wait for another run', async () => {
+    it('asks the script not to wait for another run, and to install an installed release again', async () => {
       const service = loadService();
       spawnStub.callsFake(() => fakeChild());
 
       expect(await service.rebuildIfIdle()).to.equal('installed');
 
-      expect(spawnStub.firstCall.args[1].slice(-1)).to.eql(['--if-idle']);
+      expect(spawnStub.firstCall.args[1].slice(-2)).to.eql(['--if-idle', '--force']);
     });
 
     it('answers busy when another process holds the lock', async () => {

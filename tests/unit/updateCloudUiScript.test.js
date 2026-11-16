@@ -25,6 +25,7 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
   let tarballHold;
   let releaseHold;
   let onTarballRequest;
+  let tarballRequests;
   const holds = [];
 
   function sha256(buffer) {
@@ -96,6 +97,7 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       return;
     }
     if (req.url === '/dist.tar.gz') {
+      tarballRequests += 1;
       const hold = tarballHold;
       tarballHold = null;
       if (onTarballRequest) onTarballRequest();
@@ -333,6 +335,7 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
     tarballHold = null;
     releaseHold = null;
     onTarballRequest = null;
+    tarballRequests = 0;
   });
 
   afterEach(() => {
@@ -407,14 +410,39 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       expectOnlyInstalledBuild();
     });
 
-    it('reinstalls the release that is already installed into a new build', async () => {
+    it('leaves the release that is already installed alone, and downloads nothing', async () => {
       await install('v1');
       const first = installedBuild();
+      tarballRequests = 0;
 
       const result = await runScript().done;
 
       expect(result.code, result.output).to.equal(0);
+      expect(result.output).to.include('Release v1 is already installed.');
+      expect(tarballRequests).to.equal(0);
+      expect(installedBuild()).to.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
+    it('with --force, reinstalls the release that is already installed into a new build', async () => {
+      await install('v1');
+      const first = installedBuild();
+
+      const result = await runScript({ args: [baseUrl, '--force'] }).done;
+
+      expect(result.code, result.output).to.equal(0);
       expect(served()).to.equal('v1');
+      expect(installedBuild()).to.not.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
+    it('with --if-idle --force, reinstalls the release that is already installed', async () => {
+      await install('v1');
+      const first = installedBuild();
+
+      const result = await runScript({ args: [baseUrl, '--if-idle', '--force'] }).done;
+
+      expect(result.code, result.output).to.equal(0);
       expect(installedBuild()).to.not.equal(first);
       expectOnlyInstalledBuild();
     });
@@ -758,7 +786,7 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
   });
 
   describe('two runs at once', () => {
-    it('runs them one after the other, so neither removes the other\'s download', async () => {
+    it('runs them one after the other, and the second finds the release installed by the first', async () => {
       release = makeRelease('v1');
       const { requested, answer } = holdNextTarball();
 
@@ -771,6 +799,8 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
 
       expect(results[0].code, results[0].output).to.equal(0);
       expect(results[1].code, results[1].output).to.equal(0);
+      expect(results[1].output).to.include('Release v1 is already installed.');
+      expect(tarballRequests).to.equal(1);
       expect(served()).to.equal('v1');
       expectOnlyInstalledBuild();
     });

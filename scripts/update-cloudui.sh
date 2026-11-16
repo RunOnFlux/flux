@@ -7,8 +7,11 @@
 # The API base URL is required - see the note on API_BASE_URL below for why it is
 # an argument rather than a default or an environment variable.
 #
-# Usage: npm run update:cloudui -- <api-base-url> [--if-idle]
-#        or: bash scripts/update-cloudui.sh <api-base-url> [--if-idle]
+# Usage: npm run update:cloudui -- <api-base-url> [--if-idle] [--force]
+#        or: bash scripts/update-cloudui.sh <api-base-url> [--if-idle] [--force]
+#
+# A release that is already installed (CloudUI/version holds its sha256) is not downloaded
+# again, and the run exits 0. --force installs it again whatever CloudUI holds.
 #
 # Runs take turns: a run waits for the one in progress to finish. With --if-idle it does
 # not wait; when another run is in progress it exits with status 75 and changes nothing.
@@ -59,15 +62,18 @@ fi
 RELEASE_API="$API_BASE_URL/repos/$REPO/releases/latest"
 
 IF_IDLE=false
-case "${2:-}" in
-    "") ;;
-    --if-idle) IF_IDLE=true ;;
-    *)
-        echo "Error: unknown option: $2"
-        echo "Usage: $0 <api-base-url> [--if-idle]"
-        exit 1
-        ;;
-esac
+FORCE=false
+for option in "${@:2}"; do
+    case "$option" in
+        --if-idle) IF_IDLE=true ;;
+        --force) FORCE=true ;;
+        *)
+            echo "Error: unknown option: $option"
+            echo "Usage: $0 <api-base-url> [--if-idle] [--force]"
+            exit 1
+            ;;
+    esac
+done
 
 echo "=========================================="
 echo "  FluxOS CloudUI Update Script"
@@ -212,6 +218,13 @@ fi
 
 # Extract SHA256 hash from digest (format: "sha256:hash")
 EXPECTED_SHA256=$(echo "$EXPECTED_DIGEST" | sed 's/sha256://')
+
+INSTALLED_SHA256=$(cat "$CLOUDUI_DIR/version" 2>/dev/null || true)
+if [ "$FORCE" = false ] && [ "$INSTALLED_SHA256" = "$EXPECTED_SHA256" ]; then
+    echo ""
+    echo "Release $TAG_NAME is already installed."
+    exit 0
+fi
 
 echo ""
 echo "2. Downloading dist.tar.gz..."

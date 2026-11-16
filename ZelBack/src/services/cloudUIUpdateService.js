@@ -160,8 +160,9 @@ function runUpdateScript() {
 }
 
 /**
- * Executes the update:cloudui script unless another run is in progress, in this process
- * or any other, and then answers at once without waiting for it.
+ * Executes the update:cloudui script with --force, installing the release even where
+ * CloudUI/version already names it, unless another run is in progress, in this process or
+ * any other, and then answers at once without waiting for it.
  * @returns {Promise<'installed'|'failed'|'busy'>}
  */
 function rebuildIfIdle() {
@@ -170,7 +171,7 @@ function rebuildIfIdle() {
     return Promise.resolve('busy');
   }
 
-  updateInFlight = startUpdateScript({ ifIdle: true }).finally(() => { updateInFlight = null; });
+  updateInFlight = startUpdateScript({ ifIdle: true, force: true }).finally(() => { updateInFlight = null; });
 
   return updateInFlight;
 }
@@ -184,9 +185,11 @@ function rebuildIfIdle() {
  * @param {object} [options]
  * @param {boolean} [options.ifIdle] Passes --if-idle, so a run another process holds the
  *   lock against exits at once.
+ * @param {boolean} [options.force] Passes --force, so a release that is already installed
+ *   is installed again.
  * @returns {Promise<'installed'|'failed'|'busy'>}
  */
-function startUpdateScript({ ifIdle = false } = {}) {
+function startUpdateScript({ ifIdle = false, force = false } = {}) {
   return new Promise((resolve) => {
     log.info('CloudUI: Running update script...');
 
@@ -196,6 +199,7 @@ function startUpdateScript({ ifIdle = false } = {}) {
     // harness.
     const args = ['run', 'update:cloudui', '--', config.github.apiBaseUrl];
     if (ifIdle) args.push('--if-idle');
+    if (force) args.push('--force');
     const child = spawn('npm', args, {
       cwd: PROJECT_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
