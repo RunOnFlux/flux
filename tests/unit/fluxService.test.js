@@ -4026,13 +4026,14 @@ describe('fluxService tests', () => {
     const socketBefore = process.env.FLUXOS_API_SOCKET;
     let runCommandStub;
     let clock;
-    // A request every check of the preparation passes: a private caller, a synced
-    // fluxd and a node outside its confirmation window.
+    // A request every check of the preparation passes: a private caller on no app
+    // network, a synced fluxd and a node outside its confirmation window.
     const preparationRequest = () => ({ socket: { remoteAddress: '10.20.30.40' } });
 
     beforeEach(() => {
       clock = sinon.useFakeTimers({ now: 1_800_000_000_000, toFake: ['setTimeout', 'Date'] });
       runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(dockerService, 'getFluxDockerNetworkSubnets').resolves(['172.23.5.0/24']);
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlockchainInfo').resolves({ status: 'success', data: { bestblockhash: 'aa', blocks: 1000 } });
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').resolves({ status: 'success', data: { time: 1_800_000_000 - 60 } });
       sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'success', data: { status: 'CONFIRMED', last_confirmed_height: 990 } });
