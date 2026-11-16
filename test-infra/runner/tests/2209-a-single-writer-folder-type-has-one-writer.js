@@ -323,6 +323,9 @@ describe('a single-writer folder type has one writer', function () {
         .some((scan) => scan.id === a.folder && scan.arrivedSeq > sends.seq), {
         timeout: 60000, interval: 500, label: 'a scan covering the folder\'s restart is under way',
       });
+      // the promotion's start has run: the volume goes after it, during the scans
+      await client.waitForEvent('reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started',
+        120000, { afterId: from });
       await destroyVolume(client.container, a.appName);
       unmountedAt = Date.now();
       await injectSyncthingEvent({ ip: ipOf(target), type: 'FolderErrors', data: { folder: a.folder, errors: [{ error: 'folder marker missing' }] } });
