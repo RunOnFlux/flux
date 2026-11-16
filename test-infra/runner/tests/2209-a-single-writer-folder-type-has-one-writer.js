@@ -14,6 +14,7 @@ import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import {
   setSynced, resetSyncState, getFolderWrites, getFolderScans, getFolderConfig, setFolderConfig,
   getPendingFolderWrites, setFolderPatchDelay, setScanDuration, injectSyncthingEvent, getPendingFolderScans,
+  getPauseWrites, setSyncState, GLOBAL_BYTES,
 } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
@@ -87,6 +88,36 @@ describe('a single-writer folder type has one writer', function () {
     await Promise.all(nodes.map((i, k) => waitFor(async () => (await passes(i)) >= from[k] + HELD_PASSES, {
       timeout: 180000, interval: 1000, label: `node ${i} ran ${HELD_PASSES} ${label} passes`,
     })));
+  };
+  // A restore on the primary that fails part-way through its clear, as one on a
+  // volume gone read-only under an ext4 error does: the clear removes one file of
+  // the copy and cannot remove the next. Syncthing knows the whole copy from the
+  // standbys, so it reports the primary's folder short of it by a local change;
+  // the folder is read again only once the restore lets go of it.
+  const restoreFailingPartWay = async (a) => {
+    const client = env.clients[a.primary];
+    const dir = `/mnt/appdata/flux-apps/${a.folder}`;
+    const archive = `${dir}/backup/local/backup_${a.appName.toLowerCase()}.tar.gz`;
+    const staged = await execInContainer(client.container,
+      `rm -rf /tmp/s-${a.appName} && mkdir -p /tmp/s-${a.appName} && printf 'restored\\n' > /tmp/s-${a.appName}/restored.txt `
+      + `&& mkdir -p ${dir}/backup/local && tar -czf ${archive} -C /tmp/s-${a.appName} . `
+      + `&& printf gone > ${dir}/appdata/gone && printf kept > ${dir}/appdata/kept && chattr +i ${dir}/appdata/kept`);
+    expect(staged.exitCode, `fixture: staging the restore failed: ${staged.output}`).to.equal(0);
+    try {
+      const auth = await authenticate(client.url, appOwnerKey());
+      const restoring = client.appendRestoreTask(a.appName, [{ component: a.appName, restore: true }], 'local', auth.zelidauth);
+      await waitFor(async () => (await getPauseWrites(ipOf(a.primary))).some((w) => w.id === a.folder && w.paused === true), {
+        timeout: 120000, interval: 500, label: 'the restore took the folder',
+      });
+      await setSyncState({
+        ip: ipOf(a.primary), folder: a.folder, state: 'idle', globalBytes: GLOBAL_BYTES, inSyncBytes: GLOBAL_BYTES / 2, receiveOnlyChangedFiles: 1,
+      });
+      expect(await restoring, 'fixture: the restore did not fail at the clear').to.match(/could not clear/i);
+      const left = await execInContainer(client.container, `ls -A ${dir}/appdata`);
+      expect(left.output.trim(), 'fixture: the clear removed part of the copy').to.equal('kept');
+    } finally {
+      await execInContainer(client.container, `chattr -i ${dir}/appdata/kept 2>/dev/null || true`);
+    }
   };
 
   // Places a g: app on the holders and waits for one running primary and two
@@ -385,29 +416,12 @@ describe('a single-writer folder type has one writer', function () {
     this.timeout(900000);
     const a = await settle(`e2erestore${stamp}`);
     const client = env.clients[a.primary];
-    const dir = `/mnt/appdata/flux-apps/${a.folder}`;
     // A restore of a g: component runs on the node FDM names.
     await electMaster(a.appName, client.ip);
-    const archive = `${dir}/backup/local/backup_${a.appName.toLowerCase()}.tar.gz`;
-    const staged = await execInContainer(client.container,
-      `rm -rf /tmp/s-${a.appName} && mkdir -p /tmp/s-${a.appName} && printf 'restored\\n' > /tmp/s-${a.appName}/restored.txt `
-      + `&& mkdir -p ${dir}/backup/local && tar -czf ${archive} -C /tmp/s-${a.appName} .`);
-    expect(staged.exitCode, `fixture: staging the archive failed: ${staged.output}`).to.equal(0);
-    // The clear fails the way a volume gone read-only under an ext4 error does: the
-    // primary's data cannot be deleted.
-    await seedSyncScopedData(env, a.appName, a.primary);
-    const lock = await execInContainer(client.container, `chattr +i ${dir}/appdata`);
-    expect(lock.exitCode, `fixture: could not make appdata immutable: ${lock.output}`).to.equal(0);
     const from = client.getLastEventId();
     const writesBefore = (await writesTo(a.primary, a.folder)).length;
-    try {
-      const auth = await authenticate(client.url, appOwnerKey());
-      const body = await client.appendRestoreTask(a.appName, [{ component: a.appName, restore: true }], 'local', auth.zelidauth);
-      expect(body, 'fixture: the restore did not fail at the clear').to.match(/could not clear/i);
-      await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
-    } finally {
-      await execInContainer(client.container, `chattr -i ${dir}/appdata 2>/dev/null || true`);
-    }
+    await restoreFailingPartWay(a);
+    await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
 
     await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
       'a FluxOS write stops the folder holding partial data sending');
