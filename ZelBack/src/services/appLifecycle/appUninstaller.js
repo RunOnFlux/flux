@@ -6,6 +6,7 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
+const fluxosTrial = require('../utils/fluxosTrial');
 const folderStates = require('../appMonitoring/folderStates');
 const log = require('../../lib/log');
 const {
@@ -261,7 +262,7 @@ async function unmountVolume(appId, entityName, res) {
   // true, and the stream is the only account an operator gets of what is still
   // mounted.
   const unmount = await serviceHelper.runCommand('umount', {
-    runAsRoot: true, params: [appsFolder + appId], logError: false,
+    runAsRoot: true, hostMountNamespace: true, params: [appsFolder + appId], logError: false,
   });
   if (unmount.error) {
     log.error(unmount.error);
@@ -1007,6 +1008,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @returns {Promise<string>} One of RemovalOutcome. BUSY carries no claim about the app.
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, { specifications = null } = {}) {
+  await fluxosTrial.settled();
   // Names what this call marked as departing, and nothing else: the guards below
   // return through the same finally without having marked anything, and a refused
   // duplicate must not unmark the removal that is actually running.
@@ -1331,6 +1333,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
  */
 // eslint-disable-next-line no-shadow
 async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring) {
+  await fluxosTrial.settled();
   // eslint-disable-next-line no-shadow
   const globalState = globalStateRef;
   if (globalState.removalInProgress) {

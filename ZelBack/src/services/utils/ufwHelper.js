@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const serviceHelper = require('../serviceHelper');
 const log = require('../../lib/log');
+const { socketPath } = require('./apiSocket');
 
 // The helper that changes ufw's rules with ufw's lock taken before the rules
 // are read, as FluxOS ships it, and the root-owned copy root runs.
@@ -46,9 +47,13 @@ async function installCopy() {
  * startup calls it before anything changes the firewall. The shipped helper
  * changes only when FluxOS is updated, which restarts FluxOS. When the copy
  * cannot be installed, the shipped helper is run until the next start.
+ *
+ * Behind the front proxy FluxOS's code is a read-only image root owns, so the shipped helper is
+ * the one to run, and nothing is installed.
  * @returns {Promise<string>} The path to run.
  */
 function helperPath() {
+  if (socketPath()) return Promise.resolve(UFW_HELPER_SOURCE);
   installing ??= installCopy();
   return installing;
 }

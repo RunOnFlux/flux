@@ -1,4 +1,5 @@
 const config = require('config');
+const { socketPath } = require('./utils/apiSocket');
 const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -137,6 +138,12 @@ function setUpnpReady(ready) {
  * @returns {Promise<{verified: boolean, mapped: boolean}>}
  */
 async function verifyAndMap(apiport) {
+  // Behind the front proxy configd maps the ports the proxy serves, whichever is up first, and
+  // this node is ready for its apps' ports as soon as it starts.
+  if (socketPath()) {
+    await adjustFirewallForUPNP();
+    return { verified: true, mapped: true };
+  }
   const verified = await verifyUPNPsupport(apiport);
   fluxEventBus.publish('upnp:verified', { verified });
   const mapped = verified && await setupUPNP(apiport);
@@ -472,6 +479,7 @@ async function matchFluxadmMapping(client, port, enabled) {
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
 async function setupUPNP(apiport = config.server.apiport) {
+  if (socketPath()) return true;
   try {
     const corePortMappings = [
       [+apiport, 'Flux_Backend_API'],

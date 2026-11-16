@@ -8,8 +8,12 @@
  * holding the ports the servers report after listening and FluxOS's process
  * id, and removes it on a clean stop, so the file means "FluxOS is serving
  * here". A crash leaves the file until the next start rewrites it; a reader
- * that needs to know the file is current checks that the process exists. fluxd and fluxbench
- * read it, as other users, so it is world-readable. It is written to a
+ * that needs to know the file is current checks that the process exists.
+ *
+ * Behind the front proxy the file says where and systemd says whether: it holds
+ * apiPort, apiPortHttps and confirmedApiPort, and stays when FluxOS stops.
+ *
+ * fluxd and fluxbench read it, as other users, so it is world-readable. It is written to a
  * temporary file in the same directory and renamed over the final name, so a
  * reader sees the old file or the new one, never a partial one.
  *
@@ -28,6 +32,7 @@ const path = require('node:path');
 
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
+const { socketPath } = require('./apiSocket');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -60,14 +65,19 @@ async function makeDirectory(dir) {
 
 /**
  * Write the port file, with this process's id. Never rejects.
- * @param {{apiPort: number, apiPortHttps: number, uiPort?: number}} ports - the bound ports
+ * @param {{apiPort: number, apiPortHttps: number, uiPort?: number, confirmedApiPort?: number}} ports -
+ *   the ports served on, and behind the proxy the API port the chain lists
  * @param {{dir?: string}} [options] - the directory the file is written in
  * @returns {Promise<boolean>} True when the file was written.
  */
 async function writePortFile(ports, { dir = PORT_FILE_DIR } = {}) {
   const file = path.join(dir, PORT_FILE_NAME);
   const tmp = path.join(dir, `.${PORT_FILE_NAME}.${process.pid}.tmp`);
-  const content = JSON.stringify({
+  const content = JSON.stringify(socketPath() ? {
+    apiPort: ports.apiPort,
+    apiPortHttps: ports.apiPortHttps,
+    confirmedApiPort: ports.confirmedApiPort,
+  } : {
     apiPort: ports.apiPort,
     apiPortHttps: ports.apiPortHttps,
     uiPort: ports.uiPort,
@@ -96,6 +106,7 @@ async function writePortFile(ports, { dir = PORT_FILE_DIR } = {}) {
  * @returns {boolean} True when a file was removed.
  */
 function removePortFile({ dir = PORT_FILE_DIR } = {}) {
+  if (socketPath()) return false;
   const file = path.join(dir, PORT_FILE_NAME);
   try {
     fsSync.unlinkSync(file);

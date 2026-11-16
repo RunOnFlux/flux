@@ -3,6 +3,7 @@ const config = require('config');
 const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
+const { callerAddress } = require('./utils/apiSocket');
 const serviceHelper = require('./serviceHelper');
 const messageStore = require('./appMessaging/messageStore');
 const messageVerifier = require('./appMessaging/messageVerifier');
@@ -2122,7 +2123,7 @@ async function addOutgoingPeer(req, res) {
     const peerIp = extractIp(ip);
     const peerPort = extractPort(ip);
 
-    const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+    const remoteIP = callerAddress(req);
 
     const remoteIP4 = remoteIP.replace('::ffff:', '');
 

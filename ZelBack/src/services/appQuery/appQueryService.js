@@ -22,6 +22,7 @@ const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
 const folderStates = require('../appMonitoring/folderStates');
 const syncthingService = require('../syncthingService');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { callerAddress } = require('../utils/apiSocket');
 const log = require('../../lib/log');
 
 const FOLDER_RECORDS_LIMIT = 101;
@@ -610,7 +611,7 @@ async function promotedFolders(req, res) {
 async function callerHoldsFolder(req, body) {
   const { from, folder } = body;
   if (typeof from !== 'string' || typeof folder !== 'string') return false;
-  const source = bareIp(req?.socket?.remoteAddress);
+  const source = bareIp(callerAddress(req));
   if (!source || source !== extractIp(from)) return false;
   if (!(await callerIsFluxnode(body, { socketAddress: from }))) return false;
   const names = await installedAppsListedAt(from);
