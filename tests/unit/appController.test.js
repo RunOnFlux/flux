@@ -69,6 +69,9 @@ describe('appController tests', () => {
     // eslint-disable-next-line global-require
     const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
     verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    // no restore left a component half-replaced unless a test says so
+    sinon.stub(appsRuntimeState, 'isRestoreUnfinished').resolves(false);
+    sinon.stub(appsRuntimeState, 'setRestoreUnfinished').resolves();
   });
 
   afterEach(() => {
@@ -92,6 +95,25 @@ describe('appController tests', () => {
         return true;
       });
       sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
+    });
+
+    it('clears the record of a restore that did not finish: the owner accepts the data', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      appsRuntimeState.isRestoreUnfinished.resolves(true);
+
+      await appController.appStart({ params: { appname: 'TestApp' }, query: {} }, { json: sinon.fake() });
+
+      sinon.assert.calledOnceWithExactly(appsRuntimeState.setRestoreUnfinished, 'TestApp', false);
+    });
+
+    it('leaves no record behind on a start when there was none', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+
+      await appController.appStart({ params: { appname: 'TestApp' }, query: {} }, { json: sinon.fake() });
+
+      sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
     });
 
     it('should start app and return success message', async () => {

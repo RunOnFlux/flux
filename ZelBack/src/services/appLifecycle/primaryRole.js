@@ -229,7 +229,8 @@ async function adopt(identifier, state, reason) {
  * restart the container runs with no opinion recorded, and the reconciler acts on
  * the component, a pending restart included, only once one is
  * (appReconciler.adoptControllerDesired). Writes nothing while a change of role
- * is in progress. The folder write may be refused - a volume not mounted - and
+ * is in progress, while an intent other than running is recorded, or while a
+ * backup or restore holds the app. The folder write may be refused - a volume not mounted - and
  * the adoption is asked for all the same: it records what the container shows.
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
@@ -237,6 +238,12 @@ async function adopt(identifier, state, reason) {
  */
 async function holdAsPrimary(identifier, appId) {
   if (changes.get(identifier)) return;
+  // This node is the primary only while its recorded intent is running; with
+  // another recorded (a failed restore's, an unsafe mount's), it is not, and its
+  // folder must not send. A backup or restore holds the folder, which alone may
+  // resume it.
+  if (appReconciler.hasControllerOpinion(identifier) && !isPrimary(identifier)) return;
+  if (heldByOperation(identifier)) return;
   await syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
   await adopt(identifier, 'running', 'masterSlave primary');
 }

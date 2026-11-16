@@ -21,12 +21,17 @@ const { AsyncGate } = require('../utils/asyncGate');
 // die event, stream reconnect, hourly tick, boot, post-install, and the
 // masterSlave/syncthing deciders) just enqueues a component identifier; one
 // reconcile per identifier drives the actual Docker state toward the desired
-// state. This is the ONLY place that calls appDockerStart/appDockerStop. It also
-// force-removes and recreates a container that came up detached from its own
-// docker network (a stale libnetwork endpoint), which a start alone cannot fix.
+// state. Backup and restore stop and start through it (drive); install, removal
+// and redeploy still actuate a container they are constructing, and the reconciler
+// stands aside while they hold it (isManagedElsewhere). It also force-removes and
+// recreates a container that came up detached from its own docker network (a
+// stale libnetwork endpoint), which a start alone cannot fix.
 //
 // Desired state inputs:
 //   operatorStopped (durable, appsRuntimeState) - user lock, wins over all.
+//   restoreUnfinished (durable, appsRuntimeState) - a restore began replacing the
+//                                                 component's data and did not finish.
+//   operationDesired (in-memory, below)         - a backup or restore holding it stopped.
 //   controllerDesired (in-memory, below)        - election/sync output for g:/r:.
 //   dataDesired       (in-memory, below)        - sync layer's local-appdata reset.
 //   leavingCopies     (in-memory, below)        - a copy being handed back, any mode.
@@ -68,6 +73,12 @@ const dataDesired = new Map();
 // Identifiers of copies an attempt to hand back holds stopped (leavingCopy). In
 // memory, as the attempt is: a FluxOS restart forgets both, and the copy runs.
 const leavingCopies = new Set();
+
+// id -> 'stopped'. A backup or restore that needs the container down while it
+// works on the volume, set and cleared through drive(). In memory, as the
+// operation is: a FluxOS restart ends both, and the component goes back to what
+// the other inputs say.
+const operationDesired = new Map();
 
 // Emits 'cleared' with a component's identifier once its local appdata has been
 // cleared as dataDesired asked.
@@ -114,6 +125,13 @@ function settleBootDrain(reason) {
 // container, defer and re-check shortly (the operation also re-enqueues on
 // completion, so this is just a backstop)
 const MANAGED_RETRY_MS = 5000;
+
+// How long drive() waits for a component to settle, and how often it looks. A
+// pass can be deferred - docker unreachable, or an install, removal or redeploy
+// anywhere on the node holding the reconciler aside - and retries every
+// MANAGED_RETRY_MS, so the wait outlasts those rather than one pass.
+const DRIVE_SETTLE_MS = config.fluxapps.driveSettleMs ?? 15 * 60 * 1000;
+const DRIVE_POLL_MS = 2000;
 
 // How many consecutive passes may throw before the component is left to the
 // hourly sweep. A pass that throws is by definition one whose failure nobody
@@ -372,19 +390,15 @@ async function dockerActual(identifier) {
 
 /**
  * Whether another subsystem currently owns this container — a global
- * install/remove/redeploy, a per-component backup/restore, or the transient
- * window of a deliberate stop/restart/kill (tracked in stoppingContainers).
- * The reconciler must not actuate while one of these is in flight.
+ * install/remove/redeploy constructing it, or the transient window of a
+ * deliberate stop/restart/kill (tracked in stoppingContainers). The reconciler
+ * must not actuate while one of these is in flight. A backup or restore is not
+ * one: it holds the component through operationDesired, and the reconciler keeps
+ * acting on it.
  */
 function isManagedElsewhere(identifier) {
   if (globalState.isOperationInProgress && globalState.isOperationInProgress()) return true;
-  // backup/restore hold a lease on the WHOLE app under its bare main name
-  // (appendBackupTask pushes req.appname), so a component reconcile must ask
-  // with the main app name, not the component identifier.
   const mainAppName = identifier.split('_')[1] || identifier;
-  const backup = globalState.backupInProgress || [];
-  const restore = globalState.restoreInProgress || [];
-  if (backup.includes(mainAppName) || restore.includes(mainAppName)) return true;
   if (globalState.stoppingContainers.has(dockerService.getAppIdentifier(identifier))) return true;
   // an app being removed, including one whose removal is still cleaning up
   if (globalState.departingApps.has(mainAppName)) return true;
@@ -410,6 +424,11 @@ async function effectiveDesiredRunning(identifier, spec, exitCode) {
     const reason = operatorStop.startRequested ? 'startAwaitsElection' : 'operatorStopped';
     return { desired: false, reason, force: operatorStop.force };
   }
+  // Rejects when the read fails, as the lock does: an unread mark is not a cleared one.
+  if (await appsRuntimeState.isRestoreUnfinished(identifier)) {
+    return { desired: false, reason: 'restoreUnfinished', force: false };
+  }
+  if (operationDesired.get(identifier) === 'stopped') return { desired: false, reason: 'operationHold', force: false };
   if (leavingCopies.has(identifier)) return { desired: false, reason: 'leavingCopy', force: false };
   if (spec.isG || spec.isR) {
     const cd = controllerDesired.get(identifier) ?? null;
@@ -1499,6 +1518,80 @@ async function setControllerDesiredAndWait(rawIdentifier, state, reason) {
 }
 
 /**
+ * Whether a component sits where drive() asked: down for 'stopped'; for
+ * 'running', up, or held down by a gate above the operation (the operator lock,
+ * an unfinished restore, a standby's election), which is where it belongs.
+ * Docker unreachable, or a container it cannot read, settles nothing.
+ * @param {string} identifier
+ * @param {'stopped'|'running'} state
+ * @returns {Promise<boolean>}
+ */
+async function settledFor(identifier, state) {
+  const actual = await dockerActual(identifier);
+  if (!actual.reachable || actual.indeterminate) return false;
+  if (state === 'stopped') return !actual.running;
+  if (actual.running) return true;
+  const { desired } = await desiredRunState(identifier);
+  return desired !== true;
+}
+
+/**
+ * Drives a set of components to a run state through the reconciler and returns
+ * once each has settled there: how a backup or restore stops an app before it
+ * touches the volume, and brings it back after, without touching Docker.
+ * 'stopped' holds each component down above policy and the election, below the
+ * operator lock; 'running' lifts the hold, and each settles where the other
+ * inputs put it - an operator-stopped component or a standby stays down.
+ *
+ * A component not settled within DRIVE_SETTLE_MS is reported in `failed`; its
+ * hold stays as asked. A caller about to read or replace a volume refuses unless
+ * every component converged.
+ *
+ * @param {string[]} rawIds Component identifiers.
+ * @param {'stopped'|'running'} state
+ * @returns {Promise<{converged: boolean, failed: string[]}>}
+ */
+async function drive(rawIds, state) {
+  const ids = rawIds.map(canonical);
+  const verdicts = await Promise.all(ids.map(async (identifier) => {
+    const dockerName = dockerService.getAppIdentifier(identifier);
+    await applyIntent(identifier, async () => {
+      if (state === 'stopped') {
+        // Read in the slot, so no pass moves the container between this read and
+        // the hold: what was up now is what the operation takes down.
+        if ((await dockerActual(identifier)).running) globalState.operationStoppedContainers.add(dockerName);
+        operationDesired.set(identifier, 'stopped');
+      } else {
+        operationDesired.delete(identifier);
+        globalState.operationStoppedContainers.delete(dockerName);
+      }
+      log.info(`appReconciler - operation hold on ${identifier}: ${state === 'stopped' ? 'held stopped' : 'released'}`);
+      fluxEventBus.publish('reconciler:operationHold', { identifier, held: state === 'stopped' });
+    }, { awaitPass: true });
+    const deadline = Date.now() + DRIVE_SETTLE_MS;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await settledFor(identifier, state).catch(() => false)) return true;
+      if (Date.now() >= deadline) return false;
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(DRIVE_POLL_MS);
+    }
+  }));
+  const failed = ids.filter((_, index) => !verdicts[index]);
+  return { converged: failed.length === 0, failed };
+}
+
+/**
+ * Whether a backup or restore holds this component stopped.
+ * @param {string} rawIdentifier
+ * @returns {boolean}
+ */
+function isOperationHeld(rawIdentifier) {
+  return operationDesired.get(canonical(rawIdentifier)) === 'stopped';
+}
+
+/**
  * Holds a copy being handed back stopped, whatever its mode, until
  * releaseLeavingCopy. Returns once the reconcile it causes has run.
  * @param {string} rawIdentifier Component identifier.
@@ -1805,6 +1898,8 @@ module.exports = {
   holdLeavingCopy,
   releaseLeavingCopy,
   setRunningUnlessOperatorStopped,
+  drive,
+  isOperationHeld,
   committedIdentifiers,
   requestStopAndClearData,
   dataClearPending,

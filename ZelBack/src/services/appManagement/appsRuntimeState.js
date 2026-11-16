@@ -5,8 +5,9 @@ const dockerService = require('../dockerService');
 
 // Node-local, per-component controller state. Sits between the app spec
 // (desired config, in appsInformation) and Docker (actual state). Holds the
-// durable inputs to the reconciler: the operator's stop lock and the
-// crash-recovery backoff history, so both survive a FluxOS restart. The
+// durable inputs to the reconciler: the operator's stop lock, the record of a
+// restore that began replacing the component's data and did not finish, and the
+// crash-recovery backoff history, so all survive a FluxOS restart. The
 // election/sync-derived `controllerDesired` is NOT here — it is in-memory,
 // re-derived from live truth each cycle (see the reconcile workqueue).
 
@@ -305,6 +306,30 @@ async function recordRestartGeneration(identifier, generation) {
  * @param {string} identifier
  * @returns {Promise<{stopped: boolean, force: boolean, startRequested: boolean, asPrimary: boolean}>}
  */
+/**
+ * Whether a restore began replacing this component's data and did not finish.
+ * Rejects when the read fails: an unread mark is not a cleared one.
+ * @param {string} identifier
+ * @returns {Promise<boolean>}
+ */
+async function isRestoreUnfinished(identifier) {
+  const state = await getState(identifier);
+  return state?.restoreUnfinished === true;
+}
+
+/**
+ * Records that a restore has begun replacing this component's data (true, set
+ * before anything is deleted) or that it finished, or that the data is accepted
+ * as it is (false). The reconciler keeps a component with the mark stopped. No
+ * catch: a mark that did not persist must stop the restore before it deletes.
+ * @param {string} identifier
+ * @param {boolean} unfinished
+ * @returns {Promise<void>}
+ */
+async function setRestoreUnfinished(identifier, unfinished) {
+  await setFields(identifier, { restoreUnfinished: unfinished });
+}
+
 async function operatorStopState(identifier) {
   const state = await getState(identifier);
   return {
@@ -579,7 +604,7 @@ async function recordExit(identifier, exitCode) {
  * it here. Everything in this list is the node's account of its own storage,
  * which the removal is not touching.
  */
-const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid'];
+const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid', 'restoreUnfinished'];
 
 /**
  * Drops the controller state for a component whose volume stays where it is.
@@ -722,6 +747,9 @@ async function prepareCollection() {
         // a force anywhere is a force: a kill must never be merged down into a
         // graceful stop the operator did not ask for
         operatorStopForce: twins.some((t) => t.operatorStopForce === true),
+        // an unfinished restore anywhere holds the component: starting it on a
+        // half-replaced folder is the harm, and the owner can start it
+        restoreUnfinished: twins.some((t) => t.restoreUnfinished === true),
         // a start waits on the election only if no locked twin withholds it: a
         // stop without one is the operator's later word
         operatorStartRequested: twins.some((t) => t.operatorStopped === true)
@@ -767,6 +795,8 @@ module.exports = {
   releaseOperatorStart,
   operatorStoppedOrThrow,
   operatorStopState,
+  isRestoreUnfinished,
+  setRestoreUnfinished,
   operatorHeldIdentifiers,
   recordRestart,
   requestRestart,

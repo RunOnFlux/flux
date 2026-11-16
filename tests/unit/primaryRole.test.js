@@ -441,6 +441,31 @@ describe('primaryRole', () => {
       sinon.assert.notCalled(t.reconciler.adoptControllerDesired);
     });
 
+    // A node is the primary only while its recorded intent is running. One with
+    // another recorded - a failed restore's stop, an unsafe mount's - must not
+    // have its folder made to send, whatever its container is doing.
+    it('writes nothing for a component whose recorded intent is stopped', async () => {
+      const t = loadRole({ primary: false });
+      t.reconciler.hasControllerOpinion.returns(true);
+
+      await t.role.holdAsPrimary(APP, FOLDER);
+
+      expect(t.calls).to.deep.equal([]);
+      sinon.assert.notCalled(t.reconciler.adoptControllerDesired);
+    });
+
+    it('writes nothing while a backup or restore holds the app', async () => {
+      const t = loadRole({ primary: true });
+      globalState.tryStartRestore('n8napp');
+      try {
+        await t.role.holdAsPrimary(APP, FOLDER);
+      } finally {
+        globalState.finishRestore('n8napp');
+      }
+
+      expect(t.calls).to.deep.equal([]);
+    });
+
     // The adoption records what the container shows, so a folder that cannot be
     // made to send - its volume not mounted - does not withhold it.
     it('asks the adoption for the primary when its folder cannot be made to send', async () => {

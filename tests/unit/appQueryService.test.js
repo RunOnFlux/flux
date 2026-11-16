@@ -494,35 +494,44 @@ describe('appQueryService tests', () => {
       expect(logStub.error.calledWith(error)).to.be.true;
     });
 
-    // listRunningApps must report an app under backup/restore as running even
-    // though its container is deliberately stopped, so the network (FDM, peers)
-    // does not react to the stop. The lease arrays hold bare MAIN APP names
-    // (exactly as appendBackupTask writes them); container names are component
-    // identifiers - the lookup must compare the main app name.
-    it('includes a stopped container of an app under backup as running', async () => {
-      // appQueryService lazy-requires globalState at call time, so proxyquire
-      // does not intercept it - manipulate the real singleton and clean up.
+    // An app under backup or restore stays routed to: each container the
+    // operation took down is listed as running. One that was already stopped is
+    // not - a standby's g: component, an operator-stopped one, a crashed one.
+    describe('during a backup or restore', () => {
       // eslint-disable-next-line global-require
       const globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.tryStartBackup('App'); // bare main-app name (production format)
-      try {
-        const stoppedContainer = {
-          Names: ['/fluxwww_App'], State: 'exited', HostConfig: {}, NetworkSettings: {}, Mounts: [],
-        };
+      const exited = (name) => ({
+        Names: [`/${name}`], State: 'exited', HostConfig: {}, NetworkSettings: {}, Mounts: [],
+      });
+
+      beforeEach(() => {
         dockerServiceStub.dockerListContainers.withArgs(false).resolves([]); // nothing running
-        dockerServiceStub.dockerListContainers.withArgs(true).resolves([stoppedContainer]);
+        dockerServiceStub.dockerListContainers.withArgs(true).resolves([exited('fluxwww_App'), exited('fluxdb_App')]);
         messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      });
+      afterEach(() => { globalState.operationStoppedContainers.clear(); });
+
+      it('lists a container the operation took down as running', async () => {
+        globalState.operationStoppedContainers.add('fluxwww_App');
 
         const result = await appQueryService.listRunningApps();
 
-        expect(result.status).to.equal('success');
-        const names = result.data.map((app) => app.Names[0]);
-        expect(names, 'backed-up app must still be reported as running').to.include('/fluxwww_App');
-      } finally {
-        globalState.finishBackup('App');
-      }
-    });
+        expect(result.data.map((app) => app.Names[0])).to.deep.equal(['/fluxwww_App']);
+      });
 
+      it('does not list a stopped container of the same app the operation did not take down', async () => {
+        globalState.tryStartBackup('App');
+        try {
+          globalState.operationStoppedContainers.add('fluxwww_App');
+
+          const result = await appQueryService.listRunningApps();
+
+          expect(result.data.map((app) => app.Names[0])).to.not.include('/fluxdb_App');
+        } finally {
+          globalState.finishBackup('App');
+        }
+      });
+    });
   });
 
   // A container docker reports in full, so every assertion below is about what

@@ -114,6 +114,31 @@ describe('appsRuntimeState tests', () => {
     });
   });
 
+  describe('restoreUnfinished', () => {
+    it('persists the record and reads it back', async () => {
+      await appsRuntimeState.setRestoreUnfinished('www_App', true);
+      expect(await appsRuntimeState.isRestoreUnfinished('www_App')).to.be.true;
+      await appsRuntimeState.setRestoreUnfinished('www_App', false);
+      expect(await appsRuntimeState.isRestoreUnfinished('www_App')).to.be.false;
+    });
+
+    it('reads as none for a component with no record', async () => {
+      expect(await appsRuntimeState.isRestoreUnfinished('nope_App')).to.be.false;
+    });
+
+    it('rejects when the record cannot be read, rather than reading as none', async () => {
+      readFails = true;
+      const error = await appsRuntimeState.isRestoreUnfinished('www_App').catch((caught) => caught);
+      expect(error).to.be.an('error');
+    });
+
+    it('is not touched by the operator lock', async () => {
+      await appsRuntimeState.setRestoreUnfinished('www_App', true);
+      await appsRuntimeState.setOperatorStopped('www_App', false);
+      expect(await appsRuntimeState.isRestoreUnfinished('www_App')).to.be.true;
+    });
+  });
+
   describe('operatorStopped', () => {
     it('persists the stop lock and reads it back', async () => {
       await appsRuntimeState.setOperatorStopped('www_App', true);
@@ -866,7 +891,7 @@ describe('appsRuntimeState tests', () => {
       expect(thrown, 'must not report a clear it did not make').to.be.an('error');
     });
 
-    it('keeps the image record and drops everything else', async () => {
+    it('keeps the volume\'s own record - its image, an unfinished restore - and drops everything else', async () => {
       const replaced = [];
       const kept = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
         '../../lib/log': logStub,
@@ -878,6 +903,7 @@ describe('appsRuntimeState tests', () => {
             restartHistory: [1, 2, 3],
             volumeImagePath: '/mnt/data/img',
             volumeFsUuid: 'u-1',
+            restoreUnfinished: true,
           }),
           replaceOneInDatabase: async (_db, _coll, _query, doc) => { replaced.push(doc); },
           updateOneInDatabase: async () => {},
@@ -891,6 +917,8 @@ describe('appsRuntimeState tests', () => {
       expect(replaced).to.have.lengthOf(1);
       expect(replaced[0].volumeImagePath).to.equal('/mnt/data/img');
       expect(replaced[0].volumeFsUuid).to.equal('u-1');
+      // the volume stays where it is, so the record of what a restore left in it does
+      expect(replaced[0].restoreUnfinished).to.equal(true);
       expect(replaced[0].operatorStopped, 'the operator lock survived a redeploy').to.equal(undefined);
       expect(replaced[0].restartHistory).to.equal(undefined);
     });
@@ -1001,6 +1029,17 @@ describe('appsRuntimeState tests', () => {
     // here survives only by being carried, from whichever twin holds it. The
     // field names below are deliberately not real ones - a real one would be
     // testing its own named rule instead.
+    it('keeps a record of an unfinished restore that any twin holds, though a newer one says none', async () => {
+      docs = [
+        { _id: 'older', identifier: 'www_App', restoreUnfinished: true, updatedAt: 1000 },
+        { _id: 'newer', identifier: 'www_App', restoreUnfinished: false, updatedAt: 9000 },
+      ];
+
+      await prepState.prepareCollection();
+
+      expect(upserts[0].set.restoreUnfinished).to.equal(true);
+    });
+
     it('writes the merge onto the newest twin before removing the others, and removes nothing when that write fails', async () => {
       const ops = [];
       let writeFails = false;

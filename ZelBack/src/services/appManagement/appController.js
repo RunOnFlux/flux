@@ -311,6 +311,11 @@ async function setAppOperatorStopped(appname, stopped, { awaitPass = false, forc
         ? { force, asPrimary: await holdsElectedApp(electedIds) }
         : { force };
       if (!awaitsElection) await appsRuntimeState.setOperatorStopped(id, stopped, lockOptions);
+      // A start is the owner accepting the component's data as it is, including
+      // a folder a restore left half-replaced.
+      if (!stopped && await appsRuntimeState.isRestoreUnfinished(id)) {
+        await appsRuntimeState.setRestoreUnfinished(id, false);
+      }
       // Raised inside the same slot as the lock, so a pass cannot read one
       // without the other and bounce a container the operator meant to keep down.
       if (alsoRestart) await appsRuntimeState.requestRestart(id);

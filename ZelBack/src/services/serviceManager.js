@@ -848,7 +848,6 @@ async function startFluxFunctions() {
       advancedWorkflows.startMasterSlaveApps(
         globalState,
         appQueryService.installedApps,
-        appQueryService.listRunningApps,
         https,
       ); // stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {

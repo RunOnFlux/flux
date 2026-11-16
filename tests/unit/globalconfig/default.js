@@ -170,6 +170,8 @@ module.exports = {
   fluxapps: {
     storageHost: 'storage.runonflux.io',
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
+    // a drive() that never settles gives up within the test, not in fifteen minutes
+    driveSettleMs: 200,
     crashBackoffStableRunMs: 600000,
     restartBurstCount: 5,
     restartBurstWindowMs: 300000,

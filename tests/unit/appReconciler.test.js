@@ -67,6 +67,7 @@ describe('appReconciler tests', () => {
       },
       appsRuntimeState: {
         operatorStopState: sinon.stub().resolves({ stopped: false, force: false }),
+        isRestoreUnfinished: sinon.stub().resolves(false),
         operatorStoppedOrThrow: sinon.stub().resolves(false),
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
@@ -1109,47 +1110,103 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
     });
 
-    // The backup/restore lease: while an app appears in backupInProgress /
-    // restoreInProgress (bare MAIN APP name, exactly as appendBackupTask /
-    // appendRestoreTask write it), the operation owns the whole app's runtime.
-    // A reconcile of ANY component of that app must not actuate - not start,
-    // not stop, not recreate - while the lease is held; the next reconcile
-    // after release enforces desired state again.
-    describe('backup/restore lease', () => {
-      it('does not start a stopped component while its app is being backed up', async () => {
-        stubs.globalState.tryStartBackup('App'); // bare main-app name (production format)
-        await appReconciler.reconcile('www_App');
-        expect(stubs.dockerService.appDockerStart.called).to.be.false;
-        expect(stubs.appsRuntimeState.recordRestart.called).to.be.false;
-      });
+    // A backup or restore holds its app's components through drive(), and the
+    // reconciler keeps acting on them: its claim alone stands nothing aside.
+    describe('an operation hold', () => {
+      const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
+      const stopped = { State: { Running: false, Status: 'exited', ExitCode: 0 } };
+      // the container follows the reconciler's own stop and start
+      const followActuation = () => {
+        stubs.dockerService.dockerContainerInspect.resolves(running);
+        stubs.dockerService.appDockerStop.callsFake(async () => { stubs.dockerService.dockerContainerInspect.resolves(stopped); });
+        stubs.dockerService.appDockerStart.callsFake(async () => { stubs.dockerService.dockerContainerInspect.resolves(running); });
+      };
 
-      it('does not stop a running operator-stopped component while its app is being restored', async () => {
-        stubs.globalState.tryStartRestore('App');
-        stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
-        stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
-        await appReconciler.reconcile('www_App');
-        expect(stubs.dockerService.appDockerStop.called).to.be.false;
-      });
-
-      it('does not recreate or remove a missing container while its app is being restored', async () => {
-        stubs.globalState.tryStartRestore('App');
-        stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
-        stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
-        await appReconciler.reconcile('www_App');
-        expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
-        expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
-        expect(stubs.appTamperingDetectionService.recordEvent.called).to.be.false;
-      });
-
-      it('enforces desired state again once the lease is released', async () => {
+      it('is not stood aside for by a backup\'s claim alone', async () => {
         stubs.globalState.tryStartBackup('App');
-        await appReconciler.reconcile('www_App');
-        expect(stubs.dockerService.appDockerStart.called).to.be.false; // held
-
-        stubs.globalState.finishBackup('App'); // lease released
         await appReconciler.reconcile('www_App');
         expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
       });
+
+      it('stops a running component and settles stopped', async () => {
+        followActuation();
+        const verdict = await appReconciler.drive(['www_App'], 'stopped');
+        expect(verdict).to.deep.equal({ converged: true, failed: [] });
+        expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
+        expect(appReconciler.isOperationHeld('www_App')).to.be.true;
+        expect(stubs.globalState.operationStoppedContainers.has('fluxwww_App')).to.be.true;
+      });
+
+      it('keeps a held component stopped through any later pass', async () => {
+        followActuation();
+        await appReconciler.drive(['www_App'], 'stopped');
+        await appReconciler.reconcile('www_App');
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('records only what it took down, not a component that was already stopped', async () => {
+        stubs.dockerService.dockerContainerInspect.resolves(stopped);
+        await appReconciler.drive(['www_App'], 'stopped');
+        expect(stubs.globalState.operationStoppedContainers.has('fluxwww_App')).to.be.false;
+      });
+
+      it('lifts the hold and starts the component again', async () => {
+        followActuation();
+        await appReconciler.drive(['www_App'], 'stopped');
+        const verdict = await appReconciler.drive(['www_App'], 'running');
+        expect(verdict.converged).to.be.true;
+        expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+        expect(appReconciler.isOperationHeld('www_App')).to.be.false;
+        expect(stubs.globalState.operationStoppedContainers.has('fluxwww_App')).to.be.false;
+      });
+
+      it('settles an operator-stopped component stopped when lifted, and starts nothing', async () => {
+        followActuation();
+        await appReconciler.drive(['www_App'], 'stopped');
+        stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
+        const verdict = await appReconciler.drive(['www_App'], 'running');
+        expect(verdict.converged).to.be.true;
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('reports a component docker cannot answer for as not stopped', async () => {
+        stubs.dockerService.dockerContainerInspect.rejects(new Error('connect ENOENT /var/run/docker.sock'));
+        stubs.dockerService.dockerListContainers.rejects(new Error('connect ENOENT /var/run/docker.sock'));
+        const verdict = await appReconciler.drive(['www_App'], 'stopped');
+        expect(verdict).to.deep.equal({ converged: false, failed: ['www_App'] });
+      });
+
+      it('waits out a pass deferred by another operation on the node', async () => {
+        followActuation();
+        stubs.globalState.installationInProgress = true;
+        let polls = 0;
+        stubs.serviceHelper.delay.callsFake(async () => {
+          polls += 1;
+          if (polls === 2) {
+            stubs.globalState.installationInProgress = false;
+            await appReconciler.reconcile('www_App');
+          }
+        });
+        const verdict = await appReconciler.drive(['www_App'], 'stopped');
+        expect(verdict.converged).to.be.true;
+      });
+    });
+
+    // A restore that began replacing a component's data and did not finish holds
+    // it stopped, across a FluxOS restart, until a restore succeeds or the owner
+    // starts it.
+    it('keeps a component whose restore did not finish stopped', async () => {
+      stubs.appsRuntimeState.isRestoreUnfinished.resolves(true);
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      const state = await appReconciler.desiredRunState('www_App');
+      expect(state.reason).to.equal('restoreUnfinished');
+    });
+
+    it('reads an unfinished restore before the operation hold, under the operator lock', async () => {
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
+      stubs.appsRuntimeState.isRestoreUnfinished.resolves(true);
+      expect((await appReconciler.desiredRunState('www_App')).reason).to.equal('operatorStopped');
     });
 
     it('defers while the container is in stoppingContainers (transient stop)', async () => {
