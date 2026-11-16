@@ -585,10 +585,8 @@ describe('fluxService tests', () => {
       expect(res.json.firstCall.args[0].data.message).to.contain('already in progress');
     });
 
-    // The script removes the served directory before it copies the new one in.
-    // On ArcaneOS the watchdog owns CloudUI, which is why the periodic check
-    // stands aside there - reaching the script directly from here would walk
-    // under that and tear down a directory this node does not manage.
+    // On ArcaneOS the watchdog owns CloudUI, so the route leaves it alone, as the
+    // periodic check does.
     it('refuses on ArcaneOS, where the watchdog owns CloudUI', async () => {
       verifyPrivilegeStub.returns(true);
       watchdogOwnsStub.returns(true);

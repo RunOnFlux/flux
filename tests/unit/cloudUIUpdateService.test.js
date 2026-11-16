@@ -347,10 +347,8 @@ describe('cloudUIUpdateService tests', () => {
     });
   });
 
-  // The script removes the served directory before it copies the new one into
-  // place, so two runs at once means the second one's removal lands inside the
-  // first one's copy - and the run that wrote the version file is then not the
-  // run that wrote the files beside it.
+  // A caller that finds a run in flight in this process joins it rather than starting
+  // another; the script's lock orders runs from different processes.
   describe('runUpdateScript tests', () => {
     it('runs one script for two overlapping callers', async () => {
       const service = loadService();
