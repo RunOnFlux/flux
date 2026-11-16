@@ -234,9 +234,10 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
   }
 
   function within(ms, promise) {
-    const timeout = new Promise((resolve) => { setTimeout(() => resolve('timed out'), ms); });
+    let timer;
+    const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve('timed out'), ms); });
 
-    return Promise.race([promise, timeout]);
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
   // A PATH entry whose mv refuses --exchange, as mv before coreutils 9.5 does.
