@@ -1341,4 +1341,64 @@ describe('networkStateManager tests', () => {
       });
     });
   });
+
+  describe('the sorted list', () => {
+    // Nodes confirmed in one block share an added_height; only the txhash
+    // orders them.
+    const nodeIn = (height, index) => ({
+      collateral: `COutPoint(${index}, 0)`,
+      txhash: index.toString(16).padStart(64, '0'),
+      outidx: '0',
+      ip: `10.0.${height % 256}.${index}:16127`,
+      network: '',
+      added_height: height,
+      confirmed_height: height,
+      last_confirmed_height: height,
+      last_paid_height: 0,
+      tier: 'CUMULUS',
+      payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+      pubkey: `${index}`,
+      activesince: '1',
+      lastpaid: '1',
+      amount: '1000.00',
+      rank: 0,
+    });
+
+    async function sortedFrom(nodes) {
+      fetcher.callsFake(async () => nodes);
+      const nsm = new NetworkStateManager(fetcher);
+      await nsm.start();
+      const order = nsm.state({ sort: true }).map((node) => node.txhash);
+      await nsm.stop();
+      return order;
+    }
+
+    // Each arrangement of the same nodes, as the daemon may list them.
+    function arrangements(nodes) {
+      const rotated = (by) => [...nodes.slice(by), ...nodes.slice(0, by)];
+      return [nodes, [...nodes].reverse(), rotated(7), rotated(19), rotated(31)];
+    }
+
+    it('orders nodes that joined in the same block the same way whatever order they arrive in', async () => {
+      const block = Array.from({ length: 40 }, (_, i) => nodeIn(1000, i + 1));
+      const expected = [...block].map((node) => node.txhash).sort().reverse();
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const nodes of arrangements(block)) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await sortedFrom(nodes)).to.deep.equal(expected);
+      }
+    });
+
+    it('orders by the block a node joined in first, and by txhash within a block', async () => {
+      const nodes = [nodeIn(1002, 1), nodeIn(1000, 2), nodeIn(1001, 3), nodeIn(1000, 4)];
+
+      expect(await sortedFrom(nodes)).to.deep.equal([
+        nodeIn(1000, 4).txhash,
+        nodeIn(1000, 2).txhash,
+        nodeIn(1001, 3).txhash,
+        nodeIn(1002, 1).txhash,
+      ]);
+    });
+  });
 });
