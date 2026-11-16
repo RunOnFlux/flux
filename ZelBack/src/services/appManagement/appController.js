@@ -312,8 +312,9 @@ async function setAppOperatorStopped(appname, stopped, { awaitPass = false, forc
         : { force };
       if (!awaitsElection) await appsRuntimeState.setOperatorStopped(id, stopped, lockOptions);
       // A start is the owner accepting the component's data as it is, including
-      // a folder a restore left half-replaced.
-      if (!stopped && await appsRuntimeState.isRestoreUnfinished(id)) {
+      // a folder a restore left half-replaced. A restart is not: it is what a
+      // restore sends every other instance, and it accepts nothing.
+      if (!stopped && !alsoRestart && await appsRuntimeState.isRestoreUnfinished(id)) {
         await appsRuntimeState.setRestoreUnfinished(id, false);
       }
       // Raised inside the same slot as the lock, so a pass cannot read one
@@ -388,6 +389,8 @@ const PENDING_REASONS = {
   policy: 'its restart policy does not allow it to run',
   invalidSpec: 'its specification cannot be actuated',
   notInstalled: 'it is not installed on this node',
+  restoreUnfinished: 'a restore of its data did not finish: restore it again, or start it to keep its data as it is',
+  operationHold: 'a backup or restore holds it',
 };
 
 /**
@@ -883,7 +886,50 @@ async function stopAllNonFluxRunningApps() {
   }
 }
 
+/**
+ * Each component of an app on this node: whether its container runs, whether
+ * the reconciler means it to, and its reason when it does not - an operator stop,
+ * an unfinished restore, a backup or restore holding it, the election, its
+ * restart policy. The app's owner and the Flux team, who start and stop it.
+ * @param {object} req Request with `appname` in params or query.
+ * @param {object} res Response.
+ * @returns {Promise<object>}
+ */
+async function componentStates(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    const mainAppName = appname.split('_')[1] || appname;
+    // eslint-disable-next-line global-require
+    const verificationHelper = require('../verificationHelper');
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
+    if (!authorized) {
+      return res.json(messageHelper.errUnauthorizedMessage());
+    }
+    const { ids } = await operatorTargetIds(appname);
+    const states = await Promise.all(ids.map(async (id) => {
+      const [actual, verdict] = await Promise.all([appReconciler.dockerActual(id), appReconciler.desiredRunState(id)]);
+      return {
+        component: id,
+        // null when docker could not tell
+        running: actual.reachable === false || actual.indeterminate ? null : actual.running === true,
+        // null while a component the election decides has no decision yet
+        desired: verdict.desired,
+        reason: verdict.reason ?? null,
+      };
+    }));
+    return res.json(messageHelper.createDataMessage(states));
+  } catch (error) {
+    log.error(error);
+    return res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+  }
+}
+
 module.exports = {
+  componentStates,
   executeAppGlobalCommand,
   deliverGlobalCommand,
   appStart,

@@ -295,18 +295,6 @@ async function recordRestartGeneration(identifier, generation) {
 }
 
 /**
- * The operator's stop lock and the mode they asked for, from ONE read: two
- * fields of one document, answered together so they always describe the same
- * moment. Rejects when the read fails.
- *
- * `startRequested` is a start the operator has asked for and the election has
- * not yet decided; the lock stands until it has. `asPrimary` is whether this
- * node was the component's primary when it was stopped.
- *
- * @param {string} identifier
- * @returns {Promise<{stopped: boolean, force: boolean, startRequested: boolean, asPrimary: boolean}>}
- */
-/**
  * Whether a restore began replacing this component's data and did not finish.
  * Rejects when the read fails: an unread mark is not a cleared one.
  * @param {string} identifier
@@ -319,9 +307,12 @@ async function isRestoreUnfinished(identifier) {
 
 /**
  * Records that a restore has begun replacing this component's data (true, set
- * before anything is deleted) or that it finished, or that the data is accepted
- * as it is (false). The reconciler keeps a component with the mark stopped. No
- * catch: a mark that did not persist must stop the restore before it deletes.
+ * before anything is deleted, in every sync mode) or that its data is whole
+ * again or accepted as it is (false: the unpack finished, its owner started it,
+ * a new volume replaced it, or it synced from a peer that holds the data). While
+ * set, the reconciler keeps the component stopped and no write makes its folder
+ * send. No catch: a mark that did not persist must stop the restore before it
+ * deletes.
  * @param {string} identifier
  * @param {boolean} unfinished
  * @returns {Promise<void>}
@@ -330,6 +321,18 @@ async function setRestoreUnfinished(identifier, unfinished) {
   await setFields(identifier, { restoreUnfinished: unfinished });
 }
 
+/**
+ * The operator's stop lock and the mode they asked for, from ONE read: two
+ * fields of one document, answered together so they always describe the same
+ * moment. Rejects when the read fails.
+ *
+ * `startRequested` is a start the operator has asked for and the election has
+ * not yet decided; the lock stands until it has. `asPrimary` is whether this
+ * node was the component's primary when it was stopped.
+ *
+ * @param {string} identifier
+ * @returns {Promise<{stopped: boolean, force: boolean, startRequested: boolean, asPrimary: boolean}>}
+ */
 async function operatorStopState(identifier) {
   const state = await getState(identifier);
   return {

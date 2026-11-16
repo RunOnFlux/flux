@@ -2353,6 +2353,38 @@ describe('appReconciler tests', () => {
     });
   });
 
+  describe('setRunningUnlessOperatorStopped and an unfinished restore', () => {
+    beforeEach(() => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+    });
+
+    afterEach(() => appReconciler.forgetDesiredState('db_App'));
+
+    it('writes no running for a component an unfinished restore holds, and says why', async () => {
+      stubs.appsRuntimeState.isRestoreUnfinished.resolves(true);
+
+      expect(await appReconciler.setRunningUnlessOperatorStopped('db_App', 'masterSlave primary'))
+        .to.equal(appReconciler.RunRequest.RESTORE_UNFINISHED);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    // an unread record is not an absent one
+    it('throws, writing nothing, while the record cannot be read', async () => {
+      stubs.appsRuntimeState.isRestoreUnfinished.rejects(new Error('database unavailable'));
+
+      let error = null;
+      await appReconciler.setRunningUnlessOperatorStopped('db_App', 'masterSlave primary').catch((err) => { error = err; });
+
+      expect(error?.message).to.equal('database unavailable');
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('writes running once the record is cleared', async () => {
+      expect(await appReconciler.setRunningUnlessOperatorStopped('db_App', 'masterSlave primary'))
+        .to.equal(appReconciler.RunRequest.WRITTEN);
+    });
+  });
+
   describe('adoptControllerDesired', () => {
     const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
     const settle = () => new Promise((resolve) => { setTimeout(resolve, 50); });
@@ -2417,6 +2449,21 @@ describe('appReconciler tests', () => {
 
       expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
       expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('adopts no running for a component an unfinished restore holds', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.appsRuntimeState.isRestoreUnfinished.resolves(true);
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('still adopts stopped for a component an unfinished restore holds', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      stubs.appsRuntimeState.isRestoreUnfinished.resolves(true);
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'stopped', 'masterSlave standby')).to.equal(true);
     });
 
     // an unread lock is not an absent one

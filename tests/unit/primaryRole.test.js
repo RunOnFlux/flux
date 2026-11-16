@@ -20,7 +20,8 @@ const FOLDER = 'fluxn8n_n8napp';
  * to one shared log.
  */
 function loadRole({
-  primary = false, changeType, folder = null, operatorStopped = false, superseded = false, inSlot = async () => {}, afterRun = () => {},
+  primary = false, changeType, folder = null, operatorStopped = false, superseded = false, restoreUnfinished = false,
+  inSlot = async () => {}, afterRun = () => {},
 } = {}) {
   const calls = [];
   const note = (name) => (...args) => { calls.push([name, ...args]); };
@@ -36,6 +37,7 @@ function loadRole({
       await inSlot();
       if (unless()) return RunRequest.STOOD_DOWN;
       if (operatorStopped) return RunRequest.OPERATOR_STOPPED;
+      if (restoreUnfinished) return RunRequest.RESTORE_UNFINISHED;
       if (superseded) return RunRequest.SUPERSEDED;
       reconciler.committed = [id];
       afterRun();
@@ -62,6 +64,7 @@ function loadRole({
     }),
     patchFolder: sinon.spy(async (id, fields) => { note('patch')(id, fields); return { status: 'success' }; }),
     folderConfig: sinon.stub().resolves(folder),
+    restoreHolds: sinon.stub().resolves(restoreUnfinished),
     FOLDER_TYPE_SETTLE_MS: 60000,
   };
   const bus = {
@@ -168,7 +171,20 @@ describe('primaryRole', () => {
 
       expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive'], ['folder', FOLDER, 'receiveonly']]);
       expect(t.roleEvents().at(-1)).to.deep.equal({
-        identifier: APP, from: 'promoting', to: 'standby', reason: 'its operator lock could not be read',
+        identifier: APP, from: 'promoting', to: 'standby', reason: 'its operator lock or restore record could not be read',
+      });
+    });
+
+    it('makes the folder receive again when an unfinished restore holds the component', async () => {
+      const t = loadRole({ restoreUnfinished: true });
+
+      expect(t.role.promote(APP, FOLDER)).to.equal(true);
+      await t.role.whenSettled(APP);
+
+      expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive'], ['folder', FOLDER, 'receiveonly']]);
+      expect(t.reconciler.committed).to.deep.equal([]);
+      expect(t.roleEvents().at(-1)).to.deep.equal({
+        identifier: APP, from: 'promoting', to: 'standby', reason: 'a restore of its data did not finish',
       });
     });
 
@@ -525,6 +541,16 @@ describe('primaryRole', () => {
       expect(t.role.inTransition(APP)).to.equal(null);
       expect(t.reconciler.committed).to.deep.equal([APP]);
       expect(returned(t)).to.deep.equal([{ identifier: APP, outcome: 'kept' }]);
+    });
+
+    it('stays paused, sending nothing, while an unfinished restore holds the component', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING, restoreUnfinished: true });
+
+      await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.NOT_RUNNING });
+
+      expect(t.calls.filter((c) => c[0] === 'patch' || c[0] === 'folder' || c[0] === 'setRunningUnlessOperatorStopped')).to.deep.equal([]);
+      expect(returned(t)).to.deep.equal([]);
+      sinon.assert.calledWith(t.bus.count, 'primaryRole:returned', APP, 'restoreUnfinished');
     });
 
     it('stays paused while a holder cannot be ruled out', async () => {

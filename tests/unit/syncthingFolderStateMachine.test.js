@@ -188,8 +188,17 @@ async function checksSettled() {
   }
 }
 
+// Whether an unfinished restore holds a folder's component, and its clear.
+const syncthingFolderWritesMock = {
+  restoreHolds: sinon.stub().resolves(false),
+  exclusive: sinon.stub().callsFake(async (ids, write) => write()),
+};
+const appsRuntimeStateMock = { setRestoreUnfinished: sinon.stub().resolves() };
+
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
   './localChangeCheck': localChangeCheck,
+  './syncthingFolderWrites': syncthingFolderWritesMock,
+  '../appManagement/appsRuntimeState': appsRuntimeStateMock,
   '../dockerService': dockerServiceMock,
   '../syncthingService': syncthingServiceMock,
   '../serviceHelper': serviceHelperMock,
@@ -208,6 +217,9 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
 describe('syncthingFolderStateMachine tests', () => {
   beforeEach(() => {
     globalStateMock.folderStates.clear();
+    syncthingFolderWritesMock.restoreHolds.reset();
+    syncthingFolderWritesMock.restoreHolds.resolves(false);
+    appsRuntimeStateMock.setRestoreUnfinished.resetHistory();
     peerIdentityMock.reset();
     primaryRoleMock.holdAsStandby.resetHistory();
     peerComponentMock.componentStateOnPeers.reset();
@@ -784,6 +796,148 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
       expect(result.cache).to.deep.equal({ restarted: true, marker: 'kept' });
       expect(result.syncthingFolder).to.equal(mockParams.syncthingFolder);
+    });
+
+    describe('a single-writer folder an unfinished restore holds', () => {
+      const PEER = '10.0.0.2:16127';
+      // what syncthing reports for a copy that is whole against the cluster's index
+      const syncedStatus = (changes = {}) => ({
+        globalBytes: 4096, inSyncBytes: 4096, state: 'idle', receiveOnlyChangedFiles: 0, ...changes,
+      });
+      // a peer that holds the data: this node's own folder already sends, which
+      // checkIfPeersAreSynced reads as the cluster holding it
+      const aPeerHoldsTheData = () => syncthingServiceMock.getConfig.resolves({
+        folders: [{ id: 'test-app', type: 'sendreceive', devices: [{ deviceID: 'SELF' }, { deviceID: 'PEER' }] }],
+      });
+      // no peer: the folder lists this node alone
+      const noPeer = () => syncthingServiceMock.getConfig.resolves({
+        folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'SELF' }] }],
+      });
+
+      beforeEach(() => {
+        mockParams.containerDataFlags = 'g';
+        fsMock.promises.readdir.resolves([]);
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+        });
+        syncthingFolderWritesMock.restoreHolds.withArgs('test-app').resolves(true);
+      });
+
+      it('is not ready when it is the only holder, though syncthing calls its leftovers synced', async () => {
+        noPeer();
+        mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.cache.restarted, 'the election reads this as ready to start').to.not.equal(true);
+        sinon.assert.notCalled(appsRuntimeStateMock.setRestoreUnfinished);
+      });
+
+      it('is not seeded as a cold-start leader', async () => {
+        noPeer();
+        mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.cache.restarted).to.not.equal(true);
+        expect(result.cache.designatedLeader).to.not.equal(true);
+      });
+
+      it('is released once it has synced from a peer that holds the data and keeps no local change', async () => {
+        aPeerHoldsTheData();
+        mockParams.appLocation.resolves([{ ip: PEER, runningSince: 1000, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeStateMock.setRestoreUnfinished, 'test-app', false);
+      });
+
+      it('reverts the deletions it holds to the peers\' copy, and stays held until they are gone', async () => {
+        aPeerHoldsTheData();
+        mockParams.appLocation.resolves([{ ip: PEER, runningSince: 1000, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus({ receiveOnlyChangedDeletes: 3 }));
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+        expect(result.cache.restarted).to.not.equal(true);
+        sinon.assert.notCalled(appsRuntimeStateMock.setRestoreUnfinished);
+      });
+
+      it('claims no holdings while held, so no peer defers to it', async () => {
+        noPeer();
+        mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(globalStateMock.folderStates.get('test-app')).to.deep.equal({ state: 'noClaim' });
+      });
+
+      it('stays held, without throwing, when its healed record cannot be cleared', async () => {
+        aPeerHoldsTheData();
+        mockParams.appLocation.resolves([{ ip: PEER, runningSince: 1000, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+        appsRuntimeStateMock.setRestoreUnfinished.rejects(new Error('database unavailable'));
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.cache.restarted).to.not.equal(true);
+        appsRuntimeStateMock.setRestoreUnfinished.resolves();
+      });
+
+      it('reverts nothing when no peer holds the data, and stays held', async () => {
+        noPeer();
+        mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus({ receiveOnlyChangedDeletes: 3 }));
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+        expect(result.cache.restarted).to.not.equal(true);
+        sinon.assert.notCalled(appsRuntimeStateMock.setRestoreUnfinished);
+      });
+    });
+
+    describe('a replicated (r:) folder an unfinished restore holds', () => {
+      beforeEach(() => {
+        mockParams.containerDataFlags = 'r';
+        fsMock.promises.readdir.resolves([]);
+        syncthingFolderWritesMock.restoreHolds.withArgs('test-app').resolves(true);
+        mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getConfig.resolves({
+          folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'SELF' }] }],
+        });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 4096, inSyncBytes: 4096, state: 'idle', receiveOnlyChangedFiles: 0,
+        });
+      });
+
+      it('takes healing, and receives, when the folder already sends', async () => {
+        mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache.restarted).to.equal(false);
+        sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+      });
+
+      it('takes healing when its folder was settled as ready', async () => {
+        mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache.restarted).to.equal(false);
+      });
     });
 
     describe('an r: container already running on a syncing folder', () => {

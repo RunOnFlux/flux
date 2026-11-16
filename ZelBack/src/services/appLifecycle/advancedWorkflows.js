@@ -738,6 +738,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     const volumeFsUuid = crypto.randomUUID();
     await execAsRoot('mke2fs', ['-t', 'ext4', '-U', volumeFsUuid, volumeFile]);
     await volumeService.recordNewVolumeImage(appId, volumeFile, volumeFsUuid);
+    // an unfinished restore describes the data on the volume this one replaces
+    if (await appsRuntimeState.isRestoreUnfinished(appId)) await appsRuntimeState.setRestoreUnfinished(appId, false);
     const makeFilesystem2 = {
       status: 'Filesystem created',
     };
@@ -2812,6 +2814,17 @@ async function appendBackupTask(req, res) {
         throw new Error(`Refused: no specifications found for ${appname}`);
       }
       const requested = new Set(backup.filter((item) => item.backup).map((item) => item.component));
+      // A component an unfinished restore holds is not the app's data, and its
+      // archive would replace the last good one: no backup of it, forced or not.
+      const unfinished = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of requested) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await appsRuntimeState.isRestoreUnfinished(syncthingFolderIdForComponent(appname, component))) unfinished.push(component);
+      }
+      if (unfinished.length > 0) {
+        throw new Error(`Refused: a restore of ${unfinished.join(', ')} did not finish, so its data is not the app's. Restore it again, or start it to keep its data as it is, before backing it up.`);
+      }
       const allSyncedComponents = syncedComponentsOfApp(appDetails, appname);
       const syncedComponents = allSyncedComponents.filter((comp) => requested.has(comp.componentName));
 
@@ -3260,15 +3273,21 @@ async function appendRestoreTask(req, res) {
       await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
       // eslint-disable-next-line no-await-in-loop
       await requireRegularFile(target.archivePath);
-      // from here the directory is neither copy. A clearing that reports
-      // failure may still have removed most of it, so the mark goes on first.
-      // A component that does not sync has no peer to heal it from, so the
-      // record that its data is being replaced is durable: a crash or restart
-      // part way must not start it on what is left.
-      if (target.syncMode === 'none') {
+      // A folder unpaused since the restore paused it would send the clear's
+      // deletions to every peer: nothing is deleted unless it is still paused.
+      if (target.syncMode !== 'none') {
         // eslint-disable-next-line no-await-in-loop
-        await appsRuntimeState.setRestoreUnfinished(target.folderId, true);
+        const folder = await syncthingFolderWrites.folderConfig(target.folderId);
+        if (folder && folder.paused !== true) {
+          throw new Error(`Refused: ${target.folderId} is no longer paused, so clearing it would send the deletions to its peers`);
+        }
       }
+      // from here the directory is neither copy. A clearing that reports
+      // failure may still have removed most of it, so the mark goes on first,
+      // and it is durable: a crash or restart part way must not start the
+      // component on what is left, nor make its folder send it.
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.setRestoreUnfinished(target.folderId, true);
       swapInFlight = target;
       // eslint-disable-next-line no-await-in-loop
       const cleared = await IOUtils.removeDirectory(target.appDataPath, true);
@@ -3287,10 +3306,8 @@ async function appendRestoreTask(req, res) {
         throw new Error(`Error: Failed to unpack archive file for ${target.name.toLowerCase()}, ${tarStatus.error}`);
       }
       swapInFlight = null;
-      if (target.syncMode === 'none') {
-        // eslint-disable-next-line no-await-in-loop
-        await appsRuntimeState.setRestoreUnfinished(target.folderId, false);
-      }
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.setRestoreUnfinished(target.folderId, false);
       log.info(`appendRestoreTask - ${appname} ${target.name} restored ${target.archive.entries} entries, ${target.archive.bytes} bytes`);
 
       // Mark the folder settled so the receiveonly machinery leaves this copy
@@ -3383,8 +3400,10 @@ async function appendRestoreTask(req, res) {
           restarted: false,
           numberOfExecutions: 0,
         });
-        // Held by its election's stop until syncthing has healed it. One that does
-        // not sync is held by restoreUnfinished, written before the clear.
+        // Held by restoreUnfinished, written before the clear, until a restore
+        // finishes, its owner starts it, or it heals from a peer that holds the
+        // data. For a g: component the election's stop also takes it off the
+        // primary role.
         appReconciler.setControllerDesired(swapInFlight.folderId, 'stopped', 'restore did not complete');
       }
     }
@@ -3393,7 +3412,12 @@ async function appendRestoreTask(req, res) {
       // eslint-disable-next-line no-await-in-loop
       await setSyncthingFolderPaused(folderId, false);
     }
-    await sendChunk(res, `${error?.message}\n`);
+    // One line, so a caller that alerts on `Error:` shows what is held and how it
+    // is released.
+    const held = swapInFlight
+      ? `. ${swapInFlight.name.toLowerCase()} is kept stopped: restore it again, or start it to keep its data as it is${swapInFlight.syncMode === 'none' ? '' : ' and send it to the other instances'}.`
+      : '';
+    await sendChunk(res, `${error?.message}${held}\n`);
     // The response ends once the app is back where its other inputs put it, so a
     // caller that sees it end can start the next operation on the app.
     if (operationHeld) {

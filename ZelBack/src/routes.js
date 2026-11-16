@@ -1020,6 +1020,10 @@ module.exports = (app) => {
   // header at all instead of no-store, because alwaysRespond never runs. Worth
   // keeping, and worth writing down - two middlewares in an order with no stated
   // reason is an invitation to swap them.
+  // Whether each component of an app runs here, and why one does not.
+  app.get('/apps/componentstates/:appname?', asyncRoute((req, res) => {
+    return appController.componentStates(req, res);
+  }));
   app.get('/apps/appstart/:appname?/:global?', alwaysRespond, requireBootSettled, asyncRoute((req, res) => {
     return appController.appStart(req, res);
   }));

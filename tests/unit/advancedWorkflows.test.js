@@ -64,6 +64,8 @@ describe('advancedWorkflows tests', () => {
   // does not stub itself.
   beforeEach(() => {
     sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
+    // no unfinished restore holds anything, unless a test says one does
+    sinon.stub(appsRuntimeState, 'isRestoreUnfinished').resolves(false);
   });
 
   afterEach(() => {
@@ -5523,6 +5525,26 @@ describe('advancedWorkflows tests', () => {
       ).to.deep.equal(['/backup', '/lost+found', '/.flux-op', '/.flux-op-*', '/cache']);
     });
 
+    it('clears an unfinished restore of the data the new volume replaces', async () => {
+      const syncComponent = { name: 'frontend', hdd: 1, containerData: 'g:/appdata' };
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').resolves({});
+      // eslint-disable-next-line global-require
+      const volSvc = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volSvc, 'recordNewVolumeImage').resolves();
+      // eslint-disable-next-line global-require
+      sinon.stub(require('node:fs').promises, 'writeFile').resolves();
+      appsRuntimeState.isRestoreUnfinished.withArgs(identifier).resolves(true);
+      sinon.stub(appsRuntimeState, 'setRestoreUnfinished').resolves();
+
+      await advancedWorkflows.createAppVolume(syncComponent, 'TestApp', true, null).catch(() => {});
+
+      sinon.assert.calledWith(appsRuntimeState.setRestoreUnfinished, identifier, false);
+      sinon.assert.callOrder(volSvc.recordNewVolumeImage, appsRuntimeState.setRestoreUnfinished);
+    });
+
     it('preserves the synced-mark when the pre-flight aborts before any volume is touched', async () => {
       // a recreate whose pre-flight fails (a resources-query blip, or out of
       // space - the LIKELY population for failed recreates) leaves the existing
@@ -6081,6 +6103,18 @@ describe('advancedWorkflows tests', () => {
 
     // The app was stopped for the archive; a backup that fails after that must
     // not leave it held down until FluxOS restarts.
+    it('refuses a component an unfinished restore holds, before it stops anything or touches the archive', async () => {
+      appsRuntimeState.isRestoreUnfinished.withArgs(folderId).resolves(true);
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      expect(res.write.getCalls().map((c) => String(c.args[0])).join('')).to.include('Refused: a restore of palworld did not finish');
+      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+    });
+
     it('lifts its hold on the app when the archive fails', async () => {
       sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
         status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
@@ -6293,8 +6327,13 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
       sinon.stub(registryManager, 'getApplicationSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
-      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
-      sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' }]);
+      // syncthing as it answers: a patch changes the folder it then reports
+      const restoreFolder = { id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' };
+      sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async (op, fields, id) => {
+        if (op === 'patch' && id === folderId) Object.assign(restoreFolder, fields);
+        return { status: 'success' };
+      });
+      sinon.stub(syncthingService, 'getConfigFolders').callsFake(async () => [{ ...restoreFolder }]);
       sinon.stub(dockerService, 'appDockerStop').resolves();
       // The stop is verified by reading the container back, not by the stop
       // call returning - so this stub is what makes the containers actually
@@ -6760,10 +6799,10 @@ describe('advancedWorkflows tests', () => {
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
-        const pause = syncthingService.adjustConfigFolders.getCalls().find((call) => call.args[1]?.paused === true);
+        const failed = IOUtils.untarFile.lastCall;
         expect(
-          syncthingService.getConfigFolders.getCalls().filter((call) => call.callId > pause.callId),
-          'the config was read between the pause and the demotion',
+          syncthingService.getConfigFolders.getCalls().filter((call) => call.callId > failed.callId),
+          'the config was read between the failure and the demotion',
         ).to.have.lengthOf(0);
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
       });
@@ -6895,12 +6934,26 @@ describe('advancedWorkflows tests', () => {
         expect(globalState.restoreInProgress).to.not.include(appname);
       });
 
+      it('refuses to clear a folder unpaused since it paused it, deleting nothing', async () => {
+        const unpaused = { id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive', paused: false };
+        syncthingService.adjustConfigFolders.callsFake(async () => ({ status: 'success' }));
+        syncthingService.getConfigFolders.callsFake(async () => [unpaused]);
+        const res = makeRes();
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.neverCalledWithMatch(IOUtils.removeDirectory, sinon.match((dir) => String(dir).endsWith('/appdata')));
+        sinon.assert.neverCalledWith(appsRuntimeState.setRestoreUnfinished, folderId, true);
+        expect(res.write.getCalls().map((c) => String(c.args[0])).join('')).to.include('is no longer paused');
+      });
+
       it('proceeds when syncthing has no such folder, because nothing is replicating it', async () => {
         // A 4xx is an answer, not a failure: syncthing does not know the folder,
         // so there is nothing to hold still and nothing to broadcast.
         syncthingService.adjustConfigFolders
           .withArgs('patch', { paused: true }, folderId)
           .resolves({ status: 'error', data: { code: 'ERR_BAD_REQUEST', message: 'Request failed with status code 404', httpStatus: 404 } });
+        syncthingService.getConfigFolders.callsFake(async () => []);
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
@@ -6970,12 +7023,38 @@ describe('advancedWorkflows tests', () => {
         expect(appsRuntimeState.setRestoreUnfinished.secondCall.calledAfter(IOUtils.untarFile.lastCall), 'cleared after the unpack').to.be.true;
       });
 
-      it('never records a synced component, which its peers put right', async () => {
+      it('records a synced component before it clears it, and keeps the record when the unpack fails', async () => {
         IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
-        sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
+        sinon.assert.calledWith(appsRuntimeState.setRestoreUnfinished, folderId, true);
+        sinon.assert.neverCalledWith(appsRuntimeState.setRestoreUnfinished, folderId, false);
+        sinon.assert.callOrder(appsRuntimeState.setRestoreUnfinished.withArgs(folderId, true), IOUtils.removeDirectory);
+      });
+
+      it('removes the record once a synced component unpacks', async () => {
+        IOUtils.untarFile.resolves({ status: true });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.callOrder(
+          appsRuntimeState.setRestoreUnfinished.withArgs(folderId, true),
+          IOUtils.untarFile,
+          appsRuntimeState.setRestoreUnfinished.withArgs(folderId, false),
+        );
+      });
+
+      it('says, in its error line, which component it left held and how it is released', async () => {
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+        const res = makeRes();
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        const errorLines = res.write.getCalls().map((c) => String(c.args[0])).filter((line) => line.includes('Error:'));
+        expect(errorLines).to.have.lengthOf(1);
+        expect(errorLines[0]).to.include('palworld is kept stopped: restore it again, or start it to keep its data as it is and send it to the other instances.');
+        expect(errorLines[0]).to.not.include('Finalizing');
       });
 
       it('leaves a component that restored cleanly alone when a later one fails', async () => {

@@ -1627,6 +1627,8 @@ const RunRequest = Object.freeze({
   WRITTEN: 'written',
   // the operator has it stopped, and the lock holds it
   OPERATOR_STOPPED: 'operatorStopped',
+  // a restore of its data did not finish, and the record holds it
+  RESTORE_UNFINISHED: 'restoreUnfinished',
   // the caller's `unless` answered true
   STOOD_DOWN: 'stoodDown',
   // another writer decided while this awaited, or a data clear is pending
@@ -1664,7 +1666,8 @@ function writeIfUnchanged(identifier, writes, state) {
  * @param {() => boolean} [options.unless] Asked once the slot is held and again
  *   after the lock is read; true at either writes nothing.
  * @returns {Promise<string>} A RunRequest.
- * @throws When the lock cannot be read: an unread lock is not an absent one.
+ * @throws When the lock or the restore record cannot be read: an unread hold is
+ *   not an absent one.
  */
 async function setRunningUnlessOperatorStopped(rawIdentifier, reason, { unless = () => false } = {}) {
   const identifier = canonical(rawIdentifier);
@@ -1680,7 +1683,11 @@ async function setRunningUnlessOperatorStopped(rawIdentifier, reason, { unless =
       outcome = RunRequest.OPERATOR_STOPPED;
       return;
     }
-    // `unless` is set from outside the slot, so it is asked again after the read
+    if (await appsRuntimeState.isRestoreUnfinished(identifier)) {
+      outcome = RunRequest.RESTORE_UNFINISHED;
+      return;
+    }
+    // `unless` is set from outside the slot, so it is asked again after the reads
     if (unless()) {
       outcome = RunRequest.STOOD_DOWN;
       return;
@@ -1787,9 +1794,11 @@ async function adoptControllerDesired(rawIdentifier, state, reason) {
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_ADOPT, identifier);
     try {
       if (await appsRuntimeState.operatorStoppedOrThrow(identifier)) return;
+      // a component a restore left part replaced is not adopted as running
+      if (state === 'running' && await appsRuntimeState.isRestoreUnfinished(identifier)) return;
     } catch (error) {
-      // an unread lock is not an absent one
-      log.warn(`appReconciler - ${identifier}: not adopting ${state}, the operator lock could not be read: ${error.message}`);
+      // an unread hold is not an absent one
+      log.warn(`appReconciler - ${identifier}: not adopting ${state}, the operator lock or restore record could not be read: ${error.message}`);
       return;
     }
     const actual = await dockerActual(identifier);

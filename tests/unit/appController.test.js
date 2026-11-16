@@ -714,6 +714,48 @@ describe('appController tests', () => {
   });
 
 
+  describe('componentStates tests', () => {
+    it('refuses a caller who is neither the owner nor the Flux team', async () => {
+      verificationHelperStub.resolves(false);
+      const res = { json: sinon.fake((param) => param) };
+
+      await appController.componentStates({ params: { appname: 'TestApp' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(verificationHelperStub.firstCall.args[0]).to.equal(Privilege.APP_OWNER_OR_FLUX_TEAM);
+      expect(verificationHelperStub.firstCall.args[2]).to.deep.equal({ appName: 'TestApp' });
+    });
+
+    it('answers, for each component here, whether it runs and why it does not', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: false });
+      sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: false, reason: 'restoreUnfinished', force: false });
+      const res = { json: sinon.fake((param) => param) };
+
+      await appController.componentStates({ params: { appname: 'TestApp' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0]).to.deep.equal({
+        status: 'success',
+        data: [{
+          component: 'TestApp', running: false, desired: false, reason: 'restoreUnfinished',
+        }],
+      });
+    });
+
+    it('says running is unknown when docker cannot tell', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: false, exists: false, running: false });
+      sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: true, reason: 'policy', force: false });
+      const res = { json: sinon.fake((param) => param) };
+
+      await appController.componentStates({ params: { appname: 'TestApp' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0].data[0].running).to.equal(null);
+    });
+  });
+
   describe('appRestart tests', () => {
     beforeEach(() => {
       sinon.stub(dockerService, 'appDockerRestart').resolves('Flux App TestApp successfully restarted.');
@@ -724,6 +766,16 @@ describe('appController tests', () => {
       });
       sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
       sinon.stub(appsRuntimeState, 'getState').resolves({ restartGeneration: 1, actuatedRestartGeneration: 1 });
+    });
+
+    it('keeps the record of a restore that did not finish: a restart accepts nothing', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      appsRuntimeState.isRestoreUnfinished.resolves(true);
+
+      await appController.appRestart({ params: { appname: 'TestApp' }, query: {} }, { json: sinon.fake() });
+
+      sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
     });
 
     it('should restart app and return success message', async () => {

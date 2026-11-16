@@ -29,6 +29,9 @@ const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
 const folderStates = require('./folderStates');
 const localChangeCheck = require('./localChangeCheck');
+const syncthingFolderWrites = require('./syncthingFolderWrites');
+const messageHelper = require('../messageHelper');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
 const { componentStateOnOtherHolders, PeerComponent } = require('./peerComponent');
@@ -1368,6 +1371,53 @@ async function nudgeFolderDevices(folderId) {
  * @returns {Promise<boolean>} True when the folder has local changes it does not
  *   keep: a revert was asked for, or whether to revert cannot be said yet
  */
+/**
+ * One pass over a folder an unfinished restore holds. Every local change in it is
+ * that restore's damage: when a peer holds the data they are reverted to the
+ * peers' copy, and once the folder is synced, a peer holds the data and no local
+ * change is left, the record is cleared. With no such peer nothing heals it: a
+ * restore that finishes, or its owner's start, releases it.
+ * @param {string} appId Folder id.
+ * @param {object} reads
+ * @param {object|null} reads.syncStatus getFolderSyncCompletion's answer
+ * @param {boolean} reads.aPeerHasData checkIfPeersAreSynced's answer
+ * @returns {Promise<boolean>} true once the record is cleared
+ */
+async function healHeldFolder(appId, { syncStatus, aPeerHasData }) {
+  const localChanges = syncStatus ? receiveOnlyChanges(syncStatus) : null;
+  if (aPeerHasData === true && localChanges > 0) {
+    log.warn(`healHeldFolder - ${appId} holds ${localChanges} local changes an unfinished restore left; reverting to the copy its peers hold`);
+    try {
+      await syncthingFolderWrites.exclusive([appId], async () => messageHelper.dataOrThrow(await syncthingService.dbRevert(appId)));
+    } catch (error) {
+      log.error(`healHeldFolder - ${appId}: reverting what an unfinished restore left failed: ${error.message}`);
+    }
+  }
+  if (!(syncStatus?.isSynced && aPeerHasData === true && localChanges === 0)) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
+    return false;
+  }
+  try {
+    await appsRuntimeState.setRestoreUnfinished(appId, false);
+  } catch (error) {
+    log.error(`healHeldFolder - ${appId} has healed, but its restore record could not be cleared: ${error.message}; it stays held`);
+    return false;
+  }
+  fluxEventBus.count('syncthing:restoreUnfinished', appId, 'healed');
+  log.info(`healHeldFolder - ${appId} has synced from a peer that holds the data; the unfinished restore no longer holds it`);
+  return true;
+}
+
+/**
+ * @param {object} syncStatus getFolderSyncCompletion's answer
+ * @returns {number} every receive-only local change the folder holds: files,
+ *   directories, symlinks and deletions
+ */
+function receiveOnlyChanges(syncStatus) {
+  return (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0)
+    + (syncStatus.receiveOnlyChangedSymlinks || 0) + (syncStatus.receiveOnlyChangedDeletes || 0);
+}
+
 async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCurrent, othersRunTheApp }) {
   const cache = folderCache;
   if (!syncStatus?.isSynced) return false;
@@ -1526,6 +1576,20 @@ async function handleReceiveOnlyTransition(params) {
   // a peer too old to answer at all - and the folder is not one this node has yet to
   // look at.
   folderStates.measured(appId, holdings);
+  // A restore that stopped part way left this folder neither copy, and every local
+  // change in it - deletions included - is that damage. It is ready only once it
+  // has synced from a peer that holds the data and keeps no local change of its
+  // own; until then it stays receiveonly and not ready, whatever else this cycle
+  // would decide. With no such peer nothing heals it: a restore that finishes, or
+  // its owner's start, releases it.
+  if (await syncthingFolderWrites.restoreHolds(appId) && !(await healHeldFolder(appId, { syncStatus, aPeerHasData }))) {
+    // a held folder seeds nothing: it claims no holdings, so no peer defers to it,
+    // and a mark it made before the restore goes too
+    folderStates.measured(appId, null);
+    globalState.seedMarks.delete(appId);
+    decideType(syncthingFolder, containerDataFlags, 'receiveonly');
+    return { syncthingFolder, cache };
+  }
   // Designated-leader election, debounced: require leadership to hold for
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
   // doesn't flip a follower to leader.
@@ -2095,6 +2159,28 @@ async function manageFolderSyncState(params) {
   const othersRunTheApp = containerDataFlags.includes('g') ? othersHold : null;
 
   // Check if folder already exists and is in sendreceive mode
+  // A folder an unfinished restore holds takes the transition on every pass,
+  // whatever state it is in - sending, settled, just started - so only healing
+  // from a peer that holds the data, a restore that finishes, or its owner's
+  // start releases it; until then it receives.
+  if (await syncthingFolderWrites.restoreHolds(appId)) {
+    const existing = receiveOnlySyncthingAppsCache.get(appId);
+    const cache = existing?.restarted === false ? existing : { restarted: false, numberOfExecutions: 0 };
+    return handleReceiveOnlyTransition({
+      appId,
+      cache,
+      runningAppList: await appLocation(installedAppName),
+      localSocketAddr,
+      containerDataFlags,
+      unsyncedSubdirs,
+      syncthingFolder,
+      liveness,
+      electedSiblings,
+      receiveOnlySyncthingAppsCache,
+      othersRunTheApp,
+    });
+  }
+
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
   const sendingSingleWriter = folderAlreadySyncing && containerDataFlags.includes('g');
   const held = sendingSingleWriter ? await appQueryService.holdsComponent(appId) : null;
@@ -2232,7 +2318,21 @@ async function manageFolderSyncState(params) {
   return { syncthingFolder, cache: null };
 }
 
+/**
+ * healHeldFolder for a folder the state machine does not run for (s:), from
+ * fresh reads.
+ * @param {string} appId Folder id.
+ * @returns {Promise<boolean>} true once the record is cleared
+ */
+async function healHeldSharedFolder(appId) {
+  return healHeldFolder(appId, {
+    syncStatus: await getFolderSyncCompletion(appId),
+    aPeerHasData: await checkIfPeersAreSynced(appId),
+  });
+}
+
 module.exports = {
+  healHeldSharedFolder,
   manageFolderSyncState,
   getFolderSyncCompletion,
   probeFolderSyncCompletion,

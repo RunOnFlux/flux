@@ -41,6 +41,7 @@ const syncthingFolderWrites = require('./syncthingFolderWrites');
 const folderStates = require('./folderStates');
 const primaryRole = require('../appLifecycle/primaryRole');
 const {
+  healHeldSharedFolder,
   manageFolderSyncState,
   verifyFolderMountSafety,
   verifySendReceiveFolderSafety,
@@ -420,6 +421,16 @@ async function processContainerData(params) {
   } else {
     // An s: folder sends from every holder.
     syncthingFolder.type = 'sendreceive';
+  }
+
+  // A folder an unfinished restore holds receives, in every mode, until healing
+  // from a peer that holds the data, a restore that finishes, or its owner's start
+  // releases it. Its type is written even for a g: folder, so one left sending is
+  // turned; one already receiving is left as it is. The state machine heals an r:
+  // or g: folder above; an s: folder, which it does not run for, is healed here.
+  if (await syncthingFolderWrites.restoreHolds(appId)) {
+    const shared = !(primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g'));
+    if (!(shared && await healHeldSharedFolder(appId))) syncthingFolder.type = 'receiveonly';
   }
 
   // Nothing arrives in a folder whose local appdata is still to be cleared: what

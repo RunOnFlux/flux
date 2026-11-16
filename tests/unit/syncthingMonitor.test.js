@@ -5,6 +5,7 @@ const { EventEmitter } = require('node:events');
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const eventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const folderStates = require('../../ZelBack/src/services/appMonitoring/folderStates');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
@@ -54,6 +55,7 @@ const syncthingFolderStateMachineMock = {
   isDesignatedLeader: sinon.stub(),
   verifyFolderMountSafety: sinon.stub().resolves({ isSafe: true, isMounted: true, fileCount: 1 }),
   verifySendReceiveFolderSafety: sinon.stub().resolves({ isSafe: true, isMounted: true, fileCount: 1 }),
+  healHeldSharedFolder: sinon.stub().resolves(false),
 };
 
 const volumeServiceMock = {
@@ -132,7 +134,10 @@ const syncthingDroppedDevicesMock = {
   cleared: sinon.stub().resolves(),
   folderRemoved: sinon.stub().resolves(),
 };
+// Whether an unfinished restore holds a folder's component.
+const appsRuntimeStateMock = { isRestoreUnfinished: sinon.stub().resolves(false) };
 const syncthingFolderWrites = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites', {
+  '../appManagement/appsRuntimeState': appsRuntimeStateMock,
   './syncthingDroppedDevices': syncthingDroppedDevicesMock,
   '../serviceHelper': serviceHelperMock,
   '../syncthingService': syncthingServiceMock,
@@ -164,6 +169,13 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
 });
 
 describe('syncthingMonitor tests', () => {
+  beforeEach(() => {
+    appsRuntimeStateMock.isRestoreUnfinished.reset();
+    appsRuntimeStateMock.isRestoreUnfinished.resolves(false);
+    syncthingFolderStateMachineMock.healHeldSharedFolder.reset();
+    syncthingFolderStateMachineMock.healHeldSharedFolder.resolves(false);
+  });
+
   let mockState;
   let mockInstalledAppsFn;
   let mockGetGlobalStateFn;
@@ -1445,6 +1457,52 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       expect(putFolderIds(), 'one unmounted volume stopped every other folder being written').to.deep.equal([['goodapp']]);
+    });
+
+    it('writes a folder an unfinished restore holds receiveonly, and the others as they are, in one batch', async () => {
+      twoSendingFolders();
+      // both mounted: the record alone decides
+      volumeServiceMock.isPathMounted.resolves(true);
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').resolves(true);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const put = syncthingServiceMock.adjustConfigFolders.getCalls().find((call) => call.args[0] === 'put');
+      expect(put, 'the batch was not written').to.not.equal(undefined);
+      const types = Object.fromEntries(put.args[1].map((folder) => [folder.id, folder.type]));
+      expect(types).to.deep.equal({ brokenapp: 'receiveonly', goodapp: 'sendreceive' });
+    });
+
+    it('writes nothing for a held folder already receiving', async () => {
+      twoSendingFolders();
+      // both mounted: the record alone decides
+      volumeServiceMock.isPathMounted.resolves(true);
+      syncthingMonitorHelpersMock.folderNeedsUpdate.callsFake((existing, wanted) => wanted.id === 'goodapp' || existing?.type !== wanted.type);
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'brokenapp', path: `${appsFolder}brokenapp`, type: 'receiveonly' }]);
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').resolves(true);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(putFolderIds().flat()).to.not.include('brokenapp');
+    });
+
+    it('writes a held s: folder sending once it has healed', async () => {
+      twoSendingFolders();
+      // both mounted: the record alone decides
+      volumeServiceMock.isPathMounted.resolves(true);
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').resolves(true);
+      syncthingFolderStateMachineMock.healHeldSharedFolder.withArgs('brokenapp').callsFake(async () => {
+        appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').resolves(false);
+        return true;
+      });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const put = syncthingServiceMock.adjustConfigFolders.getCalls().find((call) => call.args[0] === 'put');
+      expect(Object.fromEntries(put.args[1].map((folder) => [folder.id, folder.type]))).to.deep.equal({ brokenapp: 'sendreceive', goodapp: 'sendreceive' });
     });
 
     it('refuses the whole batch when the unmounted folder reaches it', async () => {
