@@ -22,6 +22,7 @@ const {
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
+  requireDatabase,
   requirePolicyReady,
   requireRegistryReady,
 } = require('./services/utils/routeGuards');
@@ -282,7 +283,7 @@ module.exports = (app) => {
   app.get('/flux/nodetier', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxService.getNodeTier(req, res);
   }));
-  app.get('/flux/info', cache('60 seconds'), asyncRoute((req, res) => {
+  app.get('/flux/info', requireDatabase, cache('60 seconds'), asyncRoute((req, res) => {
     return fluxService.getFluxInfo(req, res);
   }));
   app.get('/flux/timezone', asyncRoute((req, res) => {

@@ -3,6 +3,7 @@
 const apicache = require('apicache');
 
 const messageHelper = require('../messageHelper');
+const dbHelper = require('../dbHelper');
 const globalState = require('./globalState');
 const { AsyncLock } = require('./asyncLock');
 const { resolveClientIp } = require('./ingressCapture');
@@ -77,6 +78,25 @@ function serviceUnavailable(res, message, retryAfterSeconds) {
 function requireBootSettled(req, res, next) {
   if (globalState.bootContainerStateSettled) return next();
   return serviceUnavailable(res, 'Node is still reconciling its applications after boot', BOOT_RETRY_AFTER_SECONDS);
+}
+
+/**
+ * Refuse a call whose answer is read from the database before FluxOS has
+ * connected to it. The API starts answering as FluxOS starts, and the connection
+ * follows moments later; a request in between would read through a client that
+ * does not exist yet.
+ *
+ * Put before a route's cache, as the other readiness guards are: a refusal that
+ * reached the cache would be served for the cache's whole life. Not dbReady,
+ * which is about the global app registry being current, a later fact.
+ * @param {object} req Request
+ * @param {object} res Response
+ * @param {Function} next Next handler
+ * @returns {*} next(), or a 503 carrying a Retry-After
+ */
+function requireDatabase(req, res, next) {
+  if (dbHelper.databaseConnection()) return next();
+  return serviceUnavailable(res, 'Node has not yet connected to its database', BOOT_RETRY_AFTER_SECONDS);
 }
 
 /**
@@ -355,6 +375,7 @@ module.exports = {
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
+  requireDatabase,
   requirePolicyReady,
   requireRegistryReady,
 };
