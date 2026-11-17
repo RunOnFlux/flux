@@ -97,11 +97,11 @@ describe('a g: component a restore left part replaced heals only from standbys t
     }
   };
 
-  async function damageAndFail(i, app) {
+  async function damageAndFail(i, app, auth = null) {
     await stageLocalArchive(client(i), app.appName, app.appName, RESTORED);
     await lockPart(client(i), app.appName);
     const mark = client(i).getLastEventId();
-    const body = await restoreLocal(client(i), app.appName, [app.appName], await ownerAuth(i));
+    const body = await restoreLocal(client(i), app.appName, [app.appName], auth ?? await ownerAuth(i));
     expect(body, 'fixture: the restore failed at the clear').to.match(/could not clear/i);
     const left = await readAppdata(client(i), app.appName, app.appName, Object.keys(ORIGINAL));
     DELETED_BY_CLEAR.forEach((path) => expect(left[path], `fixture: the clear deleted ${path}`).to.equal(null));
@@ -262,6 +262,8 @@ describe('a g: component a restore left part replaced heals only from standbys t
     await waitFor(() => sending(primary, A), { timeout: 300000, interval: 2000, label: 'the primary\'s folder sends' });
     await writeAppdata(p, A.appName, A.appName, ORIGINAL);
     await stageLocalArchive(p, A.appName, A.appName, RESTORED);
+    // a node whose syncthing no peer reaches refuses logins, so the session comes first
+    const auth = await ownerAuth(primary);
     // It returns with no peer to heal from, so the record stands when its role is
     // decided. Cut off while it still runs the app, so no standby takes over meanwhile.
     const others = HOLDERS.filter((i) => i !== primary).map((i) => client(i).ip);
@@ -269,7 +271,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
     await disconnectedFromPeers(primary);
     await p.holdCheckpoint('restore:beforeClear', A.folder);
     const mark = p.getLastEventId();
-    const restore = restoreLocal(p, A.appName, [A.appName], await ownerAuth(primary)).catch(() => null);
+    const restore = restoreLocal(p, A.appName, [A.appName], auth).catch(() => null);
     await p.waitForEvent('checkpoint:held', (d) => d.name === 'restore:beforeClear' && d.key === A.folder, 180000, { afterId: mark });
     const folder = await folderOf(primary, A);
     expect({ type: folder?.type, paused: folder?.paused }, 'fixture: the primary\'s folder as the restore left it').to.deep.equal({ type: 'sendreceive', paused: true });
@@ -297,6 +299,8 @@ describe('a g: component a restore left part replaced heals only from standbys t
 
   it('keeps a copy held whose standbys hold nothing', async function () {
     this.timeout(1500000);
+    // a node whose syncthing no peer reaches refuses logins, so the session comes first
+    const auth = await ownerAuth(PRIMARY);
     // the standbys' syncthing never reaches the primary's
     await Promise.all(STANDBYS.map((i) => blockTraffic(client(i).container, [client(PRIMARY).ip], SYNCTHING_PORT)));
     await disconnectedFromPeers(PRIMARY, STANDBYS);
@@ -311,7 +315,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
       const held = await readAppdata(client(i), EMPTY.appName, EMPTY.appName, Object.keys(ORIGINAL));
       expect(Object.values(held).every((v) => v === null), `fixture: standby ${i} holds none of the data`).to.equal(true);
     }
-    await damageAndFail(PRIMARY, EMPTY);
+    await damageAndFail(PRIMARY, EMPTY, auth);
     const from = await heldPasses(PRIMARY, EMPTY);
     await waitHolding(async () => {
       expect(await restoreRecord(PRIMARY, EMPTY.identifier), 'the record').to.equal(true);

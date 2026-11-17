@@ -80,11 +80,11 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     }
   };
 
-  async function damageAndFail(i, app) {
+  async function damageAndFail(i, app, auth = null) {
     await stageLocalArchive(client(i), app.appName, app.appName, RESTORED);
     await lockPart(client(i), app.appName);
     const mark = client(i).getLastEventId();
-    const body = await restoreLocal(client(i), app.appName, [app.appName], await ownerAuth(i));
+    const body = await restoreLocal(client(i), app.appName, [app.appName], auth ?? await ownerAuth(i));
     expect(body, 'fixture: the restore failed at the clear').to.match(/could not clear/i);
     const left = await readAppdata(client(i), app.appName, app.appName, Object.keys(ORIGINAL));
     DELETED_BY_CLEAR.forEach((path) => expect(left[path], `fixture: the clear deleted ${path}`).to.equal(null));
@@ -212,6 +212,8 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     this.timeout(1200000);
     const [restorer, , held] = HOLDERS;
     const others = HOLDERS.filter((i) => i !== held);
+    // a node whose syncthing no peer reaches refuses logins, so the sessions come first
+    const heldAuth = await ownerAuth(held);
     // its syncthing reaches no peer, so nothing heals it meanwhile
     await blockTraffic(client(held).container, others.map((i) => client(i).ip), SYNCTHING_PORT);
     const peerIds = await Promise.all(others.map((i) => getDeviceId(client(i))));
@@ -220,8 +222,7 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
       const connected = await getConnectedDevices(client(held));
       return peerIds.every((id) => !connected.includes(id));
     }, { timeout: 420000, interval: 2000, label: 'the held instance\'s syncthing has lost its peers' });
-    await damageAndFail(held, S);
-    const heldAuth = await ownerAuth(held);
+    await damageAndFail(held, S, heldAuth);
     const stopped = client(held).getLastEventId();
     await client(held).getAuthed(`/apps/appstop/${S.appName}`, heldAuth);
     await client(held).waitForEvent('app:operatorIntent', (d) => d.identifier === S.identifier && d.stopped === true, 120000, { afterId: stopped });
@@ -231,8 +232,11 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     const mark = client(held).getLastEventId();
     const body = await restoreLocal(client(restorer), S.appName, [S.appName], await ownerAuth(restorer));
     expect(body, 'the other instance\'s restore').to.match(/Finalizing/);
-    // the restart reached the held instance
-    await client(held).waitForEvent('app:operatorIntent', (d) => d.identifier === S.identifier && d.restartRequested === true, 180000, { afterId: mark });
+    // the restart reached the held instance, which made none
+    const asked = await client(held).waitForEvent('app:restartRequested', (d) => d.identifier === S.identifier, 180000, { afterId: mark });
+    expect(asked.restarted, 'the held instance restarted a component its owner stopped').to.equal(false);
+    const intents = client(held).getEventBuffer().filter((e) => e.id > mark && e.event === 'app:operatorIntent' && e.data?.identifier === S.identifier);
+    expect(intents, 'the held instance\'s owner intent changed').to.deep.equal([]);
 
     expect(await restoreRecord(held, S.identifier), 'the held instance\'s record').to.equal(true);
     expect(recordWrites(client(held), S.identifier, mark), 'record writes on the held instance').to.deep.equal([]);
