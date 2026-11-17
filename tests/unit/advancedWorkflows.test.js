@@ -6719,8 +6719,9 @@ describe('advancedWorkflows tests', () => {
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
-        // No share for this node: it is the one that has just restored.
-        sinon.assert.calledWithExactly(appController.executeAppGlobalCommand, appname, 'apprestart', 'auth');
+        // No share for this node: it is the one that has just restored. Only what
+        // runs on the peers is restarted: their owners' stops stay.
+        sinon.assert.calledWithExactly(appController.executeAppGlobalCommand, appname, 'apprestart', 'auth', undefined, undefined, { query: 'unlessstopped=true' });
       });
 
       it('leaves an unsynced app alone entirely - no peer holds its data', async () => {

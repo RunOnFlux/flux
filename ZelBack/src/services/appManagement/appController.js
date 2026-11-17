@@ -139,7 +139,7 @@ async function runGlobalCommandHere(runHere, appname, paramA) {
  * @param {Function} [runHere] - This node's share, called as runHere(appname, paramA)
  * @returns {Promise<void>}
  */
-async function executeAppGlobalCommand(appname, command, zelidauth, paramA, runHere) {
+async function executeAppGlobalCommand(appname, command, zelidauth, paramA, runHere, { query } = {}) {
   try {
     // get a list of the specific app locations
     const locations = await appLocation(appname);
@@ -163,6 +163,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, runH
         if (paramA) {
           url += `/${paramA}`;
         }
+        if (query) url += `?${query}`;
         // Fire-and-forget: each node's delivery, with its own bounded retry of a
         // boot-gate 503, runs on its own while the loop paces the sends.
         deliverGlobalCommand(url, axiosConfig);
@@ -664,6 +665,15 @@ async function appRestart(req, res) {
       return res.json(errMessage);
     }
 
+    // Another instance's restore asks this one to read the data it replaced: what
+    // runs is restarted, and what its owner stopped stays stopped.
+    if (serviceHelper.ensureBoolean(req.query?.unlessstopped || false)) {
+      const { restarted, appName: restartedName } = await restartUnlessStopped(appname);
+      return res.json(messageHelper.createDataMessage(restarted.length
+        ? `Application ${restartedName} will be restarted: ${restarted.join(', ')}`
+        : `Application ${restartedName} was not restarted: its owner stopped it`));
+    }
+
     if (global) {
       executeAppGlobalCommand(appname, 'apprestart', authOf(req), undefined, restartHere); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global restart`);
@@ -887,6 +897,34 @@ async function stopAllNonFluxRunningApps() {
 }
 
 /**
+ * Restarts the components of an app here that their owner has not stopped, and
+ * changes no stop lock and no restore record. A component whose lock cannot be
+ * read is not restarted: an unread lock is not an absent one.
+ * @param {string} appname Application or component name.
+ * @returns {Promise<{ids: string[], restarted: string[], appName: string}>}
+ */
+async function restartUnlessStopped(appname) {
+  const { ids, appName } = await operatorTargetIds(appname);
+  const restarted = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    await appReconciler.applyIntent(id, async () => {
+      const stopped = await appsRuntimeState.operatorStoppedOrThrow(id).catch((error) => {
+        log.warn(`restartUnlessStopped - ${id}: not restarted, its stop lock could not be read: ${error.message}`);
+        return true;
+      });
+      if (!stopped) {
+        await appsRuntimeState.requestRestart(id);
+        restarted.push(id);
+      }
+      fluxEventBus.publish('app:restartRequested', { identifier: dockerService.getBaseAppName(id), restarted: !stopped });
+    });
+  }
+  return { ids, restarted, appName };
+}
+
+/**
  * Each component of an app on this node: whether its container runs, whether
  * the reconciler means it to, and its reason when it does not - an operator stop,
  * an unfinished restore, a backup or restore holding it, the election, its
@@ -930,6 +968,7 @@ async function componentStates(req, res) {
 
 module.exports = {
   componentStates,
+  restartUnlessStopped,
   executeAppGlobalCommand,
   deliverGlobalCommand,
   appStart,

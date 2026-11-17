@@ -395,6 +395,8 @@ export function nodeClient(nodeNum) {
         // a backup or restore holding a component stopped through the reconciler, or releasing it
         'reconciler:operationHold',
         'app:operatorIntent',
+        // a restart another instance's restore asked for, and whether it was made
+        'app:restartRequested',
         'reconciler:swept',
         'giveUp:considered',
         'giveUp:safety',

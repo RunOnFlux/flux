@@ -768,6 +768,48 @@ describe('appController tests', () => {
       sinon.stub(appsRuntimeState, 'getState').resolves({ restartGeneration: 1, actuatedRestartGeneration: 1 });
     });
 
+    describe('sent by another instance\'s restore', () => {
+      const restoreRestart = (appname) => appController.appRestart(
+        { params: { appname }, query: { unlessstopped: 'true' } },
+        { json: sinon.fake((param) => param) },
+      );
+
+      it('leaves a component its owner stopped stopped, and changes no lock', async () => {
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').resolves(true);
+        const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+        await restoreRestart('TestApp');
+
+        sinon.assert.notCalled(setOperatorStopped);
+        sinon.assert.notCalled(appsRuntimeState.requestRestart);
+        sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
+      });
+
+      it('restarts a component its owner did not stop, and changes no lock', async () => {
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').resolves(false);
+        const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+        await restoreRestart('TestApp');
+
+        sinon.assert.notCalled(setOperatorStopped);
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.requestRestart, 'TestApp');
+      });
+
+      it('does not restart a component whose lock cannot be read', async () => {
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').rejects(new Error('database unavailable'));
+
+        await restoreRestart('TestApp');
+
+        sinon.assert.notCalled(appsRuntimeState.requestRestart);
+      });
+    });
+
     it('keeps the record of a restore that did not finish: a restart accepts nothing', async () => {
       verificationHelperStub.resolves(true);
       stubInstalledApp({ name: 'TestApp', version: 3 });
@@ -1444,6 +1486,19 @@ describe('appController tests', () => {
 
       sinon.assert.calledOnce(axiosStub);
       sinon.assert.calledWith(axiosStub, `http://${otherNode}/apps/apprestart/TestApp`);
+    });
+
+    it('sends the query it is given to every other instance', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { ip: thisNode, name: 'TestApp' },
+        { ip: otherNode, name: 'TestApp' },
+      ]);
+      const axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
+
+      await appController.executeAppGlobalCommand('TestApp', 'apprestart', 'test-auth', undefined, undefined, { query: 'unlessstopped=true' });
+
+      sinon.assert.calledOnce(axiosStub);
+      sinon.assert.calledWith(axiosStub, `http://${otherNode}/apps/apprestart/TestApp?unlessstopped=true`);
     });
 
     it('logs a failure of the share for this node and still sends the others', async () => {

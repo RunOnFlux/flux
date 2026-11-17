@@ -3352,7 +3352,8 @@ async function appendRestoreTask(req, res) {
 
     // An r:/s: component runs on every instance at once, so the peers' running
     // containers are holding the data this restore has just replaced; a restart
-    // is what makes them read it again, and it recreates no volume. A g:
+    // is what makes them read it again, and it recreates no volume. It restarts
+    // only what runs there: a peer's owner stop and restore record stay. A g:
     // component has no peer container to disturb - the other instances are
     // stopped and adopt the restored data when the role next moves - and an
     // unsynced component's data never left this node.
@@ -3360,7 +3361,7 @@ async function appendRestoreTask(req, res) {
       await sendChunk(res, 'Restarting other instances...\n');
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req)); // do not wait
+      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req), undefined, undefined, { query: 'unlessstopped=true' }); // do not wait
     }
 
     await sendChunk(res, 'Finalizing...\n');
