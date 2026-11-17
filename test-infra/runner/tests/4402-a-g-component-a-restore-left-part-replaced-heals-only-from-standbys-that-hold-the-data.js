@@ -57,6 +57,9 @@ describe('a g: component a restore left part replaced heals only from standbys t
   const appOf = (appName) => ({ appName, identifier: `${appName}_${appName}`, folder: `flux${appName}_${appName}` });
   const A = appOf(`e2eheal${ts}`);
   const EMPTY = appOf(`e2eempty${ts}`);
+  const UNTOUCHED = appOf(`e2euntouched${ts}`);
+  // the owner's session on the primary, taken before its syncthing is cut off from the standbys
+  let cutOffAuth;
 
   const folderOf = async (i, app) => getFolderConfig(client(i), app.folder);
   const sending = async (i, app) => {
@@ -171,7 +174,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
 
   afterTeardown(async function () {
     if (env) {
-      await Promise.all(HOLDERS.flatMap((i) => [A, EMPTY].map(async (app) => {
+      await Promise.all(HOLDERS.flatMap((i) => [A, EMPTY, UNTOUCHED].map(async (app) => {
         await unlockPart(client(i), app.appName).catch(() => {});
         await execInContainer(client(i).container, `chattr -R -i ${appdataOf(app.appName)} 2>/dev/null; true`).catch(() => {});
       })));
@@ -413,26 +416,31 @@ describe('a g: component a restore left part replaced heals only from standbys t
     this.timeout(1500000);
     // a node whose syncthing no peer reaches refuses logins, so the session comes first,
     // once the primary takes logins again after the case before
-    let auth;
     await waitFor(async () => {
-      auth = await ownerAuth(PRIMARY);
+      cutOffAuth = await ownerAuth(PRIMARY);
       return true;
     }, { timeout: 300000, interval: 5000, label: 'the primary takes logins' });
     // the standbys' syncthing never reaches the primary's
     await Promise.all(STANDBYS.map((i) => blockTraffic(client(i).container, [client(PRIMARY).ip], SYNCTHING_PORT)));
     await dropConnections(PRIMARY);
-    const spec = await place(EMPTY);
-    await installOnNodes(env, spec, STANDBYS);
-    await Promise.all(STANDBYS.map((i) => waitFor(async () => (await folderOf(i, EMPTY)) !== null, {
-      timeout: 300000, interval: 3000, label: `standby ${i} holds a ${EMPTY.appName} folder`,
-    })));
     // eslint-disable-next-line no-restricted-syntax
-    for (const i of STANDBYS) {
+    for (const app of [EMPTY, UNTOUCHED]) {
       // eslint-disable-next-line no-await-in-loop
-      const held = await readAppdata(client(i), EMPTY.appName, EMPTY.appName, Object.keys(ORIGINAL));
-      expect(Object.values(held).every((v) => v === null), `fixture: standby ${i} holds none of the data`).to.equal(true);
+      const spec = await place(app);
+      // eslint-disable-next-line no-await-in-loop
+      await installOnNodes(env, spec, STANDBYS);
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.all(STANDBYS.map((i) => waitFor(async () => (await folderOf(i, app)) !== null, {
+        timeout: 300000, interval: 3000, label: `standby ${i} holds a ${app.appName} folder`,
+      })));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const i of STANDBYS) {
+        // eslint-disable-next-line no-await-in-loop
+        const held = await readAppdata(client(i), app.appName, app.appName, Object.keys(ORIGINAL));
+        expect(Object.values(held).every((v) => v === null), `fixture: standby ${i} holds none of ${app.appName}'s data`).to.equal(true);
+      }
     }
-    await damageAndFail(PRIMARY, EMPTY, auth);
+    await damageAndFail(PRIMARY, EMPTY, cutOffAuth);
     const from = await heldPasses(PRIMARY, EMPTY);
     await waitHolding(async () => {
       expect(await restoreRecord(PRIMARY, EMPTY.identifier), 'the record').to.equal(true);
@@ -440,5 +448,33 @@ describe('a g: component a restore left part replaced heals only from standbys t
       expect(await isAppContainerRunning(client(PRIMARY).container, EMPTY.appName), 'the held component runs').to.equal(false);
       return (await heldPasses(PRIMARY, EMPTY)) >= from + PASSES;
     }, { timeout: 300000, interval: 2000, label: 'folder passes over a copy whose standbys hold nothing' });
+  });
+
+  // Nothing to revert: the copy is whole and synced against its own index, so only
+  // the want of a peer that holds the data keeps it held.
+  it('keeps a copy held whose standbys hold nothing when its restore deleted nothing', async function () {
+    this.timeout(900000);
+    const p = client(PRIMARY);
+    await stageLocalArchive(p, UNTOUCHED.appName, UNTOUCHED.appName, RESTORED);
+    // every entry immutable, so the clear removes nothing
+    const lock = await execInContainer(p.container, `chattr -R +i ${appdataOf(UNTOUCHED.appName)}`);
+    expect(lock.exitCode, `fixture: locking appdata: ${lock.output}`).to.equal(0);
+    let mark;
+    try {
+      mark = p.getLastEventId();
+      const body = await restoreLocal(p, UNTOUCHED.appName, [UNTOUCHED.appName], cutOffAuth);
+      expect(body, 'fixture: the restore failed at the clear').to.match(/could not clear/i);
+    } finally {
+      await execInContainer(p.container, `chattr -R -i ${appdataOf(UNTOUCHED.appName)}`);
+    }
+    expect(await readAppdata(p, UNTOUCHED.appName, UNTOUCHED.appName, Object.keys(ORIGINAL)), 'fixture: nothing was deleted').to.deep.equal(ORIGINAL);
+    expect(recordWrites(p, UNTOUCHED.identifier, mark), 'fixture: the restore recorded the component held').to.deep.equal([true]);
+    const from = await heldPasses(PRIMARY, UNTOUCHED);
+    await waitHolding(async () => {
+      expect(recordWrites(p, UNTOUCHED.identifier, mark), 'record writes').to.deep.equal([true]);
+      expect(await sending(PRIMARY, UNTOUCHED), 'the held folder sends').to.equal(false);
+      expect(await isAppContainerRunning(p.container, UNTOUCHED.appName), 'the held component runs').to.equal(false);
+      return (await heldPasses(PRIMARY, UNTOUCHED)) >= from + PASSES;
+    }, { timeout: 300000, interval: 2000, label: 'folder passes over an untouched copy whose standbys hold nothing' });
   });
 });
