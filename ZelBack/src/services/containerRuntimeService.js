@@ -13,10 +13,12 @@ const policyStore = require('./policyStore');
 //
 // The test is FluxOS's own PID namespace. The kernel gives the host's initial
 // PID namespace a fixed inode, PROC_PID_INIT_INO; a container that runs its own
-// init has a namespace of its own, and nothing inside the container changes
-// which one a process is in. So a node whose FluxOS runs in a PID namespace of
-// its own is a container node, including a host that starts FluxOS in a private
-// PID namespace (systemd's PrivatePIDs=).
+// init has a namespace of its own, which no file or setting inside the
+// container changes. So a node whose FluxOS runs in a PID namespace of its own
+// is a container node, including a host that starts FluxOS in a private PID
+// namespace (systemd's PrivatePIDs=). A container started in the host's PID
+// namespace (Docker's --pid=host, LXC sharing the host's) reads as a host: it is
+// not held.
 //
 // A process never changes PID namespace, so it is read once, at start. The
 // signed network policy decides the consequence: its `containerdos` document set
