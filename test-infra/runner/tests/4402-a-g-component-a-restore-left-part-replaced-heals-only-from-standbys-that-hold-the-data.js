@@ -255,7 +255,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
     expect(recordWrites(p, A.identifier, mark), 'record writes over the restore').to.deep.equal([true, false]);
   });
 
-  it('does not resume a held component as primary when FluxOS stops part way through its restore', async function () {
+  it('never sends or runs a held copy across a FluxOS crash part way through its restore', async function () {
     this.timeout(1500000);
     const primary = await currentRunner(A);
     const p = client(primary);
@@ -283,10 +283,11 @@ describe('a g: component a restore left part replaced heals only from standbys t
     expect(await restoreRecord(primary, A.identifier), 'fixture: the record outlives the crash').to.equal(true);
     try {
       await releaseFluxos(p.container);
+      // the returned node passes over the held folder and keeps it held
       await waitHolding(async () => {
         await heldInvariant(primary, A);
-        return (await p.getDecisionCount('primaryRole:returned', A.identifier, 'restoreUnfinished')) > 0;
-      }, { timeout: 300000, interval: 2000, label: 'the returning primary reads its record' });
+        return (await heldPasses(primary, A)) >= PASSES;
+      }, { timeout: 300000, interval: 2000, label: 'folder passes over the held copy after FluxOS returns' });
     } finally {
       await unblockTraffic(p.container, others, SYNCTHING_PORT);
     }
@@ -299,8 +300,13 @@ describe('a g: component a restore left part replaced heals only from standbys t
 
   it('keeps a copy held whose standbys hold nothing', async function () {
     this.timeout(1500000);
-    // a node whose syncthing no peer reaches refuses logins, so the session comes first
-    const auth = await ownerAuth(PRIMARY);
+    // a node whose syncthing no peer reaches refuses logins, so the session comes first,
+    // once the primary takes logins again after the case before
+    let auth;
+    await waitFor(async () => {
+      auth = await ownerAuth(PRIMARY);
+      return true;
+    }, { timeout: 300000, interval: 5000, label: 'the primary takes logins' });
     // the standbys' syncthing never reaches the primary's
     await Promise.all(STANDBYS.map((i) => blockTraffic(client(i).container, [client(PRIMARY).ip], SYNCTHING_PORT)));
     await disconnectedFromPeers(PRIMARY, STANDBYS);

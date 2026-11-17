@@ -234,7 +234,7 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     expect(body, 'the other instance\'s restore').to.match(/Finalizing/);
     // the restart reached the held instance, which made none
     const asked = await client(held).waitForEvent('app:restartRequested', (d) => d.identifier === S.identifier, 180000, { afterId: mark });
-    expect(asked.restarted, 'the held instance restarted a component its owner stopped').to.equal(false);
+    expect(asked.data.restarted, 'the held instance restarted a component its owner stopped').to.equal(false);
     const intents = client(held).getEventBuffer().filter((e) => e.id > mark && e.event === 'app:operatorIntent' && e.data?.identifier === S.identifier);
     expect(intents, 'the held instance\'s owner intent changed').to.deep.equal([]);
 
