@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
-import { pushImage } from '../framework/registry-helper.js';
+import { pushTestApp } from '../framework/registry-helper.js';
 import { stopTicker } from '../framework/daemon-control.js';
 import { setBlocklist } from '../framework/external-http-control.js';
 import {
@@ -49,7 +49,9 @@ describe('Blocklist enforcement over the published policy document', function ()
       // come from a peer, which is the path production actually uses.
       nodeConfigOverrides: { [SOURCE_NODE]: { policy: { refreshIntervalMs: 5000 } } },
     });
-    await pushImage(repoName, 'v1');
+    // test-app exits on SIGTERM, so the removal timed below is the node acting on
+    // the document, not docker's stop timeout.
+    await pushTestApp(repoName, 'v1');
     await bootAndPeer(env);
 
     const spec = buildAppSpec({
