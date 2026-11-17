@@ -804,11 +804,13 @@ describe('syncthingFolderStateMachine tests', () => {
       const syncedStatus = (changes = {}) => ({
         globalBytes: 4096, inSyncBytes: 4096, state: 'idle', receiveOnlyChangedFiles: 0, ...changes,
       });
-      // a peer that holds the data: this node's own folder already sends, which
-      // checkIfPeersAreSynced reads as the cluster holding it
-      const aPeerHoldsTheData = () => syncthingServiceMock.getConfig.resolves({
-        folders: [{ id: 'test-app', type: 'sendreceive', devices: [{ deviceID: 'SELF' }, { deviceID: 'PEER' }] }],
-      });
+      // a peer that holds the data: connected, and complete against the folder's index
+      const aPeerHoldsTheData = () => {
+        syncthingServiceMock.getConfig.resolves({
+          folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'PEER-DEVICE' }] }],
+        });
+        syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+      };
       // no peer: the folder lists this node alone
       const noPeer = () => syncthingServiceMock.getConfig.resolves({
         folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'SELF' }] }],
@@ -889,6 +891,35 @@ describe('syncthingFolderStateMachine tests', () => {
 
         expect(result.cache.restarted).to.not.equal(true);
         appsRuntimeStateMock.setRestoreUnfinished.resolves();
+      });
+
+      it('is not released by its own folder sending, with no connected peer holding the data', async () => {
+        syncthingServiceMock.getConfig.resolves({
+          folders: [{ id: 'test-app', type: 'sendreceive', devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'PEER-DEVICE' }] }],
+        });
+        syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'unknown' });
+        mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
+        mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(appsRuntimeStateMock.setRestoreUnfinished);
+      });
+
+      it('releases a shared folder only from a connected peer that holds the data', async () => {
+        syncthingServiceMock.getConfig.resolves({
+          folders: [{ id: 'test-app', type: 'sendreceive', devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'PEER-DEVICE' }] }],
+        });
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+        syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'unknown' });
+
+        expect(await stateMachine.healHeldSharedFolder('test-app'), 'released with no connected peer').to.equal(false);
+        sinon.assert.notCalled(appsRuntimeStateMock.setRestoreUnfinished);
+
+        syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+        expect(await stateMachine.healHeldSharedFolder('test-app'), 'released from a connected peer').to.equal(true);
+        sinon.assert.calledOnceWithExactly(appsRuntimeStateMock.setRestoreUnfinished, 'test-app', false);
       });
 
       it('reverts nothing when no peer holds the data, and stays held', async () => {
