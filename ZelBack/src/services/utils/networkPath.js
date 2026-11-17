@@ -17,6 +17,7 @@
 const hash = require('object-hash');
 const bitcoinMessage = require('./bitcoinMessage');
 const secp256k1 = require('secp256k1');
+const { normalizeSocketAddress } = require('./socketAddressUtils');
 
 const MAX_HOPS = 16;
 const HOP_SHAPE = /^[A-Za-z0-9+/]{87}=$/;
@@ -63,8 +64,11 @@ function framed(message, sign, toAddress, now = Date.now()) {
 }
 
 /**
- * The key that signed `text`, or null. Any signature recovers some key: it means
- * something only when the key is a listed node's.
+ * The key that signed `text`, or null, in the form the signature declares. A
+ * signature's first byte is 27 plus the recovery id, plus 4 when the signer's key
+ * is compressed; a node signs with its key in the form it is listed under, so the
+ * key comes back as the node list spells it. Any signature recovers some key: it
+ * means something only when the key is a listed node's.
  * @param {string} text
  * @param {string} signature
  * @returns {?string} Hex.
@@ -72,8 +76,9 @@ function framed(message, sign, toAddress, now = Date.now()) {
 function recoverKey(text, signature) {
   try {
     const raw = Buffer.from(signature, 'base64');
-    const recovery = (raw[0] - 27) % 4;
-    const key = secp256k1.ecdsaRecover(raw.subarray(1), recovery, bitcoinMessage.magicHash(text), true);
+    const header = raw[0] - 27;
+    if (raw.length !== 65 || header < 0 || header > 7) return null;
+    const key = secp256k1.ecdsaRecover(raw.subarray(1), header % 4, bitcoinMessage.magicHash(text), header >= 4);
     return Buffer.from(key).toString('hex');
   } catch {
     return null;
@@ -84,7 +89,9 @@ function recoverKey(text, signature) {
  * A received path, read back from this node.
  * @param {{hash: string, timestamp: number, networkPath: Array}} received
  * @param {string} ownAddress
- * @param {function(string): Promise<string[]>} addressesOf The addresses a key is listed at.
+ * @param {function(string): Promise<string[]>} addressesOf The addresses a key is listed at,
+ *   in the node list's form: a node on the default API port may be listed by its IP alone.
+ *   A hop names its receiver as ip:port, so each is compared with its port.
  * @returns {Promise<{verified: boolean, hops: Array<{sentAt: number, pubKey: string, to: string}>}>}
  *   Each hop in order; `verified` is false where the chain breaks, with the hops read until then.
  */
@@ -100,7 +107,7 @@ async function readPath(received, ownAddress, addressesOf) {
     for (const to of receivers) {
       const pubKey = recoverKey(hopText(previous, sentAt, to), path[i][1]);
       // eslint-disable-next-line no-await-in-loop
-      const addresses = pubKey ? await addressesOf(pubKey) : [];
+      const addresses = pubKey ? (await addressesOf(pubKey)).map(normalizeSocketAddress).filter(Boolean) : [];
       if (addresses.length) {
         found = { sentAt, pubKey, to, addresses };
         break;

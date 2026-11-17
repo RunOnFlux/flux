@@ -1043,6 +1043,40 @@ describe('fluxCommunication tests', () => {
     });
   });
 
+  describe('the peers route', () => {
+    const peerOf = (ip, link) => ({
+      ip,
+      port: '16127',
+      direction: 'outbound',
+      connectedAt: Date.now(),
+      badMessageTimestamps: [],
+      remoteCapabilities: new Set(['arcaneLink']),
+      link,
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('says which links are authenticated, and why a failed one is not', () => {
+      sinon.stub(peerManager, 'allValues').returns([
+        peerOf('192.0.2.1', { authenticated: true, failed: null }),
+        peerOf('192.0.2.2', { authenticated: false, failed: 'notListedHere' }),
+        peerOf('192.0.2.3', undefined),
+      ]);
+      const res = { json: sinon.stub() };
+
+      fluxCommunication.getPeers({ params: {} }, res);
+
+      const peers = res.json.firstCall.args[0].data;
+      expect(peers.map(({ ip, authenticated, linkFailed }) => ({ ip, authenticated, linkFailed }))).to.deep.equal([
+        { ip: '192.0.2.1', authenticated: true, linkFailed: null },
+        { ip: '192.0.2.2', authenticated: false, linkFailed: 'notListedHere' },
+        { ip: '192.0.2.3', authenticated: false, linkFailed: null },
+      ]);
+    });
+  });
+
   describe('holding authenticated links', () => {
     let arcane;
     let mod;

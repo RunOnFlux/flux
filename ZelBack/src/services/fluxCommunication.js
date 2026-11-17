@@ -2648,6 +2648,10 @@ function peerToDetailedInfo(peer) {
     bytesSent: peer.bytesSent,
     remoteVersion: peer.remoteVersion,
     reconnects: peer.reconnects,
+    // Whether the link is an authenticated Arcane link (arcaneLink.js), and why
+    // not when its handshake failed; null while it is running or never ran.
+    authenticated: Boolean(peer.link?.authenticated),
+    linkFailed: peer.link?.failed ?? null,
   };
 }
 
