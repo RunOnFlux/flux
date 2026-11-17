@@ -14,7 +14,7 @@ import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
-  crashFluxos, releaseFluxos, isAppContainerRunning, getAppContainerStatus,
+  crashFluxos, releaseFluxos, isAppContainerRunning, getAppContainerStatus, execInContainer,
 } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableSyncthingApp } from '../framework/seed-helper.js';
@@ -24,7 +24,7 @@ import { waitFor, waitHolding, waitForUp, waitForOperatorIntent } from '../frame
 import { isDaemonUp, getFolderConfig } from '../framework/syncthing-real.js';
 import { electMaster } from '../framework/fdm-control.js';
 import {
-  ORIGINAL, DELETED_BY_CLEAR, writeAppdata, readAppdata, lockPart, unlockPart, stageLocalArchive,
+  ORIGINAL, DELETED_BY_CLEAR, appdataOf, writeAppdata, readAppdata, lockPart, unlockPart, stageLocalArchive,
   archiveDigest, restoreRecord, componentStates, restoreLocal, recordWrites,
 } from '../framework/restore-fixture.js';
 import { authenticate } from '../auth.js';
@@ -221,6 +221,33 @@ describe('a lone g: component a restore left part replaced stays stopped until a
     });
     expect(await readAppdata(client(), appName, appName, ['locked/kept.txt', 'a.txt']), 'the data it runs on')
       .to.deep.equal({ 'locked/kept.txt': ORIGINAL['locked/kept.txt'], 'a.txt': null });
+  });
+
+  it('keeps a lone copy held whose restore deleted nothing, having no peer to heal from', async function () {
+    this.timeout(600000);
+    const dir = appdataOf(appName);
+    await waitForUp(client(), appName, 'the component runs before the restore', { timeout: 300000, interval: 3000 });
+    await unlockPart(client(), appName);
+    await writeAppdata(client(), appName, appName, ORIGINAL);
+    await stageLocalArchive(client(), appName, appName, RESTORED);
+    // every entry immutable, so the clear removes nothing
+    const lock = await execInContainer(client().container, `chattr -R +i ${dir}`);
+    expect(lock.exitCode, `fixture: locking appdata: ${lock.output}`).to.equal(0);
+    const auth = await ownerAuth();
+    try {
+      const body = await restoreLocal(client(), appName, [appName], auth);
+      expect(body, 'fixture: the restore failed at the clear').to.match(/could not clear/i);
+      expect(await readAppdata(client(), appName, appName, Object.keys(ORIGINAL)), 'fixture: nothing was deleted').to.deep.equal(ORIGINAL);
+      expect(await restoreRecord(SUBJECT, identifier), 'the record').to.equal(true);
+      await holdThroughPasses('a lone copy whose restore deleted nothing');
+    } finally {
+      await execInContainer(client().container, `chattr -R -i ${dir}`);
+    }
+    const mark = client().getLastEventId();
+    await client().getAuthed(`/apps/appstart/${appName}`, auth);
+    await waitFor(() => recordWrites(client(), identifier, mark).includes(false), {
+      timeout: 120000, interval: 1000, label: 'the owner\'s start clears the record',
+    });
   });
 
   it('holds each component of a mixed app on its own record, and releasing one leaves the other held', async function () {
