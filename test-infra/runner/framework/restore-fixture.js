@@ -5,6 +5,11 @@
 // fails when anything in it cannot be removed. A directory made immutable keeps
 // itself and what it holds while every other entry is deleted, so the failed clear
 // leaves appdata part deleted and part kept: neither the old copy nor the archive.
+//
+// syncthing rebuilds a missing file from any local block with the same hash, in any
+// folder. Each file written here ends with a line naming its component, so no two
+// components' data share a block and a copy cut off from its peers cannot heal from
+// another app's folder on the same node. readAppdata takes that line off again.
 
 import { expect } from 'chai';
 import { execInContainer } from './container.js';
@@ -19,6 +24,8 @@ export const localArchiveOf = (appName, component = appName) => `${componentDir(
 // deletes, and one inside the directory it cannot.
 export const ORIGINAL = Object.freeze({ 'a.txt': 'original-a', 'b.txt': 'original-b', 'locked/kept.txt': 'original-kept' });
 export const DELETED_BY_CLEAR = Object.freeze(['a.txt', 'b.txt']);
+// the line that ends every file writeAppdata writes
+const identityLine = (appName, component) => `\n${component}_${appName}`;
 
 async function run(client, command, what) {
   const r = await execInContainer(client.container, command);
@@ -34,7 +41,7 @@ const quoted = (text) => `'${String(text).replace(/'/g, "'\\''")}'`;
  */
 export async function writeAppdata(client, appName, component, files = ORIGINAL) {
   const root = appdataOf(appName, component);
-  const writes = Object.entries(files).map(([path, content]) => `mkdir -p "$(dirname ${root}/${path})" && printf %s ${quoted(content)} > ${root}/${path}`);
+  const writes = Object.entries(files).map(([path, content]) => `mkdir -p "$(dirname ${root}/${path})" && printf %s ${quoted(`${content}${identityLine(appName, component)}`)} > ${root}/${path}`);
   await run(client, writes.join(' && '), `writing ${component}'s appdata`);
   expect(await readAppdata(client, appName, component, Object.keys(files)), `${component}'s appdata as written`).to.deep.equal(files);
 }
@@ -51,7 +58,9 @@ export async function readAppdata(client, appName, component, paths) {
   for (const path of paths) {
     // eslint-disable-next-line no-await-in-loop
     const r = await execInContainer(client.container, `test -f ${root}/${path} && cat ${root}/${path} || printf %s ${ABSENT}`);
-    out[path] = r.stdout === ABSENT ? null : r.stdout;
+    const suffix = identityLine(appName, component);
+    if (r.stdout === ABSENT) out[path] = null;
+    else out[path] = r.stdout.endsWith(suffix) ? r.stdout.slice(0, -suffix.length) : r.stdout;
   }
   return out;
 }

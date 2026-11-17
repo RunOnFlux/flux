@@ -22,7 +22,9 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
-import { isDaemonUp, isFolderSynced, getFolderConfig } from '../framework/syncthing-real.js';
+import {
+  isDaemonUp, isFolderSynced, getFolderConfig, getDeviceId, getConnectedDevices,
+} from '../framework/syncthing-real.js';
 import {
   ORIGINAL, DELETED_BY_CLEAR, writeAppdata, readAppdata, lockPart, unlockPart, stageLocalArchive,
   restoreRecord, restoreLocal, recordWrites, componentStates,
@@ -148,7 +150,11 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
       await heldInvariant(writer, R);
       if (!(await restoreRecord(writer, R.identifier)) || (await heldPasses(writer, R)) < 1) return false;
       const { data } = await client(writer).getAuthed('/apps/promotedfolders', auth);
-      expect(data?.holding?.[R.folder], 'what the held folder claims to its peers').to.deep.equal(NO_CLAIM);
+      const seen = JSON.stringify(data);
+      expect(data?.holding, `fixture: the Flux team reads holdings: ${seen}`).to.be.an('object');
+      expect(data.folders, `the held folder is offered as writable: ${seen}`).to.not.include(R.folder);
+      expect(data.holding[R.folder] ?? NO_CLAIM, `what the held folder claims to its peers: ${seen}`).to.deep.equal(NO_CLAIM);
+      expect(data.seeding?.[R.folder], `the held folder seeds: ${seen}`).to.equal(undefined);
       return true;
     }, { timeout: 300000, interval: 2000, label: 'a folder pass over the held copy' });
     await unlockPart(client(writer), R.appName);
@@ -203,6 +209,11 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     const others = HOLDERS.filter((i) => i !== held);
     // its syncthing reaches no peer, so nothing heals it meanwhile
     await blockTraffic(client(held).container, others.map((i) => client(i).ip), SYNCTHING_PORT);
+    const peerIds = await Promise.all(others.map((i) => getDeviceId(client(i))));
+    await waitFor(async () => {
+      const connected = await getConnectedDevices(client(held));
+      return peerIds.every((id) => !connected.includes(id));
+    }, { timeout: 300000, interval: 2000, label: 'the held instance\'s syncthing has lost its peers' });
     await damageAndFail(held, S);
     const heldAuth = await ownerAuth(held);
     const stopped = client(held).getLastEventId();

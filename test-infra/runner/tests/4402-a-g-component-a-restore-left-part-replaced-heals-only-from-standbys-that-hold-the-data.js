@@ -22,7 +22,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding, waitForUp } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus,
+  isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, getDeviceId, getConnectedDevices,
 } from '../framework/syncthing-real.js';
 import {
   ORIGINAL, DELETED_BY_CLEAR, appdataOf, writeAppdata, readAppdata, lockPart, unlockPart,
@@ -72,6 +72,14 @@ describe('a g: component a restore left part replaced heals only from standbys t
       return running.length === 1;
     }, { timeout: 600000, interval: 2000, label: `exactly one holder runs ${app.appName}` });
     return runner;
+  };
+  // node i's syncthing holds no connection to the given holders' (all others by default)
+  const disconnectedFromPeers = async (i, from = HOLDERS.filter((h) => h !== i)) => {
+    const ids = await Promise.all(from.map((h) => getDeviceId(client(h))));
+    await waitFor(async () => {
+      const connected = await getConnectedDevices(client(i));
+      return ids.every((id) => !connected.includes(id));
+    }, { timeout: 300000, interval: 2000, label: `node ${i}'s syncthing has lost its peers` });
   };
   const heldPasses = (i, app) => client(i).getDecisionCount('syncthing:restoreUnfinished', app.folder, 'held');
   // Asserted on every poll while node i's record holds the component: it neither
@@ -141,7 +149,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
     if (env) {
       await Promise.all(HOLDERS.flatMap((i) => [A, EMPTY].map(async (app) => {
         await unlockPart(client(i), app.appName).catch(() => {});
-        await execInContainer(client(i).container, `chattr -i ${appdataOf(app.appName)} 2>/dev/null; true`).catch(() => {});
+        await execInContainer(client(i).container, `chattr -R -i ${appdataOf(app.appName)} 2>/dev/null; true`).catch(() => {});
       })));
     }
     await env?.teardown();
@@ -198,7 +206,8 @@ describe('a g: component a restore left part replaced heals only from standbys t
     this.timeout(420000);
     const p = client(PRIMARY);
     await stageLocalArchive(p, A.appName, A.appName, RESTORED);
-    const lock = await execInContainer(p.container, `chattr +i ${appdataOf(A.appName)}`);
+    // every entry immutable, so the clear removes nothing
+    const lock = await execInContainer(p.container, `chattr -R +i ${appdataOf(A.appName)}`);
     expect(lock.exitCode, `fixture: locking appdata: ${lock.output}`).to.equal(0);
     let mark;
     try {
@@ -206,7 +215,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
       const body = await restoreLocal(p, A.appName, [A.appName], await ownerAuth(PRIMARY));
       expect(body, 'fixture: the restore failed at the clear').to.match(/could not clear/i);
     } finally {
-      await execInContainer(p.container, `chattr -i ${appdataOf(A.appName)}`);
+      await execInContainer(p.container, `chattr -R -i ${appdataOf(A.appName)}`);
     }
     expect(await readAppdata(p, A.appName, A.appName, Object.keys(ORIGINAL)), 'fixture: nothing was deleted').to.deep.equal(ORIGINAL);
     await waitHolding(async () => {
@@ -255,12 +264,16 @@ describe('a g: component a restore left part replaced heals only from standbys t
     await p.waitForEvent('checkpoint:held', (d) => d.name === 'restore:beforeClear' && d.key === A.folder, 180000, { afterId: mark });
     const folder = await folderOf(primary, A);
     expect({ type: folder?.type, paused: folder?.paused }, 'fixture: the primary\'s folder as the restore left it').to.deep.equal({ type: 'sendreceive', paused: true });
+    // FluxOS stops part way through the clear: some of the data is already gone
+    const cleared = await execInContainer(p.container, DELETED_BY_CLEAR.map((path) => `rm ${appdataOf(A.appName)}/${path}`).join(' && '));
+    expect(cleared.exitCode, `fixture: the part of the clear that ran: ${cleared.output}`).to.equal(0);
+    // and it returns with no peer to heal from, so the record stands when its role is decided
+    const others = HOLDERS.filter((i) => i !== primary).map((i) => client(i).ip);
+    await blockTraffic(p.container, others, SYNCTHING_PORT);
+    await disconnectedFromPeers(primary);
     await crashFluxos(p.container, { hold: true });
     await restore;
     expect(await restoreRecord(primary, A.identifier), 'fixture: the record outlives the crash').to.equal(true);
-    // it returns with no peer to heal from, so the record stands when its role is decided
-    const others = HOLDERS.filter((i) => i !== primary).map((i) => client(i).ip);
-    await blockTraffic(p.container, others, SYNCTHING_PORT);
     try {
       await releaseFluxos(p.container);
       await waitHolding(async () => {
@@ -274,13 +287,14 @@ describe('a g: component a restore left part replaced heals only from standbys t
       await heldInvariant(primary, A);
       return !(await restoreRecord(primary, A.identifier));
     }, { timeout: 600000, interval: 2000, label: 'the record of a restore that deleted nothing is cleared' });
-    expect(await readAppdata(p, A.appName, A.appName, Object.keys(ORIGINAL)), 'the data').to.deep.equal(ORIGINAL);
+    expect(await readAppdata(p, A.appName, A.appName, Object.keys(ORIGINAL)), 'the healed data').to.deep.equal(ORIGINAL);
   });
 
   it('keeps a copy held whose standbys hold nothing', async function () {
     this.timeout(1200000);
     // the standbys' syncthing never reaches the primary's
     await Promise.all(STANDBYS.map((i) => blockTraffic(client(i).container, [client(PRIMARY).ip], SYNCTHING_PORT)));
+    await disconnectedFromPeers(PRIMARY, STANDBYS);
     const spec = await place(EMPTY);
     await installOnNodes(env, spec, STANDBYS);
     await Promise.all(STANDBYS.map((i) => waitFor(async () => (await folderOf(i, EMPTY)) !== null, {
