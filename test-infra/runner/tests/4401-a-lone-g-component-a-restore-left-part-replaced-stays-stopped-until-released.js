@@ -13,9 +13,12 @@
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { crashFluxos, releaseFluxos, isAppContainerRunning } from '../framework/container.js';
+import {
+  crashFluxos, releaseFluxos, isAppContainerRunning, getAppContainerStatus,
+} from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
+import { buildSeedableApp, buildSeedableSyncthingApp } from '../framework/seed-helper.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding, waitForUp, waitForOperatorIntent } from '../framework/wait.js';
 import { isDaemonUp, getFolderConfig } from '../framework/syncthing-real.js';
@@ -38,6 +41,7 @@ describe('a lone g: component a restore left part replaced stays stopped until a
   dumpLogsOnFailure(() => env);
 
   const appName = `e2elone${Date.now()}`;
+  const mixName = `e2emix${Date.now()}`;
   const identifier = `${appName}_${appName}`;
   const folder = `flux${identifier}`;
   const SUBJECT = 1;
@@ -105,7 +109,10 @@ describe('a lone g: component a restore left part replaced stays stopped until a
   });
 
   afterTeardown(async function () {
-    if (env) await unlockPart(client(), appName).catch(() => {});
+    if (env) {
+      await unlockPart(client(), appName).catch(() => {});
+      await Promise.all(['gs', 'ps'].map((c) => unlockPart(client(), mixName, c).catch(() => {})));
+    }
     await env?.teardown();
   });
 
@@ -214,5 +221,65 @@ describe('a lone g: component a restore left part replaced stays stopped until a
     });
     expect(await readAppdata(client(), appName, appName, ['locked/kept.txt', 'a.txt']), 'the data it runs on')
       .to.deep.equal({ 'locked/kept.txt': ORIGINAL['locked/kept.txt'], 'a.txt': null });
+  });
+
+  it('holds each component of a mixed app on its own record, and releasing one leaves the other held', async function () {
+    this.timeout(900000);
+    const component = (name, containerData) => ({
+      name,
+      description: `${name} component`,
+      repotag: `${REGISTRY_REPO_HOST}/${mixName}:v1`,
+      ports: [],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts: [80],
+      containerData,
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    });
+    await pushImage(mixName, 'v1');
+    const mix = await buildSeedableApp({
+      name: mixName, env, instances: 1, compose: [component('gs', 'g:/appdata'), component('ps', '/appdata')],
+    });
+    await electMaster(mixName, client().ip);
+    await installOnNodes(env, mix, [SUBJECT]);
+    const up = async (c) => (await getAppContainerStatus(client().container, `${c}_${mixName}`))?.status?.startsWith('Up') === true;
+    await waitFor(async () => (await up('gs')) && (await up('ps')), {
+      timeout: 300000, interval: 3000, label: 'both components of the mixed app run',
+    });
+    const auth = await ownerAuth();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const c of ['gs', 'ps']) {
+      // eslint-disable-next-line no-await-in-loop
+      await writeAppdata(client(), mixName, c, ORIGINAL);
+      // eslint-disable-next-line no-await-in-loop
+      await stageLocalArchive(client(), mixName, c, RESTORED);
+      // eslint-disable-next-line no-await-in-loop
+      await lockPart(client(), mixName, c);
+      // eslint-disable-next-line no-await-in-loop
+      const body = await restoreLocal(client(), mixName, [c], auth);
+      expect(body, `fixture: ${c}'s restore failed at the clear`).to.match(/could not clear/i);
+    }
+    const records = async () => ({ gs: await restoreRecord(SUBJECT, `gs_${mixName}`), ps: await restoreRecord(SUBJECT, `ps_${mixName}`) });
+    expect(await records(), 'each component\'s record').to.deep.equal({ gs: true, ps: true });
+
+    await unlockPart(client(), mixName, 'ps');
+    const mark = client().getLastEventId();
+    await client().getAuthed(`/apps/appstart/ps_${mixName}`, auth);
+    await waitFor(() => recordWrites(client(), `ps_${mixName}`, mark).includes(false), {
+      timeout: 120000, interval: 1000, label: 'the start of one component clears its record',
+    });
+    const gsFolder = `fluxgs_${mixName}`;
+    const from = await client().getDecisionCount('syncthing:restoreUnfinished', gsFolder, 'held');
+    await waitHolding(async () => {
+      expect((await records()).gs, 'the other component\'s record').to.equal(true);
+      expect(await up('gs'), 'the other, held, component runs').to.equal(false);
+      expect((await getFolderConfig(client(), gsFolder))?.type, 'the other, held, component\'s folder').to.not.equal('sendreceive');
+      return (await up('ps')) && (await client().getDecisionCount('syncthing:restoreUnfinished', gsFolder, 'held')) >= from + PASSES;
+    }, { timeout: 300000, interval: 2000, label: 'the started component runs and the other stays held' });
+    expect(recordWrites(client(), `gs_${mixName}`, mark), 'record writes for the other component').to.deep.equal([]);
   });
 });
