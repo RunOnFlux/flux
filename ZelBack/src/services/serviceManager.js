@@ -51,6 +51,7 @@ const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
 const ufwHelper = require('./utils/ufwHelper');
 const policyStore = require('./policyStore');
+const containerRuntimeService = require('./containerRuntimeService');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -332,6 +333,10 @@ async function startFluxFunctions() {
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
     // version found and the version required.
     fluxNetworkHelper.checkNodeJsVersionAllowed();
+    // Before the policy bundle is restored, so the restored bundle is the first
+    // one it decides on: a container node stays up holding a sticky DOS while
+    // the policy says so, and /flux/info reports it either way.
+    await containerRuntimeService.start();
     // Before the dependencies are waited for: a stalled one is what this sees.
     // Awaited so a trip recorded in this boot holds the node before boot acts.
     await hostStallService.start();

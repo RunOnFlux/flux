@@ -34,6 +34,7 @@ const dockerService = require('./dockerService');
 const upnpService = require('./upnpService');
 const uplinkService = require('./uplinkService');
 const kernelService = require('./kernelService');
+const containerRuntimeService = require('./containerRuntimeService');
 const enterpriseConfig = require('./utils/enterpriseConfig');
 const { answerDaemonUnavailable } = require('./utils/routeGuards');
 
@@ -1614,6 +1615,7 @@ async function getFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.flux.dos = dosResult.data;
+    info.flux.containerRuntime = containerRuntimeService.getStatus();
     // eslint-disable-next-line global-require
     const appInspector = require('./appManagement/appInspector');
     const dosAppsResult = await appInspector.getAppsDOSState();

@@ -104,6 +104,17 @@ export async function setBlocklist(entries) {
 }
 
 /**
+ * Merge policy documents over the ones the stub serves and publish the result as a new
+ * signed bundle. A document set to null is left out of the bundle.
+ *
+ * @param {object} documents Document name to value.
+ * @returns {Promise<{seq: number}>} The sequence the fleet converges on.
+ */
+export async function setPolicyDocuments(documents) {
+  return post('/policy', { documents });
+}
+
+/**
  * Publish the flat blocklist, which a node reads only when the typed document is
  * empty or unreadable. Its entries are bare strings matched against the hash, the
  * owner, the repository and the namespace alike.
