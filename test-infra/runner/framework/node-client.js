@@ -338,6 +338,8 @@ export function nodeClient(nodeNum) {
         'primaryRole:changed',
         'primaryRole:standDownGiven',
         'primaryRole:returned',
+        // a restore's record that it is replacing a component's data, written or cleared
+        'restore:record',
         'shutdown:paused',
         'system:packages-checked',
         'system:apt-command',

@@ -186,6 +186,9 @@ const Checkpoint = Object.freeze({
   // The local removal queue has taken an app as the one it removes next, and has
   // not started removing it. Keyed by app name.
   REMOVAL_QUEUE_BEFORE_REMOVAL: 'removalQueue:beforeRemoval',
+  // A restore has recorded that it is replacing a component's data and has not
+  // yet cleared any of it. Keyed by the component's folder id.
+  RESTORE_BEFORE_CLEAR: 'restore:beforeClear',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

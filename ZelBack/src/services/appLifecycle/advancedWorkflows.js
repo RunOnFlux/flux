@@ -3290,6 +3290,8 @@ async function appendRestoreTask(req, res) {
       await appsRuntimeState.setRestoreUnfinished(target.folderId, true);
       swapInFlight = target;
       // eslint-disable-next-line no-await-in-loop
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RESTORE_BEFORE_CLEAR, target.folderId);
+      // eslint-disable-next-line no-await-in-loop
       const cleared = await IOUtils.removeDirectory(target.appDataPath, true);
       if (cleared !== true) {
         throw new Error(`Error: could not clear ${target.name.toLowerCase()} appdata before unpacking`);

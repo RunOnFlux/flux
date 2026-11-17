@@ -2,6 +2,7 @@ const config = require('config');
 const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 // Node-local, per-component controller state. Sits between the app spec
 // (desired config, in appsInformation) and Docker (actual state). Holds the
@@ -319,6 +320,7 @@ async function isRestoreUnfinished(identifier) {
  */
 async function setRestoreUnfinished(identifier, unfinished) {
   await setFields(identifier, { restoreUnfinished: unfinished });
+  fluxEventBus.publish('restore:record', { identifier: canonical(identifier), unfinished });
 }
 
 /**
