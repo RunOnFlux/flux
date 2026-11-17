@@ -82,6 +82,22 @@ describe('a g: component a restore left part replaced heals only from standbys t
       return ids.every((id) => !connected.includes(id));
     }, { timeout: 420000, interval: 2000, label: `node ${i}'s syncthing has lost its peers` });
   };
+  // the node's existing syncthing connections dropped at once (a device paused and resumed
+  // reconnects, and the traffic block stops it): what a partition reaches after syncthing's
+  // own receive timeout
+  const dropConnections = async (i) => {
+    const others = HOLDERS.filter((h) => h !== i);
+    const ids = await Promise.all(others.map((h) => getDeviceId(client(h))));
+    const conf = "$(getent passwd \"${FLUX_FLUXOS_USER:-root}\" | cut -d: -f6)";
+    for (const id of ids) {
+      for (const op of ['pause', 'resume']) {
+        // eslint-disable-next-line no-await-in-loop
+        const r = await execInContainer(client(i).container, `k=$(sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' ${conf}/.config/syncthing/config.xml /dat/usr/lib/syncthing/config.xml 2>/dev/null | head -1); curl -sS -f -X POST -H "X-API-Key: $k" "http://127.0.0.1:8384/rest/system/${op}?device=${id}"`);
+        expect(r.exitCode, `syncthing ${op} of ${id}: ${r.output}`).to.equal(0);
+      }
+    }
+    await disconnectedFromPeers(i);
+  };
   const heldPasses = (i, app) => client(i).getDecisionCount('syncthing:restoreUnfinished', app.folder, 'held');
   // Asserted on every poll: at most one holder runs the app, and node i neither runs
   // nor sends it while its record holds it. The folder and container are read before
@@ -181,11 +197,28 @@ describe('a g: component a restore left part replaced heals only from standbys t
     }, { timeout: 120000, interval: 1000, label: 'syncthing has scanned the standby\'s deletion' });
     // eslint-disable-next-line no-console
     console.log(`# a receive-only folder with a local deletion, as db/status reports it: ${JSON.stringify(measured)}`);
-    await waitHolding(async () => {
-      const running = await runners(A);
-      expect(running, 'a standby missing a file runs the component').to.deep.equal([PRIMARY]);
-      return (await readAppdata(client(standby), A.appName, A.appName, ['a.txt']))['a.txt'] === ORIGINAL['a.txt'];
-    }, { timeout: 300000, interval: 2000, label: `the standby's deleted file is back (${JSON.stringify(measured)})` });
+    // what db/status reports, change by change, while the deletion is reverted and the
+    // file comes back: what a decision taken on one reading of it may rely on
+    const timeline = [];
+    const started = Date.now();
+    let back = false;
+    while (!back && Date.now() - started < 300000) {
+      // eslint-disable-next-line no-await-in-loop
+      const status = await getFolderStatus(client(standby), A.folder);
+      // eslint-disable-next-line no-await-in-loop
+      back = (await readAppdata(client(standby), A.appName, A.appName, ['a.txt']))['a.txt'] === ORIGINAL['a.txt'];
+      const seen = [
+        status?.state, status?.needFiles, status?.needDeletes, status?.needBytes,
+        status?.inSyncBytes, status?.globalBytes, status?.receiveOnlyChangedDeletes, back,
+      ].join(' ');
+      if (timeline.at(-1)?.seen !== seen) timeline.push({ ms: Date.now() - started, seen });
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => { setTimeout(resolve, 250); });
+    }
+    // eslint-disable-next-line no-console
+    console.log(`# revert timeline (ms: state needFiles needDeletes needBytes inSyncBytes globalBytes receiveOnlyChangedDeletes fileOnDisk):\n${timeline.map((t) => `#   ${t.ms}: ${t.seen}`).join('\n')}`);
+    expect(back, `the standby's deleted file is back (${JSON.stringify(measured)})`).to.equal(true);
+    expect(await runners(A), 'a standby missing a file ran the component').to.deep.equal([PRIMARY]);
   });
 
   it('never sends or runs the damaged copy, and heals it from the standbys', async function () {
@@ -261,6 +294,12 @@ describe('a g: component a restore left part replaced heals only from standbys t
     const p = client(primary);
     await waitFor(() => sending(primary, A), { timeout: 300000, interval: 2000, label: 'the primary\'s folder sends' });
     await writeAppdata(p, A.appName, A.appName, ORIGINAL);
+    // the standbys hold what was written before the primary is cut off: the copy a heal
+    // returns it to is theirs
+    await Promise.all(HOLDERS.filter((i) => i !== primary).map((i) => waitFor(
+      async () => JSON.stringify(await readAppdata(client(i), A.appName, A.appName, Object.keys(ORIGINAL))) === JSON.stringify(ORIGINAL),
+      { timeout: 300000, interval: 2000, label: `node ${i} holds what the primary wrote` },
+    )));
     await stageLocalArchive(p, A.appName, A.appName, RESTORED);
     // a node whose syncthing no peer reaches refuses logins, so the session comes first
     const auth = await ownerAuth(primary);
@@ -268,7 +307,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
     // decided. Cut off while it still runs the app, so no standby takes over meanwhile.
     const others = HOLDERS.filter((i) => i !== primary).map((i) => client(i).ip);
     await blockTraffic(p.container, others, SYNCTHING_PORT);
-    await disconnectedFromPeers(primary);
+    await dropConnections(primary);
     await p.holdCheckpoint('restore:beforeClear', A.folder);
     const mark = p.getLastEventId();
     const restore = restoreLocal(p, A.appName, [A.appName], auth).catch(() => null);
@@ -309,7 +348,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
     }, { timeout: 300000, interval: 5000, label: 'the primary takes logins' });
     // the standbys' syncthing never reaches the primary's
     await Promise.all(STANDBYS.map((i) => blockTraffic(client(i).container, [client(PRIMARY).ip], SYNCTHING_PORT)));
-    await disconnectedFromPeers(PRIMARY, STANDBYS);
+    await dropConnections(PRIMARY);
     const spec = await place(EMPTY);
     await installOnNodes(env, spec, STANDBYS);
     await Promise.all(STANDBYS.map((i) => waitFor(async () => (await folderOf(i, EMPTY)) !== null, {
