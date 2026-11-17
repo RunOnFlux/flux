@@ -191,8 +191,9 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     expect({ type: folder?.type, paused: folder?.paused }, 'fixture: the folder as the restore left it').to.deep.equal({ type: 'sendreceive', paused: true });
     await crashFluxos(p.container, { hold: true });
     await restore;
-    expect(await restoreRecord(writer, R.identifier), 'fixture: the record outlives the crash').to.equal(true);
+    const outlived = await restoreRecord(writer, R.identifier);
     await releaseFluxos(p.container);
+    expect(outlived, 'fixture: the record outlives the crash').to.equal(true);
     await waitHolding(async () => {
       await heldInvariant(writer, R);
       return !(await restoreRecord(writer, R.identifier));

@@ -333,9 +333,10 @@ describe('a g: component a restore left part replaced heals only from standbys t
     expect(cleared.exitCode, `fixture: the part of the clear that ran: ${cleared.output}`).to.equal(0);
     await crashFluxos(p.container, { hold: true });
     await restore;
-    expect(await restoreRecord(primary, A.identifier), 'fixture: the record outlives the crash').to.equal(true);
+    const outlived = await restoreRecord(primary, A.identifier);
     try {
       await releaseFluxos(p.container);
+      expect(outlived, 'fixture: the record outlives the crash').to.equal(true);
       // the returned node passes over the held folder and keeps it held
       await waitHolding(async () => {
         await heldInvariant(primary, A);
