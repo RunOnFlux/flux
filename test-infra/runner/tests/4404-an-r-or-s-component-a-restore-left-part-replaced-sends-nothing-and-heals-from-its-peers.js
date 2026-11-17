@@ -65,10 +65,14 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
   const healed = (i, app) => client(i).getDecisionCount('syncthing:restoreUnfinished', app.folder, 'healed');
   // Asserted on every poll while node i's record holds the component: its folder
   // does not send, its container does not run, and every other holder keeps the data.
+  // The folder and container are read before the record, which is cleared before
+  // either may start: a breach read this way happened while the record stood.
   const heldInvariant = async (i, app, peers = HOLDERS.filter((h) => h !== i)) => {
+    const sends = await sending(i, app);
+    const up = await isUp(i, app);
     if (!(await restoreRecord(i, app.identifier))) return;
-    expect(await sending(i, app), `node ${i}'s held folder sends`).to.equal(false);
-    expect(await isUp(i, app), `node ${i} runs its held component`).to.equal(false);
+    expect(sends, `node ${i}'s held folder sends`).to.equal(false);
+    expect(up, `node ${i} runs its held component`).to.equal(false);
     // eslint-disable-next-line no-restricted-syntax
     for (const peer of peers) {
       // eslint-disable-next-line no-await-in-loop

@@ -83,13 +83,16 @@ describe('a g: component a restore left part replaced heals only from standbys t
     }, { timeout: 420000, interval: 2000, label: `node ${i}'s syncthing has lost its peers` });
   };
   const heldPasses = (i, app) => client(i).getDecisionCount('syncthing:restoreUnfinished', app.folder, 'held');
-  // Asserted on every poll while node i's record holds the component: it neither
-  // runs nor sends there, and at most one holder runs it anywhere.
+  // Asserted on every poll: at most one holder runs the app, and node i neither runs
+  // nor sends it while its record holds it. The folder and container are read before
+  // the record, which is cleared before either may start: a breach read this way
+  // happened while the record stood.
   const heldInvariant = async (i, app) => {
     const running = await runners(app);
+    const sends = await sending(i, app);
     expect(running.length, `more than one holder runs ${app.appName}: ${running.join(', ')}`).to.be.at.most(1);
     if (await restoreRecord(i, app.identifier)) {
-      expect(await sending(i, app), `node ${i}'s held folder sends`).to.equal(false);
+      expect(sends, `node ${i}'s held folder sends`).to.equal(false);
       expect(running, `node ${i} runs its held component`).to.not.include(i);
     }
   };
@@ -259,6 +262,11 @@ describe('a g: component a restore left part replaced heals only from standbys t
     await waitFor(() => sending(primary, A), { timeout: 300000, interval: 2000, label: 'the primary\'s folder sends' });
     await writeAppdata(p, A.appName, A.appName, ORIGINAL);
     await stageLocalArchive(p, A.appName, A.appName, RESTORED);
+    // It returns with no peer to heal from, so the record stands when its role is
+    // decided. Cut off while it still runs the app, so no standby takes over meanwhile.
+    const others = HOLDERS.filter((i) => i !== primary).map((i) => client(i).ip);
+    await blockTraffic(p.container, others, SYNCTHING_PORT);
+    await disconnectedFromPeers(primary);
     await p.holdCheckpoint('restore:beforeClear', A.folder);
     const mark = p.getLastEventId();
     const restore = restoreLocal(p, A.appName, [A.appName], await ownerAuth(primary)).catch(() => null);
@@ -268,10 +276,6 @@ describe('a g: component a restore left part replaced heals only from standbys t
     // FluxOS stops part way through the clear: some of the data is already gone
     const cleared = await execInContainer(p.container, DELETED_BY_CLEAR.map((path) => `rm ${appdataOf(A.appName)}/${path}`).join(' && '));
     expect(cleared.exitCode, `fixture: the part of the clear that ran: ${cleared.output}`).to.equal(0);
-    // and it returns with no peer to heal from, so the record stands when its role is decided
-    const others = HOLDERS.filter((i) => i !== primary).map((i) => client(i).ip);
-    await blockTraffic(p.container, others, SYNCTHING_PORT);
-    await disconnectedFromPeers(primary);
     await crashFluxos(p.container, { hold: true });
     await restore;
     expect(await restoreRecord(primary, A.identifier), 'fixture: the record outlives the crash').to.equal(true);
