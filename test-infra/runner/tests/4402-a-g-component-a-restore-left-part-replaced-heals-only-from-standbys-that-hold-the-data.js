@@ -2,7 +2,9 @@
  * A g: component whose restore stopped part way through heals only from standbys
  * that hold the data: while held its folder never sends and its container never
  * runs, its deletions are reverted to the standbys' copy, and only then is it
- * released. Standbys that hold nothing heal nothing.
+ * released. Standbys that hold nothing heal nothing. A held copy whose demotion
+ * syncthing refused stays paused and sending, and the election does not resume it as
+ * primary.
  *
  * Three holders placed in order on real syncthing daemons (the first is the primary,
  * the two after it hold the primary's data receive-only); a fourth node holds nothing
@@ -23,7 +25,9 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding, waitForUp } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, getDeviceId, getConnectedDevices,
+  stopDaemon, startDaemon,
 } from '../framework/syncthing-real.js';
+import { electMaster, clearMaster } from '../framework/fdm-control.js';
 import {
   ORIGINAL, DELETED_BY_CLEAR, appdataOf, writeAppdata, readAppdata, lockPart, unlockPart,
   stageLocalArchive, restoreRecord, restoreLocal, recordWrites,
@@ -335,6 +339,74 @@ describe('a g: component a restore left part replaced heals only from standbys t
       return !(await restoreRecord(primary, A.identifier));
     }, { timeout: 600000, interval: 2000, label: 'the record of a restore that deleted nothing is cleared' });
     expect(await readAppdata(p, A.appName, A.appName, Object.keys(ORIGINAL)), 'the healed data').to.deep.equal(ORIGINAL);
+  });
+
+  // A failed restore demotes its folder; when syncthing refuses the demotion the folder
+  // is left paused and sending. Syncthing returns paused (the ArcaneOS unit's --paused),
+  // FDM names a node that does not run the component, and no other holder runs it: the
+  // election finds a paused primary with nothing to defer to, which it otherwise resumes.
+  it('does not resume a held copy left paused and sending as primary', async function () {
+    this.timeout(1500000);
+    const primary = await currentRunner(A);
+    const p = client(primary);
+    const standbys = HOLDERS.filter((i) => i !== primary);
+    await waitFor(() => sending(primary, A), { timeout: 300000, interval: 2000, label: 'the primary\'s folder sends' });
+    await writeAppdata(p, A.appName, A.appName, ORIGINAL);
+    await Promise.all(standbys.map((i) => waitFor(
+      async () => JSON.stringify(await readAppdata(client(i), A.appName, A.appName, Object.keys(ORIGINAL))) === JSON.stringify(ORIGINAL),
+      { timeout: 300000, interval: 2000, label: `node ${i} holds what the primary wrote` },
+    )));
+    await stageLocalArchive(p, A.appName, A.appName, RESTORED);
+    // a node whose syncthing is down refuses logins, so the session comes first
+    const auth = await ownerAuth(primary);
+    const guarded = () => p.getDecisionCount('primaryRole:returned', A.identifier, 'restoreUnfinished');
+    const guardedBefore = await guarded();
+    try {
+      // no standby takes the component over, so every other holder answers that none runs it
+      await Promise.all(standbys.map((i) => client(i).holdCheckpoint('masterSlave:beforeDecision', A.identifier)));
+      // the monitor's write would turn the held folder receive-only before the election
+      // reads it; the primary's own election waits until the fixture is read
+      await p.holdCheckpoint('syncthing:beforeFolderWrite', A.folder);
+      await p.holdCheckpoint('masterSlave:beforeDecision', A.identifier);
+      await lockPart(p, A.appName);
+      await p.holdCheckpoint('restore:beforeClear', A.folder);
+      const mark = p.getLastEventId();
+      const restore = restoreLocal(p, A.appName, [A.appName], auth);
+      await p.waitForEvent('checkpoint:held', (d) => d.name === 'restore:beforeClear' && d.key === A.folder, 180000, { afterId: mark });
+      // syncthing goes down after the restore paused the folder and before it demotes it
+      await stopDaemon(p);
+      await p.releaseCheckpoint('restore:beforeClear', A.folder);
+      expect(await restore, 'fixture: the restore failed at the clear').to.match(/could not clear/i);
+      expect(recordWrites(p, A.identifier, mark), 'fixture: the restore recorded the component held').to.deep.equal([true]);
+      await electMaster(A.appName, client(0).ip);
+      await startDaemon(p, { paused: true });
+      const folder = await folderOf(primary, A);
+      expect({ type: folder?.type, paused: folder?.paused }, 'fixture: the held folder as the refused demotion left it').to.deep.equal({ type: 'sendreceive', paused: true });
+      expect(await runners(A), 'fixture: no holder runs the component').to.deep.equal([]);
+
+      const decided = p.getLastEventId();
+      await p.releaseCheckpoint('masterSlave:beforeDecision', A.identifier);
+      await waitHolding(async () => {
+        await heldInvariant(primary, A);
+        const folderNow = await folderOf(primary, A);
+        expect({ type: folderNow?.type, paused: folderNow?.paused }, 'the held folder').to.deep.equal({ type: 'sendreceive', paused: true });
+        return (await guarded()) >= guardedBefore + PASSES;
+      }, { timeout: 600000, interval: 2000, label: 'election passes refusing to resume the held copy as primary' });
+      expect(p.getEventBuffer().filter((e) => e.event === 'primaryRole:returned' && e.id > decided).map((e) => e.data),
+        'what the election decided for the held copy').to.deep.equal([]);
+    } finally {
+      await clearMaster(A.appName);
+      await Promise.all(HOLDERS.map((i) => client(i).releaseAllCheckpoints().catch(() => {})));
+      await unlockPart(p, A.appName);
+      if (!(await isDaemonUp(p))) await startDaemon(p);
+    }
+    // released, the monitor turns the folder receive-only and it heals from the standbys
+    await waitHolding(async () => {
+      await heldInvariant(primary, A);
+      return !(await restoreRecord(primary, A.identifier));
+    }, { timeout: 600000, interval: 2000, label: 'the held copy heals from the standbys' });
+    expect(await readAppdata(p, A.appName, A.appName, Object.keys(ORIGINAL)), 'the healed data').to.deep.equal(ORIGINAL);
+    await currentRunner(A);
   });
 
   it('keeps a copy held whose standbys hold nothing', async function () {
