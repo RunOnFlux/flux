@@ -140,7 +140,7 @@ const departingApps = {
 // In-memory deliberately: a restart runs the boot check again.
 const unconfirmedApps = new Map();
 
-// Containers intentionally stopped by FluxOS — crash recovery skips die events for these
+// Containers intentionally stopped by FluxOS — containerEventsConsumer skips die events for these
 const stoppingContainers = new Set();
 
 // Containers a backup or restore took down, by docker name: running when the

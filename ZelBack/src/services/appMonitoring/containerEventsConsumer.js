@@ -26,7 +26,7 @@ const RESUBSCRIBE_DELAY_MS = 10000;
 // doubled the stream - and every die event was then handled twice.
 function scheduleResubscribe(reason) {
   if (stopped || resubscribeTimer || eventStream) return;
-  log.warn(`containerCrashRecovery - event stream ${reason}; resubscribing in ${RESUBSCRIBE_DELAY_MS / 1000}s`);
+  log.warn(`containerEventsConsumer - event stream ${reason}; resubscribing in ${RESUBSCRIBE_DELAY_MS / 1000}s`);
   resubscribeTimer = setTimeout(() => {
     resubscribeTimer = null;
     // eslint-disable-next-line no-use-before-define
@@ -90,35 +90,35 @@ async function subscribe() {
         try {
           const event = JSON.parse(line);
           handleContainerDie(event).catch((err) => {
-            log.error(`containerCrashRecovery - event handler error: ${err.message}`);
+            log.error(`containerEventsConsumer - event handler error: ${err.message}`);
           });
         } catch (parseErr) {
-          log.error(`containerCrashRecovery - failed to parse docker event: ${parseErr.message}`);
+          log.error(`containerEventsConsumer - failed to parse docker event: ${parseErr.message}`);
         }
       }
     });
 
     stream.on('error', (err) => {
-      log.error(`containerCrashRecovery - event stream error: ${err.message}`);
+      log.error(`containerEventsConsumer - event stream error: ${err.message}`);
       onGone('errored');
     });
     stream.on('end', () => onGone('ended'));
     // a raw socket teardown can emit 'close' without 'error' or 'end'
     stream.on('close', () => onGone('closed'));
 
-    log.info('containerCrashRecovery - listening for container crash events');
+    log.info('containerEventsConsumer - listening for container crash events');
 
     // a re-established stream may have missed die events while it was down;
     // reconcile every component from actual state to catch orphans
     if (hasConnected && globalState.bootContainerStateSettled) {
-      log.info('containerCrashRecovery - stream reconnected, reconciling all components');
+      log.info('containerEventsConsumer - stream reconnected, reconciling all components');
       appReconciler.enqueueAll('reconnect').catch((err) => {
-        log.error(`containerCrashRecovery - reconnect reconcile failed: ${err.message}`);
+        log.error(`containerEventsConsumer - reconnect reconcile failed: ${err.message}`);
       });
     }
     hasConnected = true;
   } catch (err) {
-    log.error(`containerCrashRecovery - failed to subscribe to docker events: ${err.message}`);
+    log.error(`containerEventsConsumer - failed to subscribe to docker events: ${err.message}`);
     scheduleResubscribe('subscribe failed');
   } finally {
     subscribing = false;

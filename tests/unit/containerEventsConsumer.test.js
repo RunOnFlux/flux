@@ -4,9 +4,9 @@ const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 const { EventEmitter } = require('node:events');
 
-describe('containerCrashRecovery die bridge', () => {
+describe('containerEventsConsumer die bridge', () => {
   let stubs;
-  let containerCrashRecovery;
+  let containerEventsConsumer;
 
   beforeEach(() => {
     stubs = {
@@ -20,7 +20,7 @@ describe('containerCrashRecovery die bridge', () => {
       appsRuntimeState: { recordExit: sinon.stub().resolves() },
       appReconciler: { enqueue: sinon.stub(), enqueueAll: sinon.stub().resolves() },
     };
-    containerCrashRecovery = proxyquire('../../ZelBack/src/services/appMonitoring/containerCrashRecovery', {
+    containerEventsConsumer = proxyquire('../../ZelBack/src/services/appMonitoring/containerEventsConsumer', {
       '../../lib/log': stubs.log,
       '../dockerService': stubs.dockerService,
       '../utils/globalState': stubs.globalState,
@@ -36,7 +36,7 @@ describe('containerCrashRecovery die bridge', () => {
   const dieEvent = (name, exitCode = 1) => ({ Actor: { Attributes: { name, exitCode: String(exitCode) } } });
 
   it('enqueues a reconcile for a flux container crash die (raw name; the reconciler canonicalises)', async () => {
-    await containerCrashRecovery.handleContainerDie(dieEvent('fluxwww_app', 137));
+    await containerEventsConsumer.handleContainerDie(dieEvent('fluxwww_app', 137));
     // pass the RAW container name - enqueue/recordExit canonicalise to the bare
     // component id (one strip, in one place), exactly like every other enqueue caller
     expect(stubs.appReconciler.enqueue.calledOnceWith('fluxwww_app')).to.be.true;
@@ -45,7 +45,7 @@ describe('containerCrashRecovery die bridge', () => {
 
   it('does NOT reconcile a deliberate-stop die while the stop operation holds the flag', async () => {
     stubs.globalState.stoppingContainers.add('fluxwww_app'); // held by an in-flight appDockerStop
-    await containerCrashRecovery.handleContainerDie(dieEvent('fluxwww_app', 0));
+    await containerEventsConsumer.handleContainerDie(dieEvent('fluxwww_app', 0));
     expect(stubs.appReconciler.enqueue.called).to.be.false;
     expect(stubs.appsRuntimeState.recordExit.called).to.be.false;
     // the flag is OWNED by the stop operation (cleared in its finally), not by
@@ -54,7 +54,7 @@ describe('containerCrashRecovery die bridge', () => {
   });
 
   it('ignores non-flux containers', async () => {
-    await containerCrashRecovery.handleContainerDie(dieEvent('some_other_container'));
+    await containerEventsConsumer.handleContainerDie(dieEvent('some_other_container'));
     expect(stubs.appReconciler.enqueue.called).to.be.false;
     expect(stubs.appsRuntimeState.recordExit.called).to.be.false;
   });
@@ -78,7 +78,7 @@ describe('containerCrashRecovery die bridge', () => {
         const first = makeStream();
         stubs.dockerService.dockerGetEvents.resolves(makeStream());
         stubs.dockerService.dockerGetEvents.onFirstCall().resolves(first);
-        await containerCrashRecovery.start();
+        await containerEventsConsumer.start();
         expect(stubs.dockerService.dockerGetEvents.callCount).to.equal(1);
 
         first.emit('close');
@@ -86,7 +86,7 @@ describe('containerCrashRecovery die bridge', () => {
         await new Promise((resolve) => { setImmediate(resolve); });
         expect(stubs.dockerService.dockerGetEvents.callCount, 'a closed stream must be resubscribed').to.equal(2);
       } finally {
-        containerCrashRecovery.stop();
+        containerEventsConsumer.stop();
         clock.restore();
       }
     });
@@ -97,7 +97,7 @@ describe('containerCrashRecovery die bridge', () => {
         const first = makeStream();
         stubs.dockerService.dockerGetEvents.resolves(makeStream());
         stubs.dockerService.dockerGetEvents.onFirstCall().resolves(first);
-        await containerCrashRecovery.start();
+        await containerEventsConsumer.start();
 
         first.emit('error', new Error('stream died'));
         first.emit('end');
@@ -107,7 +107,7 @@ describe('containerCrashRecovery die bridge', () => {
         await new Promise((resolve) => { setImmediate(resolve); });
         expect(stubs.dockerService.dockerGetEvents.callCount, 'one outage must produce exactly one new stream').to.equal(2);
       } finally {
-        containerCrashRecovery.stop();
+        containerEventsConsumer.stop();
         clock.restore();
       }
     });
