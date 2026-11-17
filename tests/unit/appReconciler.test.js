@@ -72,6 +72,9 @@ describe('appReconciler tests', () => {
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
         recordExit: sinon.stub().resolves(),
+        // no stop asked of the container by default: an exit is judged as a death
+        stopRequestedSince: sinon.stub().resolves(false),
+        clearRestartLadder: sinon.stub().resolves(),
         // no pending restart and no force by default; the tests that exercise
         // either set their own document
         getState: sinon.stub().resolves({}),
@@ -1305,6 +1308,43 @@ describe('appReconciler tests', () => {
         // The verdict decides what earns a rung, not whether the wait applies:
         // a component holding rungs is paced whatever its next exit reads.
         sinon.assert.calledWithExactly(stubs.appsRuntimeState.recordRestart, 'www_App', crashed);
+      });
+    });
+
+    // A stop that outlasts its timeout ends in SIGKILL: exit 137, the same as a kill
+    // nobody asked for. Docker's stop event is what tells them apart.
+    describe('a run something asked Docker to stop', () => {
+      const startedAt = '2026-06-12T08:00:00.000Z';
+      const stoppedRun = (extra = {}) => ({
+        State: {
+          Running: false, Status: 'exited', ExitCode: 137, StartedAt: startedAt, ...extra,
+        },
+      });
+
+      it('is not a death: its start clears the ladder before the wait is read, and earns no rung', async () => {
+        stubs.dockerService.dockerContainerInspect.resolves(stoppedRun());
+        stubs.appsRuntimeState.stopRequestedSince.resolves(true);
+        await appReconciler.reconcile('www_App');
+        sinon.assert.calledWithExactly(stubs.appsRuntimeState.stopRequestedSince, 'www_App', Date.parse(startedAt));
+        sinon.assert.calledOnceWithExactly(stubs.appsRuntimeState.clearRestartLadder, 'www_App');
+        sinon.assert.callOrder(stubs.appsRuntimeState.clearRestartLadder, stubs.appsRuntimeState.restartWaitMs);
+        sinon.assert.calledWithExactly(stubs.appsRuntimeState.recordRestart, 'www_App', false);
+        expect(stubs.dockerService.appDockerStart.calledOnce, 'started').to.be.true;
+      });
+
+      it('is a death when no stop was asked for', async () => {
+        stubs.dockerService.dockerContainerInspect.resolves(stoppedRun());
+        await appReconciler.reconcile('www_App');
+        sinon.assert.notCalled(stubs.appsRuntimeState.clearRestartLadder);
+        sinon.assert.calledWithExactly(stubs.appsRuntimeState.recordRestart, 'www_App', true);
+      });
+
+      it('is a death when the kernel killed it for memory, whoever asked for a stop', async () => {
+        stubs.dockerService.dockerContainerInspect.resolves(stoppedRun({ OOMKilled: true }));
+        stubs.appsRuntimeState.stopRequestedSince.resolves(true);
+        await appReconciler.reconcile('www_App');
+        sinon.assert.notCalled(stubs.appsRuntimeState.clearRestartLadder);
+        sinon.assert.calledWithExactly(stubs.appsRuntimeState.recordRestart, 'www_App', true);
       });
     });
 

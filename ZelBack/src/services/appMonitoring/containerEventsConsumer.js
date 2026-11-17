@@ -4,12 +4,14 @@ const globalState = require('../utils/globalState');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appReconciler = require('./appReconciler');
 
-// Bridges the Docker container 'die' event stream into the reconcile workqueue.
-// All restart decisions (restart policy, exit code, backoff, operator-stop,
-// in-progress operations) live in appReconciler — this only translates "a flux
-// container exited" into "this component needs reconciling", and on stream
-// reconnect sweeps every component to catch containers orphaned while the
-// stream was down (e.g. a dockerd restart underneath a running FluxOS).
+// Consumes Docker's container events for the reconciler. A 'die' becomes "this
+// component needs reconciling"; a 'stop' records that something asked Docker to
+// stop the container, which is how the reconciler tells a run that was stopped
+// from one that died (both can exit 137). All restart decisions (restart policy,
+// exit code, backoff, operator-stop, in-progress operations) live in
+// appReconciler. On stream reconnect every component is swept, to catch
+// containers orphaned while the stream was down (e.g. a dockerd restart
+// underneath a running FluxOS); a stop missed meanwhile is judged as a death.
 
 let eventStream = null;
 let stopped = false;
@@ -62,6 +64,20 @@ async function handleContainerDie(event) {
   appReconciler.enqueue(containerName);
 }
 
+// Docker's own time for the request, so the reconciler compares it with the
+// container's StartedAt on one clock.
+async function handleContainerStop(event) {
+  const containerName = event.Actor?.Attributes?.name;
+  if (!containerName || !isFluxContainer(containerName)) return;
+  const atMs = event.timeNano ? Math.floor(Number(event.timeNano) / 1e6) : Number(event.time) * 1000;
+  if (!Number.isFinite(atMs) || atMs <= 0) return;
+  await appsRuntimeState.recordStopRequested(containerName, atMs);
+}
+
+function handleContainerEvent(event) {
+  return event.Action === 'stop' ? handleContainerStop(event) : handleContainerDie(event);
+}
+
 async function subscribe() {
   if (eventStream || subscribing) return;
   subscribing = true;
@@ -69,7 +85,7 @@ async function subscribe() {
 
   try {
     const stream = await dockerService.dockerGetEvents({
-      filters: { type: ['container'], event: ['die'] },
+      filters: { type: ['container'], event: ['die', 'stop'] },
     });
     eventStream = stream;
 
@@ -89,7 +105,7 @@ async function subscribe() {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
-          handleContainerDie(event).catch((err) => {
+          handleContainerEvent(event).catch((err) => {
             log.error(`containerEventsConsumer - event handler error: ${err.message}`);
           });
         } catch (parseErr) {
@@ -106,7 +122,7 @@ async function subscribe() {
     // a raw socket teardown can emit 'close' without 'error' or 'end'
     stream.on('close', () => onGone('closed'));
 
-    log.info('containerEventsConsumer - listening for container crash events');
+    log.info('containerEventsConsumer - listening for container die and stop events');
 
     // a re-established stream may have missed die events while it was down;
     // reconcile every component from actual state to catch orphans
@@ -148,4 +164,6 @@ module.exports = {
   stop,
   // exposed for tests
   handleContainerDie,
+  handleContainerStop,
+  handleContainerEvent,
 };

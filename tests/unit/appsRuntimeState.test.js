@@ -53,9 +53,15 @@ describe('appsRuntimeState tests', () => {
         }
         return docs;
       },
-      updateOneInDatabase: async (_db, _coll, query, update) => {
+      // upsert and $max as mongo does them: without upsert a missing document is
+      // left missing, and $max keeps the larger of what is there and what is given.
+      updateOneInDatabase: async (_db, _coll, query, update, options = {}) => {
+        if (!store.has(query.identifier) && options.upsert !== true) return;
         const existing = store.get(query.identifier) || {};
         const next = { ...existing, ...update.$set };
+        Object.entries(update.$max || {}).forEach(([field, value]) => {
+          next[field] = existing[field] === undefined ? value : Math.max(existing[field], value);
+        });
         // $inc as mongo does it: add to what is there, and CREATE the field at the
         // increment when there is nothing - which is the whole reason a counter can
         // be raised without reading it first. A fake that ignored $inc would let a
@@ -428,6 +434,49 @@ describe('appsRuntimeState tests', () => {
       clock.restore();
     });
 
+  });
+
+  // A run that something asked Docker to stop did not die: the reconciler reads
+  // this record to tell the two apart, since both can exit 137.
+  describe('a stop Docker was asked for', () => {
+    const id = 'www_App';
+
+    it('records Docker\'s time of the request and keeps the latest', async () => {
+      await appsRuntimeState.setOperatorStopped(id, false);
+      await appsRuntimeState.recordStopRequested(id, 2000);
+      await appsRuntimeState.recordStopRequested(id, 1000);
+      expect(store.get(id).lastStopRequestedAt).to.equal(2000);
+    });
+
+    it('writes no record for a component that has none', async () => {
+      await appsRuntimeState.recordStopRequested(id, 2000);
+      expect(store.has(id), 'a stop during removal brought the record back').to.be.false;
+    });
+
+    it('reads a request made since the run began as a stop, and one before it as not', async () => {
+      await appsRuntimeState.setOperatorStopped(id, false);
+      await appsRuntimeState.recordStopRequested(id, 5000);
+      expect(await appsRuntimeState.stopRequestedSince(id, 4000), 'requested during the run').to.be.true;
+      expect(await appsRuntimeState.stopRequestedSince(id, 5000), 'requested as the run began').to.be.true;
+      expect(await appsRuntimeState.stopRequestedSince(id, 6000), 'requested of an earlier run').to.be.false;
+      expect(await appsRuntimeState.stopRequestedSince(id, null), 'the run\'s start unknown').to.be.false;
+    });
+
+    it('judges the exit as a death when the record cannot be read', async () => {
+      await appsRuntimeState.setOperatorStopped(id, false);
+      await appsRuntimeState.recordStopRequested(id, 5000);
+      readFails = true;
+      expect(await appsRuntimeState.stopRequestedSince(id, 4000)).to.be.false;
+    });
+
+    it('clears the ladder: no rungs and an empty burst window', async () => {
+      await appsRuntimeState.recordRestart(id, true);
+      await appsRuntimeState.recordRestart(id, true);
+      await appsRuntimeState.clearRestartLadder(id);
+      expect(store.get(id).restartHistory).to.deep.equal([]);
+      expect(store.get(id).autoRestartWindow).to.deep.equal([]);
+      expect(await appsRuntimeState.restartWaitMs(id)).to.equal(0);
+    });
   });
 
   describe('exit + remove', () => {
@@ -1081,6 +1130,17 @@ describe('appsRuntimeState tests', () => {
       const error = await prepState.prepareCollection().catch((caught) => caught);
 
       expect(error.message).to.equal('connection timed out');
+    });
+
+    it('keeps the latest stop request of any twin', async () => {
+      docs = [
+        { identifier: 'www_App', lastStopRequestedAt: 9000, updatedAt: 1000 },
+        { identifier: 'www_App', lastStopRequestedAt: 5000, updatedAt: 9000 },
+      ];
+
+      await prepState.prepareCollection();
+
+      expect(upserts[0].set.lastStopRequestedAt).to.equal(9000);
     });
 
     it('carries fields the merge does not name, from whichever twin has them', async () => {

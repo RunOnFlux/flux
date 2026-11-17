@@ -345,6 +345,9 @@ async function dockerActual(identifier) {
     // the container never finished.
     const finishedParsed = Date.parse(info.State?.FinishedAt ?? '');
     const finishedAt = Number.isFinite(finishedParsed) && finishedParsed > 0 ? finishedParsed : null;
+    // when the container's last run began, on the same clock as Docker's events
+    const startedParsed = Date.parse(info.State?.StartedAt ?? '');
+    const startedAt = Number.isFinite(startedParsed) && startedParsed > 0 ? startedParsed : null;
     return {
       reachable: true,
       exists: true,
@@ -366,6 +369,7 @@ async function dockerActual(identifier) {
       // payload's status still cannot hide this one
       oomKilled: !!(info.State && info.State.OOMKilled),
       finishedAt,
+      startedAt,
       // classified from THIS inspect so the running-branch network check needs no
       // second docker call (and no TOCTOU between two inspects).
       attachment: dockerService.classifyContainerNetworkAttachment(info),
@@ -1141,7 +1145,13 @@ async function reconcile(rawIdentifier) {
   // operator restarting their own app far more often than it is a crash, and
   // pacing that turns a deliberate restart into what looks like an outage.
   // exitCode null is a container that has never run - an initial start, not a death.
-  const crashed = !!actual.oomKilled || (actual.exitCode !== null && actual.exitCode !== 0);
+  // A run that ended because something asked Docker to stop it did not die, whatever
+  // its exit code (a stop that outlasts its timeout ends in SIGKILL, 137). The start
+  // after it is a deliberate start and, as an owner's start does, begins with a clear
+  // ladder. An OOM kill is a death whoever asked for a stop.
+  const stopRequested = !actual.oomKilled && await appsRuntimeState.stopRequestedSince(identifier, actual.startedAt);
+  if (stopRequested) await appsRuntimeState.clearRestartLadder(identifier);
+  const crashed = !stopRequested && (!!actual.oomKilled || (actual.exitCode !== null && actual.exitCode !== 0));
   const wait = await appsRuntimeState.restartWaitMs(identifier, actual.finishedAt);
   if (wait > 0) {
     // name which of the two put it here: a reported fault, or restarts arriving

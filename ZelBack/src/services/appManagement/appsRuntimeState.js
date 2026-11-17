@@ -35,6 +35,8 @@ const MAX_HISTORY = BACKOFF_DELAYS_MS.length;
 // restarts from a knob that reads as five is worth knowing before tuning it.
 const RESTART_BURST_COUNT = config.fluxapps.restartBurstCount ?? 5;
 const RESTART_BURST_WINDOW_MS = config.fluxapps.restartBurstWindowMs ?? 5 * 60 * 1000;
+// What a deliberate start begins with: no rungs, and an empty burst window.
+const CLEAR_LADDER = Object.freeze({ restartHistory: [], autoRestartWindow: [] });
 
 function collection() {
   const db = dbHelper.databaseConnection();
@@ -142,8 +144,7 @@ async function setOperatorStopped(identifier, stopped, opts = {}) {
   } else {
     fields.operatorStopForce = false;
     fields.operatorStoppedAsPrimary = false;
-    fields.restartHistory = [];
-    fields.autoRestartWindow = [];
+    Object.assign(fields, CLEAR_LADDER);
   }
   await setFields(identifier, fields);
 }
@@ -588,6 +589,53 @@ async function clearNetworkHeal(identifier) {
 }
 
 /**
+ * Clears the crash-recovery backoff: the component's next start is a deliberate
+ * one and begins with no rungs and an empty burst window.
+ * @param {string} identifier
+ */
+async function clearRestartLadder(identifier) {
+  await setFields(identifier, { ...CLEAR_LADDER });
+}
+
+/**
+ * Records that Docker was asked to stop the component's container, at Docker's
+ * own time for the request. Only an existing record is written: a stop asked for
+ * while the component is being removed does not bring its record back.
+ *
+ * @param {string} rawIdentifier
+ * @param {number} atMs Docker's time of the stop request, ms since the epoch
+ */
+async function recordStopRequested(rawIdentifier, atMs) {
+  const identifier = canonical(rawIdentifier);
+  try {
+    await dbHelper.updateOneInDatabase(collection(), appsRuntimeState, { identifier }, { $max: { lastStopRequestedAt: atMs } });
+  } catch (err) {
+    log.error(`appsRuntimeState - failed to record a stop request for ${identifier}: ${err.message}`);
+  }
+}
+
+/**
+ * Whether Docker was asked to stop the component's container after the run that
+ * started at `startedAtMs` began: that run ended because something asked it to,
+ * not by dying. False when the run's start is unknown, no request is recorded, or
+ * the record cannot be read - the exit is then judged as a death.
+ *
+ * @param {string} identifier
+ * @param {number|null} startedAtMs Docker's start time of the container's last run
+ * @returns {Promise<boolean>}
+ */
+async function stopRequestedSince(identifier, startedAtMs) {
+  if (!startedAtMs) return false;
+  try {
+    const state = await getState(identifier);
+    return (state?.lastStopRequestedAt || 0) >= startedAtMs;
+  } catch (err) {
+    log.error(`appsRuntimeState - cannot read the stop requests of ${identifier}: ${err.message}; its exit is judged as a death`);
+    return false;
+  }
+}
+
+/**
  * Records the last observed exit for diagnostics / tampering signals.
  *
  * @param {string} identifier
@@ -774,6 +822,8 @@ async function prepareCollection() {
       // the read projects _id away, but a spread of whatever the documents
       // carry must not be the thing that reintroduces it into a $set
       delete merged._id;
+      const stopRequestedAt = Math.max(0, ...twins.map((t) => t.lastStopRequestedAt || 0));
+      if (stopRequestedAt > 0) merged.lastStopRequestedAt = stopRequestedAt;
       const newestExit = twins.filter((t) => t.lastDiedAt !== undefined).sort((a, b) => b.lastDiedAt - a.lastDiedAt)[0];
       if (newestExit) {
         merged.lastExitCode = newestExit.lastExitCode;
@@ -813,6 +863,9 @@ module.exports = {
   networkHealWaitMs,
   clearNetworkHeal,
   recordExit,
+  clearRestartLadder,
+  recordStopRequested,
+  stopRequestedSince,
   setVolumeImage,
   getVolumeImage,
   removeControllerState,

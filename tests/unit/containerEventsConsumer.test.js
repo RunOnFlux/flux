@@ -17,7 +17,7 @@ describe('containerEventsConsumer die bridge', () => {
         state.bootContainerStateSettled = true;
         return state;
       })(),
-      appsRuntimeState: { recordExit: sinon.stub().resolves() },
+      appsRuntimeState: { recordExit: sinon.stub().resolves(), recordStopRequested: sinon.stub().resolves() },
       appReconciler: { enqueue: sinon.stub(), enqueueAll: sinon.stub().resolves() },
     };
     containerEventsConsumer = proxyquire('../../ZelBack/src/services/appMonitoring/containerEventsConsumer', {
@@ -57,6 +57,42 @@ describe('containerEventsConsumer die bridge', () => {
     await containerEventsConsumer.handleContainerDie(dieEvent('some_other_container'));
     expect(stubs.appReconciler.enqueue.called).to.be.false;
     expect(stubs.appsRuntimeState.recordExit.called).to.be.false;
+  });
+
+  // A stop asked of a container is recorded at Docker's own time for it: the
+  // reconciler compares it with the container's StartedAt to tell a run that was
+  // stopped from one that died, since both can exit 137.
+  describe('stop requests', () => {
+    // the line as Docker writes it: timeNano is past JavaScript's exact integers,
+    // and parsing it loses nanoseconds, never milliseconds
+    const stopLine = (name) => `{"Action":"stop","time":1794925851,"timeNano":1794925851505123456,"Actor":{"Attributes":{"name":"${name}"}}}\n`;
+
+    it('subscribes to stop events beside die events, and records each stop at Docker\'s time without a reconcile', async () => {
+      const stream = new EventEmitter();
+      stream.destroy = sinon.stub();
+      stubs.dockerService.dockerGetEvents.resolves(stream);
+      try {
+        await containerEventsConsumer.start();
+        expect(stubs.dockerService.dockerGetEvents.firstCall.args[0].filters.event).to.have.members(['die', 'stop']);
+
+        stream.emit('data', Buffer.from(stopLine('fluxwww_app')));
+        await new Promise((resolve) => { setImmediate(resolve); });
+
+        sinon.assert.calledOnceWithExactly(stubs.appsRuntimeState.recordStopRequested, 'fluxwww_app', 1794925851505);
+        expect(stubs.appReconciler.enqueue.called, 'a stop is followed by its die, which reconciles').to.be.false;
+
+        stream.emit('data', Buffer.from(`${JSON.stringify({ Action: 'die', ...dieEvent('fluxwww_app', 137) })}\n`));
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.calledOnceWithExactly(stubs.appReconciler.enqueue, 'fluxwww_app');
+      } finally {
+        containerEventsConsumer.stop();
+      }
+    });
+
+    it('ignores the stop of a container that is not Flux\'s', async () => {
+      await containerEventsConsumer.handleContainerStop(JSON.parse(stopLine('some_other_container')));
+      sinon.assert.notCalled(stubs.appsRuntimeState.recordStopRequested);
+    });
   });
 
   // The event stream is the reconciler's primary trigger; losing it silently
