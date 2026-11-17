@@ -34,6 +34,7 @@ const StickyDosOwner = Object.freeze({
   DOCKER_FLOOR: 'dockerFloor',
   MONGODB_FLOOR: 'mongodbFloor',
   CGROUP_FLOOR: 'cgroupFloor',
+  CONTAINER_RUNTIME: 'containerRuntime',
   INSIGHT_EXPLORER: 'insightExplorer',
   HOST_STALL: 'hostStall',
   IP_CHANGES: 'ipChanges',

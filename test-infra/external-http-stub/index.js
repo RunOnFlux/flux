@@ -434,6 +434,9 @@ const state = {
   // The unpaid-message allowances and submitter ranges. null is the document absent, so a
   // node uses its release defaults.
   unpaidAllowances: null,
+  // Whether a node running in a container is held out of service. null is the document
+  // absent, which is the default: every harness node runs in a container.
+  containerDos: null,
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
   // The syncthing the node image ships, read from the repository the image was built
@@ -571,6 +574,7 @@ function resignPolicy({ bumpSeq = true } = {}) {
       ...(state.udpPortDos === null ? {} : { udpportdos: state.udpPortDos }),
       ...(state.udpInstallRefusalOff === null ? {} : { udpinstallrefusaloff: state.udpInstallRefusalOff }),
       ...(state.unpaidAllowances === null ? {} : { unpaidallowances: state.unpaidAllowances }),
+      ...(state.containerDos === null ? {} : { containerdos: state.containerDos }),
     },
     // Content-addressed, as the real publisher does it: the plain name is mutable and means
     // "the current table", so the bundle names the hash a fetch should produce. Derived from
@@ -1471,6 +1475,7 @@ control.post('/policy', (req, res) => {
       udpportdos: 'udpPortDos',
       udpinstallrefusaloff: 'udpInstallRefusalOff',
       unpaidallowances: 'unpaidAllowances',
+      containerdos: 'containerDos',
     };
     for (const [name, value] of Object.entries(body.documents)) {
       if (!map[name]) return res.status(400).json({ error: `unknown document ${name}` });
@@ -1521,6 +1526,7 @@ control.post('/reset', (req, res) => {
   state.udpPortDos = null;
   state.udpInstallRefusalOff = null;
   state.unpaidAllowances = null;
+  state.containerDos = null;
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
   artifacts.clear();
