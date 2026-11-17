@@ -149,7 +149,8 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     await waitHolding(async () => {
       await heldInvariant(writer, R);
       if (!(await restoreRecord(writer, R.identifier)) || (await heldPasses(writer, R)) < 1) return false;
-      const { data } = await client(writer).getAuthed('/apps/promotedfolders', auth);
+      // the holdings form of the answer, which a node or the Flux team may read
+      const { data } = await client(writer).post('/apps/promotedfolders', {}, { zelidauth: auth });
       const seen = JSON.stringify(data);
       expect(data?.holding, `fixture: the Flux team reads holdings: ${seen}`).to.be.an('object');
       expect(data.folders, `the held folder is offered as writable: ${seen}`).to.not.include(R.folder);
@@ -204,16 +205,17 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
   });
 
   it('leaves another instance\'s record and its owner\'s stop as they are when a restore broadcasts its restart', async function () {
-    this.timeout(900000);
+    this.timeout(1200000);
     const [restorer, , held] = HOLDERS;
     const others = HOLDERS.filter((i) => i !== held);
     // its syncthing reaches no peer, so nothing heals it meanwhile
     await blockTraffic(client(held).container, others.map((i) => client(i).ip), SYNCTHING_PORT);
     const peerIds = await Promise.all(others.map((i) => getDeviceId(client(i))));
+    // a dropped connection ends on syncthing's own receive timeout, five minutes
     await waitFor(async () => {
       const connected = await getConnectedDevices(client(held));
       return peerIds.every((id) => !connected.includes(id));
-    }, { timeout: 300000, interval: 2000, label: 'the held instance\'s syncthing has lost its peers' });
+    }, { timeout: 420000, interval: 2000, label: 'the held instance\'s syncthing has lost its peers' });
     await damageAndFail(held, S);
     const heldAuth = await ownerAuth(held);
     const stopped = client(held).getLastEventId();

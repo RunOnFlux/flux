@@ -76,10 +76,11 @@ describe('a g: component a restore left part replaced heals only from standbys t
   // node i's syncthing holds no connection to the given holders' (all others by default)
   const disconnectedFromPeers = async (i, from = HOLDERS.filter((h) => h !== i)) => {
     const ids = await Promise.all(from.map((h) => getDeviceId(client(h))));
+    // a dropped connection ends on syncthing's own receive timeout, five minutes
     await waitFor(async () => {
       const connected = await getConnectedDevices(client(i));
       return ids.every((id) => !connected.includes(id));
-    }, { timeout: 300000, interval: 2000, label: `node ${i}'s syncthing has lost its peers` });
+    }, { timeout: 420000, interval: 2000, label: `node ${i}'s syncthing has lost its peers` });
   };
   const heldPasses = (i, app) => client(i).getDecisionCount('syncthing:restoreUnfinished', app.folder, 'held');
   // Asserted on every poll while node i's record holds the component: it neither
@@ -252,7 +253,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
   });
 
   it('does not resume a held component as primary when FluxOS stops part way through its restore', async function () {
-    this.timeout(900000);
+    this.timeout(1500000);
     const primary = await currentRunner(A);
     const p = client(primary);
     await waitFor(() => sending(primary, A), { timeout: 300000, interval: 2000, label: 'the primary\'s folder sends' });
@@ -291,7 +292,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
   });
 
   it('keeps a copy held whose standbys hold nothing', async function () {
-    this.timeout(1200000);
+    this.timeout(1500000);
     // the standbys' syncthing never reaches the primary's
     await Promise.all(STANDBYS.map((i) => blockTraffic(client(i).container, [client(PRIMARY).ip], SYNCTHING_PORT)));
     await disconnectedFromPeers(PRIMARY, STANDBYS);
