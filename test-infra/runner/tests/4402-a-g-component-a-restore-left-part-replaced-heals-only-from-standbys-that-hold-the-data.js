@@ -58,6 +58,8 @@ describe('a g: component a restore left part replaced heals only from standbys t
   const A = appOf(`e2eheal${ts}`);
   const EMPTY = appOf(`e2eempty${ts}`);
   const UNTOUCHED = appOf(`e2euntouched${ts}`);
+  // its own app, so no restart backoff the cases before it earned delays its primary
+  const RESUMED = appOf(`e2eresume${ts}`);
   // the owner's session on the primary, taken before its syncthing is cut off from the standbys
   let cutOffAuth;
 
@@ -143,6 +145,23 @@ describe('a g: component a restore left part replaced heals only from standbys t
     return spec;
   }
 
+  // Places an app with the standbys in order, each holding the primary's data.
+  async function placeWithStandbys(app) {
+    const spec = await place(app);
+    // placed one at a time, so the election ranks them in this order
+    // eslint-disable-next-line no-restricted-syntax
+    for (const i of STANDBYS) {
+      // eslint-disable-next-line no-await-in-loop
+      await installOnNodes(env, spec, [i]);
+      // eslint-disable-next-line no-await-in-loop
+      await waitFor(async () => (await isFolderSynced(client(i), app.folder))
+        && JSON.stringify(await readAppdata(client(i), app.appName, app.appName, Object.keys(ORIGINAL))) === JSON.stringify(ORIGINAL), {
+        timeout: 300000, interval: 3000, label: `standby ${i} holds the primary's ${app.appName} data`,
+      });
+    }
+    expect(await runners(app), `fixture: only the primary runs ${app.appName}`).to.deep.equal([PRIMARY]);
+  }
+
   before(async function () {
     this.timeout(1200000);
     env = await createTestEnv({
@@ -157,24 +176,12 @@ describe('a g: component a restore left part replaced heals only from standbys t
       timeout: 180000, interval: 3000, label: `syncthing daemon up on node ${i}`,
     })));
 
-    const spec = await place(A);
-    // placed one at a time, so the election ranks them in this order
-    // eslint-disable-next-line no-restricted-syntax
-    for (const i of STANDBYS) {
-      // eslint-disable-next-line no-await-in-loop
-      await installOnNodes(env, spec, [i]);
-      // eslint-disable-next-line no-await-in-loop
-      await waitFor(async () => (await isFolderSynced(client(i), A.folder))
-        && JSON.stringify(await readAppdata(client(i), A.appName, A.appName, Object.keys(ORIGINAL))) === JSON.stringify(ORIGINAL), {
-        timeout: 300000, interval: 3000, label: `standby ${i} holds the primary's data`,
-      });
-    }
-    expect(await runners(A), 'fixture: only the primary runs the component').to.deep.equal([PRIMARY]);
+    await placeWithStandbys(A);
   });
 
   afterTeardown(async function () {
     if (env) {
-      await Promise.all(HOLDERS.flatMap((i) => [A, EMPTY, UNTOUCHED].map(async (app) => {
+      await Promise.all(HOLDERS.flatMap((i) => [A, EMPTY, UNTOUCHED, RESUMED].map(async (app) => {
         await unlockPart(client(i), app.appName).catch(() => {});
         await execInContainer(client(i).container, `chattr -R -i ${appdataOf(app.appName)} 2>/dev/null; true`).catch(() => {});
       })));
@@ -349,67 +356,62 @@ describe('a g: component a restore left part replaced heals only from standbys t
   // FDM names a node that does not run the component, and no other holder runs it: the
   // election finds a paused primary with nothing to defer to, which it otherwise resumes.
   it('does not resume a held copy left paused and sending as primary', async function () {
-    this.timeout(1500000);
-    const primary = await currentRunner(A);
+    this.timeout(1800000);
+    await placeWithStandbys(RESUMED);
+    const primary = PRIMARY;
     const p = client(primary);
-    const standbys = HOLDERS.filter((i) => i !== primary);
-    await waitFor(() => sending(primary, A), { timeout: 300000, interval: 2000, label: 'the primary\'s folder sends' });
-    await writeAppdata(p, A.appName, A.appName, ORIGINAL);
-    await Promise.all(standbys.map((i) => waitFor(
-      async () => JSON.stringify(await readAppdata(client(i), A.appName, A.appName, Object.keys(ORIGINAL))) === JSON.stringify(ORIGINAL),
-      { timeout: 300000, interval: 2000, label: `node ${i} holds what the primary wrote` },
-    )));
-    await stageLocalArchive(p, A.appName, A.appName, RESTORED);
+    const standbys = STANDBYS;
+    await stageLocalArchive(p, RESUMED.appName, RESUMED.appName, RESTORED);
     // a node whose syncthing is down refuses logins, so the session comes first
     const auth = await ownerAuth(primary);
-    const guarded = () => p.getDecisionCount('primaryRole:returned', A.identifier, 'restoreUnfinished');
+    const guarded = () => p.getDecisionCount('primaryRole:returned', RESUMED.identifier, 'restoreUnfinished');
     const guardedBefore = await guarded();
     try {
       // no standby takes the component over, so every other holder answers that none runs it
-      await Promise.all(standbys.map((i) => client(i).holdCheckpoint('masterSlave:beforeDecision', A.identifier)));
+      await Promise.all(standbys.map((i) => client(i).holdCheckpoint('masterSlave:beforeDecision', RESUMED.identifier)));
       // the monitor's write would turn the held folder receive-only before the election
       // reads it; the primary's own election waits until the fixture is read
-      await p.holdCheckpoint('syncthing:beforeFolderWrite', A.folder);
-      await p.holdCheckpoint('masterSlave:beforeDecision', A.identifier);
-      await lockPart(p, A.appName);
-      await p.holdCheckpoint('restore:beforeClear', A.folder);
+      await p.holdCheckpoint('syncthing:beforeFolderWrite', RESUMED.folder);
+      await p.holdCheckpoint('masterSlave:beforeDecision', RESUMED.identifier);
+      await lockPart(p, RESUMED.appName);
+      await p.holdCheckpoint('restore:beforeClear', RESUMED.folder);
       const mark = p.getLastEventId();
-      const restore = restoreLocal(p, A.appName, [A.appName], auth);
-      await p.waitForEvent('checkpoint:held', (d) => d.name === 'restore:beforeClear' && d.key === A.folder, 180000, { afterId: mark });
+      const restore = restoreLocal(p, RESUMED.appName, [RESUMED.appName], auth);
+      await p.waitForEvent('checkpoint:held', (d) => d.name === 'restore:beforeClear' && d.key === RESUMED.folder, 180000, { afterId: mark });
       // syncthing goes down after the restore paused the folder and before it demotes it
       await stopDaemon(p);
-      await p.releaseCheckpoint('restore:beforeClear', A.folder);
+      await p.releaseCheckpoint('restore:beforeClear', RESUMED.folder);
       expect(await restore, 'fixture: the restore failed at the clear').to.match(/could not clear/i);
-      expect(recordWrites(p, A.identifier, mark), 'fixture: the restore recorded the component held').to.deep.equal([true]);
-      await electMaster(A.appName, client(0).ip);
+      expect(recordWrites(p, RESUMED.identifier, mark), 'fixture: the restore recorded the component held').to.deep.equal([true]);
+      await electMaster(RESUMED.appName, client(0).ip);
       await startDaemon(p, { paused: true });
-      const folder = await folderOf(primary, A);
+      const folder = await folderOf(primary, RESUMED);
       expect({ type: folder?.type, paused: folder?.paused }, 'fixture: the held folder as the refused demotion left it').to.deep.equal({ type: 'sendreceive', paused: true });
-      expect(await runners(A), 'fixture: no holder runs the component').to.deep.equal([]);
+      expect(await runners(RESUMED), 'fixture: no holder runs the component').to.deep.equal([]);
 
       const decided = p.getLastEventId();
-      await p.releaseCheckpoint('masterSlave:beforeDecision', A.identifier);
+      await p.releaseCheckpoint('masterSlave:beforeDecision', RESUMED.identifier);
       await waitHolding(async () => {
-        await heldInvariant(primary, A);
-        const folderNow = await folderOf(primary, A);
+        await heldInvariant(primary, RESUMED);
+        const folderNow = await folderOf(primary, RESUMED);
         expect({ type: folderNow?.type, paused: folderNow?.paused }, 'the held folder').to.deep.equal({ type: 'sendreceive', paused: true });
         return (await guarded()) >= guardedBefore + PASSES;
       }, { timeout: 600000, interval: 2000, label: 'election passes refusing to resume the held copy as primary' });
       expect(p.getEventBuffer().filter((e) => e.event === 'primaryRole:returned' && e.id > decided).map((e) => e.data),
         'what the election decided for the held copy').to.deep.equal([]);
     } finally {
-      await clearMaster(A.appName);
+      await clearMaster(RESUMED.appName);
       await Promise.all(HOLDERS.map((i) => client(i).releaseAllCheckpoints().catch(() => {})));
-      await unlockPart(p, A.appName);
+      await unlockPart(p, RESUMED.appName);
       if (!(await isDaemonUp(p))) await startDaemon(p);
     }
     // released, the monitor turns the folder receive-only and it heals from the standbys
     await waitHolding(async () => {
-      await heldInvariant(primary, A);
-      return !(await restoreRecord(primary, A.identifier));
+      await heldInvariant(primary, RESUMED);
+      return !(await restoreRecord(primary, RESUMED.identifier));
     }, { timeout: 600000, interval: 2000, label: 'the held copy heals from the standbys' });
-    expect(await readAppdata(p, A.appName, A.appName, Object.keys(ORIGINAL)), 'the healed data').to.deep.equal(ORIGINAL);
-    await currentRunner(A);
+    expect(await readAppdata(p, RESUMED.appName, RESUMED.appName, Object.keys(ORIGINAL)), 'the healed data').to.deep.equal(ORIGINAL);
+    await currentRunner(RESUMED);
   });
 
   it('keeps a copy held whose standbys hold nothing', async function () {
