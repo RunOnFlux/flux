@@ -64,22 +64,24 @@ function framed(message, sign, toAddress, now = Date.now()) {
 }
 
 /**
- * The key that signed `text`, in both its forms, or none. A node is listed under
- * its key compressed or uncompressed, as it registered it, so a reader looks up
- * each. Any signature recovers some key: it means something only when the key is
- * a listed node's.
+ * The key that signed `text`, or null, in the form the signature declares. A
+ * signature's first byte is 27 plus the recovery id, plus 4 when the signer's key
+ * is compressed; a node signs with its key in the form it is listed under, so the
+ * key comes back as the node list spells it. Any signature recovers some key: it
+ * means something only when the key is a listed node's.
  * @param {string} text
  * @param {string} signature
- * @returns {string[]} Hex: compressed, then uncompressed.
+ * @returns {?string} Hex.
  */
-function recoverKeys(text, signature) {
+function recoverKey(text, signature) {
   try {
     const raw = Buffer.from(signature, 'base64');
-    const recovery = (raw[0] - 27) % 4;
-    const key = secp256k1.ecdsaRecover(raw.subarray(1), recovery, bitcoinMessage.magicHash(text), true);
-    return [Buffer.from(key).toString('hex'), Buffer.from(secp256k1.publicKeyConvert(key, false)).toString('hex')];
+    const header = raw[0] - 27;
+    if (raw.length !== 65 || header < 0 || header > 7) return null;
+    const key = secp256k1.ecdsaRecover(raw.subarray(1), header % 4, bitcoinMessage.magicHash(text), header >= 4);
+    return Buffer.from(key).toString('hex');
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -103,16 +105,13 @@ async function readPath(received, ownAddress, addressesOf) {
     let found = null;
     // eslint-disable-next-line no-restricted-syntax
     for (const to of receivers) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const pubKey of recoverKeys(hopText(previous, sentAt, to), path[i][1])) {
-        // eslint-disable-next-line no-await-in-loop
-        const addresses = (await addressesOf(pubKey)).map(normalizeSocketAddress).filter(Boolean);
-        if (addresses.length) {
-          found = { sentAt, pubKey, to, addresses };
-          break;
-        }
+      const pubKey = recoverKey(hopText(previous, sentAt, to), path[i][1]);
+      // eslint-disable-next-line no-await-in-loop
+      const addresses = pubKey ? (await addressesOf(pubKey)).map(normalizeSocketAddress).filter(Boolean) : [];
+      if (addresses.length) {
+        found = { sentAt, pubKey, to, addresses };
+        break;
       }
-      if (found) break;
     }
     if (!found) return { verified: false, hops };
     hops.unshift({ sentAt: found.sentAt, pubKey: found.pubKey, to: found.to });

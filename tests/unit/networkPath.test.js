@@ -65,7 +65,9 @@ describe('networkPath tests', () => {
       ecdh.setPrivateKey(privateKey);
       const pubKey = ecdh.getPublicKey('hex', form);
       nodes[pubKey] = [listedAt];
-      return { privateKey, pubKey, address };
+      return {
+        privateKey, pubKey, address, compressed: form === 'compressed',
+      };
     };
     const addressesOf = async (pubKey) => nodes[pubKey] ?? [];
     const a = add('1.1.1.1:16127');
@@ -73,7 +75,9 @@ describe('networkPath tests', () => {
     const receivedVia = (signers) => {
       let current = message();
       signers.forEach(({ node, to, at }) => {
-        current = JSON.parse(networkPath.framed(current, signerOf(node.privateKey), to, at));
+        // A node signs with its key in the form it is listed under.
+        const sign = (text) => bitcoinMessage.sign(text, node.privateKey, node.compressed).toString('base64');
+        current = JSON.parse(networkPath.framed(current, sign, to, at));
       });
       return { hash: hash(message().data), timestamp: current.timestamp, networkPath: current.networkPath };
     };
