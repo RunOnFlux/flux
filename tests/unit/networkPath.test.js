@@ -57,12 +57,14 @@ describe('networkPath tests', () => {
 
   describe('reading a path back', () => {
     const nodes = {};
-    const add = (address) => {
+    // A node as the node list holds it: under its key in the form it registered,
+    // and at its address in the list's form, which leaves the default API port off.
+    const add = (address, { form = 'compressed', listedAt = address } = {}) => {
       const privateKey = key();
       const ecdh = crypto.createECDH('secp256k1');
       ecdh.setPrivateKey(privateKey);
-      const pubKey = ecdh.getPublicKey('hex', 'compressed');
-      nodes[pubKey] = [address];
+      const pubKey = ecdh.getPublicKey('hex', form);
+      nodes[pubKey] = [listedAt];
       return { privateKey, pubKey, address };
     };
     const addressesOf = async (pubKey) => nodes[pubKey] ?? [];
@@ -100,6 +102,28 @@ describe('networkPath tests', () => {
       cut.networkPath.shift();
 
       expect((await networkPath.readPath(cut, '9.9.9.9:16127', addressesOf)).verified).to.equal(false);
+    });
+
+    it('reads a hop whose signer is listed under its uncompressed key', async () => {
+      const c = add('3.3.3.3:16137', { form: 'uncompressed' });
+      const received = receivedVia([{ node: c, to: '9.9.9.9:16127', at: 1200 }]);
+
+      const read = await networkPath.readPath(received, '9.9.9.9:16127', addressesOf);
+
+      expect(read.verified).to.equal(true);
+      expect(read.hops.map((h) => h.pubKey)).to.deep.equal([c.pubKey]);
+    });
+
+    it('reads past a node on the default port that the node list names by its IP alone', async () => {
+      const d = add('4.4.4.4:16127', { listedAt: '4.4.4.4' });
+      const received = receivedVia([
+        { node: a, to: d.address, at: 1100 }, { node: d, to: '9.9.9.9:16127', at: 1300 },
+      ]);
+
+      const read = await networkPath.readPath(received, '9.9.9.9:16127', addressesOf);
+
+      expect(read.verified).to.equal(true);
+      expect(read.hops.map((h) => [h.pubKey, h.to])).to.deep.equal([[a.pubKey, d.address], [d.pubKey, '9.9.9.9:16127']]);
     });
 
     it('does not verify a path that reached another node', async () => {

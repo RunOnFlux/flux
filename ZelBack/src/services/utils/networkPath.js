@@ -17,6 +17,7 @@
 const hash = require('object-hash');
 const bitcoinMessage = require('./bitcoinMessage');
 const secp256k1 = require('secp256k1');
+const { normalizeSocketAddress } = require('./socketAddressUtils');
 
 const MAX_HOPS = 16;
 const HOP_SHAPE = /^[A-Za-z0-9+/]{87}=$/;
@@ -63,20 +64,22 @@ function framed(message, sign, toAddress, now = Date.now()) {
 }
 
 /**
- * The key that signed `text`, or null. Any signature recovers some key: it means
- * something only when the key is a listed node's.
+ * The key that signed `text`, in both its forms, or none. A node is listed under
+ * its key compressed or uncompressed, as it registered it, so a reader looks up
+ * each. Any signature recovers some key: it means something only when the key is
+ * a listed node's.
  * @param {string} text
  * @param {string} signature
- * @returns {?string} Hex.
+ * @returns {string[]} Hex: compressed, then uncompressed.
  */
-function recoverKey(text, signature) {
+function recoverKeys(text, signature) {
   try {
     const raw = Buffer.from(signature, 'base64');
     const recovery = (raw[0] - 27) % 4;
     const key = secp256k1.ecdsaRecover(raw.subarray(1), recovery, bitcoinMessage.magicHash(text), true);
-    return Buffer.from(key).toString('hex');
+    return [Buffer.from(key).toString('hex'), Buffer.from(secp256k1.publicKeyConvert(key, false)).toString('hex')];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -84,7 +87,9 @@ function recoverKey(text, signature) {
  * A received path, read back from this node.
  * @param {{hash: string, timestamp: number, networkPath: Array}} received
  * @param {string} ownAddress
- * @param {function(string): Promise<string[]>} addressesOf The addresses a key is listed at.
+ * @param {function(string): Promise<string[]>} addressesOf The addresses a key is listed at,
+ *   in the node list's form: a node on the default API port may be listed by its IP alone.
+ *   A hop names its receiver as ip:port, so each is compared with its port.
  * @returns {Promise<{verified: boolean, hops: Array<{sentAt: number, pubKey: string, to: string}>}>}
  *   Each hop in order; `verified` is false where the chain breaks, with the hops read until then.
  */
@@ -98,13 +103,16 @@ async function readPath(received, ownAddress, addressesOf) {
     let found = null;
     // eslint-disable-next-line no-restricted-syntax
     for (const to of receivers) {
-      const pubKey = recoverKey(hopText(previous, sentAt, to), path[i][1]);
-      // eslint-disable-next-line no-await-in-loop
-      const addresses = pubKey ? await addressesOf(pubKey) : [];
-      if (addresses.length) {
-        found = { sentAt, pubKey, to, addresses };
-        break;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const pubKey of recoverKeys(hopText(previous, sentAt, to), path[i][1])) {
+        // eslint-disable-next-line no-await-in-loop
+        const addresses = (await addressesOf(pubKey)).map(normalizeSocketAddress).filter(Boolean);
+        if (addresses.length) {
+          found = { sentAt, pubKey, to, addresses };
+          break;
+        }
       }
+      if (found) break;
     }
     if (!found) return { verified: false, hops };
     hops.unshift({ sentAt: found.sentAt, pubKey: found.pubKey, to: found.to });
