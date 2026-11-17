@@ -1122,7 +1122,9 @@ describe('syncthingFolderStateMachine tests', () => {
         sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
         expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
         expect(result.cache).to.include({ restarted: true });
-        sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', { folder: 'test-app', files: 0, directories: 1 });
+        sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', {
+          folder: 'test-app', files: 0, directories: 1, deletes: 0,
+        });
       } finally {
         publish.restore();
       }
@@ -2517,6 +2519,32 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
     });
 
+    it('reverts a receive-only folder whose only local changes are deletions, which syncthing reads as synced', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 1000,
+        inSyncBytes: 1000,
+        state: 'idle',
+        receiveOnlyChangedFiles: 0,
+        receiveOnlyChangedDeletes: 1,
+      });
+
+      await stateMachine.manageFolderSyncState(mockParams);
+      await checksSettled();
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+      await checksSettled();
+
+      sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+      expect(result.cache.restarted).to.be.false;
+    });
+
     // A change whose cluster version is this node's own is held by no other device:
     // syncthing reverts it by deleting it. One to data another device wrote is the
     // only copy of that data, so it is kept and promoted with the rest; one this node
@@ -2784,7 +2812,7 @@ describe('syncthingFolderStateMachine tests', () => {
               publish.withArgs('syncthing:localChangesKept'),
               'syncthing:localChangesKept',
               {
-                folder: 'test-app', files: 0, directories: 1, reason: 'noHolderRunsTheApp',
+                folder: 'test-app', files: 0, directories: 1, deletes: 0, reason: 'noHolderRunsTheApp',
               },
             );
           } finally {
@@ -2871,7 +2899,9 @@ describe('syncthingFolderStateMachine tests', () => {
           sinon.assert.calledOnceWithExactly(
             publish.withArgs('syncthing:localChangesKept'),
             'syncthing:localChangesKept',
-            { folder: 'test-app', files: 0, directories: 1, reason: 'onlyCopy' },
+            {
+              folder: 'test-app', files: 0, directories: 1, deletes: 0, reason: 'onlyCopy',
+            },
           );
           sinon.assert.calledOnce(syncthingServiceMock.getDbLocalChanged);
           sinon.assert.calledOnce(syncthingServiceMock.getDbFile);

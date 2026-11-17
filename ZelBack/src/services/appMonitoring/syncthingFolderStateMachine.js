@@ -1421,14 +1421,15 @@ function receiveOnlyChanges(syncStatus) {
 async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCurrent, othersRunTheApp }) {
   const cache = folderCache;
   if (!syncStatus?.isSynced) return false;
-  const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
-  if (changed === 0) {
+  // a receive-only folder whose only local changes are deletions reads as synced
+  if (receiveOnlyChanges(syncStatus) === 0) {
     delete cache.keepingChanges;
     delete cache.localChangeCheck;
     return false;
   }
   const files = syncStatus.receiveOnlyChangedFiles || 0;
   const directories = syncStatus.receiveOnlyChangedDirectories || 0;
+  const deletes = syncStatus.receiveOnlyChangedDeletes || 0;
   const devices = (await syncthingService.getConfigFolders(appId).catch(() => null))?.devices;
   if (!Array.isArray(devices)) {
     log.warn(`revertLocalChangesIfSynced - ${appId}: could not read which devices share the folder; neither reverting nor promoting this pass`);
@@ -1443,9 +1444,9 @@ async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCu
   const keep = (reason, why) => {
     if (cache.keepingChanges === reason) return false;
     cache.keepingChanges = reason;
-    log.warn(`revertLocalChangesIfSynced - ${appId} ${why} (${files} files, ${directories} directories changed); keeping its changes, a revert would delete them`);
+    log.warn(`revertLocalChangesIfSynced - ${appId} ${why} (${files} files, ${directories} directories changed, ${deletes} deleted); keeping its changes, a revert would delete them`);
     fluxEventBus.publish('syncthing:localChangesKept', {
-      folder: appId, files, directories, reason,
+      folder: appId, files, directories, deletes, reason,
     });
     return false;
   };
@@ -1467,7 +1468,7 @@ async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCu
   }
   delete cache.waitingOnHolders;
   delete cache.keepingChanges;
-  localChangeCheck.revert(appId, cache, answer, isCurrent, { files, directories });
+  localChangeCheck.revert(appId, cache, answer, isCurrent, { files, directories, deletes });
   return true;
 }
 
