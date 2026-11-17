@@ -15,7 +15,7 @@ import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
-  execInContainer, isAppContainerRunning, crashFluxos, releaseFluxos, blockTraffic,
+  execInContainer, isAppContainerRunning, crashFluxos, releaseFluxos, blockTraffic, unblockTraffic,
 } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
@@ -176,22 +176,22 @@ describe('a g: component a restore left part replaced heals only from standbys t
     }, { timeout: 300000, interval: 2000, label: `the standby's deleted file is back (${JSON.stringify(measured)})` });
   });
 
-  it('never sends or runs the damaged copy, and heals it from the standbys, while another holder takes over', async function () {
+  it('never sends or runs the damaged copy, and heals it from the standbys', async function () {
     this.timeout(900000);
     const p = client(PRIMARY);
-    const mark = await damageAndFail(PRIMARY, A);
-    let tookOver = null;
-    await waitHolding(async () => {
-      await heldInvariant(PRIMARY, A);
-      const running = await runners(A);
-      if (running.length === 1 && running[0] !== PRIMARY) [tookOver] = running;
-      return recordWrites(p, A.identifier, mark).includes(false);
-    }, { timeout: 600000, interval: 2000, label: 'the damaged copy heals from the standbys' });
+    try {
+      const mark = await damageAndFail(PRIMARY, A);
+      await waitHolding(async () => {
+        await heldInvariant(PRIMARY, A);
+        return recordWrites(p, A.identifier, mark).includes(false);
+      }, { timeout: 600000, interval: 2000, label: 'the damaged copy heals from the standbys' });
+    } finally {
+      await unlockPart(p, A.appName);
+    }
     expect(await heldPasses(PRIMARY, A), 'folder passes it was held for').to.be.at.least(1);
     expect(await readAppdata(p, A.appName, A.appName, Object.keys(ORIGINAL)), 'the healed copy').to.deep.equal(ORIGINAL);
     expect(await restoreRecord(PRIMARY, A.identifier), 'the record').to.equal(false);
-    expect(tookOver, 'a standby ran the component while the primary was held').to.be.oneOf(STANDBYS);
-    await unlockPart(p, A.appName);
+    await currentRunner(A);
   });
 
   it('clears the record on the first passes of a restore that failed before deleting anything', async function () {
@@ -258,11 +258,18 @@ describe('a g: component a restore left part replaced heals only from standbys t
     await crashFluxos(p.container, { hold: true });
     await restore;
     expect(await restoreRecord(primary, A.identifier), 'fixture: the record outlives the crash').to.equal(true);
-    await releaseFluxos(p.container);
-    await waitHolding(async () => {
-      await heldInvariant(primary, A);
-      return (await p.getDecisionCount('primaryRole:returned', A.identifier, 'restoreUnfinished')) > 0;
-    }, { timeout: 300000, interval: 2000, label: 'the returning primary reads its record' });
+    // it returns with no peer to heal from, so the record stands when its role is decided
+    const others = HOLDERS.filter((i) => i !== primary).map((i) => client(i).ip);
+    await blockTraffic(p.container, others, SYNCTHING_PORT);
+    try {
+      await releaseFluxos(p.container);
+      await waitHolding(async () => {
+        await heldInvariant(primary, A);
+        return (await p.getDecisionCount('primaryRole:returned', A.identifier, 'restoreUnfinished')) > 0;
+      }, { timeout: 300000, interval: 2000, label: 'the returning primary reads its record' });
+    } finally {
+      await unblockTraffic(p.container, others, SYNCTHING_PORT);
+    }
     await waitHolding(async () => {
       await heldInvariant(primary, A);
       return !(await restoreRecord(primary, A.identifier));

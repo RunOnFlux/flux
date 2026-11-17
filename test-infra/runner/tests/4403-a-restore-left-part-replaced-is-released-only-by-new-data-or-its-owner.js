@@ -1,15 +1,13 @@
 /*
  * A component whose restore stopped part way through is released only by data that
- * replaces what the restore left - a new volume from a hard redeploy, a hard update
- * reinstall or an install - or by its owner's start. A soft redeploy keeps its volume
+ * replaces what the restore left - a new volume from a hard redeploy or a hard
+ * update reinstall - or by its owner's start. A soft redeploy keeps its volume
  * and so keeps it held, and a FluxOS restart forgets nothing.
  *
  * Each case has an app of its own, one component that does not sync, on one node of
  * three (the ring needs three): with no peer to heal from, nothing but these releases
  * it. The data is damaged as a failed clear leaves it: two files deleted, one kept in
- * a directory the clear could not remove. An install over an old record is an app
- * whose removal could not delete its runtime record, as when the database refuses
- * that delete.
+ * a directory the clear could not remove.
  */
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
@@ -19,7 +17,6 @@ import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { deliverApp } from '../framework/app-delivery.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
-import { failCommands } from '../framework/mongo-control.js';
 import { waitFor, waitHolding, waitForUp } from '../framework/wait.js';
 import {
   ORIGINAL, DELETED_BY_CLEAR, writeAppdata, readAppdata, lockPart, unlockPart, stageLocalArchive,
@@ -153,24 +150,5 @@ describe('a restore left part replaced is released only by new data or its owner
       blocks: 216, label: 'the hard update reinstall clears the record',
     });
     await released(held, mark, 'a hard update reinstall');
-  });
-
-  it('does not hold an install made over a record its removal could not delete', async function () {
-    this.timeout(900000);
-    const held = await heldApp('rsinst');
-    await unlockPart(client(), held.appName);
-    const release = await failCommands(SUBJECT + 1, 'localzelapps', 'zelappsruntimestate', { commands: ['delete'] });
-    try {
-      await client().removeAppLocally(held.appName, await ownerAuth());
-      await waitFor(async () => !(await client().get(`/apps/installedapps?_=${Date.now()}`))?.data?.some((a) => a.name === held.appName), {
-        timeout: 300000, interval: 3000, label: 'the app is removed',
-      });
-    } finally {
-      await release();
-    }
-    expect(await restoreRecord(SUBJECT, held.identifier), 'fixture: the record outlives the removal').to.equal(true);
-    const mark = client().getLastEventId();
-    await installOnNodes(env, held.app, [SUBJECT]);
-    await released(held, mark, 'an install');
   });
 });

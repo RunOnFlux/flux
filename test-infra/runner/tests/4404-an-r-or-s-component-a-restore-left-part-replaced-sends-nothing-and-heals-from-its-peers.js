@@ -8,8 +8,8 @@
  * owner's stop as they are.
  *
  * Three holders on real syncthing daemons and a fourth node that keeps the ring whole.
- * The data is written on the holder whose folder sends and reaches the others through
- * syncthing. It is damaged as a failed clear leaves it: two files deleted, one kept in
+ * Every copy sends once its holder is ready; the data is written on one and reaches the
+ * others through syncthing. It is damaged as a failed clear leaves it: two files deleted, one kept in
  * a directory the clear could not remove.
  */
 import { describe, it, before } from 'mocha';
@@ -61,17 +61,6 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
   const holds = async (i, app) => JSON.stringify(await readAppdata(client(i), app.appName, app.appName, Object.keys(ORIGINAL))) === JSON.stringify(ORIGINAL);
   const heldPasses = (i, app) => client(i).getDecisionCount('syncthing:restoreUnfinished', app.folder, 'held');
   const healed = (i, app) => client(i).getDecisionCount('syncthing:restoreUnfinished', app.folder, 'healed');
-  // the holder whose folder sends, once exactly one does (r:)
-  const sender = async (app) => {
-    let found = null;
-    await waitFor(async () => {
-      const flags = await Promise.all(HOLDERS.map((i) => sending(i, app)));
-      const senders = HOLDERS.filter((_, k) => flags[k]);
-      [found] = senders;
-      return senders.length === 1;
-    }, { timeout: 300000, interval: 2000, label: `exactly one holder's ${app.appName} folder sends` });
-    return found;
-  };
   // Asserted on every poll while node i's record holds the component: its folder
   // does not send, its container does not run, and every other holder keeps the data.
   const heldInvariant = async (i, app, peers = HOLDERS.filter((h) => h !== i)) => {
@@ -116,8 +105,11 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     await Promise.all(HOLDERS.map((i) => waitFor(() => isUp(i, app), {
       timeout: 300000, interval: 3000, label: `node ${i} runs ${app.appName}`,
     })));
-    const writer = app.mode === 'r' ? await sender(app) : HOLDERS[0];
-    await writeAppdata(client(writer), app.appName, app.appName, ORIGINAL);
+    // every copy sends once its holder is ready, and the data reaches the rest from one
+    await Promise.all(HOLDERS.map((i) => waitFor(() => sending(i, app), {
+      timeout: 300000, interval: 3000, label: `node ${i}'s ${app.appName} folder sends`,
+    })));
+    await writeAppdata(client(HOLDERS[0]), app.appName, app.appName, ORIGINAL);
     await Promise.all(HOLDERS.map((i) => waitFor(async () => (await isFolderSynced(client(i), app.folder)) && holds(i, app), {
       timeout: 300000, interval: 3000, label: `node ${i} holds the ${app.appName} data`,
     })));
@@ -149,7 +141,7 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
 
   it('turns a held r: copy that was sending receive-only, claims nothing of it, and heals it from its peers', async function () {
     this.timeout(900000);
-    const writer = await sender(R);
+    const writer = HOLDERS[0];
     const mark = await damageAndFail(writer, R);
     const auth = await teamAuth(writer);
     await waitHolding(async () => {
@@ -166,8 +158,7 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
 
   it('does not start a held r: component through a soft redeploy', async function () {
     this.timeout(900000);
-    const writer = await sender(R);
-    const subject = HOLDERS.find((i) => i !== writer);
+    const subject = HOLDERS[1];
     const mark = await damageAndFail(subject, R);
     await client(subject).redeployApp(R.appName, await ownerAuth(subject), { force: false });
     await client(subject).waitForEvent('app:softRedeployed', (d) => d.name === R.appName, 300000, { afterId: mark });
@@ -177,7 +168,8 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
 
   it('does not make a held r: copy send when FluxOS stops part way through its restore', async function () {
     this.timeout(900000);
-    const writer = await sender(R);
+    const writer = HOLDERS[2];
+    await waitFor(() => sending(writer, R), { timeout: 300000, interval: 3000, label: 'the folder sends before its restore' });
     const p = client(writer);
     await stageLocalArchive(p, R.appName, R.appName, RESTORED);
     await p.holdCheckpoint('restore:beforeClear', R.folder);
