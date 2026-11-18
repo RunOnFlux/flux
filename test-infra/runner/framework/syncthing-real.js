@@ -11,6 +11,7 @@
 // Everything goes through the node's container, because the daemon binds
 // 127.0.0.1 inside it and its API key is whatever it generated for itself.
 import { execInContainer } from './container.js';
+import { waitFor } from './wait.js';
 
 // The daemon's home as FluxOS resolves it: SYNCTHING_PATH where the node sets it
 // (Arcane), otherwise ~/.config/syncthing of the account FluxOS runs as (legacy).
@@ -104,6 +105,27 @@ export async function getConnectedDevices(client) {
   return Object.entries(conns.connections || {})
     .filter(([, c]) => c.connected)
     .map(([id]) => id);
+}
+
+// Drops this node's live connections to the given peers at once: pausing a device
+// closes its connection and resuming it lets syncthing dial again, so a traffic block
+// set first keeps it closed. A link cut by a traffic block alone stays up until
+// syncthing's receive timeout, five minutes. Returns once none of them is connected.
+export async function dropConnections(client, peers) {
+  const key = await apiKey(client);
+  const ids = await Promise.all(peers.map((peer) => getDeviceId(peer)));
+  for (const id of ids) {
+    for (const op of ['pause', 'resume']) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(client.container,
+        `curl -sS -f -X POST -H "X-API-Key: ${key}" "http://127.0.0.1:8384/rest/system/${op}?device=${id}"`);
+      if (r.exitCode !== 0) throw new Error(`syncthing-real: ${op} of device ${id} failed: ${r.stderr || r.output}`);
+    }
+  }
+  await waitFor(async () => {
+    const connected = await getConnectedDevices(client);
+    return ids.every((id) => !connected.includes(id));
+  }, { timeout: 60000, interval: 1000, label: `${client.container}'s syncthing has dropped its peers` });
 }
 
 // This node's live connections, each with the transport syncthing reports for it

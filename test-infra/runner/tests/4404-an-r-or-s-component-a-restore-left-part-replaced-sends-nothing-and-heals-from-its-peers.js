@@ -23,7 +23,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, getDeviceId, getConnectedDevices,
+  isDaemonUp, isFolderSynced, getFolderConfig, dropConnections,
 } from '../framework/syncthing-real.js';
 import {
   ORIGINAL, DELETED_BY_CLEAR, writeAppdata, readAppdata, lockPart, unlockPart, stageLocalArchive,
@@ -217,12 +217,7 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     const heldAuth = await ownerAuth(held);
     // its syncthing reaches no peer, so nothing heals it meanwhile
     await blockTraffic(client(held).container, others.map((i) => client(i).ip), SYNCTHING_PORT);
-    const peerIds = await Promise.all(others.map((i) => getDeviceId(client(i))));
-    // a dropped connection ends on syncthing's own receive timeout, five minutes
-    await waitFor(async () => {
-      const connected = await getConnectedDevices(client(held));
-      return peerIds.every((id) => !connected.includes(id));
-    }, { timeout: 420000, interval: 2000, label: 'the held instance\'s syncthing has lost its peers' });
+    await dropConnections(client(held), others.map(client));
     await damageAndFail(held, S, heldAuth);
     const stopped = client(held).getLastEventId();
     await client(held).getAuthed(`/apps/appstop/${S.appName}`, heldAuth);

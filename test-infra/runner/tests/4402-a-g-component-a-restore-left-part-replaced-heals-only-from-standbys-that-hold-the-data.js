@@ -24,7 +24,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding, waitForUp } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, getDeviceId, getConnectedDevices,
+  isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, dropConnections,
   stopDaemon, startDaemon,
 } from '../framework/syncthing-real.js';
 import { electMaster, clearMaster } from '../framework/fdm-control.js';
@@ -80,31 +80,8 @@ describe('a g: component a restore left part replaced heals only from standbys t
     }, { timeout: 600000, interval: 2000, label: `exactly one holder runs ${app.appName}` });
     return runner;
   };
-  // node i's syncthing holds no connection to the given holders' (all others by default)
-  const disconnectedFromPeers = async (i, from = HOLDERS.filter((h) => h !== i)) => {
-    const ids = await Promise.all(from.map((h) => getDeviceId(client(h))));
-    // a dropped connection ends on syncthing's own receive timeout, five minutes
-    await waitFor(async () => {
-      const connected = await getConnectedDevices(client(i));
-      return ids.every((id) => !connected.includes(id));
-    }, { timeout: 420000, interval: 2000, label: `node ${i}'s syncthing has lost its peers` });
-  };
-  // the node's existing syncthing connections dropped at once (a device paused and resumed
-  // reconnects, and the traffic block stops it): what a partition reaches after syncthing's
-  // own receive timeout
-  const dropConnections = async (i) => {
-    const others = HOLDERS.filter((h) => h !== i);
-    const ids = await Promise.all(others.map((h) => getDeviceId(client(h))));
-    const conf = "$(getent passwd \"${FLUX_FLUXOS_USER:-root}\" | cut -d: -f6)";
-    for (const id of ids) {
-      for (const op of ['pause', 'resume']) {
-        // eslint-disable-next-line no-await-in-loop
-        const r = await execInContainer(client(i).container, `k=$(sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' ${conf}/.config/syncthing/config.xml /dat/usr/lib/syncthing/config.xml 2>/dev/null | head -1); curl -sS -f -X POST -H "X-API-Key: $k" "http://127.0.0.1:8384/rest/system/${op}?device=${id}"`);
-        expect(r.exitCode, `syncthing ${op} of ${id}: ${r.output}`).to.equal(0);
-      }
-    }
-    await disconnectedFromPeers(i);
-  };
+  // node i's syncthing connections to every other holder dropped at once
+  const dropPeers = (i) => dropConnections(client(i), HOLDERS.filter((h) => h !== i).map(client));
   const heldPasses = (i, app) => client(i).getDecisionCount('syncthing:restoreUnfinished', app.folder, 'held');
   // Asserted on every poll: at most one holder runs the app, and node i neither runs
   // nor sends it while its record holds it. The folder and container are read before
@@ -314,7 +291,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
     // decided. Cut off while it still runs the app, so no standby takes over meanwhile.
     const others = HOLDERS.filter((i) => i !== primary).map((i) => client(i).ip);
     await blockTraffic(p.container, others, SYNCTHING_PORT);
-    await dropConnections(primary);
+    await dropPeers(primary);
     await p.holdCheckpoint('restore:beforeClear', A.folder);
     const mark = p.getLastEventId();
     const restore = restoreLocal(p, A.appName, [A.appName], auth).catch(() => null);
@@ -423,7 +400,7 @@ describe('a g: component a restore left part replaced heals only from standbys t
     }, { timeout: 300000, interval: 5000, label: 'the primary takes logins' });
     // the standbys' syncthing never reaches the primary's
     await Promise.all(STANDBYS.map((i) => blockTraffic(client(i).container, [client(PRIMARY).ip], SYNCTHING_PORT)));
-    await dropConnections(PRIMARY);
+    await dropPeers(PRIMARY);
     // eslint-disable-next-line no-restricted-syntax
     for (const app of [EMPTY, UNTOUCHED]) {
       // eslint-disable-next-line no-await-in-loop
