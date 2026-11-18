@@ -760,13 +760,21 @@ async function rebuildUi(req, res) {
   // repository, so rebuilding it means taking that release again through the one path
   // that knows which host to ask - the same path the periodic check uses.
   //
-  // Unconditionally, unlike the periodic check: that one stands down when the
+  // Whatever is on disk, unlike the periodic check: that one stands down when the
   // installed hash already matches the release, and a CloudUI which is damaged
   // rather than out of date matches all the same. Repairing one is what this is
-  // for, so it takes the release again whatever is on disk.
-  const rebuilt = await cloudUIUpdateService.runUpdateScript();
+  // for, so it takes the release again.
+  //
+  // Not while another update is in progress: the caller is answered at once rather
+  // than held behind it, and that update installs the release anyway.
+  const outcome = await cloudUIUpdateService.rebuildIfIdle();
 
-  if (!rebuilt) {
+  if (outcome === 'busy') {
+    const errMessage = messageHelper.createErrorMessage('A Flux UI update is already in progress on this node, try again once it has finished');
+    return res.json(errMessage);
+  }
+
+  if (outcome !== 'installed') {
     const errMessage = messageHelper.createErrorMessage('Error rebuilding Flux UI, see the node log for what the fetch reported');
     return res.json(errMessage);
   }
@@ -1558,6 +1566,11 @@ async function getFluxInfo(req, res) {
       throw versionRes.data;
     }
     info.flux.version = versionRes.data;
+    // The installed UI release; each is null where the update script has not written it.
+    info.flux.cloudUI = {
+      tag: cloudUIUpdateService.getLocalVersionTag(),
+      sha256: cloudUIUpdateService.getLocalVersionHash(),
+    };
     const nodeJsVersionsRes = await getNodeJsVersions();
     if (nodeJsVersionsRes.status === 'error') {
       throw nodeJsVersionsRes.data;

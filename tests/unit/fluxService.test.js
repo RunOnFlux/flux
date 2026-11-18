@@ -32,6 +32,7 @@ const appInspector = require('../../ZelBack/src/services/appManagement/appInspec
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 // eslint-disable-next-line no-unused-vars
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
@@ -516,13 +517,13 @@ describe('fluxService tests', () => {
   // while its tests stayed green.
   describe('rebuildUi tests', () => {
     let verifyPrivilegeStub;
-    let runUpdateScriptStub;
+    let rebuildIfIdleStub;
     let runCmdStub;
     let watchdogOwnsStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      runUpdateScriptStub = sinon.stub(cloudUIUpdateService, 'runUpdateScript');
+      rebuildIfIdleStub = sinon.stub(cloudUIUpdateService, 'rebuildIfIdle');
       watchdogOwnsStub = sinon.stub(cloudUIUpdateService, 'watchdogManagesCloudUI').returns(false);
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
@@ -546,24 +547,24 @@ describe('fluxService tests', () => {
       await fluxService.rebuildUi(undefined, res);
 
       sinon.assert.calledWithExactly(res.json, expectedResponse);
-      sinon.assert.notCalled(runUpdateScriptStub);
+      sinon.assert.notCalled(rebuildIfIdleStub);
     });
 
     it('should report success when the UI is fetched', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(true);
+      rebuildIfIdleStub.resolves('installed');
       const res = generateResponse();
 
       await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.calledOnce(runUpdateScriptStub);
+      sinon.assert.calledOnce(rebuildIfIdleStub);
       expect(res.json.firstCall.args[0].status).to.equal('success');
       expect(res.json.firstCall.args[0].data.message).to.equal('Flux UI successfully rebuilt');
     });
 
     it('should report an error when the fetch fails', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(false);
+      rebuildIfIdleStub.resolves('failed');
       const res = generateResponse();
 
       await fluxService.rebuildUi(undefined, res);
@@ -572,10 +573,20 @@ describe('fluxService tests', () => {
       expect(res.json.firstCall.args[0].data.message).to.contain('Error rebuilding Flux UI');
     });
 
-    // The script removes the served directory before it copies the new one in.
-    // On ArcaneOS the watchdog owns CloudUI, which is why the periodic check
-    // stands aside there - reaching the script directly from here would walk
-    // under that and tear down a directory this node does not manage.
+    it('answers at once that an update is in progress when another run holds the lock', async () => {
+      verifyPrivilegeStub.returns(true);
+      rebuildIfIdleStub.resolves('busy');
+      const res = generateResponse();
+
+      await fluxService.rebuildUi(undefined, res);
+
+      sinon.assert.calledOnce(rebuildIfIdleStub);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('already in progress');
+    });
+
+    // On ArcaneOS the watchdog owns CloudUI, so the route leaves it alone, as the
+    // periodic check does.
     it('refuses on ArcaneOS, where the watchdog owns CloudUI', async () => {
       verifyPrivilegeStub.returns(true);
       watchdogOwnsStub.returns(true);
@@ -583,7 +594,7 @@ describe('fluxService tests', () => {
 
       await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.notCalled(runUpdateScriptStub);
+      sinon.assert.notCalled(rebuildIfIdleStub);
       expect(res.json.firstCall.args[0].status).to.equal('error');
       expect(res.json.firstCall.args[0].data.message).to.contain('managed by the watchdog');
     });
@@ -592,7 +603,7 @@ describe('fluxService tests', () => {
     // be deleted somewhere else without anything failing until a node runs it.
     it('should not spawn a package script of its own', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(true);
+      rebuildIfIdleStub.resolves('installed');
 
       await fluxService.rebuildUi(undefined, generateResponse());
 
@@ -2064,6 +2075,9 @@ describe('fluxService tests', () => {
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getIncomingConnectionsInfo');
       syncthingServiceStub = sinon.stub(syncthingService, 'systemVersion');
       sinon.stub(dockerService, 'dockerVersion').resolves({ Version: '27.5.1' });
+      sinon.stub(dbHelper, 'getMongoDbVersion').resolves('7.0.14');
+      sinon.stub(cloudUIUpdateService, 'getLocalVersionTag').returns('v3.20.22');
+      sinon.stub(cloudUIUpdateService, 'getLocalVersionHash').returns('abc123');
     });
 
     afterEach(() => {
@@ -2176,6 +2190,9 @@ describe('fluxService tests', () => {
       expect(result.data.flux.dosStaging).to.equal(null);
       expect(result.data.flux.uplink).to.eql({ tunnel: 'unknown', mtu: null, rttMs: null });
       expect(result.data.flux.kernel).to.eql({ tainted: 4736, flags: ['D', 'W', 'O'] });
+      expect(result.data.flux.cloudUI).to.eql({ tag: 'v3.20.22', sha256: 'abc123' });
+      expect(result.data.flux.dockerVersion).to.equal('27.5.1');
+      expect(result.data.flux.mongoDbVersion).to.equal('7.0.14');
       expect(result.data.apps).to.be.an('object');
       expect(result.data.benchmark).to.eql({
         info: 'info2 data',
@@ -4019,13 +4036,14 @@ describe('fluxService tests', () => {
     const socketBefore = process.env.FLUXOS_API_SOCKET;
     let runCommandStub;
     let clock;
-    // A request every check of the preparation passes: a private caller, a synced
-    // fluxd and a node outside its confirmation window.
+    // A request every check of the preparation passes: a private caller on no app
+    // network, a synced fluxd and a node outside its confirmation window.
     const preparationRequest = () => ({ socket: { remoteAddress: '10.20.30.40' } });
 
     beforeEach(() => {
       clock = sinon.useFakeTimers({ now: 1_800_000_000_000, toFake: ['setTimeout', 'Date'] });
       runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(dockerService, 'getFluxDockerNetworkSubnets').resolves(['172.23.5.0/24']);
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlockchainInfo').resolves({ status: 'success', data: { bestblockhash: 'aa', blocks: 1000 } });
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').resolves({ status: 'success', data: { time: 1_800_000_000 - 60 } });
       sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'success', data: { status: 'CONFIRMED', last_confirmed_height: 990 } });

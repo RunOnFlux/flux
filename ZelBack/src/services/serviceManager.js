@@ -380,7 +380,7 @@ async function startFluxFunctions() {
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
-    await cloudUIUpdateService.checkAndUpdateCloudUI();
+    cloudUIUpdateService.startCloudUIUpdateCheck();
     startRouterAddressUpkeep();
     await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
     await fluxNetworkHelper.allowOnlyDockerNetworksToFluxNodeService();
