@@ -167,6 +167,8 @@ describe('fileSystemManager upload tests', () => {
 
     expect(executorStub.run.called).to.equal(false);
     expect(release.callCount).to.equal(1);
+    expect(res.json.firstCall.args[0].status).to.equal('error');
+    expect(res.json.firstCall.args[0].data.message).to.equal('Upload destination is not a folder');
   });
 
   // The whole request is one operation. A slot per file would refuse the
