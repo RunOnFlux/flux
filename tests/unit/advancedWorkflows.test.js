@@ -5826,19 +5826,20 @@ describe('advancedWorkflows tests', () => {
       // pass or fail on whether the machine running them happens to have docker.
       sinon.stub(dockerService, 'dockerListContainers').resolves([]);
       sinon.stub(dockerService, 'appDockerStart').resolves();
-      // The reconciler at the boundary: a stop settles each component docker
-      // reads as down, and reports the rest as not stopped.
-      sinon.stub(appReconciler, 'drive').callsFake(async (ids, state) => {
-        if (state !== 'stopped') return { converged: true, failed: [] };
-        const failed = [];
+      // The reconciler at the boundary: the hold leaves down each component
+      // docker reads as down, and refuses the rest.
+      sinon.stub(appReconciler, 'holdStopped').callsFake(async (ids) => {
+        const refused = [];
         // eslint-disable-next-line no-restricted-syntax
-        for (const id of ids) {
+        for (const identifier of ids) {
           // eslint-disable-next-line no-await-in-loop
-          const actual = await appReconciler.dockerActual(id);
-          if (!actual.reachable || actual.indeterminate || actual.running) failed.push(id);
+          const actual = await appReconciler.dockerActual(identifier);
+          if (!actual.reachable || actual.indeterminate) refused.push({ identifier, reason: 'unavailable' });
+          else if (actual.running) refused.push({ identifier, reason: 'running' });
         }
-        return { converged: failed.length === 0, failed };
+        return { stopped: refused.length === 0, refused };
       });
+      sinon.stub(appReconciler, 'releaseHold').resolves();
       sinon.stub(IOUtils, 'createTarGz').resolves({ status: true });
       sinon.stub(IOUtils, 'checkFileExists').resolves(false);
       sinon.stub(IOUtils, 'removeFile').resolves(true);
@@ -5859,7 +5860,7 @@ describe('advancedWorkflows tests', () => {
       expect(result).to.equal(false);
       sinon.assert.notCalled(IOUtils.createTarGz);
       // and it cost the app nothing: the refusal lands before any stop
-      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(appReconciler.holdStopped);
       sinon.assert.notCalled(syncthingService.adjustConfigFolders);
       expect(globalState.backupInProgress).to.not.include(appname);
     });
@@ -5878,7 +5879,7 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(false);
       expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is being removed from this node');
-      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(appReconciler.holdStopped);
       expect(globalState.backupInProgress).to.not.include(appname);
     });
 
@@ -5894,7 +5895,7 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(false);
       expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is held until this node confirms it still holds it');
-      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(appReconciler.holdStopped);
       expect(globalState.backupInProgress).to.not.include(appname);
     });
 
@@ -5910,7 +5911,7 @@ describe('advancedWorkflows tests', () => {
       expect(result).to.equal(false);
       const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
       expect(said).to.include('no specifications found');
-      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(appReconciler.holdStopped);
     });
 
     it('refuses a backup that is not a list of components, not with a TypeError', async () => {
@@ -5944,7 +5945,7 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(false);
       sinon.assert.notCalled(IOUtils.createTarGz);
-      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(appReconciler.holdStopped);
       const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
       expect(said, 'says what actually happened').to.include('could not be determined');
       expect(said, 'and does not claim anything about the data').to.not.include('never synced');
@@ -5981,7 +5982,7 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(false);
       sinon.assert.notCalled(IOUtils.createTarGz);
-      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(appReconciler.holdStopped);
     });
 
     it('proceeds over an incomplete copy when force is given', async () => {
@@ -6049,7 +6050,7 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(false);
       sinon.assert.notCalled(IOUtils.createTarGz);
-      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(appReconciler.holdStopped);
       const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
       expect(said).to.include('could not be held still');
     });
@@ -6113,7 +6114,7 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(false);
       expect(res.write.getCalls().map((c) => String(c.args[0])).join('')).to.include('Refused: a restore of palworld did not finish');
-      sinon.assert.notCalled(appReconciler.drive);
+      sinon.assert.notCalled(appReconciler.holdStopped);
       sinon.assert.notCalled(IOUtils.createTarGz);
     });
 
@@ -6127,11 +6128,11 @@ describe('advancedWorkflows tests', () => {
       const res = makeRes();
       await advancedWorkflows.appendBackupTask(backupReq(), res);
 
-      sinon.assert.calledWith(appReconciler.drive, [`palworld_${appname}`], 'stopped');
-      sinon.assert.calledWith(appReconciler.drive, [`palworld_${appname}`], 'running');
-      // the response ends only once the app is back, so a caller that sees it end
-      // finds the app free for its next operation
-      sinon.assert.callOrder(appReconciler.drive.withArgs(sinon.match.any, 'stopped'), appReconciler.drive.withArgs(sinon.match.any, 'running'), res.end);
+      sinon.assert.calledWith(appReconciler.holdStopped, [`palworld_${appname}`]);
+      sinon.assert.calledWith(appReconciler.releaseHold, [`palworld_${appname}`]);
+      // the response ends only once the hold is lifted, so a caller that sees it
+      // end finds the app free for its next operation
+      sinon.assert.callOrder(appReconciler.holdStopped, appReconciler.releaseHold, res.end);
     });
 
     it('brings the app back through the reconciler after a backup, starting nothing itself', async () => {
@@ -6143,7 +6144,7 @@ describe('advancedWorkflows tests', () => {
       const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
 
       expect(result).to.equal(true);
-      sinon.assert.calledOnceWithExactly(appReconciler.drive.withArgs(sinon.match.any, 'running'), [`palworld_${appname}`], 'running');
+      sinon.assert.calledOnceWithExactly(appReconciler.releaseHold, [`palworld_${appname}`]);
       sinon.assert.notCalled(dockerService.appDockerStart);
     });
 
@@ -6349,19 +6350,20 @@ describe('advancedWorkflows tests', () => {
       // pass or fail on whether the machine running them happens to have docker.
       sinon.stub(dockerService, 'dockerListContainers').resolves([]);
       sinon.stub(dockerService, 'appDockerStart').resolves();
-      // The reconciler at the boundary: a stop settles each component docker
-      // reads as down, and reports the rest as not stopped.
-      sinon.stub(appReconciler, 'drive').callsFake(async (ids, state) => {
-        if (state !== 'stopped') return { converged: true, failed: [] };
-        const failed = [];
+      // The reconciler at the boundary: the hold leaves down each component
+      // docker reads as down, and refuses the rest.
+      sinon.stub(appReconciler, 'holdStopped').callsFake(async (ids) => {
+        const refused = [];
         // eslint-disable-next-line no-restricted-syntax
-        for (const id of ids) {
+        for (const identifier of ids) {
           // eslint-disable-next-line no-await-in-loop
-          const actual = await appReconciler.dockerActual(id);
-          if (!actual.reachable || actual.indeterminate || actual.running) failed.push(id);
+          const actual = await appReconciler.dockerActual(identifier);
+          if (!actual.reachable || actual.indeterminate) refused.push({ identifier, reason: 'unavailable' });
+          else if (actual.running) refused.push({ identifier, reason: 'running' });
         }
-        return { converged: failed.length === 0, failed };
+        return { stopped: refused.length === 0, refused };
       });
+      sinon.stub(appReconciler, 'releaseHold').resolves();
       // Starting a component arms a sixty-second sampling interval against
       // docker, and nothing here ever stops it. It outlives the test, wakes on a
       // container that was never created, and writes an error through the real
@@ -6501,7 +6503,7 @@ describe('advancedWorkflows tests', () => {
         expect(result).to.equal(false);
         sinon.assert.notCalled(IOUtils.untarFile);
         sinon.assert.notCalled(IOUtils.removeDirectory);
-        sinon.assert.notCalled(appReconciler.drive);
+        sinon.assert.notCalled(appReconciler.holdStopped);
       });
 
       it('refuses a restore that is not a list of components, not with a TypeError', async () => {
@@ -6531,7 +6533,7 @@ describe('advancedWorkflows tests', () => {
 
         expect(result).to.equal(false);
         expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is being removed from this node');
-        sinon.assert.notCalled(appReconciler.drive);
+        sinon.assert.notCalled(appReconciler.holdStopped);
         expect(globalState.restoreInProgress).to.not.include(appname);
       });
 
@@ -6547,7 +6549,7 @@ describe('advancedWorkflows tests', () => {
 
         expect(result).to.equal(false);
         expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is held until this node confirms it still holds it');
-        sinon.assert.notCalled(appReconciler.drive);
+        sinon.assert.notCalled(appReconciler.holdStopped);
         expect(globalState.restoreInProgress).to.not.include(appname);
       });
 
@@ -6829,6 +6831,18 @@ describe('advancedWorkflows tests', () => {
         expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: .*could not be stopped/);
       });
 
+      it('refuses, and says why, when another operation on the node held the stop aside', async () => {
+        appReconciler.holdStopped.resolves({ stopped: false, refused: [{ identifier: `palworld_${appname}`, reason: 'busy' }] });
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.called(appReconciler.releaseHold);
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: .* while another app operation runs on this node/);
+      });
+
       it('reads the container back rather than trusting the stop', async () => {
         // a stop the reconciler reports is not a container known to be down
         dockerService.dockerContainerInspect.resolves({ State: { Running: true } });
@@ -6854,9 +6868,9 @@ describe('advancedWorkflows tests', () => {
         const res = makeRes();
         await advancedWorkflows.appendRestoreTask(restoreReq(), res);
 
-        sinon.assert.calledWith(appReconciler.drive, [`alpha_${appname}`, `beta_${appname}`], 'stopped');
-        sinon.assert.calledWith(appReconciler.drive, [`alpha_${appname}`, `beta_${appname}`], 'running');
-        sinon.assert.callOrder(appReconciler.drive.withArgs(sinon.match.any, 'running'), res.end);
+        sinon.assert.calledWith(appReconciler.holdStopped, [`alpha_${appname}`, `beta_${appname}`]);
+        sinon.assert.calledWith(appReconciler.releaseHold, [`alpha_${appname}`, `beta_${appname}`]);
+        sinon.assert.callOrder(appReconciler.releaseHold, res.end);
         sinon.assert.notCalled(IOUtils.removeDirectory);
       });
 
@@ -6911,8 +6925,8 @@ describe('advancedWorkflows tests', () => {
         const res = makeRes();
         const said = () => res.write.getCalls().some((c) => /Waiting for .* to stop/.test(c.args[0]));
         let settle;
-        appReconciler.drive.withArgs(sinon.match.any, 'stopped').callsFake(() => new Promise((resolve) => { settle = resolve; }));
-        serviceHelper.delay.callsFake(async () => { if (settle && said()) settle({ converged: true, failed: [] }); });
+        appReconciler.holdStopped.callsFake(() => new Promise((resolve) => { settle = resolve; }));
+        serviceHelper.delay.callsFake(async () => { if (settle && said()) settle({ stopped: true, refused: [] }); });
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), res);
 
@@ -7110,7 +7124,7 @@ describe('advancedWorkflows tests', () => {
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
         sinon.assert.calledWithExactly(IOUtils.removeFile, `${mount}/backup/remote/backup_palworld.tar.gz`);
-        sinon.assert.callOrder(IOUtils.untarFile, appReconciler.drive.withArgs(sinon.match.any, 'running'), IOUtils.removeFile);
+        sinon.assert.callOrder(IOUtils.untarFile, appReconciler.releaseHold, IOUtils.removeFile);
       });
 
       it('keeps an uploaded archive - it is the owner\'s copy, not ours', async () => {
@@ -7138,7 +7152,7 @@ describe('advancedWorkflows tests', () => {
         const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
         expect(result).to.equal(false);
-        sinon.assert.notCalled(appReconciler.drive);
+        sinon.assert.notCalled(appReconciler.holdStopped);
         sinon.assert.notCalled(IOUtils.untarFile);
       });
 
@@ -7192,7 +7206,7 @@ describe('advancedWorkflows tests', () => {
         const result = await advancedWorkflows.appendRestoreTask(req, makeRes());
 
         expect(result).to.equal(true);
-        sinon.assert.calledWith(appReconciler.drive, [`palworld_${appname}`, `sidecar_${appname}`], 'running');
+        sinon.assert.calledWith(appReconciler.releaseHold, [`palworld_${appname}`, `sidecar_${appname}`]);
         sinon.assert.notCalled(dockerService.appDockerStart);
       });
     });

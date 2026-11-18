@@ -1131,10 +1131,10 @@ describe('appReconciler tests', () => {
         expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
       });
 
-      it('stops a running component and settles stopped', async () => {
+      it('stops a running component on the pass the hold causes', async () => {
         followActuation();
-        const verdict = await appReconciler.drive(['www_App'], 'stopped');
-        expect(verdict).to.deep.equal({ converged: true, failed: [] });
+        const verdict = await appReconciler.holdStopped(['www_App']);
+        expect(verdict).to.deep.equal({ stopped: true, refused: [] });
         expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
         expect(appReconciler.isOperationHeld('www_App')).to.be.true;
         expect(stubs.globalState.operationStoppedContainers.has('fluxwww_App')).to.be.true;
@@ -1142,56 +1142,65 @@ describe('appReconciler tests', () => {
 
       it('keeps a held component stopped through any later pass', async () => {
         followActuation();
-        await appReconciler.drive(['www_App'], 'stopped');
+        await appReconciler.holdStopped(['www_App']);
         await appReconciler.reconcile('www_App');
         expect(stubs.dockerService.appDockerStart.called).to.be.false;
       });
 
       it('records only what it took down, not a component that was already stopped', async () => {
         stubs.dockerService.dockerContainerInspect.resolves(stopped);
-        await appReconciler.drive(['www_App'], 'stopped');
+        await appReconciler.holdStopped(['www_App']);
         expect(stubs.globalState.operationStoppedContainers.has('fluxwww_App')).to.be.false;
       });
 
-      it('lifts the hold and starts the component again', async () => {
+      it('lifts the hold, and the next pass starts the component', async () => {
         followActuation();
-        await appReconciler.drive(['www_App'], 'stopped');
-        const verdict = await appReconciler.drive(['www_App'], 'running');
-        expect(verdict.converged).to.be.true;
-        expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+        await appReconciler.holdStopped(['www_App']);
+        await appReconciler.releaseHold(['www_App']);
         expect(appReconciler.isOperationHeld('www_App')).to.be.false;
         expect(stubs.globalState.operationStoppedContainers.has('fluxwww_App')).to.be.false;
+        await appReconciler.reconcile('www_App');
+        expect(stubs.dockerService.appDockerStart.calledWith('www_App')).to.be.true;
       });
 
-      it('settles an operator-stopped component stopped when lifted, and starts nothing', async () => {
+      it('leaves an operator-stopped component stopped when lifted', async () => {
         followActuation();
-        await appReconciler.drive(['www_App'], 'stopped');
+        await appReconciler.holdStopped(['www_App']);
         stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
-        const verdict = await appReconciler.drive(['www_App'], 'running');
-        expect(verdict.converged).to.be.true;
+        await appReconciler.releaseHold(['www_App']);
+        await appReconciler.reconcile('www_App');
         expect(stubs.dockerService.appDockerStart.called).to.be.false;
       });
 
-      it('reports a component docker cannot answer for as not stopped', async () => {
+      it('refuses a component docker cannot answer for', async () => {
         stubs.dockerService.dockerContainerInspect.rejects(new Error('connect ENOENT /var/run/docker.sock'));
         stubs.dockerService.dockerListContainers.rejects(new Error('connect ENOENT /var/run/docker.sock'));
-        const verdict = await appReconciler.drive(['www_App'], 'stopped');
-        expect(verdict).to.deep.equal({ converged: false, failed: ['www_App'] });
+        const verdict = await appReconciler.holdStopped(['www_App']);
+        expect(verdict).to.deep.equal({ stopped: false, refused: [{ identifier: 'www_App', reason: 'unavailable' }] });
       });
 
-      it('waits out a pass deferred by another operation on the node', async () => {
+      it('refuses, without waiting, a component whose pass another operation on the node held aside', async () => {
         followActuation();
         stubs.globalState.installationInProgress = true;
-        let polls = 0;
-        stubs.serviceHelper.delay.callsFake(async () => {
-          polls += 1;
-          if (polls === 2) {
-            stubs.globalState.installationInProgress = false;
-            await appReconciler.reconcile('www_App');
-          }
-        });
-        const verdict = await appReconciler.drive(['www_App'], 'stopped');
-        expect(verdict.converged).to.be.true;
+        const verdict = await appReconciler.holdStopped(['www_App']);
+        expect(verdict).to.deep.equal({ stopped: false, refused: [{ identifier: 'www_App', reason: 'busy' }] });
+        expect(stubs.dockerService.appDockerStop.called).to.be.false;
+        expect(stubs.serviceHelper.delay.called).to.be.false;
+      });
+
+      it('refuses while the node is starting, when no pass can run', async () => {
+        followActuation();
+        stubs.globalState.bootContainerStateSettled = false;
+        const verdict = await appReconciler.holdStopped(['www_App']);
+        expect(verdict).to.deep.equal({ stopped: false, refused: [{ identifier: 'www_App', reason: 'nodeStarting' }] });
+        expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      });
+
+      it('refuses a component whose stop failed', async () => {
+        stubs.dockerService.dockerContainerInspect.resolves(running);
+        stubs.dockerService.appDockerStop.rejects(new Error('cannot kill container'));
+        const verdict = await appReconciler.holdStopped(['www_App']);
+        expect(verdict).to.deep.equal({ stopped: false, refused: [{ identifier: 'www_App', reason: 'running' }] });
       });
     });
 

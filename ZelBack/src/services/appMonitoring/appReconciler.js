@@ -21,7 +21,8 @@ const { AsyncGate } = require('../utils/asyncGate');
 // die event, stream reconnect, hourly tick, boot, post-install, and the
 // masterSlave/syncthing deciders) just enqueues a component identifier; one
 // reconcile per identifier drives the actual Docker state toward the desired
-// state. Backup and restore stop and start through it (drive); install, removal
+// state. Backup and restore stop and release through it (holdStopped,
+// releaseHold); install, removal
 // and redeploy still actuate a container they are constructing, and the reconciler
 // stands aside while they hold it (isManagedElsewhere). It also force-removes and
 // recreates a container that came up detached from its own docker network (a
@@ -75,7 +76,7 @@ const dataDesired = new Map();
 const leavingCopies = new Set();
 
 // id -> 'stopped'. A backup or restore that needs the container down while it
-// works on the volume, set and cleared through drive(). In memory, as the
+// works on the volume, set by holdStopped and cleared by releaseHold. In memory, as the
 // operation is: a FluxOS restart ends both, and the component goes back to what
 // the other inputs say.
 const operationDesired = new Map();
@@ -125,13 +126,6 @@ function settleBootDrain(reason) {
 // container, defer and re-check shortly (the operation also re-enqueues on
 // completion, so this is just a backstop)
 const MANAGED_RETRY_MS = 5000;
-
-// How long drive() waits for a component to settle, and how often it looks. A
-// pass can be deferred - docker unreachable, or an install, removal or redeploy
-// anywhere on the node holding the reconciler aside - and retries every
-// MANAGED_RETRY_MS, so the wait outlasts those rather than one pass.
-const DRIVE_SETTLE_MS = config.fluxapps.driveSettleMs ?? 15 * 60 * 1000;
-const DRIVE_POLL_MS = 2000;
 
 // How many consecutive passes may throw before the component is left to the
 // hourly sweep. A pass that throws is by definition one whose failure nobody
@@ -1532,68 +1526,58 @@ async function setControllerDesiredAndWait(rawIdentifier, state, reason) {
 }
 
 /**
- * Whether a component sits where drive() asked: down for 'stopped'; for
- * 'running', up, or held down by a gate above the operation (the operator lock,
- * an unfinished restore, a standby's election), which is where it belongs.
- * Docker unreachable, or a container it cannot read, settles nothing.
- * @param {string} identifier
- * @param {'stopped'|'running'} state
- * @returns {Promise<boolean>}
+ * Holds a set of components stopped for a backup or restore, above policy and
+ * the election, below the operator lock, and answers from the pass the hold
+ * causes: each component is down once that pass has run, or the operation is
+ * refused. Nothing waits past that pass - a pass held aside by another operation
+ * on the node, a docker that cannot answer, or a stop that failed is a refusal
+ * the operator retries. The hold stays whatever the answer; releaseHold lifts it.
+ *
+ * @param {string[]} rawIds Component identifiers.
+ * @returns {Promise<{stopped: boolean, refused: Array<{identifier: string,
+ *  reason: 'nodeStarting'|'unavailable'|'busy'|'running'}>}>}
+ *  nodeStarting: the boot gate is shut, so no pass ran. unavailable: docker
+ *  cannot answer for it. busy: another operation on the node held the pass aside.
+ *  running: the pass ran and the container is still up.
  */
-async function settledFor(identifier, state) {
-  const actual = await dockerActual(identifier);
-  if (!actual.reachable || actual.indeterminate) return false;
-  if (state === 'stopped') return !actual.running;
-  if (actual.running) return true;
-  const { desired } = await desiredRunState(identifier);
-  return desired !== true;
+async function holdStopped(rawIds) {
+  const ids = rawIds.map(canonical);
+  const reasons = await Promise.all(ids.map(async (identifier) => {
+    const dockerName = dockerService.getAppIdentifier(identifier);
+    const passed = await applyIntent(identifier, async () => {
+      // Read in the slot, so no pass moves the container between this read and
+      // the hold: what was up now is what the operation takes down.
+      if ((await dockerActual(identifier)).running) globalState.operationStoppedContainers.add(dockerName);
+      operationDesired.set(identifier, 'stopped');
+      log.info(`appReconciler - operation hold on ${identifier}: held stopped`);
+      fluxEventBus.publish('reconciler:operationHold', { identifier, held: true });
+    }, { awaitPass: true });
+    if (!passed) return 'nodeStarting';
+    const actual = await dockerActual(identifier);
+    if (!actual.reachable || actual.indeterminate) return 'unavailable';
+    if (!actual.running) return null;
+    return isManagedElsewhere(identifier) ? 'busy' : 'running';
+  }));
+  const refused = ids
+    .map((identifier, index) => ({ identifier, reason: reasons[index] }))
+    .filter(({ reason }) => reason !== null);
+  return { stopped: refused.length === 0, refused };
 }
 
 /**
- * Drives a set of components to a run state through the reconciler and returns
- * once each has settled there: how a backup or restore stops an app before it
- * touches the volume, and brings it back after, without touching Docker.
- * 'stopped' holds each component down above policy and the election, below the
- * operator lock; 'running' lifts the hold, and each settles where the other
- * inputs put it - an operator-stopped component or a standby stays down.
- *
- * A component not settled within DRIVE_SETTLE_MS is reported in `failed`; its
- * hold stays as asked. A caller about to read or replace a volume refuses unless
- * every component converged.
- *
+ * Lifts holdStopped's hold. Each component goes where its other inputs put it -
+ * an operator-stopped component or a standby stays down - on the pass this
+ * enqueues; starting it is the reconciler's, retried as any start is.
  * @param {string[]} rawIds Component identifiers.
- * @param {'stopped'|'running'} state
- * @returns {Promise<{converged: boolean, failed: string[]}>}
+ * @returns {Promise<void>} Once the release is written.
  */
-async function drive(rawIds, state) {
-  const ids = rawIds.map(canonical);
-  const verdicts = await Promise.all(ids.map(async (identifier) => {
-    const dockerName = dockerService.getAppIdentifier(identifier);
-    await applyIntent(identifier, async () => {
-      if (state === 'stopped') {
-        // Read in the slot, so no pass moves the container between this read and
-        // the hold: what was up now is what the operation takes down.
-        if ((await dockerActual(identifier)).running) globalState.operationStoppedContainers.add(dockerName);
-        operationDesired.set(identifier, 'stopped');
-      } else {
-        operationDesired.delete(identifier);
-        globalState.operationStoppedContainers.delete(dockerName);
-      }
-      log.info(`appReconciler - operation hold on ${identifier}: ${state === 'stopped' ? 'held stopped' : 'released'}`);
-      fluxEventBus.publish('reconciler:operationHold', { identifier, held: state === 'stopped' });
-    }, { awaitPass: true });
-    const deadline = Date.now() + DRIVE_SETTLE_MS;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      // eslint-disable-next-line no-await-in-loop
-      if (await settledFor(identifier, state).catch(() => false)) return true;
-      if (Date.now() >= deadline) return false;
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(DRIVE_POLL_MS);
-    }
-  }));
-  const failed = ids.filter((_, index) => !verdicts[index]);
-  return { converged: failed.length === 0, failed };
+async function releaseHold(rawIds) {
+  await Promise.all(rawIds.map(canonical).map((identifier) => applyIntent(identifier, () => {
+    operationDesired.delete(identifier);
+    globalState.operationStoppedContainers.delete(dockerService.getAppIdentifier(identifier));
+    log.info(`appReconciler - operation hold on ${identifier}: released`);
+    fluxEventBus.publish('reconciler:operationHold', { identifier, held: false });
+  })));
 }
 
 /**
@@ -1921,7 +1905,8 @@ module.exports = {
   holdLeavingCopy,
   releaseLeavingCopy,
   setRunningUnlessOperatorStopped,
-  drive,
+  holdStopped,
+  releaseHold,
   isOperationHeld,
   committedIdentifiers,
   requestStopAndClearData,

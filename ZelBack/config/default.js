@@ -234,9 +234,6 @@ module.exports = {
     // reconciler crash-recovery backoff: ladder of waits between restart attempts,
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
-    // How long a backup or restore waits for each component to settle stopped, or back where
-    // the reconciler puts it, through appReconciler.drive
-    driveSettleMs: 15 * 60 * 1000,
     crashBackoffStableRunMs: 600000,
     // Backstop for images whose entrypoint discards the payload's exit status.
     // A clean exit proves nothing, so for those images restart RATE is the only

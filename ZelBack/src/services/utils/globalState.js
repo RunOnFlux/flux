@@ -146,7 +146,7 @@ const stoppingContainers = new Set();
 // Containers a backup or restore took down, by docker name: running when the
 // operation's hold was set, and held stopped until it is lifted. The node is still
 // routed to for them (appQueryService.listRunningApps). Written by the
-// reconciler's drive().
+// reconciler's holdStopped and releaseHold.
 const operationStoppedContainers = new Set();
 
 // Containers FluxOS removed and has not created again — who removed the container,

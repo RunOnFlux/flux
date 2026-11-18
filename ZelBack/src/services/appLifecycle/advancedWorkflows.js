@@ -2513,23 +2513,28 @@ async function operationTargetIds(appname) {
 // anything between here and the browser may decide the connection is idle.
 const STOP_PROGRESS_MS = 20 * 1000;
 
+// What the operator is told for each component holdStopped refused.
+const STOP_REFUSALS = {
+  unavailable: (id) => `docker is not answering for ${id}`,
+  busy: (id) => `${id} could not be stopped while another app operation runs on this node`,
+  nodeStarting: (id) => `${id} could not be stopped while this node is starting`,
+  running: (id) => `${id} could not be stopped`,
+};
+
 /**
  * Stops every container the given app name covers through the reconciler, which
- * holds them stopped for the operation, and answers whether they are all down.
- *
- * The verdict is read back from docker rather than taken from the stop. appdata
- * lives on a volume a running container is still writing to: clearing or
+ * holds them stopped for the operation, and answers whether they are all down
+ * once the pass the hold causes has run. Anything else is a refusal: appdata
+ * lives on a volume a running container is still writing to, and clearing or
  * archiving it under one leaves the app writing into a half-emptied tree, or
  * tears the archive.
  *
  * The hold stays whatever the verdict: startApplication lifts it, on every exit.
  *
  * @param {string} appname - App name, or a single component identifier
- * @param {Function} [onWait] - Called with a progress line while the stop is waited for
- * @returns {Promise<{stopped: boolean, running: string[], unavailable: boolean, errors: string[]}>}
- *  `running` names the components docker reports as still up - what a caller
- *  about to destroy data must refuse on. `unavailable` says docker could not
- *  answer for one, which is a different refusal with a different remedy.
+ * @param {Function} [onWait] - Called with a progress line while the stop runs
+ * @returns {Promise<{stopped: boolean, refusal: string|null}>} `refusal` says
+ *  which components are not down, and why.
  */
 async function stopApplication(appname, onWait) {
   let identifiers;
@@ -2539,54 +2544,38 @@ async function stopApplication(appname, onWait) {
     log.error(error);
     // The component list itself is unknown, so nothing can be asserted about
     // what is running - which is a refusal, not an empty success.
-    return {
-      stopped: false, running: [], unavailable: false, errors: [error.message],
-    };
+    return { stopped: false, refusal: error.message };
   }
-  const driving = appReconciler.drive(identifiers, 'stopped');
+  // A graceful stop runs as long as the app's shutdown takes.
+  const stopping = appReconciler.holdStopped(identifiers);
   let settled = false;
-  driving.finally(() => { settled = true; }).catch(() => {});
+  stopping.finally(() => { settled = true; }).catch(() => {});
   // eslint-disable-next-line no-unmodified-loop-condition
   while (!settled && onWait) {
     // eslint-disable-next-line no-await-in-loop
-    await Promise.race([driving.catch(() => {}), serviceHelper.delay(STOP_PROGRESS_MS)]);
+    await Promise.race([stopping.catch(() => {}), serviceHelper.delay(STOP_PROGRESS_MS)]);
     // eslint-disable-next-line no-await-in-loop
     if (!settled) await onWait(`Waiting for ${appname} to stop...`);
   }
-  const { failed } = await driving;
-  const running = [];
-  const errors = [];
-  let unavailable = false;
-  // eslint-disable-next-line no-restricted-syntax
-  for (const identifier of failed) {
-    // eslint-disable-next-line no-await-in-loop
-    const actual = await appReconciler.dockerActual(identifier);
-    if (!actual.reachable || actual.indeterminate) {
-      unavailable = true;
-      errors.push(`${identifier}: docker could not answer for it`);
-    } else if (actual.running) {
-      running.push(identifier);
-    }
-  }
+  const { stopped, refused } = await stopping;
   return {
-    stopped: failed.length === 0, running, unavailable, errors,
+    stopped,
+    refusal: stopped ? null : refused.map(({ identifier, reason }) => STOP_REFUSALS[reason](identifier)).join('; '),
   };
 }
 
 /**
- * Lifts the operation's hold on every container the given app name covers, and
- * returns once each has settled where the reconciler puts it: a g: component as
- * its election decides, an operator-stopped one stopped, one a restore left
- * unfinished stopped. Never throws: a component that does not come up is the
- * reconciler's to retry, and is logged.
+ * Lifts the operation's hold on every container the given app name covers.
+ * Each goes where the reconciler puts it - a g: component as its election
+ * decides, an operator-stopped one stopped, one a restore left unfinished
+ * stopped - and starting one is the reconciler's, retried as any start is.
+ * Never throws.
  * @param {string} appname - App name, or a single component identifier
  * @returns {Promise<void>}
  */
 async function startApplication(appname) {
   try {
-    const identifiers = await operationTargetIds(appname);
-    const { failed } = await appReconciler.drive(identifiers, 'running');
-    if (failed.length) log.warn(`startApplication - ${failed.join(', ')} did not settle after the operation on ${appname}`);
+    await appReconciler.releaseHold(await operationTargetIds(appname));
   } catch (error) {
     log.error(error);
   }
@@ -2895,11 +2884,8 @@ async function appendBackupTask(req, res) {
       // Same reason the folders are held: an archive taken while a container is
       // still writing is torn, and a torn archive is what this path exists to
       // stop being created.
-      if (stopVerdict.unavailable) {
-        throw new Error(`Refused: docker is not answering on this node, so ${appname} cannot be confirmed stopped - try again shortly`);
-      }
       if (!stopVerdict.stopped) {
-        throw new Error(`Refused: ${stopVerdict.running.join(', ') || appname} could not be stopped, so an archive taken now could be inconsistent`);
+        throw new Error(`Refused: ${stopVerdict.refusal}, so an archive taken now could be inconsistent - try again`);
       }
       await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line global-require
@@ -3142,11 +3128,8 @@ async function appendRestoreTask(req, res) {
     // A container still up is still writing to the volume whose appdata is
     // about to be emptied - it would write into a half-cleared tree and can
     // save its own state back over what the archive puts there.
-    if (stopVerdict.unavailable) {
-      throw new Error(`Refused: docker is not answering on this node, so ${appname} cannot be confirmed stopped - try again shortly`);
-    }
     if (!stopVerdict.stopped) {
-      throw new Error(`Refused: ${stopVerdict.running.join(', ') || appname} could not be stopped, so its data cannot be replaced safely`);
+      throw new Error(`Refused: ${stopVerdict.refusal}, so its data cannot be replaced safely - try again`);
     }
     await serviceHelper.delay(5 * 1000);
 
