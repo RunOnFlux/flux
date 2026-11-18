@@ -364,6 +364,8 @@ export function nodeClient(nodeNum) {
         'network:appinstallingerror',
         'network:appinstallingerrorRefused',
         'network:appremoved',
+        'app:operationPreempted',
+        'app:operationWaiting',
         'network:appmessage',
         'network:appmessageRefused',
         // whether a node took an unpaid app message, and why not
