@@ -433,7 +433,10 @@ async function processContainerData(params) {
   // A record that cannot be read decides nothing: the folder is left as it is for
   // the pass, and no write makes it send meanwhile.
   const restoreHeld = await syncthingFolderWrites.restoreRecord(appId);
-  if (restoreHeld === null) return;
+  if (restoreHeld === null) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'unknown');
+    return;
+  }
   if (restoreHeld) {
     const shared = !(primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g'));
     if (!(shared && await healHeldSharedFolder(appId))) syncthingFolder.type = 'receiveonly';

@@ -2172,7 +2172,10 @@ async function manageFolderSyncState(params) {
   // decides nothing: the folder is left as it is for the pass, and no write makes
   // it send meanwhile (syncthingFolderWrites).
   const restoreHeld = await syncthingFolderWrites.restoreRecord(appId);
-  if (restoreHeld === null) return { syncthingFolder, cache: null, skipProcessing: true };
+  if (restoreHeld === null) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'unknown');
+    return { syncthingFolder, cache: null, skipProcessing: true };
+  }
   if (restoreHeld) {
     const existing = receiveOnlySyncthingAppsCache.get(appId);
     const cache = existing?.restarted === false ? existing : { restarted: false, numberOfExecutions: 0 };
