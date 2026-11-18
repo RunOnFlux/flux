@@ -428,7 +428,11 @@ async function processContainerData(params) {
   // releases it. Its type is written even for a g: folder, so one left sending is
   // turned; one already receiving is left as it is. The state machine heals an r:
   // or g: folder above; an s: folder, which it does not run for, is healed here.
-  if (await syncthingFolderWrites.restoreHolds(appId)) {
+  // A record that cannot be read decides nothing: the folder is left as it is for
+  // the pass, and no write makes it send meanwhile.
+  const restoreHeld = await syncthingFolderWrites.restoreRecord(appId);
+  if (restoreHeld === null) return;
+  if (restoreHeld) {
     const shared = !(primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g'));
     if (!(shared && await healHeldSharedFolder(appId))) syncthingFolder.type = 'receiveonly';
   }

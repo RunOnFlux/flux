@@ -5794,6 +5794,8 @@ describe('advancedWorkflows tests', () => {
 
     beforeEach(() => {
       globalState.backupInProgress = [];
+      // the app's volume is mounted: a folder whose volume is not never sends again
+      sinon.stub(volumeService, 'isPathMounted').resolves(true);
       // the flow sleeps between phases; that is not what these tests are about
       // eslint-disable-next-line global-require
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -6322,6 +6324,8 @@ describe('advancedWorkflows tests', () => {
       // the list is a frozen snapshot to reads, so only finishRestore clears it.
       globalState.finishRestore(appname);
       globalState.receiveOnlySyncthingAppsCache.clear();
+      // the app's volume is mounted: a folder whose volume is not never sends again
+      sinon.stub(volumeService, 'isPathMounted').resolves(true);
       sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [localAddr] } } });
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
@@ -6801,8 +6805,10 @@ describe('advancedWorkflows tests', () => {
 
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
         const failed = IOUtils.untarFile.lastCall;
+        const demoted = syncthingService.adjustConfigFolders.getCalls()
+          .find((call) => call.args[0] === 'patch' && call.args[1]?.type === 'receiveonly');
         expect(
-          syncthingService.getConfigFolders.getCalls().filter((call) => call.callId > failed.callId),
+          syncthingService.getConfigFolders.getCalls().filter((call) => call.callId > failed.callId && call.callId < demoted.callId),
           'the config was read between the failure and the demotion',
         ).to.have.lengthOf(0);
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);

@@ -1488,6 +1488,19 @@ describe('syncthingMonitor tests', () => {
       expect(putFolderIds().flat()).to.not.include('brokenapp');
     });
 
+    it('leaves a folder whose record cannot be read as it is, healing nothing, and writes the others', async () => {
+      twoSendingFolders();
+      volumeServiceMock.isPathMounted.resolves(true);
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'brokenapp', path: `${appsFolder}brokenapp`, type: 'sendreceive' }]);
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').rejects(new Error('database unavailable'));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(putFolderIds()).to.deep.equal([['goodapp']]);
+      sinon.assert.neverCalledWith(syncthingFolderStateMachineMock.healHeldSharedFolder, 'brokenapp');
+    });
+
     it('writes a held s: folder sending once it has healed', async () => {
       twoSendingFolders();
       // both mounted: the record alone decides

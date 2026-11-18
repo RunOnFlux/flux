@@ -1528,6 +1528,8 @@ async function electedAppWriter(siblings, electionList, localSocketAddr, livenes
  * @param {Object} params - Parameters
  * @param {string[]} [params.electedSiblings] Folder ids of the app's other g:
  *   components, for a g: folder; empty for any other.
+ * @param {boolean} params.restoreHeld Whether an unfinished restore holds the
+ *   folder's component, as read for this pass.
  * @returns {Promise<Object>} Updated folder config and cache
  */
 async function handleReceiveOnlyTransition(params) {
@@ -1543,6 +1545,7 @@ async function handleReceiveOnlyTransition(params) {
     electedSiblings = [],
     receiveOnlySyncthingAppsCache,
     othersRunTheApp = null,
+    restoreHeld,
   } = params;
 
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
@@ -1585,7 +1588,7 @@ async function handleReceiveOnlyTransition(params) {
   // own; until then it stays receiveonly and not ready, whatever else this cycle
   // would decide. With no such peer nothing heals it: a restore that finishes, or
   // its owner's start, releases it.
-  if (await syncthingFolderWrites.restoreHolds(appId) && !(await healHeldFolder(appId, syncStatus))) {
+  if (restoreHeld && !(await healHeldFolder(appId, syncStatus))) {
     // a held folder seeds nothing: it claims no holdings, so no peer defers to it,
     // and a mark it made before the restore goes too
     folderStates.measured(appId, null);
@@ -2165,8 +2168,12 @@ async function manageFolderSyncState(params) {
   // A folder an unfinished restore holds takes the transition on every pass,
   // whatever state it is in - sending, settled, just started - so only healing
   // from a peer that holds the data, a restore that finishes, or its owner's
-  // start releases it; until then it receives.
-  if (await syncthingFolderWrites.restoreHolds(appId)) {
+  // start releases it; until then it receives. A record that cannot be read
+  // decides nothing: the folder is left as it is for the pass, and no write makes
+  // it send meanwhile (syncthingFolderWrites).
+  const restoreHeld = await syncthingFolderWrites.restoreRecord(appId);
+  if (restoreHeld === null) return { syncthingFolder, cache: null, skipProcessing: true };
+  if (restoreHeld) {
     const existing = receiveOnlySyncthingAppsCache.get(appId);
     const cache = existing?.restarted === false ? existing : { restarted: false, numberOfExecutions: 0 };
     return handleReceiveOnlyTransition({
@@ -2181,6 +2188,7 @@ async function manageFolderSyncState(params) {
       electedSiblings,
       receiveOnlySyncthingAppsCache,
       othersRunTheApp,
+      restoreHeld,
     });
   }
 
@@ -2264,6 +2272,7 @@ async function manageFolderSyncState(params) {
       electedSiblings,
       receiveOnlySyncthingAppsCache,
       othersRunTheApp,
+      restoreHeld,
     });
     return result;
   }

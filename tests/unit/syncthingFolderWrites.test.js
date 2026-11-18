@@ -826,6 +826,33 @@ describe('a folder whose component an unfinished restore holds', () => {
     sinon.assert.notCalled(adjust);
   });
 
+  it('is not unpaused while it is set to send, and is while it is set to receive', async () => {
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'sendreceive', paused: true }]);
+    expect((await syncthingFolderWrites.patchFolder(folder, { paused: false })).status).to.equal('error');
+    sinon.assert.notCalled(adjust);
+
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'receiveonly', paused: true }]);
+    expect((await syncthingFolderWrites.patchFolder(folder, { paused: false })).status).to.equal('success');
+    sinon.assert.calledOnceWithExactly(adjust, 'patch', { paused: false }, folder);
+  });
+
+  it('is not unpaused when the record cannot be read, nor when its config cannot be', async () => {
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).rejects(new Error('database unavailable'));
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'sendreceive', paused: true }]);
+    expect((await syncthingFolderWrites.patchFolder(folder, { paused: false })).status).to.equal('error');
+
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).resolves(true);
+    syncthingService.getConfigFolders.rejects(new Error('syncthing unavailable'));
+    expect((await syncthingFolderWrites.patchFolder(folder, { paused: false })).status).to.equal('error');
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('reads as unknown, not as clear, when the record cannot be read', async () => {
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).rejects(new Error('database unavailable'));
+
+    expect(await syncthingFolderWrites.restoreRecord(folder)).to.equal(null);
+  });
+
   it('is made to send once the record is cleared', async () => {
     appsRuntimeState.isRestoreUnfinished.withArgs(folder).resolves(false);
 

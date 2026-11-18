@@ -362,16 +362,36 @@ const RESTORE_UNFINISHED_REFUSAL = Object.freeze({ status: 'error', data: { mess
 
 /**
  * @param {string} folderId
- * @returns {Promise<boolean>} whether an unfinished restore holds the folder's
- *   component; a record that cannot be read holds it
+ * @returns {Promise<boolean|null>} whether an unfinished restore holds the
+ *   folder's component, or null when the record cannot be read
  */
-async function restoreHolds(folderId) {
+async function restoreRecord(folderId) {
   try {
     return await appsRuntimeState.isRestoreUnfinished(folderId);
   } catch (error) {
-    log.warn(`Syncthing folder ${folderId}: the restore record could not be read (${error.message}); it is held`);
-    return true;
+    log.warn(`Syncthing folder ${folderId}: the restore record could not be read (${error.message})`);
+    return null;
   }
+}
+
+/**
+ * What a refusal asks: a record that cannot be read holds the folder, so nothing
+ * it guards happens on a record nobody read.
+ * @param {string} folderId
+ * @returns {Promise<boolean>} whether an unfinished restore may hold the folder's component
+ */
+async function restoreHolds(folderId) {
+  return (await restoreRecord(folderId)) !== false;
+}
+
+/**
+ * @param {string} folderId
+ * @returns {Promise<boolean>} whether the folder sends once unpaused: it is set to
+ *   send, or its config cannot be read
+ */
+async function sendsOnceUnpaused(folderId) {
+  const config = await folderConfig(folderId);
+  return config === null || config.type === 'sendreceive';
 }
 
 /**
@@ -386,7 +406,9 @@ async function sendRefusal(folderId) {
 
 async function patchNow(folderId, fields) {
   if (globalState.shutdownInProgress && fields.paused === false) return SHUTDOWN_REFUSAL;
-  if (fields.type === 'sendreceive') {
+  // an unpause sends from a folder that is set to send as surely as setting it to send
+  if (fields.type === 'sendreceive'
+    || (fields.type === undefined && fields.paused === false && await sendsOnceUnpaused(folderId))) {
     const refusal = await sendRefusal(folderId);
     if (refusal) return refusal;
   }
@@ -676,6 +698,7 @@ module.exports = {
   putFolders,
   patchFolder,
   restoreHolds,
+  restoreRecord,
   refetchDeviceIndex,
   deleteFolder,
   mark,
