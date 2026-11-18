@@ -143,8 +143,8 @@ describe('fileSystemManager upload tests', () => {
     expect(release.called, 'the slot was never released').to.equal(true);
   });
 
-  // The folder is made by each file's own publish (`parents`), not by a step of
-  // its own: a bare mkdir -p made every new level root's.
+  // The folder is made by each file's own publish (`parents`), never by a
+  // command of its own: that command runs as root, so its folders would be root's.
   it('makes no folder of its own for a destination that is not there yet', async () => {
     sessionStub.isDirectory.rejects(Object.assign(new Error('missing'), { code: 'ENOENT' }));
     const done = concluded();
