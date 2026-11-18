@@ -9,18 +9,21 @@
  * paced by explorerPollIntervalMs, the explorer asks for the block at most
  * window / poll + 1 times in it.
  *
- * The daemon stub's refusal is a generic RPC error. fluxd's out-of-range answer
- * (-8), which the explorer waits on instead of recovering from, is covered by the
- * unit suite: the stub serves a block at any height.
+ * A block above fluxd's chain is answered out of range (-8), and the explorer waits
+ * for it at the poll without recovering. The fixture holds the explorer's request
+ * for the next block, takes fluxd's chain back to the tip, then lets fluxd answer;
+ * the recovery count (explorer:recovery) must not move.
  */
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import {
-  stopTicker, advanceBlock, getState, failRpc, clearRpcFailures, getJournal, clearJournal,
+  stopTicker, advanceBlock, getState, setHeight, failRpc, clearRpcFailures, holdRpc, releaseRpc,
+  getJournal, clearJournal,
 } from '../framework/daemon-control.js';
 import { loadSharedConfig } from '../framework/coupled-knobs.js';
+import { waitFor, assertNoEvent } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
 
@@ -47,6 +50,7 @@ describe('a block fluxd refuses is asked for again at the pace of the explorer\'
 
   afterTeardown(async function () {
     await clearRpcFailures(ip).catch(() => {});
+    await releaseRpc(ip).catch(() => {});
     await env?.teardown();
   });
 
@@ -85,5 +89,37 @@ describe('a block fluxd refuses is asked for again at the pace of the explorer\'
     mark = client.getLastEventId();
     await clearRpcFailures(ip);
     expect(await tipProcessed(mark)).to.equal(refused);
+  });
+
+  it('waits for a block above fluxd\'s chain without recovering, and processes it once fluxd holds it', async function () {
+    this.timeout(240000);
+    let mark = client.getLastEventId();
+    await advanceBlock();
+    const tip = await tipProcessed(mark);
+
+    // The explorer asks for the next block, and fluxd's chain is back at the tip
+    // by the time it answers: out of range.
+    await holdRpc(ip, 'getblock');
+    await clearJournal();
+    mark = client.getLastEventId();
+    await advanceBlock();
+    await waitFor(async () => (await getJournal({ method: 'getblock', sourceIp: ip })).total >= 1, {
+      timeout: daemonInfoIntervalMs * 4, interval: 200, label: `the explorer asking for block ${tip + 1}`,
+    });
+    const lowered = client.getLastEventId();
+    await setHeight(tip);
+    const recoveries = (await client.getTestCounters())['explorer:recovery'] ?? 0;
+    await releaseRpc(ip);
+
+    // The node reads fluxd's height as the tip again: from here the poller asks
+    // for nothing above it.
+    await client.waitForEvent('daemon:polled', (d) => d.height === tip, daemonInfoIntervalMs * 4, { afterId: lowered });
+    await nextDaemonPoll(client.getLastEventId());
+    expect((await client.getTestCounters())['explorer:recovery'] ?? 0, 'recoveries from a block fluxd does not hold').to.equal(recoveries);
+    await assertNoEvent(client, 'block:processed', (d) => d.height > tip, 0, { afterId: mark });
+
+    mark = client.getLastEventId();
+    await advanceBlock();
+    expect(await tipProcessed(mark)).to.equal(tip + 1);
   });
 });
