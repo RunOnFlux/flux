@@ -107,6 +107,16 @@ const BOOTSTRAP_RETRY_MS = 60_000;
 const RECOVERY_RETRY_MS = 15 * 60 * 1000;
 // How long a block waits for fluxd to sync before it is asked for again.
 const BLOCK_SYNC_RETRY_MS = 2 * 60 * 1000;
+// How long the explorer waits before asking again whether the chain has moved,
+// and before it recovers from a block that failed, so a block fluxd keeps
+// refusing is retried at this pace rather than as fast as fluxd answers.
+//
+// This is the floor on how fast a node can process blocks: a block is not looked
+// at until the next poll, so nothing downstream of block processing - expiring
+// app records, trimming surplus instances, the give-up pass - can run more often
+// than this however fast blocks are produced. Production wants 5s against a 30s
+// block; a harness driving its own chain sets it shorter.
+const POLL_INTERVAL_MS = config.fluxapps.explorerPollIntervalMs ?? 5000;
 
 /**
  * The block processor's steps. Each step function answers `{ next, waitMs }`:
@@ -520,7 +530,8 @@ async function scheduleUpnpBench(tipBlock, period) {
  * The block processor's step for one block.
  * @param {number} blockHeight
  * @returns {Promise<{next: object, waitMs: number}>} The next block while fluxd
- *   holds one, the poll at the tip, the recovery when this block fails.
+ *   holds one, the poll at the tip or while fluxd does not hold this block yet,
+ *   the recovery when this block fails, after POLL_INTERVAL_MS.
  */
 async function processBlock(blockHeight) {
   try {
@@ -531,7 +542,15 @@ async function processBlock(blockHeight) {
     const database = db.db(config.database.daemon.database);
     // get Block information
     const verbosity = 2;
-    const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
+    let blockDataVerbose;
+    try {
+      blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
+    } catch (error) {
+      // fluxd's chain does not reach this height yet. Nothing has been written
+      // for the block, so there is nothing to restore: the poller asks again.
+      if (error?.code === -8) return after(Step.poll(), POLL_INTERVAL_MS);
+      throw error;
+    }
     const parent = await scannedBlockAt(database, blockDataVerbose.height - 1);
     if (parent && blockDataVerbose.previousblockhash !== parent.hash) {
       const restoredHeight = await rewindToFork(database, parent);
@@ -626,7 +645,7 @@ async function processBlock(blockHeight) {
     log.error('Block processor encountered an error.');
     log.error(error);
     const deep = Boolean(error.message && error.message.includes('duplicate key'));
-    return after(Step.recover(true, deep));
+    return after(Step.recover(true, deep), POLL_INTERVAL_MS);
   }
 }
 
@@ -1155,16 +1174,6 @@ async function rewindToFork(database, parent) {
   log.info('Database restored OK');
   return height;
 }
-
-// How long the explorer waits before asking again whether the chain has moved.
-//
-// This is the floor on how fast a node can process blocks: a block is not looked
-// at until the next poll, so nothing downstream of block processing - expiring
-// app records, trimming surplus instances, the give-up pass - can run more often
-// than this however fast blocks are produced. Production wants 5s against a 30s
-// block; a harness driving its own chain wants it far shorter, and had no way to
-// say so.
-const POLL_INTERVAL_MS = config.fluxapps.explorerPollIntervalMs ?? 5000;
 
 /**
  * The block processor's step at the tip: whether fluxd holds a block the

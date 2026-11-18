@@ -924,6 +924,41 @@ describe('explorerService tests', () => {
         sinon.assert.notCalled(removeDocumentsStub);
       });
     });
+
+    describe('a block fluxd does not give', () => {
+      const pollIntervalMs = config.fluxapps.explorerPollIntervalMs;
+      const blockHeight = 100000;
+
+      beforeEach(() => {
+        daemonServiceMiscRpcsStub.returns({ data: { synced: true, height: blockHeight } });
+      });
+
+      it('is asked for again at the next poll, with nothing written, while fluxd\'s chain does not reach it', async () => {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'error', data: { code: -8, name: 'RPCError', message: 'Block height out of range' } });
+
+        const step = await explorerService.processBlock(blockHeight);
+
+        expect(step).to.deep.equal({ next: explorerService.Step.poll(), waitMs: pollIntervalMs });
+        sinon.assert.notCalled(dbStubUpdate);
+      });
+
+      it('is recovered from one poll interval later when fluxd refuses it for another reason', async () => {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'error', data: { code: -28, name: 'RPCError', message: 'Loading block index...' } });
+
+        const step = await explorerService.processBlock(blockHeight);
+
+        expect(step).to.deep.equal({ next: explorerService.Step.recover(true, false), waitMs: pollIntervalMs });
+      });
+
+      it('is recovered from when out of range is raised after the block was fetched', async () => {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: { tx: [], height: blockHeight, confirmations: 1 } });
+        sinon.stub(fluxnodeAddressRecord, 'recordBlock').rejects(Object.assign(new Error('Block height out of range'), { code: -8 }));
+
+        const step = await explorerService.processBlock(blockHeight);
+
+        expect(step).to.deep.equal({ next: explorerService.Step.recover(true, false), waitMs: pollIntervalMs });
+      });
+    });
   });
 
   describe('the fluxnode address record', () => {
