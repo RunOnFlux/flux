@@ -111,8 +111,16 @@ describe('a standby that lost a delete hears the primary again', function () {
       `mkdir -p ${primaryRoot}/${STALE} && head -c 70000 /dev/urandom > ${primaryRoot}/${STALE}/world.sav && echo meta > ${primaryRoot}/${STALE}/meta.sav && chown -R 1000:1000 ${primaryRoot}/${STALE}`);
     expect(made.exitCode).to.equal(0);
     await scanFolder(env.clients[primary], folder);
-    await waitFor(async () => (await onLeaver(`${STALE}/meta.sav`)) !== null, {
-      timeout: 120000, interval: 2000, label: 'the standby holds the backup',
+    // Both standbys hold the files before they are deleted. A standby that never held
+    // them takes the delete in its own order, so its directory's delete can land after
+    // the sequence read below and reach the leaver on its own, which syncthing cannot
+    // apply while the directory holds the files.
+    const standbys = HOLDERS.filter((i) => i !== primary);
+    const rootOf = Object.fromEntries(await Promise.all(standbys.map(async (i) => [i, (await getFolderConfig(env.clients[i], folder)).path])));
+    const staleFiles = staleItems.filter((name) => name !== STALE);
+    await waitFor(async () => (await Promise.all(standbys.flatMap((i) => staleFiles.map((name) => readPath(env.clients[i], `${rootOf[i]}/${name}`)))))
+      .every((content) => content !== null), {
+      timeout: 120000, interval: 2000, label: 'every standby holds the backup',
     });
     // The delete is lost from every device that holds it, which needs a record of
     // each in the standby's index: every holder's index has reached it.
@@ -126,8 +134,15 @@ describe('a standby that lost a delete hears the primary again', function () {
     await execInContainer(env.clients[primary].container, `rm -rf ${primaryRoot}/${STALE}`);
     await scanFolder(env.clients[primary], folder);
     const other = HOLDERS.find((i) => i !== primary && i !== leaver);
-    await waitFor(async () => (await readPath(env.clients[other], `${path}/${STALE}/meta.sav`)) === null, {
-      timeout: 120000, interval: 2000, label: 'the other standby took the delete',
+    // Its sequence is read once it has applied the whole delete, directory included, so
+    // it holds no record of the delete above that sequence.
+    await waitFor(async () => {
+      const gone = await execInContainer(env.clients[other].container, `test ! -e "${rootOf[other]}/${STALE}"`);
+      if (gone.exitCode !== 0) return false;
+      const { state, needTotalItems } = await getFolderStatus(env.clients[other], folder);
+      return state === 'idle' && needTotalItems === 0;
+    }, {
+      timeout: 120000, interval: 2000, label: 'the other standby took the whole delete',
     });
     // Every device that holds the delete would otherwise repeat it.
     // eslint-disable-next-line no-restricted-syntax
