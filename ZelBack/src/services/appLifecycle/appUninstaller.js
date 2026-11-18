@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const fluxosTrial = require('../utils/fluxosTrial');
+const operationRegistry = require('../utils/operationRegistry');
 const folderStates = require('../appMonitoring/folderStates');
 const log = require('../../lib/log');
 const {
@@ -1007,6 +1008,34 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  *   used as given in place of the stored one
  * @returns {Promise<string>} One of RemovalOutcome. BUSY carries no claim about the app.
  */
+/**
+ * Takes the app for its removal. A backup or restore holding it is asked to stop,
+ * and the removal waits for it to release the app: the backup's archive and the
+ * restore's data sit on the volume the removal deletes.
+ * @param {string} appName
+ * @param {object} res - Response object, told what the removal stops
+ * @returns {Promise<string|null>} The lease token; null when a redeploy or
+ *   another removal holds the app, of which this removal is a step or which the
+ *   node's removal lock already orders.
+ */
+async function takeAppForRemoval(appName, res) {
+  let holder = operationRegistry.get(appName);
+  while (holder && (holder.type === 'backup' || holder.type === 'restore')) {
+    const message = `Stopping the ${holder.type} of ${appName} for its removal`;
+    log.warn(message);
+    if (res) {
+      res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(message)));
+      if (res.flush) res.flush();
+    }
+    operationRegistry.preempt(appName, 'removal');
+    fluxEventBus.publish('app:operationPreempted', { appName, operation: holder.type, by: 'removal' });
+    // eslint-disable-next-line no-await-in-loop
+    await operationRegistry.whenReleased(appName);
+    holder = operationRegistry.get(appName);
+  }
+  return operationRegistry.acquire(appName, 'remove', 'removeAppLocally');
+}
+
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, { specifications = null } = {}) {
   await fluxosTrial.settled();
   // Names what this call marked as departing, and nothing else: the guards below
@@ -1021,6 +1050,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   // removed, and an app missing a component cannot run, so it is the whole app.
   let tornDownApp = null;
   let announced = false;
+  // The app's lease, taken once the removal holds the node's removal lock.
+  let leaseApp = null;
+  let leaseToken = null;
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -1070,6 +1102,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     const isComponent = app.includes('_');
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
+
+    leaseApp = appName;
+    leaseToken = await takeAppForRemoval(appName, res);
 
     // The node stops claiming the app here, at the decision to hand it back, and
     // not when its container happens to die. Keyed by the name the removal message
@@ -1315,6 +1350,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     if (tornDownApp) finishRemoval(tornDownApp, force, !announced);
     return RemovalOutcome.FAILED;
   } finally {
+    operationRegistry.release(leaseApp, leaseToken);
     if (acquired) globalState.removalInProgress = false;
     if (departingName) {
       globalState.departingApps.leave(departingName);
