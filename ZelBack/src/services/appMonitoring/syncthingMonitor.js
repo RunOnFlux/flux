@@ -399,8 +399,10 @@ async function processContainerData(params) {
       state.receiveOnlySyncthingAppsCache.set(appId, cache);
       // From here the election reads this holder as ready to take over. A
       // single-writer standby stays receiveonly, so this, not the folder type,
-      // is when it becomes eligible.
+      // is when it becomes eligible. A holder that stops being ready is no longer
+      // eligible, and its folder's health is no longer watched.
       if (cache.restarted && !wasReady) fluxEventBus.publish('syncthing:folderReady', { folder: appId });
+      if (!cache.restarted && wasReady) fluxEventBus.publish('syncthing:folderNotReady', { folder: appId });
     }
 
     // Skip processing if marked to skip

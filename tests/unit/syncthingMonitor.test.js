@@ -2062,6 +2062,32 @@ describe('syncthingMonitor tests', () => {
 
         sinon.assert.called(syncthingFolderStateMachineMock.manageFolderSyncState);
         sinon.assert.neverCalledWith(publish, 'syncthing:folderReady');
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderNotReady');
+      });
+
+      it('publishes that it is not ready on the pass that takes a ready holder out of ready', async () => {
+        writesAFolder();
+        mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: true, numberOfExecutions: 1 });
+        passReturns(false);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(mockState.receiveOnlySyncthingAppsCache.get('testapp')?.restarted, 'the pass never stored the entry').to.equal(false);
+        sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderNotReady'), 'syncthing:folderNotReady', { folder: 'testapp' });
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderReady');
+      });
+
+      it('does not publish that it is not ready for a holder that stays ready', async () => {
+        writesAFolder();
+        mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: true, numberOfExecutions: 1 });
+        passReturns(true);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.called(syncthingFolderStateMachineMock.manageFolderSyncState);
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderNotReady');
       });
     });
   });

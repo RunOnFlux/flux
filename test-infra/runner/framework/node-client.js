@@ -335,6 +335,7 @@ export function nodeClient(nodeNum) {
         'blockWork:ran',
         'syncthing:folderWritable',
         'syncthing:folderReady',
+        'syncthing:folderNotReady',
         'primaryRole:changed',
         'primaryRole:standDownGiven',
         'primaryRole:returned',
