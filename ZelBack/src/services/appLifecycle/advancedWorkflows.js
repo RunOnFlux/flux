@@ -3307,9 +3307,11 @@ async function appendRestoreTask(req, res) {
       if (tarStatus.status === false) {
         throw new Error(`Error: Failed to unpack archive file for ${target.name.toLowerCase()}, ${tarStatus.error}`);
       }
-      swapInFlight = null;
+      // A component is restored once its record is cleared: until then it fails as
+      // any other component left mid-replacement does.
       // eslint-disable-next-line no-await-in-loop
       await appsRuntimeState.setRestoreUnfinished(target.folderId, false);
+      swapInFlight = null;
       log.info(`appendRestoreTask - ${appname} ${target.name} restored ${target.archive.entries} entries, ${target.archive.bytes} bytes`);
 
       // Mark the folder settled so the receiveonly machinery leaves this copy

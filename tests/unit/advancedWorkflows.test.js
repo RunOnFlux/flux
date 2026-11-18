@@ -7064,6 +7064,20 @@ describe('advancedWorkflows tests', () => {
         expect(errorLines[0]).to.not.include('Finalizing');
       });
 
+      it('fails a component whose record cannot be cleared as one left mid-replacement', async () => {
+        IOUtils.untarFile.resolves({ status: true });
+        appsRuntimeState.setRestoreUnfinished.withArgs(folderId, false).rejects(new Error('connection pool closed'));
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        sinon.assert.calledWith(appReconciler.setControllerDesired, folderId, 'stopped');
+        const errorLines = res.write.getCalls().map((c) => String(c.args[0])).filter((line) => line.includes('connection pool closed'));
+        expect(errorLines).to.have.lengthOf(1);
+        expect(errorLines[0]).to.include('palworld is kept stopped: restore it again, or start it to keep its data as it is and send it to the other instances.');
+      });
+
       it('leaves a component that restored cleanly alone when a later one fails', async () => {
         registryManager.getApplicationGlobalSpecifications.resolves({
           version: 8,
