@@ -377,7 +377,13 @@ describe('a g: component a restore left part replaced heals only from standbys t
         'what the election decided for the held copy').to.deep.equal([]);
     } finally {
       await clearMaster(A.appName);
-      await Promise.all(HOLDERS.map((i) => client(i).releaseAllCheckpoints().catch(() => {})));
+      // The holds kept both standbys past their start slots, so released together each
+      // finds no primary and starts. One decides first, as the product's spacing between
+      // standbys has it, and the other once a single holder runs.
+      const [first, ...rest] = standbys;
+      await Promise.all([primary, first].map((i) => client(i).releaseAllCheckpoints().catch(() => {})));
+      await currentRunner(A).catch(() => {});
+      await Promise.all(rest.map((i) => client(i).releaseAllCheckpoints().catch(() => {})));
       await unlockPart(p, A.appName);
       if (!(await isDaemonUp(p))) await startDaemon(p);
     }
