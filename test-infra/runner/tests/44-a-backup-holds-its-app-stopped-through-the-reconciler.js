@@ -74,12 +74,15 @@ describe('a backup holds its app stopped through the reconciler', function () {
     const backupDone = client.appendBackupTask(appName, [appName], auth.zelidauth);
     const hold = await client.waitForEvent('reconciler:operationHold',
       (d) => d.identifier === app.identifier && d.held === true, 120000, { afterId });
+    // the backup goes on once the hold's own pass has stopped the app
+    await client.waitForEvent('reconciler:actuated',
+      (d) => d.identifier === app.identifier && d.action === 'stopped', 120000, { afterId: hold.id });
 
     // the reconnect sweep, inside the window
     await restartDockerd(client.container);
 
     const body = await backupDone;
-    expect(body).to.not.match(/Unauthorized/i);
+    expect(body).to.not.match(/Unauthorized|Refused/i);
     const release = client.getEventBuffer().find((e) => e.id > hold.id && e.event === 'reconciler:operationHold'
       && e.data?.identifier === app.identifier && e.data?.held === false);
     expect(release, 'the backup lifted its hold').to.not.equal(undefined);
