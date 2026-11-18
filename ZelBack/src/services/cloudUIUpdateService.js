@@ -145,15 +145,19 @@ function watchdogManagesCloudUI() {
 }
 
 /**
- * Executes the update:cloudui script. A run already in progress in this process is joined;
- * one in another process (the watchdog's, or one started by hand) is waited for.
+ * Executes the update:cloudui script. A run already in progress in this process is joined,
+ * whatever its options; one in another process (the watchdog's, or one started by hand) is
+ * waited for.
+ * @param {object} [options]
+ * @param {boolean} [options.force] Passes --force, so a release that CloudUI/version
+ *   already names is installed again.
  * @returns {Promise<boolean>} Whether the script installed the release.
  */
-function runUpdateScript() {
+function runUpdateScript({ force = false } = {}) {
   if (updateInFlight) {
     log.info('CloudUI: an update is already running, waiting for it rather than starting another');
   } else {
-    updateInFlight = startUpdateScript().finally(() => { updateInFlight = null; });
+    updateInFlight = startUpdateScript({ force }).finally(() => { updateInFlight = null; });
   }
 
   return updateInFlight.then((outcome) => outcome === 'installed');
@@ -250,9 +254,11 @@ async function checkAndUpdateCloudUI() {
     // Check if CloudUI folder exists with content
     const exists = cloudUIExists();
 
+    // A CloudUI holding only its version and tag files still names the release, so the
+    // install is forced past the script's already-installed check.
     if (!exists) {
       log.info('CloudUI: Folder missing or empty, installing...');
-      const success = await runUpdateScript();
+      const success = await runUpdateScript({ force: true });
       if (success) {
         log.info('CloudUI: Installation completed successfully');
       } else {

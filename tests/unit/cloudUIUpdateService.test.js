@@ -531,7 +531,19 @@ describe('cloudUIUpdateService tests', () => {
         // decide for itself reaches the public internet, which is what this prevents.
         const [file, args] = spawnStub.firstCall.args;
         expect(file).to.equal('npm');
-        expect(args).to.eql(['run', 'update:cloudui', '--', STUB_API_BASE]);
+        expect(args).to.eql(['run', 'update:cloudui', '--', STUB_API_BASE, '--force']);
+      });
+
+      it('installs again when CloudUI holds only the files naming its release', async () => {
+        fsStub.existsSync.returns(true);
+        fsStub.readdirSync.returns(['version', 'tag']);
+        spawnStub.callsFake(() => fakeChild({ stdout: 'success' }));
+
+        await cloudUIUpdateService.checkAndUpdateCloudUI();
+
+        sinon.assert.calledOnce(spawnStub);
+        sinon.assert.calledWith(logStub.info, 'CloudUI: Folder missing or empty, installing...');
+        expect(spawnStub.firstCall.args[1]).to.include('--force');
       });
 
       it('should run update script if version file does not exist', async () => {
