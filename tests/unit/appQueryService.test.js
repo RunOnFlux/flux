@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
@@ -520,7 +521,7 @@ describe('appQueryService tests', () => {
       });
 
       it('does not list a stopped container of the same app the operation did not take down', async () => {
-        globalState.tryStartBackup('App');
+        operationRegistry.acquire('App', 'backup', 'test');
         try {
           globalState.operationStoppedContainers.add('fluxwww_App');
 
@@ -528,7 +529,7 @@ describe('appQueryService tests', () => {
 
           expect(result.data.map((app) => app.Names[0])).to.not.include('/fluxdb_App');
         } finally {
-          globalState.finishBackup('App');
+          operationRegistry.clear();
         }
       });
     });

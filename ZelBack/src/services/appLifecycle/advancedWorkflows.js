@@ -64,6 +64,7 @@ const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
+const operationRegistry = require('../utils/operationRegistry');
 const fluxosTrial = require('../utils/fluxosTrial');
 const folderStates = require('../appMonitoring/folderStates');
 const appNetworkLinker = require('./appNetworkLinker');
@@ -1574,11 +1575,58 @@ async function mayTearDownToRebuild(appSpecs, res) {
 }
 
 /**
+ * Takes the app for a redeploy once no backup or restore holds it: a redeploy can
+ * delete the data a backup is copying or a restore is writing, so it waits for
+ * that operation to end, which releases the app in its finally.
+ * @param {string} appName
+ * @param {object} res - Response object, told while the redeploy waits
+ * @returns {Promise<string|null>} The lease token; null when a removal or a
+ *   redeploy holds the app, of which this redeploy is then a step, or which the
+ *   redeploy's own guards refuse.
+ */
+async function takeAppForRedeploy(appName, res) {
+  let holder = operationRegistry.get(appName);
+  while (holder && (holder.type === 'backup' || holder.type === 'restore')) {
+    const message = `Waiting for the ${holder.type} of ${appName} to finish before redeploying`;
+    log.info(message);
+    fluxEventBus.publish('app:operationWaiting', { appName, operation: 'redeploy', for: holder.type });
+    if (res) {
+      res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(message)));
+      if (res.flush) res.flush();
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await operationRegistry.whenReleased(appName);
+    holder = operationRegistry.get(appName);
+  }
+  return operationRegistry.acquire(appName, 'redeploy', 'redeploy');
+}
+
+/**
+ * Runs a redeploy of the app holding its lease.
+ * @param {string} appName
+ * @param {object} res
+ * @param {Function} redeploy
+ * @returns {Promise<*>} What `redeploy` returns.
+ */
+async function redeployingApp(appName, res, redeploy) {
+  const token = await takeAppForRedeploy(appName, res);
+  try {
+    return await redeploy();
+  } finally {
+    operationRegistry.release(appName, token);
+  }
+}
+
+/**
  * Soft redeploy - removes and reinstalls app locally (soft)
  * @param {object} appSpecs - App specifications
  * @param {object} res - Response object
  */
 async function softRedeploy(appSpecs, res) {
+  return redeployingApp(appSpecs.name, res, () => softRedeployApp(appSpecs, res));
+}
+
+async function softRedeployApp(appSpecs, res) {
   // Whether softRemoveAppLocally ran to completion. False means the removal did
   // not FINISH - which is not the same as "it never started": softRemoveAppLocally
   // is a sequence (guards, spec lookup, per-component uninstall, database
@@ -1744,6 +1792,10 @@ async function softRedeploy(appSpecs, res) {
  * @param {object} res - Response object
  */
 async function hardRedeploy(appSpecs, res) {
+  return redeployingApp(appSpecs.name, res, () => hardRedeployApp(appSpecs, res));
+}
+
+async function hardRedeployApp(appSpecs, res) {
   try {
     // Every operation, including the periodic reinstall pass - which sets its
     // flag before it tears anything down and holds it across the wait, so the
@@ -1800,6 +1852,10 @@ async function hardRedeploy(appSpecs, res) {
  * @param {object} res - Response object
  */
 async function softRedeployComponent(appName, componentName, res) {
+  return redeployingApp(appName, res, () => softRedeployOneComponent(appName, componentName, res));
+}
+
+async function softRedeployOneComponent(appName, componentName, res) {
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
   // eslint-disable-next-line global-require
@@ -1975,6 +2031,10 @@ async function softRedeployComponent(appName, componentName, res) {
  * @param {object} res - Response object
  */
 async function hardRedeployComponent(appName, componentName, res) {
+  return redeployingApp(appName, res, () => hardRedeployOneComponent(appName, componentName, res));
+}
+
+async function hardRedeployOneComponent(appName, componentName, res) {
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
   // eslint-disable-next-line global-require
@@ -2143,14 +2203,6 @@ async function redeployComponentAPI(req, res) {
       throw new Error('Invalid app name format. Please provide the app name and component name separately');
     }
 
-    const redeploySkip = globalState.restoreInProgress.some((backupItem) => appname === backupItem);
-    if (redeploySkip) {
-      log.info(`Restore is running for ${appname}, component redeploy skipped...`);
-      const skipResponse = messageHelper.createWarningMessage(`Restore is running for ${appname}, component redeploy skipped...`);
-      res.json(skipResponse);
-      return;
-    }
-
     let { force } = req.params;
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
@@ -2240,15 +2292,6 @@ async function redeployAPI(req, res) {
 
     if (appname.includes('_')) {
       throw new Error('Component cannot be redeployed manually');
-    }
-
-    const redeploySkip = globalState.restoreInProgress.some((backupItem) => appname === backupItem);
-    if (redeploySkip) {
-      log.info(`Restore is running for ${appname}, redeploy skipped...`);
-      // Answered, not just closed: the caller asked for a redeploy and did not
-      // get one, and an empty body would read as success.
-      res.json(messageHelper.createWarningMessage(`Restore is running for ${appname}, redeploy skipped`));
-      return;
     }
 
     let { force } = req.params;
@@ -2756,6 +2799,40 @@ function refuseHeldApp(appName) {
   if (globalState.unconfirmedApps.has(appName)) throw new Error(`Refused: ${appName} is held until this node confirms it still holds it`);
 }
 
+const OPERATION_NAMES = {
+  backup: 'backup', restore: 'restore', remove: 'removal', redeploy: 'redeploy',
+};
+
+/**
+ * Takes the app for a backup or a restore, or refuses while another operation
+ * holds it. Synchronous, so two requests for one app cannot both take it.
+ * @param {string} appName
+ * @param {'backup'|'restore'} type
+ * @returns {string} The lease token.
+ */
+function takeAppFor(appName, type) {
+  const token = operationRegistry.acquire(appName, type, `append ${type} task`);
+  if (!token) {
+    throw new Error(`Refused: a ${OPERATION_NAMES[operationRegistry.get(appName).type]} of ${appName} is in progress`);
+  }
+  return token;
+}
+
+/**
+ * Waits `ms`, ending early when `signal` aborts, then throws if it has.
+ * @param {number} ms
+ * @param {AbortSignal|null} signal
+ * @returns {Promise<void>}
+ */
+async function pauseUnlessStopped(ms, signal) {
+  operationRegistry.throwIfPreempted(signal);
+  const stopped = signal
+    ? new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }); })
+    : new Promise(() => {});
+  await Promise.race([serviceHelper.delay(ms), stopped]);
+  operationRegistry.throwIfPreempted(signal);
+}
+
 async function appendBackupTask(req, res) {
   let appname;
   let backup;
@@ -2765,6 +2842,10 @@ async function appendBackupTask(req, res) {
   // The components this task has asked the reconciler to hold stopped; lifted on
   // every exit, so a backup that fails part way never leaves the app held down.
   let heldIds = [];
+  // The app's lease, and its signal: a removal of the app stops the backup at its
+  // next step.
+  let leaseToken = null;
+  let signal = null;
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     log.info(processedBody);
@@ -2785,13 +2866,12 @@ async function appendBackupTask(req, res) {
     }
     // a backup ends by starting the app
     refuseHeldApp(appname);
-    // The claim, before any awaited work: a second request for the same app
-    // finds it taken here rather than passing an emptied check and racing to
-    // the archive alongside the first. Last in this synchronous block, so a
-    // validation throw above never leaves it claimed.
-    if (!globalState.tryStartBackup(appname)) {
-      throw new Error('Backup in progress...');
-    }
+    // The claim, before any awaited work: a second operation on the same app
+    // finds it taken here rather than racing to the archive alongside the first.
+    // Last in this synchronous block, so a validation throw above never leaves
+    // it claimed.
+    leaseToken = takeAppFor(appname, 'backup');
+    signal = operationRegistry.signalOf(appname, leaseToken);
   } catch (error) {
     log.error(error);
     await sendChunk(res, `${error?.message}\n`);
@@ -2883,19 +2963,23 @@ async function appendBackupTask(req, res) {
         }
       }
 
+      operationRegistry.throwIfPreempted(signal);
       await sendChunk(res, 'Stopping application...\n');
       const stopVerdict = await stopApplication(appname, (line) => sendChunk(res, `${line}\n`), (ids) => { heldIds = ids; });
+      operationRegistry.throwIfPreempted(signal);
       // Same reason the folders are held: an archive taken while a container is
       // still writing is torn, and a torn archive is what this path exists to
       // stop being created.
       if (!stopVerdict.stopped) {
         throw new Error(`Refused: ${stopVerdict.refusal}, so an archive taken now could be inconsistent - try again`);
       }
-      await serviceHelper.delay(5 * 1000);
+      await pauseUnlessStopped(5 * 1000, signal);
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BACKUP_BEFORE_ARCHIVE, appname);
       // eslint-disable-next-line global-require
       const IOUtils = require('../IOUtils');
       // eslint-disable-next-line no-restricted-syntax
       for (const component of backup) {
+        operationRegistry.throwIfPreempted(signal);
         if (component.backup) {
           // eslint-disable-next-line no-await-in-loop
           const { error: mountError, mounts } = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
@@ -2923,15 +3007,16 @@ async function appendBackupTask(req, res) {
           // eslint-disable-next-line no-await-in-loop
           await requireRegularFile(tarGzPath);
           // eslint-disable-next-line no-await-in-loop
-          const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
+          const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath, { signal });
           if (tarStatus.status === false) {
             // eslint-disable-next-line no-await-in-loop
             await IOUtils.removeFile(`${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+            operationRegistry.throwIfPreempted(signal);
             throw new Error(`Error: Failed to create backup archive for ${component.component.toLowerCase()}, ${tarStatus.error}`);
           }
         }
       }
-      await serviceHelper.delay(5 * 1000);
+      await pauseUnlessStopped(5 * 1000, signal);
       // the archive is written - let the folders sync again before the app is
       // brought back, so redundancy is restored at the earliest safe moment
       // eslint-disable-next-line no-restricted-syntax
@@ -2947,7 +3032,7 @@ async function appendBackupTask(req, res) {
       heldIds = [];
       await startApplication(releasing);
       await sendChunk(res, 'Finalizing...\n');
-      await serviceHelper.delay(5 * 1000);
+      await pauseUnlessStopped(5 * 1000, signal);
       res.end();
       return true;
       // eslint-disable-next-line no-else-return
@@ -2977,7 +3062,7 @@ async function appendBackupTask(req, res) {
     // The one release, reached by every exit the claim can survive to: success,
     // unauthorized, and error alike. The claim is made in the block above this
     // try, so a request that never claimed never reaches here.
-    globalState.finishBackup(appname);
+    operationRegistry.release(appname, leaseToken);
   }
 }
 
@@ -3016,6 +3101,10 @@ async function appendRestoreTask(req, res) {
   // every exit. A component the restore left half-replaced stays down by its own
   // record (restoreUnfinished, or its election's stop), not by this hold.
   let heldIds = [];
+  // The app's lease, and its signal: a removal of the app stops the restore at
+  // its next step.
+  let leaseToken = null;
+  let signal = null;
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     log.info(processedBody);
@@ -3041,13 +3130,12 @@ async function appendRestoreTask(req, res) {
     }
     // a restore ends by starting the app
     refuseHeldApp(appname);
-    // The claim, before any awaited work: a second request for the same app
-    // finds it taken here rather than passing an emptied check and racing to
-    // the clear alongside the first. Last in this synchronous block, so a
-    // validation throw above never leaves it claimed.
-    if (!globalState.tryStartRestore(appname)) {
-      throw new Error(`Restore for app ${appname} is running...`);
-    }
+    // The claim, before any awaited work: a second operation on the same app
+    // finds it taken here rather than racing to the clear alongside the first.
+    // Last in this synchronous block, so a validation throw above never leaves
+    // it claimed.
+    leaseToken = takeAppFor(appname, 'restore');
+    signal = operationRegistry.signalOf(appname, leaseToken);
   } catch (error) {
     log.error(error);
     await sendChunk(res, `${error?.message}\n`);
@@ -3128,15 +3216,17 @@ async function appendRestoreTask(req, res) {
       }
     }
 
+    operationRegistry.throwIfPreempted(signal);
     await sendChunk(res, 'Stopping application...\n');
     const stopVerdict = await stopApplication(appname, (line) => sendChunk(res, `${line}\n`), (ids) => { heldIds = ids; });
+    operationRegistry.throwIfPreempted(signal);
     // A container still up is still writing to the volume whose appdata is
     // about to be emptied - it would write into a half-cleared tree and can
     // save its own state back over what the archive puts there.
     if (!stopVerdict.stopped) {
       throw new Error(`Refused: ${stopVerdict.refusal}, so its data cannot be replaced safely - try again`);
     }
-    await serviceHelper.delay(5 * 1000);
+    await pauseUnlessStopped(5 * 1000, signal);
 
     // eslint-disable-next-line global-require
     const IOUtils = require('../IOUtils');
@@ -3160,6 +3250,7 @@ async function appendRestoreTask(req, res) {
     if (type === 'remote') {
       // eslint-disable-next-line no-restricted-syntax
       for (const target of targets) {
+        operationRegistry.throwIfPreempted(signal);
         if (!target.url) {
           throw new Error(`Refused: no url given for ${target.name}`);
         }
@@ -3179,6 +3270,7 @@ async function appendRestoreTask(req, res) {
           {
             // the destination is judged again from the open descriptor, which a swapped parent cannot fool
             containedIn: target.mount,
+            signal,
             // the owner's server answers when it likes, and the volume is theirs to change until it does
             beforeOpen: () => requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']).catch((error) => {
               refusal = error;
@@ -3187,6 +3279,7 @@ async function appendRestoreTask(req, res) {
           },
         );
         if (downloadStatus !== true) {
+          operationRegistry.throwIfPreempted(signal);
           throw refusal || new Error(`Error: Failed to download ${target.url}...`);
         }
         // This copy is ours, so this task is the one that removes it
@@ -3210,6 +3303,7 @@ async function appendRestoreTask(req, res) {
     // check below needs, and the compressed size cannot supply it.
     // eslint-disable-next-line no-restricted-syntax
     for (const target of targets) {
+      operationRegistry.throwIfPreempted(signal);
       // eslint-disable-next-line no-await-in-loop
       await requireRegularFile(target.archivePath);
       // eslint-disable-next-line no-await-in-loop
@@ -3253,6 +3347,7 @@ async function appendRestoreTask(req, res) {
 
     // eslint-disable-next-line no-restricted-syntax
     for (const target of targets) {
+      operationRegistry.throwIfPreempted(signal);
       // eslint-disable-next-line no-await-in-loop
       await sendChunk(res, `Restoring ${target.name.toLowerCase()}...\n`);
       // Nothing is destroyed yet: what the clear and the unpack work on is checked first,
@@ -3279,6 +3374,7 @@ async function appendRestoreTask(req, res) {
       swapInFlight = target;
       // eslint-disable-next-line no-await-in-loop
       await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RESTORE_BEFORE_CLEAR, target.folderId);
+      operationRegistry.throwIfPreempted(signal);
       // eslint-disable-next-line no-await-in-loop
       const cleared = await IOUtils.removeDirectory(target.appDataPath, true);
       if (cleared !== true) {
@@ -3291,8 +3387,9 @@ async function appendRestoreTask(req, res) {
       // eslint-disable-next-line no-await-in-loop
       await requireRegularFile(target.archivePath);
       // eslint-disable-next-line no-await-in-loop
-      const tarStatus = await IOUtils.untarFile(target.appDataPath, target.archivePath);
+      const tarStatus = await IOUtils.untarFile(target.appDataPath, target.archivePath, { signal });
       if (tarStatus.status === false) {
+        operationRegistry.throwIfPreempted(signal);
         throw new Error(`Error: Failed to unpack archive file for ${target.name.toLowerCase()}, ${tarStatus.error}`);
       }
       // A component is restored once its record is cleared: until then it fails as
@@ -3323,7 +3420,7 @@ async function appendRestoreTask(req, res) {
     }
     pausedFolderIds.length = 0;
 
-    await serviceHelper.delay(1 * 5 * 1000);
+    await pauseUnlessStopped(5 * 1000, signal);
     await sendChunk(res, 'Starting application...\n');
     // Every component the stop held, each back where the reconciler puts it: an
     // elected one as its election decides, an operator-stopped one stays down.
@@ -3356,7 +3453,7 @@ async function appendRestoreTask(req, res) {
     }
 
     await sendChunk(res, 'Finalizing...\n');
-    await serviceHelper.delay(5 * 1000);
+    await pauseUnlessStopped(5 * 1000, signal);
     res.end();
     return true;
   } catch (error) {
@@ -3426,7 +3523,7 @@ async function appendRestoreTask(req, res) {
     // The one release, reached by every exit the claim can survive to: success,
     // unauthorized, and error alike. The claim is made in the block above this
     // try, so a request that never claimed never reaches here.
-    globalState.finishRestore(appname);
+    operationRegistry.release(appname, leaseToken);
   }
 }
 

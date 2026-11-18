@@ -186,6 +186,9 @@ const Checkpoint = Object.freeze({
   // A restore has recorded that it is replacing a component's data and has not
   // yet cleared any of it. Keyed by the component's folder id.
   RESTORE_BEFORE_CLEAR: 'restore:beforeClear',
+  // A backup holds its app stopped and has not yet archived a component. Keyed by
+  // the app name.
+  BACKUP_BEFORE_ARCHIVE: 'backup:beforeArchive',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

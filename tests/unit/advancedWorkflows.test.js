@@ -2,6 +2,7 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const sinon = require('sinon');
 const Dockerode = require('dockerode');
 const { performance } = require('perf_hooks');
@@ -307,24 +308,23 @@ describe('advancedWorkflows tests', () => {
       expect(response.data.message).to.include('Invalid app name format');
     });
 
-    it('should skip redeploy if app is in restore progress', async () => {
+    it('waits for a restore of the app to end before it redeploys', async () => {
       req.params.appname = 'myapp';
       req.params.component = 'frontend';
-
-      // the claim's own primitive - the list is a frozen snapshot to reads
-      globalState.tryStartRestore('myapp');
-
+      const token = operationRegistry.acquire('myapp', 'restore', 'test');
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      let done = false;
 
-      await advancedWorkflows.redeployComponentAPI(req, res);
+      const redeploying = advancedWorkflows.redeployComponentAPI(req, res).then(() => { done = true; });
+      // eslint-disable-next-line no-await-in-loop
+      while (!done && !res.write.called) await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
 
-      expect(res.json.calledOnce).to.be.true;
-      const response = res.json.firstCall.args[0];
-      expect(response.status).to.equal('warning');
-      expect(response.data.message).to.include('Restore is running');
-
-      // Clean up
-      globalState.finishRestore('myapp');
+      expect(done).to.equal(false);
+      expect(res.write.firstCall.args[0]).to.include('Waiting for the restore of myapp to finish before redeploying');
+      operationRegistry.release('myapp', token);
+      await redeploying;
+      expect(operationRegistry.isHeld('myapp')).to.equal(false);
     });
 
     // The gate IS the policy: appownerorfluxteam refuses the node operator, and a
@@ -555,6 +555,23 @@ describe('advancedWorkflows tests', () => {
       expect(res.write.calledOnce).to.be.true;
       const response = res.write.firstCall.args[0];
       expect(response).to.include('Another application is undergoing installation');
+    });
+
+    it('waits for a backup of the app to end before it runs, and releases the app after', async () => {
+      const token = operationRegistry.acquire('myapp', 'backup', 'test');
+      // the redeploy answers at once once it runs, so the test sees when it ran
+      globalState.removalInProgress = true;
+      let done = false;
+      const redeploying = advancedWorkflows.softRedeployComponent('myapp', 'frontend', res).then(() => { done = true; });
+
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(done).to.equal(false);
+      expect(res.write.firstCall.args[0]).to.include('Waiting for the backup of myapp to finish before redeploying');
+      operationRegistry.release('myapp', token);
+      await redeploying;
+
+      expect(res.write.lastCall.args[0]).to.include('Another application is undergoing removal');
+      expect(operationRegistry.isHeld('myapp')).to.equal(false);
     });
 
     it('should return early if soft redeploy is in progress', async () => {
@@ -947,8 +964,7 @@ describe('advancedWorkflows tests', () => {
       // the election reads the busy lists and the receive-only cache off the
       // real module now - state left by a prior test must not leak into this one
       globalState.receiveOnlySyncthingAppsCache.clear();
-      globalState.backupInProgress.forEach((a) => globalState.finishBackup(a));
-      globalState.restoreInProgress.forEach((a) => globalState.finishRestore(a));
+      operationRegistry.clear();
 
       // Setup stubs
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -1101,7 +1117,7 @@ describe('advancedWorkflows tests', () => {
       // Mock FDM to return no errors
       serviceHelperStub.resolves(fdmNoPrimary());
 
-      expect(globalState.tryStartBackup(appName)).to.equal(true);
+      expect(operationRegistry.acquire(appName, 'backup', 'test')).to.be.a('string');
       try {
         await advancedWorkflows.masterSlaveApps(
           globalState,
@@ -1114,7 +1130,7 @@ describe('advancedWorkflows tests', () => {
         // But FDM should not be queried since app is skipped
         expect(serviceHelperStub.called).to.be.false;
       } finally {
-        globalState.finishBackup(appName);
+        operationRegistry.clear();
       }
     });
 
@@ -1133,7 +1149,7 @@ describe('advancedWorkflows tests', () => {
 
       serviceHelperStub.resolves(fdmNoPrimary());
 
-      expect(globalState.tryStartRestore(appName)).to.equal(true);
+      expect(operationRegistry.acquire(appName, 'restore', 'test')).to.be.a('string');
       try {
         await advancedWorkflows.masterSlaveApps(
           globalState,
@@ -1144,7 +1160,7 @@ describe('advancedWorkflows tests', () => {
         expect(installedApps.called).to.be.true;
         expect(serviceHelperStub.called).to.be.false;
       } finally {
-        globalState.finishRestore(appName);
+        operationRegistry.clear();
       }
     });
 
@@ -5793,7 +5809,7 @@ describe('advancedWorkflows tests', () => {
     }
 
     beforeEach(() => {
-      globalState.backupInProgress = [];
+      operationRegistry.clear();
       // the app's volume is mounted: a folder whose volume is not never sends again
       sinon.stub(volumeService, 'isPathMounted').resolves(true);
       // the flow sleeps between phases; that is not what these tests are about
@@ -6249,6 +6265,46 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.calledOnce(IOUtils.createTarGz);
     });
 
+    it('refuses while another operation holds the app, before it stops anything', async () => {
+      operationRegistry.acquire(appname, 'remove', 'test');
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      expect(res.write.args.flat().join('')).to.include(`Refused: a removal of ${appname} is in progress`);
+      sinon.assert.notCalled(appReconciler.holdStopped);
+    });
+
+    it('stops at its next step for a removal, lifts its hold and releases the app', async () => {
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      // The stop's progress loop pauses between its lines; a pause that resolves at
+      // once would never let the event loop turn while the stop runs.
+      // eslint-disable-next-line global-require
+      require('../../ZelBack/src/services/serviceHelper').delay.callsFake(() => new Promise((resolve) => { setImmediate(resolve); }));
+      // the hold's pass is still stopping the app when the removal asks
+      let passDone;
+      appReconciler.holdStopped.callsFake(() => new Promise((resolve) => { passDone = () => resolve({ stopped: true, refused: [] }); }));
+
+      let settled = false;
+      const backingUp = advancedWorkflows.appendBackupTask(backupReq(), makeRes()).finally(() => { settled = true; });
+      // eslint-disable-next-line no-await-in-loop
+      while (!settled && !appReconciler.holdStopped.called) await new Promise((resolve) => { setImmediate(resolve); });
+      expect(settled, 'the backup ended before it stopped the app').to.equal(false);
+      const released = operationRegistry.whenReleased(appname);
+      operationRegistry.preempt(appname, 'removal');
+      passDone();
+
+      expect(await backingUp).to.equal(false);
+      await released;
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      sinon.assert.calledOnceWithExactly(appReconciler.releaseHold, [`palworld_${appname}`]);
+      expect(operationRegistry.isHeld(appname)).to.equal(false);
+    });
+
     // appownerorfluxteam admits the app's owner and the flux team, and refuses the
     // node operator - so the string this asks for is the whole of the policy. An
     // archive of a customer's volume is theirs, and taking one off the node is
@@ -6336,9 +6392,8 @@ describe('advancedWorkflows tests', () => {
     }
 
     beforeEach(() => {
-      // Release any lease a prior test left, through the claim's own primitive -
-      // the list is a frozen snapshot to reads, so only finishRestore clears it.
-      globalState.finishRestore(appname);
+      // Release any lease a prior test left.
+      operationRegistry.clear();
       globalState.receiveOnlySyncthingAppsCache.clear();
       // the app's volume is mounted: a folder whose volume is not never sends again
       sinon.stub(volumeService, 'isPathMounted').resolves(true);
@@ -6608,6 +6663,17 @@ describe('advancedWorkflows tests', () => {
         expect([firstResult, secondResult]).to.have.members([true, false]);
         // one restore ran, the other never touched the volume
         sinon.assert.calledOnce(IOUtils.untarFile);
+      });
+
+      it('refuses while a backup of the app runs, before it touches anything', async () => {
+        operationRegistry.acquire(appname, 'backup', 'test');
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        expect(res.write.args.flat().join('')).to.include(`Refused: a backup of ${appname} is in progress`);
+        sinon.assert.notCalled(IOUtils.untarFile);
       });
 
       it('restores only the components asked for, not every one the UI listed', async () => {

@@ -1,4 +1,5 @@
 const globalState = require('../../../ZelBack/src/services/utils/globalState');
+const operationRegistry = require('../../../ZelBack/src/services/utils/operationRegistry');
 
 /**
  * The real globalState, reset.
@@ -40,16 +41,15 @@ function resetGlobalState() {
     const value = globalState[key];
     if (value instanceof Map || value instanceof Set) value.clear();
     // A frozen array is a defensive copy the module hands out - backupInProgress
-    // and restoreInProgress are only meant to be changed through tryStart/finish,
-    // so they are emptied that way below rather than written to here.
+    // and restoreInProgress are views of the operation registry, which is
+    // emptied below.
     else if (Array.isArray(value)) { if (!Object.isFrozen(value)) value.length = 0; }
     else if (value && typeof value === 'object' && value.constructor === Object) {
       // An object's functions are its interface, not its state.
       for (const own of Object.keys(value)) if (typeof value[own] !== 'function') delete value[own];
     }
   }
-  for (const appname of globalState.backupInProgress) globalState.finishBackup(appname);
-  for (const appname of globalState.restoreInProgress) globalState.finishRestore(appname);
+  operationRegistry.clear();
   return globalState;
 }
 

@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const sinon = require('sinon');
 const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
@@ -1012,7 +1013,7 @@ describe('appReconciler tests', () => {
       };
 
       it('is not stood aside for by a backup\'s claim alone', async () => {
-        stubs.globalState.tryStartBackup('App');
+        operationRegistry.acquire('App', 'backup', 'test');
         await appReconciler.reconcile('www_App');
         expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
       });

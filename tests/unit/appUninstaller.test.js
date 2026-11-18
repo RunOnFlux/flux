@@ -4,6 +4,7 @@ const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 const { isContainerNotFound } = require('../../ZelBack/src/services/dockerService');
 const appController = require('../../ZelBack/src/services/appManagement/appController');
@@ -570,6 +571,90 @@ describe('appUninstaller tests', () => {
 
       expect(res.write.called).to.be.true;
       expect(res.end.called).to.be.true;
+    });
+
+    it('stops a backup of the app and waits for its release before removing it', async () => {
+      const appUninstallerWithDb = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves({ path: null, conclusive: true }), isPathMounted: sinon.stub().resolves(false) },
+        '../serviceHelper': {
+          ensureString: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().callsFake(Number),
+          runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
+          ensureBoolean: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../dbHelper': {
+          databaseConnection: sinon.stub(),
+          findOneInDatabase: sinon.stub().resolves(undefined),
+          findInDatabase: sinon.stub().resolves([]),
+          removeDocumentFromDatabase: sinon.stub().resolves(),
+        },
+        '../dockerService': {
+          appDockerStop: sinon.stub().resolves(),
+          appDockerRemove: sinon.stub().resolves(),
+          clearFluxRemovedContainers: sinon.stub(),
+          appDockerImageRemove: sinon.stub().resolves(),
+          getAppIdentifier: sinon.stub().returns('testapp'),
+          getBaseAppName: sinon.stub().returnsArg(0),
+        },
+        '../../lib/log': logStub,
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
+          config: configStub,
+        }),
+        './advancedWorkflows': {
+          reindexGlobalAppsInformation: sinon.stub().resolves(),
+          updateAppSpecsForRestoredNode: sinon.stub().resolves(),
+          checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
+        },
+        '../upnpService': {
+        },
+        '../fluxNetworkHelper': {
+          closeConnection: sinon.stub().resolves(),
+          deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
+          allowPort: sinon.stub().resolves(true),
+        },
+        '../fluxCommunicationMessagesSender': {
+          broadcastMessageToOutgoing: sinon.stub().resolves(),
+          broadcastMessageToIncoming: sinon.stub().resolves(),
+        },
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+        },
+        '../utils/enterpriseHelper': {
+          checkAndDecryptAppSpecs: sinon.stub().returnsArg(0),
+        },
+        '../utils/appSpecHelpers': {
+          specificationFormatter: sinon.stub().returnsArg(0),
+        },
+        '../appManagement/appInspector': {
+          stopAppMonitoring: sinon.stub().resolves(),
+        },
+      });
+
+      const res = {
+        write: sinon.stub(),
+        end: sinon.stub(),
+      };
+      const appName = 'FoldingAtHomeB';
+      const token = operationRegistry.acquire(appName, 'backup', 'test');
+      const signal = operationRegistry.signalOf(appName, token);
+      let removed = false;
+
+      const removing = appUninstallerWithDb.removeAppLocally(appName, res, true).then((outcome) => { removed = true; return outcome; });
+      // eslint-disable-next-line no-await-in-loop
+      while (!removed && !signal.aborted) await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(removed).to.equal(false);
+      expect(signal.reason).to.be.instanceOf(operationRegistry.OperationPreemptedError);
+      sinon.assert.calledWith(logStub.warn, `Stopping the backup of ${appName} for its removal`);
+      operationRegistry.release(appName, token);
+
+      await removing;
+      expect(operationRegistry.isHeld(appName)).to.equal(false);
     });
 
     it('should remove app locally if app name is specified and app in DB', async () => {
