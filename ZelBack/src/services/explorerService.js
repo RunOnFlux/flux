@@ -1214,6 +1214,7 @@ async function pollForNewBlocks() {
 async function recoverAndRestart(restoreDatabase, deepRestore) {
   const syncWaitMs = untilDaemonSyncedMs();
   if (syncWaitMs) return after(Step.recover(restoreDatabase, deepRestore), syncWaitMs);
+  fluxEventBus.count('explorer:recovery');
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
