@@ -508,6 +508,18 @@ describe('appReconciler tests', () => {
       expect(deferredLoud, 'should log the volume defer loudly').to.equal(true);
     });
 
+    it('tells the unavailable-volume handler what the component is and why its volume did not mount', async () => {
+      localSpec = { name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      const told = sinon.stub().resolves();
+      appReconciler.setOnVolumeUnavailable(told);
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      await appReconciler.reconcile('db_App');
+      sinon.assert.calledOnceWithExactly(told, {
+        identifier: 'db_App', appName: 'App', version: 8, synced: true, reason: 'volume_file_missing',
+      });
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
     it('honors a pending stop even when the data volume cannot be mounted (mount-safety hold)', async () => {
       // a stop takes nothing from the app dir; deferring it left the incident's
       // container running over the gutted volume with the hold unenforceable
@@ -1068,6 +1080,56 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    describe('a missing container is rebuilt whatever the run decision', () => {
+      beforeEach(() => {
+        stubs.dockerService.dockerContainerInspect.rejects(new Error('Container db_App not found'));
+        stubs.dockerService.dockerListContainers.resolves([]);
+      });
+
+      it('rebuilds a g: component no controller has elected, without starting it', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'db_App', { start: false });
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('rebuilds an r: copy no controller has elected, without starting it', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'r:/data' }] };
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'db_App', { start: false });
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('rebuilds a standby a controller holds stopped, without starting it', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+        stubs.globalState.bootContainerStateSettled = false;
+        appReconciler.setControllerDesired('db_App', 'stopped', 'masterSlave standby');
+        stubs.globalState.bootContainerStateSettled = true;
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'db_App', { start: false });
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('rebuilds a component its operator stopped, without starting it', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: '/data' }] };
+        stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: false });
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'db_App', { start: false });
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      });
+
+      it('rebuilds the container before clearing its data', async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'r:/data' }] };
+        stubs.globalState.bootContainerStateSettled = false;
+        appReconciler.requestStopAndClearData('db_App', 'syncthing new app clean install');
+        stubs.globalState.bootContainerStateSettled = true;
+        await appReconciler.reconcile('db_App');
+        sinon.assert.calledOnce(stubs.containerHealthMonitor.recreateMissingContainers);
+        expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
+        expect(appReconciler.dataClearPending('db_App')).to.be.true;
+      });
+    });
+
     // controllerDesired is in-memory, so a FluxOS restart wipes it while the
     // container keeps running (Docker is independent of the FluxOS process). With
     // no controller opinion yet the reconciler must leave a running g:/r: container
@@ -1588,68 +1650,17 @@ describe('appReconciler tests', () => {
     });
   });
 
-  // The boot-drain gate: the first apprunning broadcast must not race the boot
-  // reconciles (a too-early snapshot misses apps whose rows then expire on the
-  // sigterm TTL). waitForBootDrainSettled() resolves once every boot-held
-  // component has completed ONE reconcile pass (started, backoff-deferred,
-  // awaiting-controller, or failed loudly) - NOT "all containers running" - and
-  // is capped so a wedged reconcile cannot suppress network presence forever.
-  describe('boot drain gate', () => {
-    const flush = async () => {
-      await new Promise((resolve) => { setImmediate(resolve); });
-      await new Promise((resolve) => { setImmediate(resolve); });
-    };
+  describe('while Docker is unwatched', () => {
+    it('acts on nothing and reads nothing, and acts again once watched', async () => {
+      appReconciler.dockerUnwatched();
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.dockerContainerInspect.called).to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
 
-    it('opens only after every boot-held reconcile completes one pass', async () => {
-      stubs.globalState.bootContainerStateSettled = false;
-      let openBootGate;
-      stubs.globalState.waitForBootContainerStateSettled = () => new Promise((resolve) => { openBootGate = resolve; });
-      let finishInspect;
-      stubs.dockerService.dockerContainerInspect = sinon.stub().callsFake(() => new Promise((resolve) => {
-        finishInspect = () => resolve({ State: { Running: false, Status: 'exited', ExitCode: 1 } });
-      }));
-
-      appReconciler.enqueue('www_App'); // held in bootPending
-      const startPromise = appReconciler.start();
-      let drainSettled = false;
-      appReconciler.waitForBootDrainSettled().then(() => { drainSettled = true; });
-
-      stubs.globalState.bootContainerStateSettled = true;
-      openBootGate();
-      await startPromise;
-      await flush();
-      expect(drainSettled, 'gate must hold while a boot reconcile is still in flight').to.be.false;
-
-      finishInspect(); // the held reconcile completes its pass (start path runs on stubs)
-      await flush();
-      expect(drainSettled, 'gate opens once the drained reconciles complete one pass').to.be.true;
-    });
-
-    it('opens after the cap even if a boot reconcile wedges', async () => {
-      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
-      try {
-        stubs.globalState.bootContainerStateSettled = false;
-        let openBootGate;
-        stubs.globalState.waitForBootContainerStateSettled = () => new Promise((resolve) => { openBootGate = resolve; });
-        stubs.dockerService.dockerContainerInspect = sinon.stub().callsFake(() => new Promise(() => {})); // wedged forever
-
-        appReconciler.enqueue('www_App');
-        const startPromise = appReconciler.start();
-        let drainSettled = false;
-        appReconciler.waitForBootDrainSettled().then(() => { drainSettled = true; });
-
-        stubs.globalState.bootContainerStateSettled = true;
-        openBootGate();
-        await startPromise;
-        await flush();
-        expect(drainSettled).to.be.false;
-
-        clock.tick(2 * 60 * 1000 + 1); // the cap (~2min) fires
-        await flush();
-        expect(drainSettled, 'the cap must open the gate despite a wedged reconcile').to.be.true;
-      } finally {
-        clock.restore();
-      }
+      appReconciler.dockerWatchedAgain();
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.dockerContainerInspect.called).to.be.true;
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
     });
   });
 

@@ -29,11 +29,9 @@ async function isUp(client, appName) {
 }
 
 /**
- * Boots the fleet and places the app: B the primary, A the standby holding its
- * data. Samples, from then until `stop`, every moment more than one node runs it.
+ * Boots the fleet: three nodes running real syncthing, peered, FDM reset.
  * @param {object} opts
  * @param {object} opts.hookCtx The suite's `before` context
- * @param {string} opts.appName
  * @param {number} opts.sigtermExpiryS The fleet's shutdown window, and the grace
  *   a restarted syncthing waits out
  * @param {object} [opts.peers] The fleet's peer liveness, both halves, when the
@@ -42,12 +40,11 @@ async function isUp(client, appName) {
  *   other than the shared fleet's
  * @param {object} [opts.env] More fleet: nodes beyond the three, deferred ones,
  *   collateral shared between machines - as createTestEnv takes them
- * @returns {Promise<object>}
+ * @returns {Promise<object>} The env.
  */
-export async function placeSilentPrimaryApp({
-  hookCtx, appName, sigtermExpiryS, peers, system, env: moreFleet = {},
+export async function bootSilentPrimaryFleet({
+  hookCtx, sigtermExpiryS, peers, system, env: moreFleet = {},
 }) {
-  const identifier = `${appName}_${appName}`;
   const env = await createTestEnv({
     hookCtx,
     nodes: 3,
@@ -65,13 +62,25 @@ export async function placeSilentPrimaryApp({
       ...(system ? { system } : {}),
     },
   });
-  const client = (i) => env.clients[i];
   await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   await Promise.all(env.clients.map((c, i) => c && waitFor(() => isDaemonUp(c), {
     timeout: 180000, interval: 3000, label: `syncthing daemon up on node ${i}`,
   })));
-
   await resetFdm();
+  return env;
+}
+
+/**
+ * Places a g: app on a fleet bootSilentPrimaryFleet booted: B the primary, A the
+ * standby holding its data. Samples, from then until `stop`, every moment more
+ * than one node runs it. A fleet holds as many of these apps as a suite places.
+ * @param {object} env
+ * @param {string} appName
+ * @returns {Promise<object>}
+ */
+export async function placeSilentPrimaryAppOn(env, appName) {
+  const identifier = `${appName}_${appName}`;
+  const client = (i) => env.clients[i];
   await pushImage(appName, 'v1');
   // Two instances: the holders the suites place. Wanting more, the spawner would
   // place a third on C, which would then judge and take over beside them.
@@ -116,4 +125,15 @@ export async function placeSilentPrimaryApp({
       .filter((e) => e.event === 'primaryRole:changed' && e.id > afterId
         && e.data?.identifier === identifier && e.data?.to === 'primary'),
   };
+}
+
+/**
+ * Boots the fleet and places one app on it: bootSilentPrimaryFleet, then
+ * placeSilentPrimaryAppOn.
+ * @param {object} opts As bootSilentPrimaryFleet, and `appName`.
+ * @returns {Promise<object>}
+ */
+export async function placeSilentPrimaryApp({ appName, ...fleet }) {
+  const env = await bootSilentPrimaryFleet(fleet);
+  return placeSilentPrimaryAppOn(env, appName);
 }

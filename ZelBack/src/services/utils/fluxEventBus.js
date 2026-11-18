@@ -85,6 +85,9 @@ const Checkpoint = Object.freeze({
   // The spawn loop is between passes: the last pass, and any install it started,
   // has finished, and the next has read nothing.
   SPAWNER_BEFORE_PASS: 'spawner:beforePass',
+  // The Docker event stream was lost and its next subscribe is due, and has not
+  // been made. Keyed by 'docker'.
+  DOCKER_EVENTS_BEFORE_RESUBSCRIBE: 'dockerEvents:beforeResubscribe',
   // A give-up pass has decided to hand an app back and has not yet checked the
   // chain height or started the removal. Keyed by the app name.
   GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',

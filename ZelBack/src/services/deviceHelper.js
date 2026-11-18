@@ -41,7 +41,7 @@ const serviceHelper = require('./serviceHelper');
 async function listMountedFilesystems() {
   const res = await serviceHelper.runCommand('findmnt', {
     logError: false,
-    params: ['--real', '--list', '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,SIZE,USED,AVAIL,USE%'],
+    params: ['--real', '--list', '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,OPTIONS,SIZE,USED,AVAIL,USE%,UUID'],
   });
   if (res.error) {
     throw new Error(`findmnt --real --list failed: ${res.error.message || res.error}`);
@@ -57,6 +57,7 @@ async function listMountedFilesystems() {
     usedBytes: Number(entry.used),
     availableBytes: Number(entry.avail),
     usePercent: Number(String(entry['use%'] || '').replace('%', '')),
+    uuid: entry.uuid || null,
   }));
 }
 

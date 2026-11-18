@@ -629,8 +629,9 @@ async function remove(rawIdentifier) {
 }
 
 /**
- * Records where this node put a component's volume image and the filesystem
- * UUID it stamped that image with.
+ * Records where this node put a component's volume image, the filesystem
+ * UUID it stamped that image with, and the UUID of the host filesystem that
+ * holds it.
  *
  * The node chooses the path and the UUID, so this is the node's own account of
  * its storage: what it made, and where. It belongs beside the other facts this
@@ -640,9 +641,11 @@ async function remove(rawIdentifier) {
  * @param {string} identifier Component identifier or docker app id.
  * @param {string} volumeImagePath Absolute path of the image.
  * @param {string|null} volumeFsUuid Filesystem UUID inside the image.
+ * @param {string|null} [hostFsUuid] UUID of the host filesystem holding the image;
+ *   null when it has none or it could not be read.
  */
-async function setVolumeImage(identifier, volumeImagePath, volumeFsUuid) {
-  await setFields(identifier, { volumeImagePath, volumeFsUuid: volumeFsUuid || null });
+async function setVolumeImage(identifier, volumeImagePath, volumeFsUuid, hostFsUuid = null) {
+  await setFields(identifier, { volumeImagePath, volumeFsUuid: volumeFsUuid || null, volumeHostFsUuid: hostFsUuid || null });
 }
 
 /**
@@ -656,7 +659,8 @@ async function setVolumeImage(identifier, volumeImagePath, volumeFsUuid) {
  * one. This does not go through getState for that reason.
  *
  * @param {string} rawIdentifier Component identifier or docker app id.
- * @returns {Promise<{path: string, fsUuid: string|null}|null>}
+ * @returns {Promise<{path: string, fsUuid: string|null, hostFsUuid: (string|null|undefined)}|null>}
+ *   hostFsUuid is undefined for a record written before it was kept.
  * @throws When the state cannot be read.
  */
 async function getVolumeImage(rawIdentifier) {
@@ -669,7 +673,7 @@ async function getVolumeImage(rawIdentifier) {
     { projection: { _id: 0 } },
   );
   if (!state || !state.volumeImagePath) return null;
-  return { path: state.volumeImagePath, fsUuid: state.volumeFsUuid || null };
+  return { path: state.volumeImagePath, fsUuid: state.volumeFsUuid || null, hostFsUuid: state.volumeHostFsUuid };
 }
 
 /**

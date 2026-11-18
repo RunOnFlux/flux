@@ -1,8 +1,10 @@
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const globalState = require('../utils/globalState');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appReconciler = require('./appReconciler');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 // Bridges the Docker container 'die' event stream into the reconcile workqueue.
 // All restart decisions (restart policy, exit code, backoff, operator-stop,
@@ -16,9 +18,15 @@ let stopped = false;
 let subscribing = false; // a subscribe is mid-await (its stream not yet assigned)
 let resubscribeTimer = null; // exactly one pending resubscribe, however many signals fired
 let lineBuf = '';
-let hasConnected = false;
+// Set when the stream is lost, cleared by the subscribe that restores it.
+let streamLost = false;
 
-const RESUBSCRIBE_DELAY_MS = 10000;
+// Docker announces nothing when it comes back, so the subscribe is retried, at
+// a delay doubling from the first to the last of these and reset by a subscribe
+// that succeeds.
+const RESUBSCRIBE_FIRST_DELAY_MS = 1000;
+const RESUBSCRIBE_MAX_DELAY_MS = 5000;
+let resubscribeDelayMs = RESUBSCRIBE_FIRST_DELAY_MS;
 
 // Every way a stream can die ('error', 'end', a raw 'close', or a failed
 // subscribe) funnels here, and the timer guard collapses them: one outage
@@ -26,12 +34,17 @@ const RESUBSCRIBE_DELAY_MS = 10000;
 // doubled the stream - and every die event was then handled twice.
 function scheduleResubscribe(reason) {
   if (stopped || resubscribeTimer || eventStream) return;
-  log.warn(`containerCrashRecovery - event stream ${reason}; resubscribing in ${RESUBSCRIBE_DELAY_MS / 1000}s`);
-  resubscribeTimer = setTimeout(() => {
+  streamLost = true;
+  appReconciler.dockerUnwatched();
+  const delayMs = resubscribeDelayMs;
+  resubscribeDelayMs = Math.min(delayMs * 2, RESUBSCRIBE_MAX_DELAY_MS);
+  log.warn(`containerCrashRecovery - event stream ${reason}; resubscribing in ${delayMs / 1000}s`);
+  resubscribeTimer = setTimeout(async () => {
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.DOCKER_EVENTS_BEFORE_RESUBSCRIBE, 'docker');
     resubscribeTimer = null;
     // eslint-disable-next-line no-use-before-define
     subscribe();
-  }, RESUBSCRIBE_DELAY_MS);
+  }, delayMs);
 }
 
 function isFluxContainer(name) {
@@ -107,16 +120,25 @@ async function subscribe() {
     stream.on('close', () => onGone('closed'));
 
     log.info('containerCrashRecovery - listening for container crash events');
+    resubscribeDelayMs = RESUBSCRIBE_FIRST_DELAY_MS;
 
-    // a re-established stream may have missed die events while it was down;
-    // reconcile every component from actual state to catch orphans
-    if (hasConnected && globalState.bootContainerStateSettled) {
-      log.info('containerCrashRecovery - stream reconnected, reconciling all components');
-      appReconciler.enqueueAll('reconnect').catch((err) => {
-        log.error(`containerCrashRecovery - reconnect reconcile failed: ${err.message}`);
-      });
+    if (streamLost) {
+      streamLost = false;
+      // The Docker behind a restored stream has restarted, which is the only point
+      // at which it takes up a user namespace setting. A Docker that now remaps
+      // puts the node out of service, and the reconciler stays held.
+      const info = await dockerService.dockerInfo().catch(() => null);
+      if (fluxNetworkHelper.checkDockerUserNamespace(info?.SecurityOptions ?? null)) {
+        appReconciler.dockerWatchedAgain();
+        // the stream missed every die event while it was down
+        if (globalState.bootContainerStateSettled) {
+          log.info('containerCrashRecovery - stream reconnected, reconciling all components');
+          appReconciler.enqueueAll('reconnect').catch((err) => {
+            log.error(`containerCrashRecovery - reconnect reconcile failed: ${err.message}`);
+          });
+        }
+      }
     }
-    hasConnected = true;
   } catch (err) {
     log.error(`containerCrashRecovery - failed to subscribe to docker events: ${err.message}`);
     scheduleResubscribe('subscribe failed');
@@ -127,7 +149,8 @@ async function subscribe() {
 
 async function start() {
   stopped = false;
-  hasConnected = false;
+  streamLost = false;
+  resubscribeDelayMs = RESUBSCRIBE_FIRST_DELAY_MS;
   await subscribe();
 }
 

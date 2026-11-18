@@ -10,6 +10,7 @@ const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const helpers = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const syncthingIdentityClash = require('../../ZelBack/src/services/syncthingIdentityClash');
 
 const { IdentityVerdict } = peerIdentityService;
 
@@ -281,43 +282,6 @@ describe('syncthingMonitorHelpers tests', () => {
       expect(result[0].ip).to.equal('10.0.0.1');
       expect(result[1].ip).to.equal('10.0.0.2');
       expect(result[2].ip).to.equal('10.0.0.3');
-    });
-  });
-
-  describe('canonicalSyncthingDeviceId', () => {
-    // syncthing's documentation example, and a mainnet node's
-    const DOCS_EXAMPLE = 'MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD';
-    const MAINNET = 'OD2POVH-2QWEHYY-AKI6AU2-ZUEQLXY-MTGOIG7-PE57QHU-INYFY5C-QTNOPQ5';
-    const withoutCheckCharacters = (id) => [...id.replace(/-/g, '')].filter((c, i) => i % 14 !== 13).join('');
-
-    it('gives a device ID as syncthing writes one back as it is', () => {
-      expect(helpers.canonicalSyncthingDeviceId(DOCS_EXAMPLE)).to.equal(DOCS_EXAMPLE);
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET)).to.equal(MAINNET);
-    });
-
-    it('gives one without dashes, in lower case, with spaces, or without its check characters as syncthing writes it', () => {
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/-/g, ''))).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET.toLowerCase())).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/-/g, ' '))).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(withoutCheckCharacters(MAINNET))).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(withoutCheckCharacters(DOCS_EXAMPLE))).to.equal(DOCS_EXAMPLE);
-    });
-
-    it('gives one with 0, 1 and 8 typed for O, I and B as syncthing writes it', () => {
-      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/O/g, '0').replace(/I/g, '1'))).to.equal(MAINNET);
-      expect(helpers.canonicalSyncthingDeviceId(DOCS_EXAMPLE.replace(/B/g, '8'))).to.equal(DOCS_EXAMPLE);
-    });
-
-    it('refuses one whose check character does not match its group', () => {
-      [3, 10, 20, 40].forEach((at) => {
-        const changed = `${MAINNET.slice(0, at)}${MAINNET[at] === 'A' ? 'B' : 'A'}${MAINNET.slice(at + 1)}`;
-        expect(helpers.canonicalSyncthingDeviceId(changed), `changed at ${at}`).to.equal(null);
-      });
-    });
-
-    it('refuses anything else', () => {
-      ['PEERSTUB-DEVICE-0000001', '', MAINNET.slice(0, -1), `${MAINNET}A`, MAINNET.replace('2', '9'), null, undefined, 42, {}]
-        .forEach((value) => expect(helpers.canonicalSyncthingDeviceId(value), JSON.stringify(value)).to.equal(null));
     });
   });
 
@@ -619,6 +583,47 @@ describe('syncthingMonitorHelpers tests', () => {
       // The stale entry is not among the devices in use, so the sweep of unused
       // devices removes it.
       expect(devicesIds).to.deep.equal(['REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']);
+    });
+
+    describe('a peer that reports a device ID another holder reports too', () => {
+      const MINE = 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA';
+      const SHARED = 'REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA';
+      let noteClaim;
+
+      beforeEach(() => {
+        noteClaim = sandbox.stub(syncthingIdentityClash, 'noteClaimOfOwnDeviceId').resolves();
+      });
+
+      it("has a peer reporting this node's own device ID tested, and keeps it out of the folder", async () => {
+        peerIdentityService.verifyPeer.resolves({
+          verdict: IdentityVerdict.VERIFIED,
+          identity: { socketAddress: '10.0.0.2:16127', pubKey: 'PUB', deviceId: MINE },
+        });
+        const devices = await helpers.buildDeviceConfiguration(
+          [{ ip: '10.0.0.2:16127' }], LOCAL, MINE, new Map(), [], [], [],
+        );
+        expect(devices).to.deep.equal([{ deviceID: MINE }]);
+        sinon.assert.calledOnceWithExactly(noteClaim, '10.0.0.2:16127', MINE);
+      });
+
+      it('tests nothing for an entry at this node\'s own address', async () => {
+        peerIdentityService.verifyPeer.resolves({
+          verdict: IdentityVerdict.VERIFIED,
+          identity: { socketAddress: LOCAL, pubKey: 'PUB', deviceId: MINE },
+        });
+        await helpers.buildDeviceConfiguration([{ ip: LOCAL }], LOCAL, MINE, new Map(), [], [], []);
+        sinon.assert.notCalled(noteClaim);
+      });
+
+      it('notes two peers reporting one device ID, once', async () => {
+        const publish = sandbox.stub(fluxEventBus, 'publish');
+        const locations = [{ ip: '10.0.0.3:16127' }, { ip: '10.0.0.4:16127' }];
+        await helpers.buildDeviceConfiguration(locations, LOCAL, MINE, new Map(), [], [], []);
+        await helpers.buildDeviceConfiguration(locations, LOCAL, MINE, new Map(), [], [], []);
+        const seen = publish.getCalls().filter((call) => call.args[0] === 'syncthing:sharedIdentitySeen');
+        expect(seen.map((call) => call.args[1])).to.deep.equal([{ peers: ['10.0.0.3:16127', '10.0.0.4:16127'], deviceId: SHARED }]);
+        sinon.assert.notCalled(noteClaim);
+      });
     });
 
     describe('a listed peer that gives no device', () => {
