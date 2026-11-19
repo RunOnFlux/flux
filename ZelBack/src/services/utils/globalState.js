@@ -5,7 +5,8 @@ const operationRegistry = require('./operationRegistry');
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
 
-let removalInProgress = false;
+// The removals running: each removal marks its own start and end.
+let removals = 0;
 // The installs running: each install marks its own start and end.
 let installations = 0;
 let softRedeployInProgress = false;
@@ -226,8 +227,13 @@ function initializeCaches(cacheManager) {
 
 module.exports = {
   // State getters/setters
-  get removalInProgress() { return removalInProgress; },
-  set removalInProgress(value) { removalInProgress = value; },
+  get removalInProgress() { return removals > 0; },
+  // Marks one removal running (true) or none (false), for a caller that is not a
+  // removal. A removal marks itself with beginRemoval and endRemoval, so one ending
+  // leaves the others marked.
+  set removalInProgress(value) { removals = value ? Math.max(removals, 1) : 0; },
+  beginRemoval() { removals += 1; },
+  endRemoval() { removals = Math.max(0, removals - 1); },
 
   get installationInProgress() { return installations > 0; },
   set installationInProgress(value) { setInstallationInProgress(value); },
@@ -257,7 +263,7 @@ module.exports = {
   // rebuilt.
   operationHolding(except = null) {
     const held = [
-      ['removal', removalInProgress],
+      ['removal', removals > 0],
       ['installation', installations > 0],
       ['soft redeploy', softRedeployInProgress],
       ['hard redeploy', hardRedeployInProgress],
@@ -267,7 +273,7 @@ module.exports = {
   },
 
   isOperationInProgress() {
-    return removalInProgress || installations > 0 || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
+    return removals > 0 || installations > 0 || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
   },
 
   // Set by the graceful shutdown path and never cleared: the process exits at the
@@ -382,8 +388,8 @@ module.exports = {
   set trySpawningGlobalAppCache(value) { trySpawningGlobalAppCache = value; },
 
   // Helper functions to match original API
-  removalInProgressReset() { removalInProgress = false; },
-  setRemovalInProgressToTrue() { removalInProgress = true; },
+  removalInProgressReset() { removals = 0; },
+  setRemovalInProgressToTrue() { removals = Math.max(removals, 1); },
   installationInProgressReset() { setInstallationInProgress(false); },
   setInstallationInProgressTrue() { setInstallationInProgress(true); },
   softRedeployInProgressReset() { softRedeployInProgress = false; },

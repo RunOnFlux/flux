@@ -1116,7 +1116,7 @@ async function removeAppHolding(app, res, endResponse, sendMessage, { specificat
   // removed, and an app missing a component cannot run, so it is the whole app.
   let tornDownApp = null;
   let announced = false;
-  globalState.removalInProgress = true;
+  globalState.beginRemoval();
   try {
     if (!app) {
       throw new Error('No App specified');
@@ -1371,7 +1371,7 @@ async function removeAppHolding(app, res, endResponse, sendMessage, { specificat
     if (tornDownApp) finishRemoval(tornDownApp, force, !announced);
     return RemovalOutcome.FAILED;
   } finally {
-    globalState.removalInProgress = false;
+    globalState.endRemoval();
     if (departingName) {
       globalState.departingApps.leave(departingName);
     }

@@ -1442,7 +1442,7 @@ async function softRemoveAppLocally(app, res) {
     throw new Error('No Flux App specified');
   }
 
-  globalState.removalInProgress = true;
+  globalState.beginRemoval();
 
   try {
     // Parse app name and component
@@ -1484,7 +1484,7 @@ async function softRemoveAppLocally(app, res) {
       await cleanupAppDatabase(appsDatabase, appName, res);
     }
   } finally {
-    globalState.removalInProgress = false;
+    globalState.endRemoval();
   }
 }
 
