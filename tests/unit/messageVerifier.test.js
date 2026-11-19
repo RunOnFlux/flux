@@ -818,31 +818,36 @@ describe('messageVerifier tests', () => {
     });
 
     /**
-     * Serves the route with the given reader limit, its messages read after `readMs`, and resolves
-     * `responseClosed` with how long after the request the response closed.
+     * Serves the route with the given reader limit. The route's database read returns `messages`
+     * when the test calls `readMessages`. `handled` resolves once the route has asked for the
+     * messages, with its response (res.setTimeout and res.json spied), `done` (the route's
+     * promise) and `closed` (the response's close). With `armIdleLimit` false, res.setTimeout is
+     * recorded and not armed.
      */
-    async function serveAnswer(readerIdleMs, readMs = 0) {
-      const findInDatabase = sinon.stub().callsFake(async () => {
-        await new Promise((resolve) => { setTimeout(resolve, readMs); });
-        return answer;
-      });
+    async function serveAnswer(readerIdleMs, { armIdleLimit = true, messages = answer } = {}) {
+      let readMessages;
+      const messagesRead = new Promise((resolve) => { readMessages = () => resolve(messages); });
+      const findInDatabase = sinon.stub().returns(messagesRead);
       const verifier = proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
         config: { ...configStub, fluxapps: { messageReaderIdleMs: readerIdleMs } },
         '../dbHelper': { databaseConnection: () => ({ db: () => ({}) }), findInDatabase },
         '../../lib/log': logStub,
       });
-      let closed;
-      const responseClosed = new Promise((resolve) => { closed = resolve; });
+      let route;
+      const handled = new Promise((resolve) => { route = resolve; });
       const app = express();
       app.get('/apps/permanentmessages', (req, res) => {
-        const at = Date.now();
-        res.once('close', () => closed(Date.now() - at));
-        verifier.getAppsPermanentMessages(req, res);
+        if (armIdleLimit) sinon.spy(res, 'setTimeout');
+        else sinon.stub(res, 'setTimeout').returns(res);
+        sinon.spy(res, 'json');
+        const closed = once(res, 'close');
+        const done = verifier.getAppsPermanentMessages(req, res);
+        route({ res, done, closed });
       });
       server = http.createServer(app);
       server.listen(0, '127.0.0.1');
       await once(server, 'listening');
-      return { port: server.address().port, responseClosed };
+      return { port: server.address().port, handled, readMessages };
     }
 
     async function readWhole(port) {
@@ -855,38 +860,42 @@ describe('messageVerifier tests', () => {
       return JSON.parse(Buffer.concat(chunks).toString());
     }
 
+    it('arms the reader limit only once the messages are read, and answers in full', async function () {
+      this.timeout(10000);
+      // no limit is armed, so the answer need not outgrow the socket buffers
+      const messages = answer.slice(0, 10);
+      const { port, handled, readMessages } = await serveAnswer(200, { armIdleLimit: false, messages });
+      const body = readWhole(port);
+      body.catch(() => {});
+
+      const { res, done } = await handled;
+      expect(res.setTimeout.called, 'armed while this node was still reading the messages').to.equal(false);
+
+      readMessages();
+      await done;
+      expect(res.setTimeout.calledOnceWith(200, sinon.match.func)).to.equal(true);
+      expect(res.setTimeout.calledBefore(res.json), 'armed after the answer was written').to.equal(true);
+
+      const { data } = await body;
+      expect(data).to.have.lengthOf(messages.length);
+    });
+
     it('closes the connection of a reader that takes nothing for messageReaderIdleMs', async function () {
       this.timeout(10000);
-      const { port, responseClosed } = await serveAnswer(200);
+      const { port, handled, readMessages } = await serveAnswer(200);
 
       const reader = net.connect(port, '127.0.0.1');
       reader.on('error', () => {});
       reader.write('GET /apps/permanentmessages HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');
       reader.pause();
 
-      const closedAfterMs = await responseClosed;
+      const { res, closed } = await handled;
+      readMessages();
+      await closed;
       reader.destroy();
 
-      expect(closedAfterMs, 'closed before the reader had been waited on for the limit').to.be.at.least(200);
-    });
-
-    it('answers in full a reader that keeps reading', async function () {
-      this.timeout(20000);
-      const { port } = await serveAnswer(500);
-
-      const body = await readWhole(port);
-
-      expect(body.status).to.equal('success');
-      expect(body.data).to.have.lengthOf(ANSWER_MESSAGES);
-    });
-
-    it('does not count the time this node spends reading the messages against the reader', async function () {
-      this.timeout(20000);
-      const { port } = await serveAnswer(200, 600);
-
-      const body = await readWhole(port);
-
-      expect(body.data).to.have.lengthOf(ANSWER_MESSAGES);
+      expect(res.setTimeout.calledOnceWith(200)).to.equal(true);
+      expect(res.writableFinished, 'closed after the reader had taken the whole answer').to.equal(false);
     });
   });
 });
