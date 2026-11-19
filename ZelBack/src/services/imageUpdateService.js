@@ -14,7 +14,6 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const registryCredentialHelper = require('./utils/registryCredentialHelper');
 const { ImageVerifier } = require('./utils/imageVerifier');
 const serviceHelper = require('./serviceHelper');
-const globalState = require('./utils/globalState');
 const fluxEventBus = require('./utils/fluxEventBus');
 
 const CHECK_INTERVAL = config.fluxapps.imageUpdateCheckIntervalMs || 6 * 60 * 60 * 1000;
@@ -27,19 +26,6 @@ const DELAY_BETWEEN_COMPONENTS = config.fluxapps.imageUpdateDelayBetweenComponen
 // Track the timers
 let checkIntervalTimer = null;
 let initialDelayTimer = null;
-
-/**
- * Checks if any app operation is currently in progress.
- * @returns {boolean} True if an operation is in progress, false otherwise
- */
-function isOperationInProgress() {
-  return (
-    globalState.removalInProgress
-    || globalState.installationInProgress
-    || globalState.softRedeployInProgress
-    || globalState.hardRedeployInProgress
-  );
-}
 
 /**
  * Removes the existing flux_watchtower container if it exists.
@@ -320,12 +306,6 @@ async function checkAppForUpdates(appSpec) {
  */
 async function triggerAppUpdate(appSpec) {
   try {
-    // Double-check globalState flags before triggering
-    if (isOperationInProgress()) {
-      log.warn(`Skipping redeploy for ${appSpec.name}: another operation in progress`);
-      return false;
-    }
-
     log.info(`Triggering soft redeploy for ${appSpec.name}`);
     fluxEventBus.publish('imageUpdate:redeployTriggered', { appName: appSpec.name });
 
@@ -348,12 +328,6 @@ async function triggerAppUpdate(appSpec) {
  */
 async function checkForImageUpdates() {
   log.info('Starting image update check cycle');
-
-  // Check if any operation is in progress
-  if (isOperationInProgress()) {
-    log.info('Skipping image update check: another operation in progress');
-    return;
-  }
 
   try {
     // Get all installed apps
@@ -378,12 +352,6 @@ async function checkForImageUpdates() {
 
     // eslint-disable-next-line no-restricted-syntax
     for (const appSpec of apps) {
-      // Re-check flags before each app
-      if (isOperationInProgress()) {
-        log.info('Aborting image update check: operation started');
-        break;
-      }
-
       try {
         appsChecked += 1;
 
@@ -481,5 +449,4 @@ module.exports = {
   getRemoteManifestDigest,
   checkAppForUpdates,
   triggerAppUpdate,
-  isOperationInProgress,
 };

@@ -1516,21 +1516,6 @@ describe('appSpawner tests', () => {
       };
     }
 
-    // The periodic reinstall pass takes an app apart and puts it back, and holds
-    // its flag across the wait in between. An install started inside that window
-    // takes the node, and the pass is then refused when it comes back for it -
-    // leaving an app torn down with nothing to rebuild it. The spawner is the one
-    // that gives way, and it withdraws its claim rather than holding it, so
-    // another node can take the placement now.
-    it('stands down while the node is already doing something to an app', async () => {
-      const { installStub, withdrawalStub } = await runAttempt({
-        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
-      });
-
-      expect(installStub.called, 'installed on top of an operation already in flight').to.be.false;
-      expect(withdrawalStub.called, 'a claim held while standing down blocks the placement for everyone').to.be.true;
-    });
-
     // An application whose specification this node cannot read contributes
     // nothing to the resource totals the capacity check subtracts from this
     // node's capacity, so the space it believes is free includes space already
@@ -1755,17 +1740,6 @@ describe('appSpawner tests', () => {
       });
 
       expect(logged('earlier claimants in fault domain'), 'never reached the stand-down').to.be.true;
-      sinon.assert.notCalled(portCheck);
-    });
-
-    it('stands down while the node is already doing something to an app, before it tests a port', async () => {
-      const portCheck = sinon.stub();
-      const { withdrawalStub } = await runAttempt({
-        portCheck,
-        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
-      });
-
-      expect(withdrawalStub.called, 'never reached the stand-down').to.be.true;
       sinon.assert.notCalled(portCheck);
     });
 

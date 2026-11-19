@@ -1093,26 +1093,6 @@ describe('appUninstaller tests', () => {
         sinon.assert.calledOnce(deleteRow);
       });
 
-      // A forced removal takes the node's removal lock without asking and clears it
-      // when it ends, so one run beside another removal would release that removal's
-      // lock part way through. The rerun waits for the node instead.
-      it('runs the removal again only once no other install or removal holds the node', async () => {
-        const deleteRow = sinon.stub().resolves();
-        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
-        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
-
-        globalStateStub.installationInProgress = true;
-        await uninstaller.removeAppLocally('testapp', res, true);
-        // time for the rerun to have run, had it not waited
-        await new Promise((resolve) => { setTimeout(resolve, 100); });
-        sinon.assert.calledOnce(deleteRow);
-        expect(globalStateStub.installationInProgress, 'the rerun cleared another operation\'s hold').to.equal(true);
-
-        globalStateStub.installationInProgress = false;
-        await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
-        sinon.assert.calledTwice(deleteRow);
-      });
-
       it('runs one removal again for an app however often it is handed over', async () => {
         let finishRow;
         const deleteRow = sinon.stub().resolves();
@@ -1297,15 +1277,6 @@ describe('appUninstaller tests', () => {
         sinon.assert.notCalled(appPlacementsStub.removePlacement);
       });
 
-      it('stays when the removal is refused', async () => {
-        const uninstaller = buildUninstaller(composedSpec);
-        globalStateStub.removalInProgress = true;
-
-        const outcome = await uninstaller.removeAppLocally('testapp', res, false);
-
-        expect(outcome).to.equal(RemovalOutcome.BUSY);
-        sinon.assert.notCalled(appPlacementsStub.removePlacement);
-      });
     });
 
     it('completes removal when no seam callback is registered', async () => {
@@ -1346,15 +1317,6 @@ describe('appUninstaller tests', () => {
         expect(heldDuring, 'released part way through its teardown, so it could be started or announced').to.be.true;
       });
 
-      it('stays when a removal is refused', async () => {
-        const uninstaller = buildUninstaller(v2Spec);
-        globalStateStub.unconfirmedApps.set('testapp', Symbol('testapp'));
-        globalStateStub.removalInProgress = true;
-
-        await uninstaller.removeAppLocally('testapp', res, false, true, false);
-
-        expect(globalStateStub.unconfirmedApps.has('testapp'), 'released by a removal that never ran').to.be.true;
-      });
     });
 
     // A node stops claiming an app when it decides to hand it back, not when the
@@ -1419,18 +1381,6 @@ describe('appUninstaller tests', () => {
         ).to.be.true;
       });
 
-      it('releases only the lock this call took, so a refused duplicate cannot free a live removal', async () => {
-        const uninstaller = buildUninstaller(v2Spec);
-        globalStateStub.removalInProgress = true;
-
-        await uninstaller.removeAppLocally('testapp', res, false, true, true);
-
-        expect(
-          globalStateStub.removalInProgress,
-          'freed the node while the removal holding it is still running, so an install can start into it',
-        ).to.be.true;
-      });
-
       // WHAT A REMOVAL ANSWERS IS A CONTRACT, and the sweep is the caller that acts on
       // it: "refused" read as "removed" leaves a blocked application running, and "not
       // here" read as "it failed" asks again forever about an application that is gone.
@@ -1441,24 +1391,6 @@ describe('appUninstaller tests', () => {
           const outcome = await uninstaller.removeAppLocally('testapp', res, true, true, true);
 
           expect(outcome).to.equal(RemovalOutcome.REMOVED);
-        });
-
-        it('answers BUSY while another removal holds the node', async () => {
-          const uninstaller = buildUninstaller(v2Spec);
-          globalStateStub.removalInProgress = true;
-
-          const outcome = await uninstaller.removeAppLocally('testapp', res, false, true, true);
-
-          expect(outcome).to.equal(RemovalOutcome.BUSY);
-        });
-
-        it('answers BUSY while an installation holds the node', async () => {
-          const uninstaller = buildUninstaller(v2Spec);
-          globalStateStub.installationInProgress = true;
-
-          const outcome = await uninstaller.removeAppLocally('testapp', res, false, true, true);
-
-          expect(outcome).to.equal(RemovalOutcome.BUSY);
         });
 
         it('answers NOT_INSTALLED when the node holds no specification for it', async () => {

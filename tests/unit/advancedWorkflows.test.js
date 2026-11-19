@@ -576,41 +576,32 @@ describe('advancedWorkflows tests', () => {
       sinon.restore();
     });
 
-    it('should return early if removal is in progress', async () => {
-      globalState.removalInProgress = true;
-
-      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing removal');
-    });
-
-    it('should return early if installation is in progress', async () => {
-      globalState.installationInProgress = true;
-
-      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing installation');
-    });
-
     it('waits for a backup of the app to end before it runs, and releases the app after', async () => {
       const token = operationRegistry.acquire('myapp', 'backup', 'test');
-      // the redeploy answers at once once it runs, so the test sees when it ran
-      globalState.removalInProgress = true;
-      let done = false;
-      const redeploying = advancedWorkflows.softRedeployComponent('myapp', 'frontend', res).then(() => { done = true; });
+      // the redeploy's first read fails, so the test sees when it ran
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      const read = sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('timed out'));
+      const redeploying = advancedWorkflows.softRedeployComponent('myapp', 'frontend', res).catch((caught) => caught);
 
       await new Promise((resolve) => { setImmediate(resolve); });
-      expect(done).to.equal(false);
+      expect(read.called, 'ran while the backup held the app').to.equal(false);
       expect(res.write.firstCall.args[0]).to.include('Waiting for the backup of myapp to finish before redeploying');
       operationRegistry.release('myapp', token);
-      await redeploying;
 
-      expect(res.write.lastCall.args[0]).to.include('Another application is undergoing removal');
+      expect(await redeploying).to.be.instanceOf(MongoNetworkTimeoutError);
       expect(operationRegistry.isHeld('myapp')).to.equal(false);
+    });
+
+    it('redeploys a component whatever another app\'s install, removal or redeploy is doing', async () => {
+      Object.assign(globalState, {
+        removalInProgress: true, installationInProgress: true, softRedeployInProgress: true, hardRedeployInProgress: true, reinstallationOfOldAppsInProgress: true,
+      });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      const read = sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res).catch(() => {});
+
+      expect(read.called, 'refused for another app\'s operation').to.equal(true);
     });
 
     it('refuses a redeploy whose caller does not wait while another operation holds the app', async () => {
@@ -621,40 +612,6 @@ describe('advancedWorkflows tests', () => {
       expect(ran).to.equal(false);
       expect(res.write.lastCall.args[0]).to.include('Refused: a backup of myapp is in progress');
       operationRegistry.release('myapp', token);
-    });
-
-    it('should return early if soft redeploy is in progress', async () => {
-      globalState.softRedeployInProgress = true;
-
-      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing soft redeploy');
-    });
-
-    it('should return early if hard redeploy is in progress', async () => {
-      globalState.hardRedeployInProgress = true;
-
-      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing hard redeploy');
-    });
-
-    // The pass that reinstalls apps whose specification changed sets this before
-    // it tears anything down and holds it across its own wait. Every other guard
-    // read four of the five flags and walked straight past this one, which is how
-    // a redeploy took a node the pass was mid-way through using.
-    it('should return early if the periodic reinstall pass holds the node', async () => {
-      globalState.reinstallationOfOldAppsInProgress = true;
-
-      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing reinstallation');
     });
 
     it('should throw error if application not found', async () => {
@@ -758,60 +715,6 @@ describe('advancedWorkflows tests', () => {
     // whatever its last test set standing for the rest of the file.
     afterEach(() => {
       resetGlobalState();
-    });
-
-    it('should return early if removal is in progress', async () => {
-      globalState.removalInProgress = true;
-
-      await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing removal');
-    });
-
-    it('should return early if installation is in progress', async () => {
-      globalState.installationInProgress = true;
-
-      await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing installation');
-    });
-
-    it('should return early if soft redeploy is in progress', async () => {
-      globalState.softRedeployInProgress = true;
-
-      await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing soft redeploy');
-    });
-
-    it('should return early if hard redeploy is in progress', async () => {
-      globalState.hardRedeployInProgress = true;
-
-      await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing hard redeploy');
-    });
-
-    // The pass that reinstalls apps whose specification changed sets this before
-    // it tears anything down and holds it across its own wait. Every other guard
-    // read four of the five flags and walked straight past this one, which is how
-    // a redeploy took a node the pass was mid-way through using.
-    it('should return early if the periodic reinstall pass holds the node', async () => {
-      globalState.reinstallationOfOldAppsInProgress = true;
-
-      await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
-
-      expect(res.write.calledOnce).to.be.true;
-      const response = res.write.firstCall.args[0];
-      expect(response).to.include('Another application is undergoing reinstallation');
     });
 
     it('should throw error if application not found', async () => {
@@ -7849,14 +7752,15 @@ describe('advancedWorkflows tests', () => {
     // Four guards refuse the redeploy while another operation holds the node, and
     // each one writes its warning and returns. Nothing below them closes the
     // response, so the endpoint has to.
-    it('closes the stream when the redeploy is refused because another operation is in flight', async () => {
+    it('closes the stream when the redeploy is refused because a removal of the app is under way', async () => {
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
-      globalState.removalInProgress = true;
+      operationRegistry.submit(req.params.appname, 'remove', () => new Promise(() => {}));
       const res = streamingRes();
 
       await advancedWorkflows.redeployComponentAPI(req, res);
+      operationRegistry.clear();
 
-      expect(res.written.join(''), 'the refusal is the answer').to.include('Another application is undergoing removal');
+      expect(res.written.join(''), 'the refusal is the answer').to.include(`Refused: a removal of ${req.params.appname} is in progress`);
       expect(res.ended, 'an unclosed response holds the socket until requestTimeout, two hours').to.be.true;
     });
 
@@ -10266,7 +10170,7 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
     });
 
     it('hardRedeploy leaves a running app alone when it fails before the teardown', async () => {
-      sinon.stub(globalState, 'operationHolding').throws(new Error('connection timed out'));
+      sinon.stub(globalState.unconfirmedApps, 'has').throws(new Error('connection timed out'));
 
       await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
 

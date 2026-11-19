@@ -1288,23 +1288,6 @@ describe('appInstaller tests', () => {
       expect(res.end.called, 'the endpoint that opened the response is the only thing that closes it').to.be.false;
     });
 
-    it('should return error if removal is in progress', async () => {
-      const componentSpecs = false;
-      const res = {
-        write: sinon.stub(),
-        end: sinon.stub(),
-      };
-      globalStateStub.removalInProgress = true;
-
-      const result = await appInstaller.registerAppLocally(appSpec, componentSpecs, res);
-
-      expect(logStub.error.called).to.be.true;
-      // Nothing was touched, which is not the same answer as an install that
-      // failed and tore the app down - a caller acting on the second when it
-      // got the first destroys a running app.
-      expect(result).to.equal(InstallOutcome.BUSY);
-    });
-
     it('installs beside another app\'s install, and leaves that install marked as running', async () => {
       const res = { write: sinon.stub(), end: sinon.stub() };
       globalStateStub.installationInProgress = true;
