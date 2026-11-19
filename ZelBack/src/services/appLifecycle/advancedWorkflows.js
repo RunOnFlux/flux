@@ -1046,9 +1046,11 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
+ * @param {object} [options]
+ * @param {object} [options.parent] The operation this install is a step of.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
+async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = null } = {}) {
   await fluxosTrial.settled();
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
@@ -1314,7 +1316,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     // arriving after the close is ERR_STREAM_WRITE_AFTER_END on a response still
     // draining to a browser, which reaches apiServer's uncaughtException handler
     // and exits the node.
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true, { parent });
     // The app is gone from this node, and the network told. A caller that reads
     // this outcome the same as a refusal either announces an installation that is
     // not there, or destroys a running app over a scheduling collision.
@@ -1506,9 +1508,10 @@ async function softRemoveAppLocally(app, res) {
  * the bundle.
  * @param {object} appSpecs Full app specifications, decrypted.
  * @param {object} [res] An open response stream, when the caller holds one.
+ * @param {object} op The redeploy this teardown is part of.
  * @returns {Promise<boolean>} True when the teardown may proceed.
  */
-async function mayTearDownToRebuild(appSpecs, res) {
+async function mayTearDownToRebuild(appSpecs, res, op) {
   const report = (message) => {
     log.warn(message);
     if (res) {
@@ -1561,7 +1564,7 @@ async function mayTearDownToRebuild(appSpecs, res) {
       // Broadcast, where a redeploy's own teardown does not: the app is not coming
       // back on this node, so the network has to stop holding a location for it.
       // endResponse false - the endpoint that opened this response closes it.
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
+      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true, { parent: op });
       return false;
     }
   }
@@ -1575,45 +1578,47 @@ async function mayTearDownToRebuild(appSpecs, res) {
 }
 
 /**
- * Takes the app for a redeploy once no backup or restore holds it: a redeploy can
- * delete the data a backup is copying or a restore is writing, so it waits for
- * that operation to end, which releases the app in its finally.
+ * Sends a redeploy of the app to its manager: it runs now when the app is free,
+ * or once the operation holding the app ends; a removal stops it at its next
+ * step. A refused or stopped redeploy is told to the caller and ends here.
  * @param {string} appName
  * @param {object} res - Response object, told while the redeploy waits
- * @returns {Promise<string|null>} The lease token; null when a removal or a
- *   redeploy holds the app, of which this redeploy is then a step, or which the
- *   redeploy's own guards refuse.
+ * @param {function(object): Promise<*>} redeploy - The redeploy, given its operation
+ * @param {object} [options]
+ * @param {object} [options.parent] - The operation this redeploy is a step of
+ * @param {boolean} [options.wait] - False refuses it while the app is busy, for a
+ *   caller going through apps in turn, whose next round asks again
+ * @returns {Promise<boolean>} Whether the redeploy ran; false when refused or stopped.
  */
-async function takeAppForRedeploy(appName, res) {
-  let holder = operationRegistry.get(appName);
-  while (holder && (holder.type === 'backup' || holder.type === 'restore')) {
-    const message = `Waiting for the ${holder.type} of ${appName} to finish before redeploying`;
-    log.info(message);
-    fluxEventBus.publish('app:operationWaiting', { appName, operation: 'redeploy', for: holder.type });
+async function redeployingApp(appName, res, redeploy, { parent = null, wait = true } = {}) {
+  const tell = (message) => {
+    log.warn(message);
     if (res) {
       res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(message)));
       if (res.flush) res.flush();
     }
-    // eslint-disable-next-line no-await-in-loop
-    await operationRegistry.whenReleased(appName);
-    holder = operationRegistry.get(appName);
-  }
-  return operationRegistry.acquire(appName, 'redeploy', 'redeploy');
-}
-
-/**
- * Runs a redeploy of the app holding its lease.
- * @param {string} appName
- * @param {object} res
- * @param {Function} redeploy
- * @returns {Promise<*>} What `redeploy` returns.
- */
-async function redeployingApp(appName, res, redeploy) {
-  const token = await takeAppForRedeploy(appName, res);
+  };
   try {
-    return await redeploy();
-  } finally {
-    operationRegistry.release(appName, token);
+    await operationRegistry.submit(appName, 'redeploy', redeploy, {
+      parent,
+      wait,
+      owner: 'redeploy',
+      onWait: ({ holder }) => {
+        tell(`Waiting for the ${operationRegistry.OPERATION_NAMES[holder]} of ${appName} to finish before redeploying`);
+        fluxEventBus.publish('app:operationWaiting', { appName, operation: 'redeploy', for: holder });
+      },
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof operationRegistry.OperationRefusedError) {
+      tell(`Redeploy of ${appName} ${error.message}`);
+      return false;
+    }
+    if (error instanceof operationRegistry.OperationPreemptedError) {
+      tell(`Redeploy of ${appName} stopped: ${error.message}`);
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -1622,11 +1627,11 @@ async function redeployingApp(appName, res, redeploy) {
  * @param {object} appSpecs - App specifications
  * @param {object} res - Response object
  */
-async function softRedeploy(appSpecs, res) {
-  return redeployingApp(appSpecs.name, res, () => softRedeployApp(appSpecs, res));
+async function softRedeploy(appSpecs, res, { parent = null, wait = true } = {}) {
+  return redeployingApp(appSpecs.name, res, (op) => softRedeployApp(appSpecs, res, op), { parent, wait });
 }
 
-async function softRedeployApp(appSpecs, res) {
+async function softRedeployApp(appSpecs, res, op) {
   // Whether softRemoveAppLocally ran to completion. False means the removal did
   // not FINISH - which is not the same as "it never started": softRemoveAppLocally
   // is a sequence (guards, spec lookup, per-component uninstall, database
@@ -1651,7 +1656,7 @@ async function softRedeployApp(appSpecs, res) {
       return;
     }
 
-    if (!await mayTearDownToRebuild(appSpecs, res)) return;
+    if (!await mayTearDownToRebuild(appSpecs, res, op)) return;
 
     // Check if component structure changed for version 8+ apps.
     if (appSpecs.version >= 8) {
@@ -1677,7 +1682,7 @@ async function softRedeployApp(appSpecs, res) {
           }
           // Call hardRedeploy instead
           // eslint-disable-next-line no-use-before-define
-          await hardRedeploy(appSpecs, res);
+          await hardRedeploy(appSpecs, res, { parent: op });
           return;
         }
       }
@@ -1704,7 +1709,7 @@ async function softRedeployApp(appSpecs, res) {
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register
-    const outcome = await softRegisterAppLocally(appSpecs, undefined, res);
+    const outcome = await softRegisterAppLocally(appSpecs, undefined, res, { parent: op });
     if (outcome !== InstallOutcome.INSTALLED) {
       // Neither outcome is undone here, and neither leaves the app as it was:
       // the removal above has already taken its containers AND its local row,
@@ -1742,6 +1747,7 @@ async function softRedeployApp(appSpecs, res) {
     log.info('Error on softRedeploy');
     log.error(error);
     globalState.softRedeployInProgress = false;
+    if (error instanceof operationRegistry.OperationPreemptedError) throw error;
     if (!softRemoved) {
       // The removal never completed, so the app was not taken down as a unit.
       // Uninstalling it here - forced, and broadcast to the network - turned a
@@ -1781,7 +1787,7 @@ async function softRedeployApp(appSpecs, res) {
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
     // endResponse false: redeployAPI opened this response and closes it.
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true, { parent: op });
     log.info(`Cleanup completed for ${appSpecs.name} after soft redeploy failure`);
   }
 }
@@ -1791,11 +1797,11 @@ async function softRedeployApp(appSpecs, res) {
  * @param {object} appSpecs - App specifications
  * @param {object} res - Response object
  */
-async function hardRedeploy(appSpecs, res) {
-  return redeployingApp(appSpecs.name, res, () => hardRedeployApp(appSpecs, res));
+async function hardRedeploy(appSpecs, res, { parent = null, wait = true } = {}) {
+  return redeployingApp(appSpecs.name, res, (op) => hardRedeployApp(appSpecs, res, op), { parent, wait });
 }
 
-async function hardRedeployApp(appSpecs, res) {
+async function hardRedeployApp(appSpecs, res, op) {
   try {
     // Every operation, including the periodic reinstall pass - which sets its
     // flag before it tears anything down and holds it across the wait, so the
@@ -1811,11 +1817,11 @@ async function hardRedeployApp(appSpecs, res) {
       }
       return;
     }
-    if (!await mayTearDownToRebuild(appSpecs, res)) return;
+    if (!await mayTearDownToRebuild(appSpecs, res, op)) return;
 
     globalState.hardRedeployInProgress = true;
     log.warn(`REMOVAL REASON: Hard redeploy initiated - ${appSpecs.name} being removed as part of hard redeploy process (hardRedeploy)`);
-    const outcome = await appRebuild.rebuildApp(appSpecs, res);
+    const outcome = await appRebuild.rebuildApp(appSpecs, res, { parent: op });
     if (outcome !== InstallOutcome.INSTALLED) {
       const notReinstalled = messageHelper.createErrorMessage(
         `Application ${appSpecs.name} was not reinstalled (${outcome})`,
@@ -1834,6 +1840,7 @@ async function hardRedeployApp(appSpecs, res) {
     // rebuildApp settles every failure of its own, so this is a failure before it ran
     log.error(error);
     globalState.hardRedeployInProgress = false;
+    if (error instanceof operationRegistry.OperationPreemptedError) throw error;
     const notStarted = messageHelper.createErrorMessage(
       `Hard redeploy of ${appSpecs.name} failed before the app was taken down: ${error.message}`,
     );
@@ -1852,10 +1859,10 @@ async function hardRedeployApp(appSpecs, res) {
  * @param {object} res - Response object
  */
 async function softRedeployComponent(appName, componentName, res) {
-  return redeployingApp(appName, res, () => softRedeployOneComponent(appName, componentName, res));
+  return redeployingApp(appName, res, (op) => softRedeployOneComponent(appName, componentName, res, op));
 }
 
-async function softRedeployOneComponent(appName, componentName, res) {
+async function softRedeployOneComponent(appName, componentName, res, op) {
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
   // eslint-disable-next-line global-require
@@ -1893,7 +1900,7 @@ async function softRedeployOneComponent(appName, componentName, res) {
 
     // Asked of the whole app, and answered by handing back the whole app: a spec
     // pinned to other nodes does not belong here one component at a time.
-    if (!await mayTearDownToRebuild(appSpecifications, res)) {
+    if (!await mayTearDownToRebuild(appSpecifications, res, op)) {
       globalState.softRedeployInProgress = false;
       return;
     }
@@ -1951,7 +1958,7 @@ async function softRedeployOneComponent(appName, componentName, res) {
 
       // Register component
       log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
-      const outcome = await softRegisterAppLocally(appSpecifications, componentSpec, res);
+      const outcome = await softRegisterAppLocally(appSpecifications, componentSpec, res, { parent: op });
       if (outcome !== InstallOutcome.INSTALLED) {
         // Neither outcome reaches the catch below, which would uninstall the
         // WHOLE app over one component: a scheduling collision is not grounds
@@ -1991,6 +1998,7 @@ async function softRedeployOneComponent(appName, componentName, res) {
     } catch (error) {
       log.error(error);
       globalState.softRedeployInProgress = false;
+      if (error instanceof operationRegistry.OperationPreemptedError) throw error;
       if (!componentRemoved) {
         // One component's removal did not complete, and the answer to that was
         // to uninstall the WHOLE app - forced, and broadcast to the network. A
@@ -2012,7 +2020,7 @@ async function softRedeployOneComponent(appName, componentName, res) {
       }
       log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
       // endResponse false: the endpoint opened this response and closes it.
-      await appUninstaller.removeAppLocally(appName, res, true, false, true);
+      await appUninstaller.removeAppLocally(appName, res, true, false, true, { parent: op });
       log.info(`Cleanup completed for ${appName} after component ${fullComponentName} soft redeploy failure`);
       throw error;
     }
@@ -2031,10 +2039,10 @@ async function softRedeployOneComponent(appName, componentName, res) {
  * @param {object} res - Response object
  */
 async function hardRedeployComponent(appName, componentName, res) {
-  return redeployingApp(appName, res, () => hardRedeployOneComponent(appName, componentName, res));
+  return redeployingApp(appName, res, (op) => hardRedeployOneComponent(appName, componentName, res, op));
 }
 
-async function hardRedeployOneComponent(appName, componentName, res) {
+async function hardRedeployOneComponent(appName, componentName, res, op) {
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
   // eslint-disable-next-line global-require
@@ -2071,7 +2079,7 @@ async function hardRedeployOneComponent(appName, componentName, res) {
 
     // Asked of the whole app, and answered by handing back the whole app: a spec
     // pinned to other nodes does not belong here one component at a time.
-    if (!await mayTearDownToRebuild(appSpecifications, res)) {
+    if (!await mayTearDownToRebuild(appSpecifications, res, op)) {
       globalState.hardRedeployInProgress = false;
       return;
     }
@@ -2150,6 +2158,7 @@ async function hardRedeployOneComponent(appName, componentName, res) {
     } catch (error) {
       log.error(error);
       globalState.hardRedeployInProgress = false;
+      if (error instanceof operationRegistry.OperationPreemptedError) throw error;
       if (!componentRemoved) {
         // See the soft path. A hard redeploy asks for one component's volume to
         // be rebuilt, and a removal that did not finish is not grounds for
@@ -2166,7 +2175,7 @@ async function hardRedeployOneComponent(appName, componentName, res) {
       }
       log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
       // endResponse false: the endpoint opened this response and closes it.
-      await appUninstaller.removeAppLocally(appName, res, true, false, true);
+      await appUninstaller.removeAppLocally(appName, res, true, false, true, { parent: op });
       log.info(`Cleanup completed for ${appName} after component ${fullComponentName} hard redeploy failure`);
       throw error;
     }
@@ -4550,6 +4559,382 @@ async function checkAndRemoveApplicationInstance({
 }
 
 /**
+ * Brings one installed app up to its changed specification, run by the app's
+ * manager as a redeploy: its removals and installs are steps of `op`.
+ * @param {object} installedApp The installed app's row.
+ * @param {object} appSpecifications Its current specification, decrypted.
+ * @param {Set<string>} rewrittenWithoutRedeploy Told the apps whose record is
+ *   rewritten in place, for the pass's compliance sweep.
+ * @param {object} op The redeploy.
+ * @returns {Promise<void>}
+ */
+async function reinstallOldApplication(installedApp, appSpecifications, rewrittenWithoutRedeploy, op) {
+  // The new spec decides whether this node keeps the app at all, and it is
+  // asked before any of the three redeploy branches below takes anything
+  // down. An owner re-pointing a `nodes` list reaches the fleet as a spec
+  // change, so this is where a node the list no longer names hands it back.
+  if (!await mayTearDownToRebuild(appSpecifications, null, op)) {
+    return;
+  }
+  globalState.reinstallationOfOldAppsInProgress = true;
+
+  // A DIFFERENT OWNER ON A NAME WHOSE INSTALLED TERM HAD ENDED is a new
+  // registration of a released name, not the old app updated. The expiry
+  // sweep removes the install when it runs; a node that was catching up
+  // skipped it, and the comparison below leaves owner out, so this would
+  // rewrite the record in place and hand the old owner's files and data
+  // to the new registrant. An update that transfers an app lands inside
+  // the term it renews, and keeps the data as it always has.
+  //
+  // Heights cannot tell the two apart: a transfer this node missed, followed by
+  // an update after the installed term ended, looks the same. The message log
+  // does: another owner's registration after the installed term is a new tenure, a transfer is
+  // only ever an update.
+  if (!sameSigningIdentity(installedApp.owner, appSpecifications.owner)
+      && Number.isFinite(installedApp.height) && Number.isFinite(appSpecifications.height)
+      && !isInForce(installedApp.height, installedApp.expire, appSpecifications.height)
+            && registeredByAnotherAfterTerm(
+              await registryManagerModule.appMessagesThatCount(installedApp.name),
+              installedApp.height,
+              installedApp.expire,
+              installedApp.owner,
+              sameSigningIdentity,
+            )) {
+    log.warn(`REMOVAL REASON: ${installedApp.name} was registered again by another owner after its term ended - removing the previous owner's install and data`);
+    // eslint-disable-next-line global-require
+    const appUninstallerForOwner = require('./appUninstaller');
+    // Announced: peers still list this node as a location for the name, and would
+    // route the new registrant's domain here and count this node as an instance.
+    await appUninstallerForOwner.removeAppLocally(installedApp.name, null, true, false, true, { parent: op });
+    return;
+  }
+
+  // Check if this is an enterprise app on non-arcane node FIRST
+  // CRITICAL: Must check BEFORE updating local database or attempting redeployment
+  // If we update the local DB with enterprise specs, we lose the container/port info needed for cleanup
+  if (appSpecifications.version >= 8
+      && appSpecifications.enterprise
+      && !isArcane) {
+    log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS.`);
+    log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
+
+    // Find and restore non-enterprise specs if needed for proper cleanup
+    const specsForRemoval = await findAndRestoreNonEnterpriseSpecs(installedApp);
+
+    if (!specsForRemoval) {
+      return;
+    }
+
+    // Remove the entire app with force and BROADCAST to peers
+    // This is a permanent removal (not a redeploy), so we need to broadcast
+    // eslint-disable-next-line global-require
+    const appUninstaller = require('./appUninstaller');
+    await appUninstaller.removeAppLocally(installedApp.name, null, true, true, true, { parent: op });
+    log.info(`Successfully removed enterprise app ${installedApp.name} and notified peers`);
+
+    // Skip to next app
+    return;
+  }
+
+  // check if the app spec was changed
+  const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
+  const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
+  delete auxAppSpecifications.description;
+  delete auxAppSpecifications.expire;
+  delete auxAppSpecifications.hash;
+  delete auxAppSpecifications.height;
+  delete auxAppSpecifications.instances;
+  delete auxAppSpecifications.owner;
+
+  delete auxInstalledApp.description;
+  delete auxInstalledApp.expire;
+  delete auxInstalledApp.hash;
+  delete auxInstalledApp.height;
+  delete auxInstalledApp.instances;
+  delete auxInstalledApp.owner;
+
+  if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
+    log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
+    // connect to mongodb
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const appsQuery = { name: appSpecifications.name };
+    const options = {
+      upsert: true,
+    };
+    // An enterprise row keeps its compose and contacts blank, as the install
+    // writes it: they were decrypted for the comparison above and are not for
+    // the table, which the public listings read.
+    await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: withoutEnterpriseSecrets([appSpecifications])[0] }, options);
+    log.info(`Application ${installedApp.name} Database updated`);
+    // OWNER IS DELETED FROM THE COMPARISON ABOVE, so an owner transfer reaches
+    // this branch: the same components under a different owner, written without
+    // a redeploy. Nothing else judges the record that leaves here - the
+    // installer judges what it installs, and this installs nothing - so an owner
+    // the network refuses holds this application until something unrelated
+    // sweeps the node.
+    //
+    // Every other field deleted from that comparison reaches it too - an expiry,
+    // a description, an instance count - and each of those rewrites a record
+    // nothing has judged either.
+    rewrittenWithoutRedeploy.add(appSpecifications.name);
+    return;
+  }
+  // Specs differ - log for debugging purposes
+  log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
+
+  // check if node is capable to run it according to specifications
+  // run the verification
+  // get tier and adjust specifications
+  const tier = await generalService.nodeTier();
+  if (appSpecifications.version >= 4 && installedApp.version <= 3) {
+    // Its own flag excluded and no other: this pass set
+    // reinstallationOfOldAppsInProgress before the loop, and asking
+    // without the exclusion would skip every app on its own account.
+    const heldBy = globalState.operationHolding('reinstallation');
+    if (heldBy) {
+      log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
+      return;
+    }
+    log.warn(`REMOVAL REASON: App version upgrade - ${appSpecifications.name} upgrading from v${installedApp.version} to v${appSpecifications.version}`);
+    // A version 3 app has no components and a version 4 one has, so nothing of the
+    // old one carries over: the app is rebuilt from nothing.
+    const outcome = await appRebuild.rebuildApp(appSpecifications, null, { parent: op });
+    log.warn(`Application ${appSpecifications.name} upgraded to v${appSpecifications.version}: ${outcome}`);
+  } else if (appSpecifications.version <= 3) {
+    if (appSpecifications.tiered) {
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    }
+
+    // Its own flag excluded and no other: this pass set
+    // reinstallationOfOldAppsInProgress before the loop, and asking
+    // without the exclusion would skip every app on its own account.
+    const heldBy = globalState.operationHolding('reinstallation');
+    if (heldBy) {
+      log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
+      return;
+    }
+
+    // Dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
+    const appUninstaller = require('./appUninstaller');
+    // eslint-disable-next-line global-require
+    const appInstaller = require('./appInstaller');
+
+    // THE ROW IS THIS NODE'S COPY OF THE INSTALLED SPECIFICATION, and every
+    // reader takes the app's current one from it - what this node reports, what
+    // the reconciler rebuilds from, and which directories the syncthing monitor
+    // keeps off the network. Neither redeploy below writes it: the uninstalls
+    // here are the ones that KEEP the registration, and both installs are
+    // reached directly rather than through softRegisterAppLocally, which is
+    // what writes it on every other path.
+    //
+    // Ahead of the redeploy, like the composed path above: a pass that reads
+    // this mid-redeploy is owed the specification the containers are being
+    // built from, and a redeploy that does not complete is the reconciler's,
+    // which rebuilds what the row describes.
+    await dbHelper.updateOneInDatabase(
+      dbHelper.databaseConnection().db(config.database.appslocal.database),
+      localAppsInformation,
+      { name: appSpecifications.name },
+      { $set: withoutEnterpriseSecrets([appSpecifications])[0] },
+      { upsert: true },
+    );
+
+    if (appSpecifications.hdd === installedApp.hdd) {
+      log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
+      // soft redeployment
+      await appUninstaller.softUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
+      await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications);
+    } else {
+      log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
+      log.warn(`REMOVAL REASON: Hard redeployment - ${appSpecifications.name} HDD changed from ${installedApp.hdd} to ${appSpecifications.hdd}`);
+      // hard redeployment
+      await appUninstaller.hardUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
+      await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications);
+    }
+  } else {
+    // composed application
+    log.warn(`Beginning Redeployment of ${appSpecifications.name}...`);
+    // Its own flag excluded and no other: this pass set
+    // reinstallationOfOldAppsInProgress before the loop, and asking
+    // without the exclusion would skip every app on its own account.
+    const heldBy = globalState.operationHolding('reinstallation');
+    if (heldBy) {
+      log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
+      return;
+    }
+
+    // Dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
+    const appUninstaller = require('./appUninstaller');
+    // eslint-disable-next-line global-require
+    const appInstaller = require('./appInstaller');
+
+    // Check if component structure changed (count or names) for version 8+ apps.
+    const installedAppForComparison = resolveInstalledAppForStructureComparison(
+      appSpecifications,
+      installedApp,
+      'reinstallOldApplications',
+    );
+    const hasComponentStructureChange = Boolean(
+      installedAppForComparison && hasV8ComponentStructureChange(appSpecifications, installedAppForComparison),
+    );
+
+    // For version 8+ apps with component structure changes, force full hard redeploy
+    if (appSpecifications.version >= 8 && hasComponentStructureChange) {
+      log.warn(`Application ${appSpecifications.name} (v${appSpecifications.version}) has component structure changes.`);
+      log.warn(`Component count: ${installedAppForComparison.compose.length} -> ${appSpecifications.compose.length}`);
+      log.warn('Performing full hard redeploy to handle component changes...');
+      log.warn(`REMOVAL REASON: Component structure change (v8+) - ${appSpecifications.name} component count/names changed`);
+
+      // A hard redeploy: removed and installed again as a whole. One that does
+      // not bring the app back tells the network.
+      const outcome = await appRebuild.rebuildApp(appSpecifications, null, { parent: op });
+      if (outcome === InstallOutcome.INSTALLED) {
+        log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
+      } else {
+        log.error(`Application ${appSpecifications.name} was not redeployed for a component structure change (${outcome}).`);
+      }
+
+      return;
+    }
+
+    try {
+      const reversedCompose = [...appSpecifications.compose].reverse();
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponent of reversedCompose) {
+        if (appComponent.tiered) {
+          const hddTier = `hdd${tier}`;
+          const ramTier = `ram${tier}`;
+          const cpuTier = `cpu${tier}`;
+          appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+          appComponent.ram = appComponent[ramTier] || appComponent.ram;
+          appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+        }
+
+        const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
+
+        if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
+          log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
+        } else if (appComponent.hdd === installedComponent.hdd) {
+          log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+          // soft redeployment
+          const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
+          // Bare app name: the callee joins it with the component's own
+          // name for the monitoring key and for cleanupPorts. The installed
+          // component, not the new one: the uninstall removes its image and
+          // closes its ports.
+          await appUninstaller.softUninstallComponent(appSpecifications.name, appId, installedComponent, null, stopAppMonitoring);
+          log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
+          await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+        } else {
+          log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+          log.warn(`REMOVAL REASON: Hard redeployment (component) - ${appComponent.name}_${appSpecifications.name} HDD changed from ${installedComponent.hdd} to ${appComponent.hdd}`);
+          // hard redeployment
+          const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
+          // same contract as the soft branch above
+          await appUninstaller.hardUninstallComponent(appSpecifications.name, appId, installedComponent, null, stopAppMonitoring);
+          log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
+          await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+        }
+      }
+      // connect to mongodb
+      const dbopen = dbHelper.databaseConnection();
+      const appsDatabase = dbopen.db(config.database.appslocal.database);
+      const appsQuery = { name: appSpecifications.name };
+      log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
+      await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name }); // entire app
+
+      // The app's row becomes the new specification in one write, before any
+      // container is created: until it lands the row still holds the old one,
+      // so the app always has a row describing it.
+      const isEnterprise = Boolean(
+        appSpecifications.version >= 8 && appSpecifications.enterprise,
+      );
+
+      const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+      if (isEnterprise) {
+        dbSpecs.compose = [];
+        dbSpecs.contacts = [];
+      }
+
+      await dbHelper.replaceOneInDatabase(appsDatabase, localAppsInformation, appsQuery, dbSpecs, { upsert: true });
+      log.info(`Database entry of ${appSpecifications.name} replaced with its new specification BEFORE component Docker container creation (composed redeployment path)`);
+
+      let allComponentsBack = true;
+      const replaced = [];
+      // Now install components - containers will be created but app is already in DB
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponent of appSpecifications.compose) {
+        if (appComponent.tiered) {
+          const hddTier = `hdd${tier}`;
+          const ramTier = `ram${tier}`;
+          const cpuTier = `cpu${tier}`;
+          appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+          appComponent.ram = appComponent[ramTier] || appComponent.ram;
+          appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+        }
+
+        const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
+
+        if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
+          log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
+        } else if (appComponent.hdd === installedComponent.hdd) {
+          log.warn(`Continuing Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+          await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+          // install the app
+          const outcome = await softRegisterAppLocally(appSpecifications, appComponent, undefined, { parent: op }); // component
+          if (outcome !== InstallOutcome.INSTALLED) {
+            log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
+            allComponentsBack = false;
+            break;
+          }
+          replaced.push({ component: appComponent.name, hard: false });
+        } else {
+          log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+          await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+          // install the app
+          const outcome = await appInstaller.registerAppLocally(appSpecifications, appComponent, undefined, false, false, { parent: op }); // component
+          if (outcome !== InstallOutcome.INSTALLED) {
+            log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
+            allComponentsBack = false;
+            break;
+          }
+          replaced.push({ component: appComponent.name, hard: true });
+        }
+      }
+      // Announced and restarted only if it is actually back.
+      if (allComponentsBack) {
+        log.warn(`Composed application ${appSpecifications.name} updated.`);
+        log.warn(`Restarting application ${appSpecifications.name}`);
+        // eslint-disable-next-line no-use-before-define
+        await appDockerRestart(appSpecifications.name);
+        announceComponentsRedeployed(appSpecifications.name, replaced);
+      }
+    } catch (error) {
+      log.error(error);
+      if (dbHelper.isDatabaseError(error)) {
+        // The components' data is still on disk, and a database that did not
+        // answer says nothing about the app: it is left for a later pass, never
+        // uninstalled with its data.
+        log.warn(`Redeployment of ${appSpecifications.name} stopped: the database did not answer (${error.message}). The app is not uninstalled.`);
+        return;
+      }
+      log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
+      await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true, { parent: op }); // remove entire app
+      log.info(`Cleanup completed for ${appSpecifications.name} after redeployment failure`);
+    }
+  }
+}
+
+/**
  * Check for outdated app versions and reinstall them with newer specifications
  * @returns {Promise<void>} Completion status
  */
@@ -4633,405 +5018,20 @@ async function reinstallOldApplications() {
         // eslint-disable-next-line no-await-in-loop
         log.warn(`Application ${installedApp.name} version is obsolete.`);
         if (randomNumber === 0) {
-          // The new spec decides whether this node keeps the app at all, and it is
-          // asked before any of the three redeploy branches below takes anything
-          // down. An owner re-pointing a `nodes` list reaches the fleet as a spec
-          // change, so this is where a node the list no longer names hands it back.
+          // An app another operation holds is refused and left for a later pass,
+          // which finds it again while it is still out of date: the pass never
+          // waits on one app.
           // eslint-disable-next-line no-await-in-loop
-          if (!await mayTearDownToRebuild(appSpecifications, null)) {
-            // eslint-disable-next-line no-continue
-            continue;
-          }
-          globalState.reinstallationOfOldAppsInProgress = true;
-
-          // A DIFFERENT OWNER ON A NAME WHOSE INSTALLED TERM HAD ENDED is a new
-          // registration of a released name, not the old app updated. The expiry
-          // sweep removes the install when it runs; a node that was catching up
-          // skipped it, and the comparison below leaves owner out, so this would
-          // rewrite the record in place and hand the old owner's files and data
-          // to the new registrant. An update that transfers an app lands inside
-          // the term it renews, and keeps the data as it always has.
-          //
-          // Heights cannot tell the two apart: a transfer this node missed, followed by
-          // an update after the installed term ended, looks the same. The message log
-          // does: another owner's registration after the installed term is a new tenure, a transfer is
-          // only ever an update.
-          if (!sameSigningIdentity(installedApp.owner, appSpecifications.owner)
-              && Number.isFinite(installedApp.height) && Number.isFinite(appSpecifications.height)
-              && !isInForce(installedApp.height, installedApp.expire, appSpecifications.height)
-              // eslint-disable-next-line no-await-in-loop
-              && registeredByAnotherAfterTerm(
-                // eslint-disable-next-line no-await-in-loop
-                await registryManagerModule.appMessagesThatCount(installedApp.name),
-                installedApp.height,
-                installedApp.expire,
-                installedApp.owner,
-                sameSigningIdentity,
-              )) {
-            log.warn(`REMOVAL REASON: ${installedApp.name} was registered again by another owner after its term ended - removing the previous owner's install and data`);
-            // eslint-disable-next-line global-require
-            const appUninstallerForOwner = require('./appUninstaller');
-            // Announced: peers still list this node as a location for the name, and would
-            // route the new registrant's domain here and count this node as an instance.
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstallerForOwner.removeAppLocally(installedApp.name, null, true, false, true);
-            // eslint-disable-next-line no-continue
-            continue;
-          }
-
-          // Check if this is an enterprise app on non-arcane node FIRST
-          // CRITICAL: Must check BEFORE updating local database or attempting redeployment
-          // If we update the local DB with enterprise specs, we lose the container/port info needed for cleanup
-          if (appSpecifications.version >= 8
-              && appSpecifications.enterprise
-              && !isArcane) {
-            log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS.`);
-            log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
-
-            // Find and restore non-enterprise specs if needed for proper cleanup
-            // eslint-disable-next-line no-await-in-loop
-            const specsForRemoval = await findAndRestoreNonEnterpriseSpecs(installedApp);
-
-            if (!specsForRemoval) {
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-
-            // Remove the entire app with force and BROADCAST to peers
-            // This is a permanent removal (not a redeploy), so we need to broadcast
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('./appUninstaller');
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(installedApp.name, null, true, true, true);
-            log.info(`Successfully removed enterprise app ${installedApp.name} and notified peers`);
-
-            // Skip to next app
-            // eslint-disable-next-line no-continue
-            continue;
-          }
-
-          // check if the app spec was changed
-          const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
-          const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
-          delete auxAppSpecifications.description;
-          delete auxAppSpecifications.expire;
-          delete auxAppSpecifications.hash;
-          delete auxAppSpecifications.height;
-          delete auxAppSpecifications.instances;
-          delete auxAppSpecifications.owner;
-
-          delete auxInstalledApp.description;
-          delete auxInstalledApp.expire;
-          delete auxInstalledApp.hash;
-          delete auxInstalledApp.height;
-          delete auxInstalledApp.instances;
-          delete auxInstalledApp.owner;
-
-          if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
-            log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
-            // connect to mongodb
-            const dbopen = dbHelper.databaseConnection();
-            const appsDatabase = dbopen.db(config.database.appslocal.database);
-            const appsQuery = { name: appSpecifications.name };
-            const options = {
-              upsert: true,
-            };
-            // eslint-disable-next-line no-await-in-loop
-            // An enterprise row keeps its compose and contacts blank, as the install
-            // writes it: they were decrypted for the comparison above and are not for
-            // the table, which the public listings read.
-            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: withoutEnterpriseSecrets([appSpecifications])[0] }, options);
-            log.info(`Application ${installedApp.name} Database updated`);
-            // OWNER IS DELETED FROM THE COMPARISON ABOVE, so an owner transfer reaches
-            // this branch: the same components under a different owner, written without
-            // a redeploy. Nothing else judges the record that leaves here - the
-            // installer judges what it installs, and this installs nothing - so an owner
-            // the network refuses holds this application until something unrelated
-            // sweeps the node.
-            //
-            // Every other field deleted from that comparison reaches it too - an expiry,
-            // a description, an instance count - and each of those rewrites a record
-            // nothing has judged either.
-            rewrittenWithoutRedeploy.add(appSpecifications.name);
-            // eslint-disable-next-line no-continue
-            continue;
-          }
-          // Specs differ - log for debugging purposes
-          log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
-
-          // check if node is capable to run it according to specifications
-          // run the verification
-          // get tier and adjust specifications
-          // eslint-disable-next-line no-await-in-loop
-          const tier = await generalService.nodeTier();
-          if (appSpecifications.version >= 4 && installedApp.version <= 3) {
-            // Its own flag excluded and no other: this pass set
-            // reinstallationOfOldAppsInProgress before the loop, and asking
-            // without the exclusion would skip every app on its own account.
-            const heldBy = globalState.operationHolding('reinstallation');
-            if (heldBy) {
-              log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-            log.warn(`REMOVAL REASON: App version upgrade - ${appSpecifications.name} upgrading from v${installedApp.version} to v${appSpecifications.version}`);
-            // A version 3 app has no components and a version 4 one has, so nothing of the
-            // old one carries over: the app is rebuilt from nothing.
-            // eslint-disable-next-line no-await-in-loop
-            const outcome = await appRebuild.rebuildApp(appSpecifications);
-            log.warn(`Application ${appSpecifications.name} upgraded to v${appSpecifications.version}: ${outcome}`);
-          } else if (appSpecifications.version <= 3) {
-            if (appSpecifications.tiered) {
-              const hddTier = `hdd${tier}`;
-              const ramTier = `ram${tier}`;
-              const cpuTier = `cpu${tier}`;
-              appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-              appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-              appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-            }
-
-            // Its own flag excluded and no other: this pass set
-            // reinstallationOfOldAppsInProgress before the loop, and asking
-            // without the exclusion would skip every app on its own account.
-            const heldBy = globalState.operationHolding('reinstallation');
-            if (heldBy) {
-              log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-
-            // Dynamic require to avoid circular dependency
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('./appUninstaller');
-            // eslint-disable-next-line global-require
-            const appInstaller = require('./appInstaller');
-
-            // THE ROW IS THIS NODE'S COPY OF THE INSTALLED SPECIFICATION, and every
-            // reader takes the app's current one from it - what this node reports, what
-            // the reconciler rebuilds from, and which directories the syncthing monitor
-            // keeps off the network. Neither redeploy below writes it: the uninstalls
-            // here are the ones that KEEP the registration, and both installs are
-            // reached directly rather than through softRegisterAppLocally, which is
-            // what writes it on every other path.
-            //
-            // Ahead of the redeploy, like the composed path above: a pass that reads
-            // this mid-redeploy is owed the specification the containers are being
-            // built from, and a redeploy that does not complete is the reconciler's,
-            // which rebuilds what the row describes.
-            // eslint-disable-next-line no-await-in-loop
-            await dbHelper.updateOneInDatabase(
-              dbHelper.databaseConnection().db(config.database.appslocal.database),
-              localAppsInformation,
-              { name: appSpecifications.name },
-              { $set: withoutEnterpriseSecrets([appSpecifications])[0] },
-              { upsert: true },
-            );
-
-            if (appSpecifications.hdd === installedApp.hdd) {
-              log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
-              // soft redeployment
-              // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.softUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
-              // eslint-disable-next-line no-await-in-loop
-              await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications);
-            } else {
-              log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
-              log.warn(`REMOVAL REASON: Hard redeployment - ${appSpecifications.name} HDD changed from ${installedApp.hdd} to ${appSpecifications.hdd}`);
-              // hard redeployment
-              // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.hardUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
-              // eslint-disable-next-line no-await-in-loop
-              await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications);
-            }
-          } else {
-            // composed application
-            log.warn(`Beginning Redeployment of ${appSpecifications.name}...`);
-            // Its own flag excluded and no other: this pass set
-            // reinstallationOfOldAppsInProgress before the loop, and asking
-            // without the exclusion would skip every app on its own account.
-            const heldBy = globalState.operationHolding('reinstallation');
-            if (heldBy) {
-              log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-
-            // Dynamic require to avoid circular dependency
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('./appUninstaller');
-            // eslint-disable-next-line global-require
-            const appInstaller = require('./appInstaller');
-
-            // Check if component structure changed (count or names) for version 8+ apps.
-            const installedAppForComparison = resolveInstalledAppForStructureComparison(
-              appSpecifications,
-              installedApp,
-              'reinstallOldApplications',
-            );
-            const hasComponentStructureChange = Boolean(
-              installedAppForComparison && hasV8ComponentStructureChange(appSpecifications, installedAppForComparison),
-            );
-
-            // For version 8+ apps with component structure changes, force full hard redeploy
-            if (appSpecifications.version >= 8 && hasComponentStructureChange) {
-              log.warn(`Application ${appSpecifications.name} (v${appSpecifications.version}) has component structure changes.`);
-              log.warn(`Component count: ${installedAppForComparison.compose.length} -> ${appSpecifications.compose.length}`);
-              log.warn('Performing full hard redeploy to handle component changes...');
-              log.warn(`REMOVAL REASON: Component structure change (v8+) - ${appSpecifications.name} component count/names changed`);
-
-              // A hard redeploy: removed and installed again as a whole. One that does
-              // not bring the app back tells the network.
-              // eslint-disable-next-line no-await-in-loop
-              const outcome = await appRebuild.rebuildApp(appSpecifications);
-              if (outcome === InstallOutcome.INSTALLED) {
-                log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
-              } else {
-                log.error(`Application ${appSpecifications.name} was not redeployed for a component structure change (${outcome}).`);
-              }
-
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-
-            try {
-              const reversedCompose = [...appSpecifications.compose].reverse();
-              // eslint-disable-next-line no-restricted-syntax
-              for (const appComponent of reversedCompose) {
-                if (appComponent.tiered) {
-                  const hddTier = `hdd${tier}`;
-                  const ramTier = `ram${tier}`;
-                  const cpuTier = `cpu${tier}`;
-                  appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-                  appComponent.ram = appComponent[ramTier] || appComponent.ram;
-                  appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
-                }
-
-                const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
-
-                if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
-                  log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
-                } else if (appComponent.hdd === installedComponent.hdd) {
-                  log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
-                  // soft redeployment
-                  const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
-                  // Bare app name: the callee joins it with the component's own
-                  // name for the monitoring key and for cleanupPorts. The installed
-                  // component, not the new one: the uninstall removes its image and
-                  // closes its ports.
-                  // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.softUninstallComponent(appSpecifications.name, appId, installedComponent, null, stopAppMonitoring);
-                  log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
-                  // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
-                } else {
-                  log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
-                  log.warn(`REMOVAL REASON: Hard redeployment (component) - ${appComponent.name}_${appSpecifications.name} HDD changed from ${installedComponent.hdd} to ${appComponent.hdd}`);
-                  // hard redeployment
-                  const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
-                  // same contract as the soft branch above
-                  // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.hardUninstallComponent(appSpecifications.name, appId, installedComponent, null, stopAppMonitoring);
-                  log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
-                  // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
-                }
-              }
-              // connect to mongodb
-              const dbopen = dbHelper.databaseConnection();
-              const appsDatabase = dbopen.db(config.database.appslocal.database);
-              const appsQuery = { name: appSpecifications.name };
-              log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
-              // eslint-disable-next-line no-await-in-loop
-              await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name }); // entire app
-
-              // The app's row becomes the new specification in one write, before any
-              // container is created: until it lands the row still holds the old one,
-              // so the app always has a row describing it.
-              const isEnterprise = Boolean(
-                appSpecifications.version >= 8 && appSpecifications.enterprise,
-              );
-
-              const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
-
-              if (isEnterprise) {
-                dbSpecs.compose = [];
-                dbSpecs.contacts = [];
-              }
-
-              // eslint-disable-next-line no-await-in-loop
-              await dbHelper.replaceOneInDatabase(appsDatabase, localAppsInformation, appsQuery, dbSpecs, { upsert: true });
-              log.info(`Database entry of ${appSpecifications.name} replaced with its new specification BEFORE component Docker container creation (composed redeployment path)`);
-
-              let allComponentsBack = true;
-              const replaced = [];
-              // Now install components - containers will be created but app is already in DB
-              // eslint-disable-next-line no-restricted-syntax
-              for (const appComponent of appSpecifications.compose) {
-                if (appComponent.tiered) {
-                  const hddTier = `hdd${tier}`;
-                  const ramTier = `ram${tier}`;
-                  const cpuTier = `cpu${tier}`;
-                  appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-                  appComponent.ram = appComponent[ramTier] || appComponent.ram;
-                  appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
-                }
-
-                const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
-
-                if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
-                  log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
-                } else if (appComponent.hdd === installedComponent.hdd) {
-                  log.warn(`Continuing Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
-                  // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
-                  // install the app
-                  // eslint-disable-next-line no-await-in-loop
-                  const outcome = await softRegisterAppLocally(appSpecifications, appComponent); // component
-                  if (outcome !== InstallOutcome.INSTALLED) {
-                    log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
-                    allComponentsBack = false;
-                    break;
-                  }
-                  replaced.push({ component: appComponent.name, hard: false });
-                } else {
-                  log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
-                  // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
-                  // install the app
-                  // eslint-disable-next-line no-await-in-loop
-                  const outcome = await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
-                  if (outcome !== InstallOutcome.INSTALLED) {
-                    log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
-                    allComponentsBack = false;
-                    break;
-                  }
-                  replaced.push({ component: appComponent.name, hard: true });
-                }
-              }
-              // Announced and restarted only if it is actually back.
-              if (allComponentsBack) {
-                log.warn(`Composed application ${appSpecifications.name} updated.`);
-                log.warn(`Restarting application ${appSpecifications.name}`);
-                // eslint-disable-next-line no-await-in-loop, no-use-before-define
-                await appDockerRestart(appSpecifications.name);
-                announceComponentsRedeployed(appSpecifications.name, replaced);
-              }
-            } catch (error) {
-              log.error(error);
-              if (dbHelper.isDatabaseError(error)) {
-                // The components' data is still on disk, and a database that did not
-                // answer says nothing about the app: it is left for a later pass, never
-                // uninstalled with its data.
-                log.warn(`Redeployment of ${appSpecifications.name} stopped: the database did not answer (${error.message}). The app is not uninstalled.`);
-                // eslint-disable-next-line no-continue
-                continue;
-              }
-              log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
-              // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
-              log.info(`Cleanup completed for ${appSpecifications.name} after redeployment failure`);
-            }
-          }
+          await operationRegistry.submit(
+            installedApp.name,
+            'redeploy',
+            (op) => reinstallOldApplication(installedApp, appSpecifications, rewrittenWithoutRedeploy, op),
+            { owner: 'reinstallOldApplications', wait: false },
+          ).catch((error) => {
+            if (!(error instanceof operationRegistry.OperationRefusedError)
+              && !(error instanceof operationRegistry.OperationPreemptedError)) throw error;
+            log.info(`reinstallOldApplications - ${installedApp.name}: ${error.message}`);
+          });
         }
       }
     }

@@ -1284,7 +1284,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
           } else {
             log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Soft redeploying...`);
             // eslint-disable-next-line no-await-in-loop
-            await softRedeploy(app).catch((error) => {
+            await softRedeploy(app, undefined, { wait: false }).catch((error) => {
               log.error(error);
             });
           }
@@ -1314,7 +1314,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
             } else {
               log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
               // eslint-disable-next-line no-await-in-loop
-              await softRedeploy(app).catch((error) => {
+              await softRedeploy(app, undefined, { wait: false }).catch((error) => {
                 log.error(error);
               });
             }

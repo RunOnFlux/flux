@@ -111,8 +111,9 @@ describe('appInspector tests', () => {
       inspector.stopStorageSpaceChecks();
     });
 
-    // an app over its storage limit for the fourth time running
-    async function overItsLimit(app, containerName) {
+    // an app over its storage limit, for the fourth time running unless told the
+    // violations already counted
+    async function overItsLimit(app, containerName, violations = [app.name, app.name, app.name], softRedeploy = sinon.stub().resolves()) {
       const removeAppLocally = sinon.stub().resolves();
       inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
         config: { fluxapps: { hddFileSystemMinimum: 1, defaultSwap: 1 } },
@@ -130,11 +131,21 @@ describe('appInspector tests', () => {
       await inspector.checkStorageSpaceForApps(
         sinon.stub().resolves({ status: 'success', data: [app] }),
         removeAppLocally,
-        sinon.stub().resolves(),
-        [app.name, app.name, app.name],
+        softRedeploy,
+        violations,
       );
       return removeAppLocally;
     }
+
+    it('redeploys an app over its limit the first time without waiting on another operation holding it', async () => {
+      const softRedeploy = sinon.stub().resolves(false);
+      const app = { name: 'bigapp', version: 4, compose: [{ name: 'web' }] };
+
+      const removeAppLocally = await overItsLimit(app, '/fluxweb_bigapp', [], softRedeploy);
+
+      sinon.assert.calledOnceWithExactly(softRedeploy, app, undefined, { wait: false });
+      sinon.assert.notCalled(removeAppLocally);
+    });
 
     it('removes an app over its limit and tells the network', async () => {
       const removeAppLocally = await overItsLimit({ name: 'bigapp', version: 4, compose: [{ name: 'web' }] }, '/fluxweb_bigapp');

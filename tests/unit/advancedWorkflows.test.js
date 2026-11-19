@@ -186,7 +186,7 @@ describe('advancedWorkflows tests', () => {
       }, false, res);
 
       expect(result).to.equal(InstallOutcome.FAILED);
-      sinon.assert.calledOnceWithExactly(removeAppLocally, 'failedsoftapp', res, true, false, true);
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'failedsoftapp', res, true, false, true, { parent: null });
     });
 
     it('does not release a hold it never took', async () => {
@@ -572,6 +572,16 @@ describe('advancedWorkflows tests', () => {
 
       expect(res.write.lastCall.args[0]).to.include('Another application is undergoing removal');
       expect(operationRegistry.isHeld('myapp')).to.equal(false);
+    });
+
+    it('refuses a redeploy whose caller does not wait while another operation holds the app', async () => {
+      const token = operationRegistry.acquire('myapp', 'backup', 'test');
+
+      const ran = await advancedWorkflows.softRedeploy({ name: 'myapp', version: 4 }, res, { wait: false });
+
+      expect(ran).to.equal(false);
+      expect(res.write.lastCall.args[0]).to.include('Refused: a backup of myapp is in progress');
+      operationRegistry.release('myapp', token);
     });
 
     it('should return early if soft redeploy is in progress', async () => {
@@ -6294,12 +6304,10 @@ describe('advancedWorkflows tests', () => {
       // eslint-disable-next-line no-await-in-loop
       while (!settled && !appReconciler.holdStopped.called) await new Promise((resolve) => { setImmediate(resolve); });
       expect(settled, 'the backup ended before it stopped the app').to.equal(false);
-      const released = operationRegistry.whenReleased(appname);
       operationRegistry.preempt(appname, 'removal');
       passDone();
 
       expect(await backingUp).to.equal(false);
-      await released;
       sinon.assert.notCalled(IOUtils.createTarGz);
       sinon.assert.calledOnceWithExactly(appReconciler.releaseHold, [`palworld_${appname}`]);
       expect(operationRegistry.isHeld(appname)).to.equal(false);
@@ -8021,6 +8029,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     afterEach(() => {
+      operationRegistry.clear();
       sinon.restore();
       globalState.reinstallationOfOldAppsInProgress = false;
       globalState.policyReady = policyBefore;
@@ -8090,10 +8099,33 @@ describe('advancedWorkflows tests', () => {
 
       await advancedWorkflows.reinstallOldApplications();
 
-      // announced: peers still list this node for the name
-      sinon.assert.calledOnceWithExactly(removeAppLocally, 'myapp', null, true, false, true);
+      // announced, since peers still list this node for the name, and run as a
+      // step of the pass's redeploy of the app
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'myapp', null, true, false, true, { parent: sinon.match({ key: 'myapp', type: 'redeploy' }) });
       sinon.assert.notCalled(dbHelper.updateOneInDatabase);
       sinon.assert.notCalled(requestComplianceSweep);
+    });
+
+    it('leaves an app another operation holds for a later pass, which brings it up to date once it is free', async () => {
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves('removed');
+      sinon.stub(imageManager, 'requestComplianceSweep').resolves();
+      dbHelper.findInDatabase.resolves([{ ...installedApp, height: 100, expire: 1000 }]);
+      const newOwner = '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT';
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: newOwner, height: 5000,
+      });
+      sinon.stub(registryManager, 'appMessagesThatCount').resolves([
+        { type: 'fluxappregister', height: 100, appSpecifications: { owner: installedApp.owner, expire: 1000 } },
+        { type: 'fluxappregister', height: 4000, appSpecifications: { owner: newOwner, expire: 1000 } },
+      ]);
+      const backup = operationRegistry.acquire('myapp', 'backup', 'test');
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.notCalled(removeAppLocally);
+      operationRegistry.release('myapp', backup);
+      await advancedWorkflows.reinstallOldApplications();
+      sinon.assert.calledOnce(removeAppLocally);
     });
 
     it('keeps the install of a transfer this node missed, updated again after the installed term ended', async () => {
@@ -8292,6 +8324,8 @@ describe('advancedWorkflows tests', () => {
 
         sinon.assert.calledOnce(rebuildApp);
         expect(rebuildApp.firstCall.args[0]).to.include({ name: 'myapp', hash: 'newhash', version: 4 });
+        // a step of the pass's redeploy of the app
+        sinon.assert.calledWith(rebuildApp, sinon.match.any, null, { parent: sinon.match({ key: 'myapp', type: 'redeploy' }) });
       });
 
       it('says when the pass has ended', async () => {

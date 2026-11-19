@@ -418,6 +418,29 @@ describe('volumeValidationService tests', () => {
     });
   });
 
+  describe('hardRedeployApp tests', () => {
+    function withRedeploy(hardRedeploy) {
+      return proxyquire('../../ZelBack/src/services/volumeValidationService', {
+        util: utilFake,
+        './appDatabase/registryManager': { getApplicationSpecifications: sinon.stub().resolves({ name: 'myapp' }) },
+        './appLifecycle/advancedWorkflows': { hardRedeploy },
+      });
+    }
+
+    it('redeploys the app without waiting on another operation holding it', async () => {
+      const hardRedeploy = sinon.stub().resolves(true);
+
+      expect(await withRedeploy(hardRedeploy).hardRedeployApp('myapp')).to.equal(true);
+      sinon.assert.calledOnceWithExactly(hardRedeploy, { name: 'myapp' }, null, { wait: false });
+    });
+
+    it('reports an app another operation holds as not redeployed, for the next validation', async () => {
+      const hardRedeploy = sinon.stub().resolves(false);
+
+      expect(await withRedeploy(hardRedeploy).hardRedeployApp('myapp')).to.equal(false);
+    });
+  });
+
   describe('extractBaseAppName tests', () => {
     it('should extract app name from component name with underscore', () => {
       const componentName = 'mongodb_myapp';

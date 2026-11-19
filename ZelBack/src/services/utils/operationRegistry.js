@@ -4,11 +4,13 @@
 // app when each ends, on every exit. Nothing is released on a timer. When the app
 // is busy, the arriving operation's rule decides:
 //   - a removal stops the running operation at its next step (preempt), refuses
-//     what is pending, and runs next; a removal arriving while one is pending or
-//     running gets that removal's outcome;
+//     what is pending, and runs next; a removal of the same target (the app, or
+//     one component) arriving while one is pending or running gets that removal's
+//     outcome, and one of another target runs after it;
 //   - a redeploy or an install waits in the app's manager and runs once the app
 //     is free; a pending one of the same type takes the newest, and every caller
-//     gets its outcome; refused while a removal is pending or running;
+//     gets its outcome; refused while a removal is pending or running, and while
+//     the app is busy when its caller asks not to wait;
 //   - a backup, a restore or an owner action is taken now or refused.
 // A wait is the app's own: a caller that needs no outcome sends and moves on, so
 // one app's wait never holds another. A step of an operation - a redeploy's
@@ -43,11 +45,11 @@ class OperationRefusedError extends Error {
   }
 }
 
-// key -> { type, owner, token, controller, waiters }
+// key -> { type, owner, token, controller }
 const leases = new Map();
 // key -> the operations waiting for the app, in the order they run
 const queues = new Map();
-// key -> the outcome of the removal pending or running on the app
+// key -> [{ target, promise }], the removals pending or running on the app
 const removals = new Map();
 let nextToken = 0;
 
@@ -63,7 +65,7 @@ function acquire(key, type, owner) {
   nextToken += 1;
   const token = `lease-${nextToken}`;
   leases.set(key, {
-    type, owner, token, controller: new AbortController(), waiters: [],
+    type, owner, token, controller: new AbortController(),
   });
   return token;
 }
@@ -79,7 +81,6 @@ function release(key, token) {
   const lease = leases.get(key);
   if (!lease || !token || lease.token !== token) return false;
   leases.delete(key);
-  lease.waiters.forEach((resolve) => resolve());
   // eslint-disable-next-line no-use-before-define
   startNext(key);
   return true;
@@ -104,17 +105,6 @@ function isHeld(key) {
  */
 function listByType(type) {
   return [...leases.entries()].filter(([, lease]) => lease.type === type).map(([key]) => key);
-}
-
-/**
- * Resolves when the app's current lease is released; at once when none is held.
- * @param {string} key
- * @returns {Promise<void>}
- */
-function whenReleased(key) {
-  const lease = leases.get(key);
-  if (!lease) return Promise.resolve();
-  return new Promise((resolve) => { lease.waiters.push(resolve); });
 }
 
 /**
@@ -207,15 +197,21 @@ function entryFor(type, fn, owner) {
  *   `throwIfPreempted(op.signal)` between its steps.
  * @param {object} [options]
  * @param {string} [options.owner] The calling site, for diagnostics.
+ * @param {string} [options.target] What a removal removes - the app, or one of
+ *   its components; the app when not given.
  * @param {object} [options.parent] The operation this one is a step of: `fn`
  *   runs under the parent's hold, with the parent's op.
+ * @param {boolean} [options.wait] For a redeploy or install: false refuses it
+ *   while the app is busy, for a caller whose next round asks again.
  * @param {function({holder: string}): void} [options.onWait] Told when the
  *   operation waits for the app, before it waits.
  * @returns {Promise<*>} What `fn` returns - for a joined removal or a coalesced
  *   redeploy or install, what the operation that ran returns. Rejects with
  *   OperationRefusedError when the rule refuses, and with what `fn` throws.
  */
-function submit(key, type, fn, { owner = type, parent = null, onWait = null } = {}) {
+function submit(key, type, fn, {
+  owner = type, target = key, parent = null, onWait = null, wait = true,
+} = {}) {
   if (parent) {
     const lease = leases.get(key);
     if (!lease || lease.token !== parent.token) {
@@ -228,18 +224,32 @@ function submit(key, type, fn, { owner = type, parent = null, onWait = null } = 
     }
     return Promise.resolve().then(() => fn(parent));
   }
-  if (removals.has(key)) {
-    return type === 'remove' ? removals.get(key) : Promise.reject(new OperationRefusedError(key, 'remove'));
-  }
+  const removing = removals.get(key);
+  if (removing && type !== 'remove') return Promise.reject(new OperationRefusedError(key, 'remove'));
   const holder = leases.get(key)?.type;
 
   if (type === 'remove') {
+    const same = removing?.find((removal) => removal.target === target);
+    if (same) return same.promise;
     const entry = entryFor(type, fn, owner);
+    const removal = { target, promise: entry.promise };
+    const forget = () => {
+      const left = (removals.get(key) || []).filter((each) => each !== removal);
+      if (left.length) removals.set(key, left);
+      else removals.delete(key);
+    };
+    entry.promise.then(forget, forget);
+    if (removing) {
+      // after the removals already sent, which nothing else waits behind
+      removing.push(removal);
+      queues.set(key, [...(queues.get(key) || []), entry]);
+      if (holder && onWait) onWait({ holder });
+      startNext(key);
+      return entry.promise;
+    }
     (queues.get(key) || []).forEach((waiting) => waiting.reject(new OperationRefusedError(key, 'remove')));
     queues.set(key, [entry]);
-    removals.set(key, entry.promise);
-    const forget = () => { if (removals.get(key) === entry.promise) removals.delete(key); };
-    entry.promise.then(forget, forget);
+    removals.set(key, [removal]);
     if (holder) {
       preempt(key, OPERATION_NAMES.remove);
       if (onWait) onWait({ holder });
@@ -250,6 +260,7 @@ function submit(key, type, fn, { owner = type, parent = null, onWait = null } = 
 
   if (type === 'redeploy' || type === 'install') {
     const queue = queues.get(key) || [];
+    if (!wait && holder) return Promise.reject(new OperationRefusedError(key, holder));
     const pending = queue.find((waiting) => waiting.type === type);
     if (pending) {
       pending.fn = fn;
@@ -268,13 +279,11 @@ function submit(key, type, fn, { owner = type, parent = null, onWait = null } = 
   return entry.promise;
 }
 
-// Drops every lease, resolving their waiters. For tests.
+// Drops every lease and every operation waiting. For tests.
 function clear() {
   removals.clear();
   queues.clear();
-  const held = [...leases.values()];
   leases.clear();
-  held.forEach((lease) => lease.waiters.forEach((resolve) => resolve()));
 }
 
 module.exports = {
@@ -287,7 +296,6 @@ module.exports = {
   get,
   isHeld,
   listByType,
-  whenReleased,
   preempt,
   signalOf,
   throwIfPreempted,
