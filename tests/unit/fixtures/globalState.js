@@ -4,16 +4,11 @@ const operationRegistry = require('../../../ZelBack/src/services/utils/operation
 /**
  * The real globalState, reset.
  *
- * Fifteen suites used to inject a hand-written object in its place, each a
- * different subset of the module's members. A double like that is correct only
- * until the module gains something: the member is missing, the caller's `catch`
- * swallows the TypeError, and the suite fails somewhere else entirely - reading
- * as a defect in the code under test. Adding `operationHolding` broke nineteen
- * tests across two suites that way, in a run whose failures named none of them.
- *
- * Using the module itself removes the divergence rather than maintaining it. The
- * only thing a double was buying is isolation between tests, and that is what
- * this resets.
+ * The module itself, never a hand-written double: a double holding a subset of its
+ * members is wrong once the module gains one - the member is missing, the caller's
+ * `catch` swallows the TypeError, and the suite fails somewhere else entirely,
+ * reading as a defect in the code under test. Isolation between tests is what
+ * this reset gives.
  *
  * DERIVED, never a list. Scalars are restored to the values the module was first
  * required with, and every container it exposes is emptied in place - so a member

@@ -1061,15 +1061,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
   // return before it does, and must not end another install's mark.
   let acquired = false;
   try {
-    if (globalState.removalInProgress) {
-      const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
-      return InstallOutcome.BUSY;
-    }
     // A pending removal of the app removes whatever is installed in its place, so
     // the app takes no install until that removal has finished.
     if (globalState.departingApps.has(appSpecs.name)) {
@@ -1431,13 +1422,6 @@ async function cleanupAppDatabase(appsDatabase, appName, res) {
  */
 async function softRemoveAppLocally(app, res) {
   await fluxosTrial.settled();
-  // Validate state
-  if (globalState.removalInProgress) {
-    throw new Error('Another application is undergoing removal');
-  }
-  if (globalState.installationInProgress) {
-    throw new Error('Another application is undergoing installation');
-  }
   if (!app) {
     throw new Error('No Flux App specified');
   }
@@ -1656,21 +1640,6 @@ async function softRedeployApp(appSpecs, res, op) {
   // demonstrably down, and never before.
   let softRemoved = false;
   try {
-    // Every operation, including the periodic reinstall pass - which sets its
-    // flag before it tears anything down and holds it across the wait, so the
-    // node it comes back to is still its own.
-    const holder = globalState.operationHolding();
-    if (holder) {
-      const message = `Another application is undergoing ${holder}`;
-      log.warn(message);
-      const appRedeployResponse = messageHelper.createWarningMessage(message);
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-
     if (!await mayTearDownToRebuild(appSpecs, res, op)) return;
     await reserveForRedeploy(appSpecs);
 
@@ -1819,20 +1788,6 @@ async function hardRedeploy(appSpecs, res, { parent = null, wait = true } = {}) 
 
 async function hardRedeployApp(appSpecs, res, op) {
   try {
-    // Every operation, including the periodic reinstall pass - which sets its
-    // flag before it tears anything down and holds it across the wait, so the
-    // node it comes back to is still its own.
-    const holder = globalState.operationHolding();
-    if (holder) {
-      const message = `Another application is undergoing ${holder}`;
-      log.warn(message);
-      const appRedeployResponse = messageHelper.createWarningMessage(message);
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
     if (!await mayTearDownToRebuild(appSpecs, res, op)) return;
     await reserveForRedeploy(appSpecs);
 
@@ -1886,21 +1841,6 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
   const appInstaller = require('./appInstaller');
 
   try {
-    // Every operation, including the periodic reinstall pass - which sets its
-    // flag before it tears anything down and holds it across the wait, so the
-    // node it comes back to is still its own.
-    const holder = globalState.operationHolding();
-    if (holder) {
-      const message = `Another application is undergoing ${holder}`;
-      log.warn(message);
-      const appRedeployResponse = messageHelper.createWarningMessage(message);
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-
     globalState.softRedeployInProgress = true;
     log.info(`Starting soft redeploy of component ${componentName} from app ${appName}`);
 
@@ -2067,21 +2007,6 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
   const appInstaller = require('./appInstaller');
 
   try {
-    // Every operation, including the periodic reinstall pass - which sets its
-    // flag before it tears anything down and holds it across the wait, so the
-    // node it comes back to is still its own.
-    const holder = globalState.operationHolding();
-    if (holder) {
-      const message = `Another application is undergoing ${holder}`;
-      log.warn(message);
-      const appRedeployResponse = messageHelper.createWarningMessage(message);
-      if (res) {
-        res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
-      }
-      return;
-    }
-
     globalState.hardRedeployInProgress = true;
     log.info(`Starting hard redeploy of component ${componentName} from app ${appName}`);
 
@@ -4708,14 +4633,6 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
   // get tier and adjust specifications
   const tier = await generalService.nodeTier();
   if (appSpecifications.version >= 4 && installedApp.version <= 3) {
-    // Its own flag excluded and no other: this pass set
-    // reinstallationOfOldAppsInProgress before the loop, and asking
-    // without the exclusion would skip every app on its own account.
-    const heldBy = globalState.operationHolding('reinstallation');
-    if (heldBy) {
-      log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
-      return;
-    }
     log.warn(`REMOVAL REASON: App version upgrade - ${appSpecifications.name} upgrading from v${installedApp.version} to v${appSpecifications.version}`);
     // A version 3 app has no components and a version 4 one has, so nothing of the
     // old one carries over: the app is rebuilt from nothing.
@@ -4729,15 +4646,6 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
       appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
       appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
       appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-    }
-
-    // Its own flag excluded and no other: this pass set
-    // reinstallationOfOldAppsInProgress before the loop, and asking
-    // without the exclusion would skip every app on its own account.
-    const heldBy = globalState.operationHolding('reinstallation');
-    if (heldBy) {
-      log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
-      return;
     }
 
     // Dynamic require to avoid circular dependency
@@ -4781,15 +4689,6 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
   } else {
     // composed application
     log.warn(`Beginning Redeployment of ${appSpecifications.name}...`);
-    // Its own flag excluded and no other: this pass set
-    // reinstallationOfOldAppsInProgress before the loop, and asking
-    // without the exclusion would skip every app on its own account.
-    const heldBy = globalState.operationHolding('reinstallation');
-    if (heldBy) {
-      log.warn(`Another application is undergoing ${heldBy}. Skipping ${installedApp.name} for this cycle.`);
-      return;
-    }
-
     // Dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');

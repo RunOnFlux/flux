@@ -22,14 +22,13 @@ const { InstallOutcome } = require('../utils/installOutcome');
  * @param {object} [res] A response stream the caller holds.
  * @param {object} [options]
  * @param {object} [options.parent] The operation this rebuild is a step of.
- * @returns {Promise<string>} The InstallOutcome; BUSY when another removal held the
- *   node, FAILED when the removal did not finish.
+ * @returns {Promise<string>} The InstallOutcome; FAILED when the removal did not finish.
  */
 async function rebuildApp(appSpecs, res, { parent = null } = {}) {
   const removal = await appUninstaller.removeAppLocally(appSpecs.name, res, false, false, false, { parent });
   if (removal !== RemovalOutcome.REMOVED && removal !== RemovalOutcome.NOT_INSTALLED) {
     log.warn(`appRebuild - ${appSpecs.name} was not removed (${removal}), so it is not reinstalled`);
-    const outcome = removal === RemovalOutcome.BUSY ? InstallOutcome.BUSY : InstallOutcome.FAILED;
+    const outcome = InstallOutcome.FAILED;
     fluxEventBus.publish('app:rebuilt', { name: appSpecs.name, outcome });
     return outcome;
   }

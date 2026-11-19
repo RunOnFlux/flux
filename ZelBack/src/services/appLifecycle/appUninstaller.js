@@ -81,13 +81,8 @@ function finishRemoval(appName, force, announce) {
   unfinishedRemovals.set(appName, pending);
   globalState.departingApps.enter(appName);
   log.warn(`${appName} was not fully removed; held stopped and unannounced until it is`);
-  // first run once the removal that stopped has released the node's removal lock
+  // first run once the removal that stopped has ended, so it is not answered by that removal
   serviceHelper.delay(BOOT_STEP_RETRY_MS).then(() => untilSucceeds(`Removal of ${appName}`, async () => {
-    // Another install or removal holding the node is waited out, never run beside:
-    // a forced removal takes the removal lock without asking and clears it when it
-    // ends. Asked in the same turn as the removal starts, so nothing starts between.
-    const holder = globalState.operationHolding();
-    if (holder) throw new Error(`another ${holder} holds the node`);
     // eslint-disable-next-line no-use-before-define
     const outcome = await removeAppLocally(appName, null, force, true, pending.announce);
     if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
@@ -996,16 +991,6 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
   }
 }
 
-/**
- * Why a removal that is not forced cannot run now, or null when it can.
- * @returns {string|null}
- */
-function nodeBusyForRemoval() {
-  if (globalState.removalInProgress) return 'Another application is undergoing removal. Removal not possible.';
-  if (globalState.installationInProgress) return 'Another application is undergoing installation. Removal not possible.';
-  return null;
-}
-
 // target -> { announced }, for the removal of that target sent to its app's
 // manager and not yet settled, so a removal joining it knows whether the network
 // was told.
@@ -1041,17 +1026,6 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   const callerLine = stack.split('\n')[2]?.trim();
   log.warn(`APP REMOVAL TRIGGERED: ${app} | force=${force} | sendMessage=${sendMessage} | caller: ${callerLine}`);
 
-  const busy = force ? null : nodeBusyForRemoval();
-  if (busy) {
-    const warnResponse = messageHelper.createWarningMessage(busy);
-    log.warn(warnResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(warnResponse));
-      if (res.flush) res.flush();
-      if (endResponse) res.end();
-    }
-    return RemovalOutcome.BUSY;
-  }
   if (!app) return removeAppHolding(app, res, endResponse, sendMessage, { specifications, force });
 
   const appName = app.includes('_') ? app.split('_')[1] : app;

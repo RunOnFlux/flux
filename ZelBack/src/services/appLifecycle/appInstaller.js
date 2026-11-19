@@ -368,15 +368,6 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
   // the install ends.
   let portClaim = null;
   try {
-    if (globalState.removalInProgress) {
-      const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
-      return InstallOutcome.BUSY;
-    }
     // A pending removal of the app removes whatever is installed in its place, so
     // the app takes no install until that removal has finished.
     if (globalState.departingApps.has(appSpecs.name)) {
@@ -1129,17 +1120,6 @@ async function installAppLocally(req, res) {
     // tears it down again and never announces it.
     const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized) {
-      // registerAppLocally refuses a concurrent removal or installation but not a
-      // redeploy or the periodic reinstall pass, and those hold the node across a
-      // teardown they intend to rebuild from. Asked here, before anything is
-      // written, so the refusal is still a status line rather than an envelope in
-      // a half-streamed body.
-      const heldBy = globalState.operationHolding();
-      if (heldBy) {
-        // published as registerAppLocally publishes its own refusals: busy, ask again
-        fluxEventBus.publish('app:installOutcome', { name: appname, outcome: InstallOutcome.BUSY });
-        throw new Error(`Another application is undergoing ${heldBy}. Installation not possible.`);
-      }
       const allApps = await availableApps();
       let appSpecifications = allApps.find((app) => app.name === appname);
       if (!appSpecifications) {
@@ -1302,12 +1282,6 @@ async function testAppInstall(req, res) {
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized) {
-      // A test install creates and starts real containers, so it takes the node
-      // the same way a real one does.
-      const heldBy = globalState.operationHolding();
-      if (heldBy) {
-        throw new Error(`Another application is undergoing ${heldBy}. Test installation not possible.`);
-      }
       let appSpecifications;
 
       // An app not yet paid for is tested by the owner whose key signs its

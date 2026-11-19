@@ -240,8 +240,6 @@ module.exports = {
   beginInstallation() { installations += 1; },
   endInstallation() { installations = Math.max(0, installations - 1); },
 
-
-
   get softRedeployInProgress() { return softRedeployInProgress; },
   set softRedeployInProgress(value) { softRedeployInProgress = value; },
 
@@ -250,31 +248,6 @@ module.exports = {
 
   get reinstallationOfOldAppsInProgress() { return reinstallationOfOldAppsInProgress; },
   set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
-
-  // The operation holding this node right now, named, or null. `except` is the
-  // caller's OWN flag: a guard excludes the operation it belongs to and no
-  // others, because a redeploy that asked without excluding itself would refuse
-  // its own reinstall. Order is the order the guards asked in.
-  //
-  // EVERY ENTRY POINT THAT CAN START WORK ASKS THIS, and asks it for all five flags
-  // rather than a subset it picked. A guard that reads only the flags it expects to
-  // meet walks past the one it did not: a spawner that ignores the reinstall pass takes
-  // the node during that pass's own wait and leaves an app torn down that cannot be
-  // rebuilt.
-  operationHolding(except = null) {
-    const held = [
-      ['removal', removals > 0],
-      ['installation', installations > 0],
-      ['soft redeploy', softRedeployInProgress],
-      ['hard redeploy', hardRedeployInProgress],
-      ['reinstallation', reinstallationOfOldAppsInProgress],
-    ].find(([name, on]) => on && name !== except);
-    return held ? held[0] : null;
-  },
-
-  isOperationInProgress() {
-    return removals > 0 || installations > 0 || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
-  },
 
   // Set by the graceful shutdown path and never cleared: the process exits at the
   // end of it. From then on no container starts and no decider acts, so what the
