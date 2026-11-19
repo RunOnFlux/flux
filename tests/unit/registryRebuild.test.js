@@ -243,6 +243,8 @@ describe('registry rebuild: who holds a name', () => {
     if (globalDb) await Promise.all([globalDb.dropDatabase(), localDb.dropDatabase(), daemonDb.dropDatabase()]);
   });
 
+  // The name rule's cases are appMessageChain.messagesThatCount's tests, and its payment facts
+  // appMessagesThatCount's; this proves the rebuild applies it.
   it('keeps the name with its holder when another owner registers it while the app is live', async () => {
     await seed(
       [msg({ hash: 'holder', owner: 'alice', height: 1000 }), msg({ hash: 'taker', owner: 'mallory', height: 2000 })],
@@ -250,59 +252,6 @@ describe('registry rebuild: who holds a name', () => {
     );
     await rebuild();
     expect((await row()).hash).to.equal('holder');
-  });
-
-  it('gives a free name to another owner once the holder\'s app has expired', async () => {
-    await seed(
-      [msg({ hash: 'holder', owner: 'alice', height: 1000, expire: 500 }), msg({ hash: 'next', owner: 'bob', height: 2000 })],
-      [pay('holder', 1000, 0), pay('next', 2000, 0)],
-    );
-    await rebuild();
-    expect((await row()).hash).to.equal('next');
-  });
-
-  it('gives a name two owners register in one block to the registration earliest in the block, whatever the timestamps', async () => {
-    await seed(
-      [
-        msg({ hash: 'later-in-block', owner: 'mallory', height: 1000, timestamp: 1 }),
-        msg({ hash: 'earlier-in-block', owner: 'alice', height: 1000, timestamp: 9 }),
-      ],
-      [pay('later-in-block', 1000, 7), pay('earlier-in-block', 1000, 3)],
-    );
-    await rebuild();
-    expect((await row()).hash).to.equal('earlier-in-block');
-  });
-
-  it('applies the holder\'s latest signed update, wherever it sits in the block', async () => {
-    await seed(
-      [
-        msg({ hash: 'reg', owner: 'alice', height: 1000 }),
-        msg({ hash: 'taker', owner: 'mallory', height: 1500 }),
-        msg({
-          hash: 'signed-last', type: 'fluxappupdate', owner: 'alice', height: 2000, timestamp: 20,
-        }),
-        msg({
-          hash: 'signed-first', type: 'fluxappupdate', owner: 'alice', height: 2000, timestamp: 10,
-        }),
-      ],
-      [pay('reg', 1000, 0), pay('taker', 1500, 0), pay('signed-last', 2000, 1), pay('signed-first', 2000, 6)],
-    );
-    await rebuild();
-    expect((await row()).hash).to.equal('signed-last');
-  });
-
-  it('never stands a message whose payment is not on the chain', async () => {
-    await seed(
-      [
-        msg({ hash: 'reg', owner: 'alice', height: 1000, name: 'solo' }),
-        msg({
-          hash: 'orphaned', type: 'fluxappupdate', owner: 'alice', height: 2000, name: 'solo',
-        }),
-      ],
-      [pay('reg', 1000, 0), pay('orphaned', 2000, 0, { notOnChain: true })],
-    );
-    await rebuild();
-    expect((await row('solo')).hash).to.equal('reg');
   });
 
   it('keeps the holder\'s live app when the newest message is another owner\'s registration that has expired', async () => {
