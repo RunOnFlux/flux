@@ -90,6 +90,8 @@ describe('appHashSyncService tests', () => {
   let fluxBroadcastHelperStub;
   let peerManagerStub;
   let collectionStub;
+  // The service's config: this node's own, with a copy of fluxapps a test may change.
+  let serviceConfig;
 
   function makePeer(ip, port, source = 'random') {
     return {
@@ -192,7 +194,9 @@ describe('appHashSyncService tests', () => {
       ]),
     };
 
+    serviceConfig = Object.create(config, { fluxapps: { value: { ...config.fluxapps } } });
     appHashSyncService = proxyquire('../../ZelBack/src/services/appMessaging/appHashSyncService', {
+      config: serviceConfig,
       '../dbHelper': dbHelperStub,
       '../messageHelper': messageHelperStub,
       '../serviceHelper': serviceHelperStub,
@@ -553,7 +557,8 @@ describe('appHashSyncService tests', () => {
       });
 
       it('gives up a peer whose whole log holds a message longer than any a node takes, and asks the next for the rest', async () => {
-        const longest = config.fluxapps.gossipMessageMaxBytes;
+        const longest = 16 * 1024;
+        serviceConfig.fluxapps.gossipMessageMaxBytes = longest;
         let wholeLog = 0;
         serviceHelperStub.axiosGet.callsFake((url) => {
           if (url.includes('/apps/permanentmessagesbyheight')) return notFound();
@@ -562,7 +567,7 @@ describe('appHashSyncService tests', () => {
           if (wholeLog > 1) return Promise.resolve(makeWholeLogResponse(all.slice(300)));
           // the first 300 messages, then one that opens and never closes
           const pieces = [`${JSON.stringify({ status: 'success', data: all.slice(0, 300) }).slice(0, -2)},{"hash":"hash300","pad":"`];
-          const padding = 'x'.repeat(64 * 1024);
+          const padding = 'x'.repeat(4 * 1024);
           for (let sent = 0; sent <= longest; sent += padding.length) pieces.push(padding);
           return Promise.resolve({ data: Readable.from(pieces.map((piece) => Buffer.from(piece))), headers: {}, request: { setTimeout: sinon.stub() } });
         });
