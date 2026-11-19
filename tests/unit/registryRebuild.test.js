@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { expect } = require('chai');
 const sinon = require('sinon');
-const { MongoNetworkTimeoutError } = require('mongodb');
+const { MongoNetworkTimeoutError, Collection } = require('mongodb');
 const espree = require('espree');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
@@ -24,6 +24,25 @@ const INFO = 'zelappsinformation';
 const LOCAL_INFO = 'zelappsinformation';
 const APPS = 20;
 const HEIGHT = 1000;
+
+// Index builds are most of a rebuild's time and nothing here checks what they build: each test
+// builds the staging collection without its indexes, and the maintenance-client tests check
+// the client each build was asked of.
+let indexBuilds = null;
+function skipIndexBuilds() {
+  indexBuilds = sinon.createSandbox();
+  indexBuilds.stub(Collection.prototype, 'createIndexes').callsFake(async function createCollectionOnly() {
+    await this.client.db(this.dbName).createCollection(this.collectionName).catch((error) => {
+      if (error.codeName !== 'NamespaceExists') throw error;
+    });
+    return [];
+  });
+  indexBuilds.stub(Collection.prototype, 'createIndex').resolves('skipped');
+}
+function buildIndexes() {
+  if (indexBuilds) indexBuilds.restore();
+  indexBuilds = null;
+}
 
 describe('registry rebuild', () => {
   let globalDb;
@@ -87,6 +106,9 @@ describe('registry rebuild', () => {
     localDb = client.db(localName);
     daemonDb = client.db(daemonName);
   });
+
+  beforeEach(skipIndexBuilds);
+  afterEach(buildIndexes);
 
   beforeEach(async () => {
     await Promise.all([
@@ -205,6 +227,9 @@ describe('registry rebuild: who holds a name', () => {
     daemonDb = client.db(`${prefix}_daemon`);
   });
 
+  beforeEach(skipIndexBuilds);
+  afterEach(buildIndexes);
+
   beforeEach(async () => {
     await Promise.all([
       globalDb.collection(MESSAGES).deleteMany({}),
@@ -306,26 +331,33 @@ describe('registry rebuild: who holds a name', () => {
     expect(await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb)).to.equal(true);
   });
 
+  // Which client builds the indexes and runs the $group is what these prove: the builds are
+  // answered by the stubs, which record the client each was asked of.
   it('runs its index builds and its $group on the maintenance client', async () => {
     await seed([msg({ hash: 'holder', owner: 'alice', height: 1000 })], [pay('holder', 1000, 0)]);
-    const onMaintenance = sinon.spy(dbHelper.maintenanceConnection(), 'db');
-    try {
-      await rebuild();
-    } finally {
-      onMaintenance.restore();
-    }
+    const maintenance = dbHelper.maintenanceConnection();
+    const onMaintenance = indexBuilds.spy(maintenance, 'db');
+
+    await rebuild();
+
     sinon.assert.calledWith(onMaintenance, globalDb.databaseName);
+    const staging = Collection.prototype.createIndexes.getCalls().find((call) => call.thisValue.collectionName === `${INFO}_rebuild`);
+    expect(staging, 'built no indexes on the staging collection').to.not.equal(undefined);
+    expect(staging.thisValue.client, 'built the indexes on another client').to.equal(maintenance);
+    expect(staging.args[0].map((spec) => spec.name)).to.include('query for getting zelapp based on zelapp specs name');
   });
 
   it('runs the reindex check\'s index build and $group on the maintenance client', async () => {
     await seed([msg({ hash: 'holder', owner: 'alice', height: 1000 })], [pay('holder', 1000, 0)]);
-    const onMaintenance = sinon.spy(dbHelper.maintenanceConnection(), 'db');
-    try {
-      await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb);
-    } finally {
-      onMaintenance.restore();
-    }
+    const maintenance = dbHelper.maintenanceConnection();
+    const onMaintenance = indexBuilds.spy(maintenance, 'db');
+
+    await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb);
+
     sinon.assert.calledWith(onMaintenance, globalDb.databaseName);
+    const build = Collection.prototype.createIndex.getCalls().find((call) => call.thisValue.collectionName === MESSAGES);
+    expect(build, 'built no index on the messages').to.not.equal(undefined);
+    expect(build.thisValue.client, 'built the index on another client').to.equal(maintenance);
   });
 
   it('rejects when the registry cannot be read, rather than reading it as consistent', async () => {
