@@ -24,9 +24,10 @@ async function post(path, body) {
  * sent, which is how a download that stops short of what was promised is
  * reproduced - a dropped connection, or an error page served as 200.
  *
- * `stallAfter` sends that many bytes of a GET and holds the rest until
- * releaseArtifact, or until the client closes the transfer: a download in
- * flight for as long as the suite needs one (artifactTransfers reports it).
+ * `stallAfter` sends that many bytes of a GET, then one byte a second, and the
+ * rest on releaseArtifact, or nothing more once the client closes the
+ * transfer: a download in flight, never idle, for as long as the suite needs
+ * one (artifactTransfers reports it).
  *
  * @param {string} name - artifact name, used in the URL
  * @param {string} base64 - the bytes, base64 encoded

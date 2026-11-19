@@ -1073,18 +1073,28 @@ app.get('/artifact/:name', (req, res) => {
   if (!artifact) return res.status(404).json({ error: 'no such artifact' });
   res.setHeader('content-type', 'application/gzip');
   if (artifact.stallAfter != null) {
-    // The first `stallAfter` bytes, then nothing until the transfer is released or
-    // the client closes it: a download in flight for as long as a suite needs one.
+    // The first `stallAfter` bytes, then one byte a second until the transfer is
+    // released or the client closes it: a download in flight, never idle, for as
+    // long as a suite needs one.
     const transfer = { stalled: true, released: false, clientClosed: false };
     artifact.transfers.push(transfer);
     res.setHeader('content-length', String(artifact.body.length));
-    res.write(artifact.body.subarray(0, artifact.stallAfter));
+    let sent = artifact.stallAfter;
+    res.write(artifact.body.subarray(0, sent));
+    const drip = setInterval(() => {
+      if (sent < artifact.body.length - 1) {
+        res.write(artifact.body.subarray(sent, sent + 1));
+        sent += 1;
+      }
+    }, 1000);
     transfer.release = () => {
       if (transfer.released || transfer.clientClosed) return;
       transfer.released = true;
-      res.end(artifact.body.subarray(artifact.stallAfter));
+      clearInterval(drip);
+      res.end(artifact.body.subarray(sent));
     };
     res.on('close', () => {
+      clearInterval(drip);
       if (!res.writableFinished) transfer.clientClosed = true;
     });
     return undefined;
