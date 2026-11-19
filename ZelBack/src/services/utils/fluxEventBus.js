@@ -94,9 +94,12 @@ const Checkpoint = Object.freeze({
   // A removal is committed, has told the network if it tells it, and has not yet
   // torn anything down. Keyed by the app name.
   REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',
-  // An install holds the node and has the app's record, and has not created any
+  // An install holds its app and has the app's record, and has not created any
   // of its containers. Keyed by the app name.
   INSTALL_BEFORE_CONTAINERS: 'install:beforeContainers',
+  // An install has its room on the node reserved and has not yet written its
+  // app's record. Keyed by the app name.
+  INSTALL_AFTER_ADMISSION: 'install:afterAdmission',
   // An install has its app's image verified and has not started pulling it.
   // Keyed by the app name.
   INSTALL_BEFORE_PULL: 'install:beforePull',

@@ -476,6 +476,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         }
         return InstallOutcome.DECLINED;
       }
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_AFTER_ADMISSION, appSpecs.name);
     }
 
     // Lazy-load appQueryService to avoid circular dependency issues
