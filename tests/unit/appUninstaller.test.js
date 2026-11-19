@@ -776,19 +776,9 @@ describe('appUninstaller tests', () => {
         departingApps,
         unconfirmedApps,
         announceCycle,
-        removalInProgress: false,
-        beginRemoval() { this.removalInProgress = true; },
-        endRemoval() { this.removalInProgress = false; },
-        installationInProgress: false,
         runningAppsCache: new Set(),
         receiveOnlySyncthingAppsCache: new Map(),
         seedMarks: new Map(),
-        // the two operations this suite sets, named as the module names them
-        operationHolding() {
-          if (this.removalInProgress) return 'removal';
-          if (this.installationInProgress) return 'installation';
-          return null;
-        },
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
         '../appManagement/appPlacements': appPlacementsStub,
@@ -978,26 +968,23 @@ describe('appUninstaller tests', () => {
         const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
         getLocalSocketAddressStub.resolves('10.0.0.1:16127');
 
-        // the reinstall holds the node, so the run that finishes the removal waits
-        globalStateStub.installationInProgress = true;
         await uninstaller.removeAppLocally('testapp', res, true);
         await uninstaller.announceRemoval('testapp');
-        globalStateStub.installationInProgress = false;
         await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
 
         sinon.assert.calledTwice(deleteRow);
         sinon.assert.calledOnce(broadcastStub);
       });
 
-      it('is marked as a removal running while it runs, and not once it ends', async () => {
-        let markedWhileRemoving = null;
-        const deleteRow = sinon.stub().callsFake(async () => { markedWhileRemoving = globalStateStub.removalInProgress; });
+      it('holds its app as a removal while it runs, and not once it ends', async () => {
+        let holderWhileRemoving = null;
+        const deleteRow = sinon.stub().callsFake(async () => { holderWhileRemoving = operationRegistry.get('testapp'); });
         const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
 
         await uninstaller.removeAppLocally('testapp', res, true);
 
-        expect(markedWhileRemoving, 'the removal ran unmarked').to.equal(true);
-        expect(globalStateStub.removalInProgress, 'the mark outlived the removal').to.equal(false);
+        expect(holderWhileRemoving, 'the removal ran without holding its app').to.deep.include({ type: 'remove' });
+        expect(operationRegistry.isHeld('testapp'), 'the hold outlived the removal').to.equal(false);
       });
 
       it('runs one removal for two removals of the app asked at once, and answers both with its outcome', async () => {
@@ -1214,31 +1201,6 @@ describe('appUninstaller tests', () => {
       expect(runtimeStateStub.remove.args.map((a) => a[0])).to.deep.equal(onRemoved.args.map((a) => a[0]));
     });
 
-    it('clears controller state and fires the seam on SOFT removal too (redeploy clears the lock)', async () => {
-      // user decision: a redeploy of any kind is an explicit "make it run" - the
-      // operator lock (and the stale controller verdict) must not survive it
-      const uninstaller = buildUninstaller(composedSpec);
-      const onRemoved = sinon.stub();
-      uninstaller.setOnComponentRemoved(onRemoved);
-
-      await uninstaller.softRemoveAppLocally('testapp', null, { removalInProgress: false, installationInProgress: false }, sinon.stub());
-
-      expect(runtimeStateStub.removeControllerState.args.map((a) => a[0])).to.have.members(['comp1_testapp', 'comp2_testapp']);
-      expect(onRemoved.args.map((a) => a[0])).to.have.members(['comp1_testapp', 'comp2_testapp']);
-    });
-
-    // A soft removal leaves the image on disk and the volume mounted, so the
-    // record naming that image still describes something that is there.
-    // Dropping the whole document sends the next boot back to the filename
-    // search, which stamps whatever it finds as this node's own.
-    it('does not drop the volume record a soft removal is leaving in place', async () => {
-      const uninstaller = buildUninstaller(composedSpec);
-
-      await uninstaller.softRemoveAppLocally('testapp', null, { removalInProgress: false, installationInProgress: false }, sinon.stub());
-
-      sinon.assert.notCalled(runtimeStateStub.remove);
-    });
-
     // The record follows the app's volume: a removal that deletes the volume
     // deletes it, and one that keeps the volume keeps it.
     describe('the placement record', () => {
@@ -1268,15 +1230,6 @@ describe('appUninstaller tests', () => {
 
         sinon.assert.notCalled(appPlacementsStub.removePlacement);
       });
-
-      it('stays through a soft removal', async () => {
-        const uninstaller = buildUninstaller(composedSpec);
-
-        await uninstaller.softRemoveAppLocally('testapp', null, { removalInProgress: false, installationInProgress: false }, sinon.stub());
-
-        sinon.assert.notCalled(appPlacementsStub.removePlacement);
-      });
-
     });
 
     it('completes removal when no seam callback is registered', async () => {
@@ -1371,8 +1324,6 @@ describe('appUninstaller tests', () => {
       it('releases only the mark this call took, so a refused duplicate cannot unmark a live removal', async () => {
         const uninstaller = buildUninstaller(v2Spec);
         globalStateStub.departingApps.enter('testapp');
-        globalStateStub.removalInProgress = true;
-
         await uninstaller.removeAppLocally('testapp', res, false, true, true);
 
         expect(
@@ -1606,215 +1557,6 @@ describe('appUninstaller tests', () => {
     });
   });
 
-  describe('softRemoveAppLocally tests', () => {
-    it('should throw error if app name is not specified', async () => {
-      const res = {
-        write: sinon.stub(),
-        end: sinon.stub(),
-      };
-      const globalStateRef = {
-        removalInProgress: false,
-        beginRemoval() { this.removalInProgress = true; },
-        endRemoval() { this.removalInProgress = false; },
-        installationInProgress: false,
-      };
-      const stopAppMonitoring = sinon.stub();
-
-      try {
-        await appUninstaller.softRemoveAppLocally(undefined, res, globalStateRef, stopAppMonitoring);
-        expect.fail('Should have thrown error');
-      } catch (err) {
-        expect(err.message).to.include('No Flux App specified');
-      }
-    });
-
-    it('should return error if no app in db', async () => {
-      const mockDb = {
-        db: sinon.stub().returns('appsDatabase'),
-      };
-      const appUninstallerNoApp = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
-        '../appManagement/appPlacements': appPlacementsStub,
-        config: configStub,
-        '../verificationHelper': verificationHelperStub,
-        '../messageHelper': messageHelperStub,
-        '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves({ path: null, conclusive: true }), isPathMounted: sinon.stub().resolves(false) },
-        '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
-          ensureNumber: sinon.stub().callsFake(Number),
-          runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
-          ensureBoolean: sinon.stub().returnsArg(0),
-          delay: sinon.stub().resolves(),
-        },
-        '../dbHelper': {
-          databaseConnection: sinon.stub().returns(mockDb),
-          findOneInDatabase: sinon.stub().resolves(undefined),
-          findInDatabase: sinon.stub().resolves([]),
-          removeDocumentFromDatabase: sinon.stub().resolves(),
-        },
-        '../dockerService': {
-          appDockerStop: sinon.stub().resolves(),
-          appDockerRemove: sinon.stub().resolves(),
-          clearFluxRemovedContainers: sinon.stub(),
-          appDockerImageRemove: sinon.stub().resolves(),
-          getAppIdentifier: sinon.stub().returns('testapp'),
-          getBaseAppName: sinon.stub().returnsArg(0),
-        },
-        '../../lib/log': logStub,
-        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
-          config: configStub,
-        }),
-        './advancedWorkflows': {
-          reindexGlobalAppsInformation: sinon.stub().resolves(),
-          updateAppSpecsForRestoredNode: sinon.stub().resolves(),
-          checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
-        },
-        '../upnpService': {
-          isUPNP: sinon.stub().returns(false),
-        },
-        '../fluxNetworkHelper': {
-          closeConnection: sinon.stub().resolves(),
-          deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
-          allowPort: sinon.stub().resolves(true),
-        },
-        '../fluxCommunicationMessagesSender': {
-          broadcastMessageToOutgoing: sinon.stub().resolves(),
-          broadcastMessageToIncoming: sinon.stub().resolves(),
-        },
-        '../appDatabase/registryManager': {
-          availableApps: sinon.stub().resolves([]),
-        },
-        '../utils/enterpriseHelper': {
-          checkAndDecryptAppSpecs: sinon.stub().returnsArg(0),
-        },
-        '../utils/appSpecHelpers': {
-          specificationFormatter: sinon.stub().returnsArg(0),
-        },
-        '../appManagement/appInspector': {
-          stopAppMonitoring: sinon.stub().resolves(),
-        },
-      });
-
-      const res = {
-        write: sinon.stub(),
-        end: sinon.stub(),
-      };
-      const appName = 'testapp';
-      const globalStateRef = {
-        removalInProgress: false,
-        beginRemoval() { this.removalInProgress = true; },
-        endRemoval() { this.removalInProgress = false; },
-        installationInProgress: false,
-      };
-      const stopAppMonitoring = sinon.stub();
-
-      try {
-        await appUninstallerNoApp.softRemoveAppLocally(appName, res, globalStateRef, stopAppMonitoring);
-        expect.fail('Should have thrown error');
-      } catch (err) {
-        expect(err.message).to.include('Flux App not found');
-      }
-    });
-
-    it('should soft remove app locally if app name is specified and app in DB', async () => {
-      const mockDb = {
-        db: sinon.stub().returns('appsDatabase'),
-      };
-      const appUninstallerWithApp = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
-        '../appManagement/appPlacements': appPlacementsStub,
-        config: configStub,
-        '../verificationHelper': verificationHelperStub,
-        '../messageHelper': messageHelperStub,
-        // Stubbed rather than reached: the real one opens the runtime-state
-        // collection, and a soft removal that could not clear the controller
-        // state does not report itself done.
-        '../appManagement/appsRuntimeState': { removeControllerState: sinon.stub().resolves() },
-        '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves({ path: null, conclusive: true }), isPathMounted: sinon.stub().resolves(false) },
-        '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
-          ensureNumber: sinon.stub().callsFake(Number),
-          runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
-          ensureBoolean: sinon.stub().returnsArg(0),
-        },
-        '../dbHelper': {
-          databaseConnection: sinon.stub().returns(mockDb),
-          findOneInDatabase: sinon.stub().resolves({
-            version: 2,
-            name: 'testapp',
-            description: 'testapp',
-            repotag: 'yurinnick/testapp',
-            owner: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
-            tiered: true,
-            ports: [30000],
-            containerPorts: [7396],
-            domains: [''],
-            cpu: 0.5,
-            ram: 500,
-            hdd: 5,
-          }),
-          findInDatabase: sinon.stub(),
-          findOneAndDeleteInDatabase: sinon.stub().resolves(),
-        },
-        '../dockerService': {
-          appDockerStop: sinon.stub().resolves(),
-          appDockerRemove: sinon.stub().resolves(),
-          clearFluxRemovedContainers: sinon.stub(),
-          appDockerImageRemove: sinon.stub().resolves(),
-          getAppIdentifier: sinon.stub().returns(100),
-        },
-        '../../lib/log': logStub,
-        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
-          config: configStub,
-        }),
-        './advancedWorkflows': {
-          reindexGlobalAppsInformation: sinon.stub().resolves(),
-          updateAppSpecsForRestoredNode: sinon.stub().resolves(),
-          checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
-        },
-        '../upnpService': {
-          isUPNP: sinon.stub().returns(false),
-        },
-        '../fluxNetworkHelper': {
-          closeConnection: sinon.stub().resolves(),
-          deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
-          allowPort: sinon.stub().resolves(true),
-        },
-        '../fluxCommunicationMessagesSender': {
-          broadcastMessageToOutgoing: sinon.stub().resolves(),
-          broadcastMessageToIncoming: sinon.stub().resolves(),
-        },
-        '../appDatabase/registryManager': {
-          availableApps: sinon.stub().resolves([]),
-        },
-        '../utils/enterpriseHelper': {
-          checkAndDecryptAppSpecs: sinon.stub().returnsArg(0),
-        },
-        '../utils/appSpecHelpers': {
-          specificationFormatter: sinon.stub().returnsArg(0),
-        },
-        '../appManagement/appInspector': {
-          stopAppMonitoring: sinon.stub().resolves(),
-        },
-      });
-
-      const res = {
-        write: sinon.stub(),
-        end: sinon.stub(),
-      };
-      const appName = 'testapp';
-      const globalStateRef = {
-        removalInProgress: false,
-        beginRemoval() { this.removalInProgress = true; },
-        endRemoval() { this.removalInProgress = false; },
-        installationInProgress: false,
-      };
-      const stopAppMonitoring = sinon.stub();
-
-      await appUninstallerWithApp.softRemoveAppLocally(appName, res, globalStateRef, stopAppMonitoring);
-
-      expect(res.write.called).to.be.true;
-    });
-  });
-
   describe('exported functions', () => {
     it('should export all required functions', () => {
       expect(appUninstaller.hardUninstallComponent).to.be.a('function');
@@ -1822,7 +1564,6 @@ describe('appUninstaller tests', () => {
       expect(appUninstaller.softUninstallComponent).to.be.a('function');
       expect(appUninstaller.softUninstallApplication).to.be.a('function');
       expect(appUninstaller.removeAppLocally).to.be.a('function');
-      expect(appUninstaller.softRemoveAppLocally).to.be.a('function');
       expect(appUninstaller.removeAppLocallyApi).to.be.a('function');
     });
   });

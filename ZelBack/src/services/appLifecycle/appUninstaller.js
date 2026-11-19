@@ -1011,7 +1011,7 @@ const removalsInFlight = new Map();
  * @param {object} [options.specifications] - The specification to remove the app by,
  *   used as given in place of the stored one
  * @param {object} [options.parent] - The operation this removal is a step of
- * @returns {Promise<string>} One of RemovalOutcome. BUSY carries no claim about the app.
+ * @returns {Promise<string>} One of RemovalOutcome.
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, { specifications = null, parent = null } = {}) {
   await fluxosTrial.settled();
@@ -1090,7 +1090,6 @@ async function removeAppHolding(app, res, endResponse, sendMessage, { specificat
   // removed, and an app missing a component cannot run, so it is the whole app.
   let tornDownApp = null;
   let announced = false;
-  globalState.beginRemoval();
   try {
     if (!app) {
       throw new Error('No App specified');
@@ -1345,127 +1344,9 @@ async function removeAppHolding(app, res, endResponse, sendMessage, { specificat
     if (tornDownApp) finishRemoval(tornDownApp, force, !announced);
     return RemovalOutcome.FAILED;
   } finally {
-    globalState.endRemoval();
     if (departingName) {
       globalState.departingApps.leave(departingName);
     }
-  }
-}
-
-/**
- * Soft remove application locally (database and container only)
- * @param {string} app - Application name
- * @param {object} res - Response object for streaming
- // eslint-disable-next-line no-shadow
- * @param {object} globalStateRef - Global state reference
- * @param {function} stopAppMonitoring - Function to stop monitoring
- * @returns {Promise<void>}
- */
-// eslint-disable-next-line no-shadow
-async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring) {
-  await fluxosTrial.settled();
-  // eslint-disable-next-line no-shadow
-  const globalState = globalStateRef;
-  if (globalState.removalInProgress) {
-    throw new Error('Another application is undergoing removal');
-  }
-  if (globalState.installationInProgress) {
-    throw new Error('Another application is undergoing installation');
-  }
-
-  globalState.removalInProgress = true;
-
-  try {
-    if (!app) {
-      throw new Error('No Flux App specified');
-    }
-
-    const isComponent = app.includes('_');
-    const appName = isComponent ? app.split('_')[1] : app;
-    const appComponent = app.split('_')[0];
-
-    // Find app specifications in database
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
-    const appsQuery = { name: appName };
-    const appsProjection = {};
-    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    if (!appSpecifications) {
-      throw new AppNotFoundError();
-    }
-
-    let appId = dockerService.getAppIdentifier(app);
-
-    // do this temporarily - otherwise we have to move a bunch of functions around
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-    appSpecifications = specificationFormatter(appSpecifications);
-
-    if (appSpecifications.version >= 4 && !isComponent) {
-      // it is a composed application
-      // eslint-disable-next-line no-restricted-syntax
-      for (const appComposedComponent of appSpecifications.compose.reverse()) {
-        appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
-        const appComponentSpecifications = appComposedComponent;
-        // eslint-disable-next-line no-await-in-loop
-        await softUninstallComponent(appName, appId, appComponentSpecifications, res, stopAppMonitoring);
-      }
-    } else if (isComponent) {
-      const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
-      appId = dockerService.getAppIdentifier(`${componentSpecifications.name}_${appSpecifications.name}`);
-      await softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring);
-    } else {
-      await softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
-    }
-
-    // node-local controller state dies with the components on the soft path too:
-    // a (soft) redeploy is an explicit "make it run", so neither the operator
-    // lock nor a stale controller verdict may survive it
-    let removedIdentifiers;
-    if (appSpecifications.version >= 4 && appSpecifications.compose) {
-      removedIdentifiers = isComponent
-        ? [`${appComponent}_${appSpecifications.name}`]
-        : appSpecifications.compose.map((c) => `${c.name}_${appSpecifications.name}`);
-    } else {
-      removedIdentifiers = [appName];
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const identifier of removedIdentifiers) {
-      // eslint-disable-next-line no-await-in-loop
-      await appsRuntimeState.removeControllerState(identifier);
-      if (onComponentRemoved) onComponentRemoved(identifier);
-    }
-
-    if (!isComponent) {
-      const databaseStatus = {
-        status: 'Cleaning up database...',
-      };
-      log.info(databaseStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(databaseStatus));
-        if (res.flush) res.flush();
-      }
-      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-      const databaseStatus2 = {
-        status: 'Database cleaned',
-      };
-      log.info(databaseStatus2);
-      if (res) {
-        res.write(serviceHelper.ensureString(databaseStatus2));
-        if (res.flush) res.flush();
-      }
-      const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
-      log.info(appRemovalResponseDone);
-      if (res) {
-        res.write(serviceHelper.ensureString(appRemovalResponseDone));
-        if (res.flush) res.flush();
-      }
-    }
-  } catch (error) {
-    log.error(`Error soft removing app ${app}: ${error.message}`);
-    throw error;
-  } finally {
-    globalState.removalInProgress = false;
   }
 }
 
@@ -1557,7 +1438,6 @@ module.exports = {
   softUninstallApplication,
   cleanupPorts,
   removeAppLocally,
-  softRemoveAppLocally,
   removeAppLocallyApi,
   removeHere,
   setOnComponentRemoved,

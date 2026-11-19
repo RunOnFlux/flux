@@ -81,71 +81,9 @@ describe('globalState tests', () => {
     });
   });
 
-  describe('state flags tests', () => {
-    it('should have default values for state flags', () => {
-      expect(globalState.removalInProgress).to.equal(false);
-      expect(globalState.installationInProgress).to.equal(false);
-      expect(globalState.softRedeployInProgress).to.equal(false);
-      expect(globalState.hardRedeployInProgress).to.equal(false);
-      expect(globalState.reinstallationOfOldAppsInProgress).to.equal(false);
-    });
-
-    it('should allow setting removalInProgress', () => {
-      globalState.removalInProgress = true;
-      expect(globalState.removalInProgress).to.equal(true);
-
-      globalState.removalInProgressReset();
-      expect(globalState.removalInProgress).to.equal(false);
-    });
-
-    it('should allow setting installationInProgress', () => {
-      globalState.installationInProgress = true;
-      expect(globalState.installationInProgress).to.equal(true);
-
-      globalState.installationInProgressReset();
-      expect(globalState.installationInProgress).to.equal(false);
-    });
-  });
-
-  describe('the installs running', () => {
-    afterEach(() => {
-      globalState.installationInProgress = false;
-      globalState.removalInProgress = false;
-    });
-
-    it('stays marked while any install runs, so one ending does not clear another', () => {
-      globalState.beginInstallation();
-      globalState.beginInstallation();
-
-      globalState.endInstallation();
-      expect(globalState.installationInProgress, 'one install ending cleared the other').to.equal(true);
-
-      globalState.endInstallation();
-      expect(globalState.installationInProgress).to.equal(false);
-    });
-
-    it('stays marked as removing while any removal runs, so one ending does not clear another', () => {
-      globalState.beginRemoval();
-      globalState.beginRemoval();
-
-      globalState.endRemoval();
-      expect(globalState.removalInProgress, 'one removal ending cleared the other').to.equal(true);
-
-      globalState.endRemoval();
-      expect(globalState.removalInProgress).to.equal(false);
-    });
-
-    it('a canary: one install marked and ended leaves none', () => {
-      globalState.beginInstallation();
-      globalState.endInstallation();
-
-      expect(globalState.installationInProgress).to.equal(false);
-    });
-  });
-
-  // The apps a backup or a restore holds are the operation registry's leases of
-  // those types; the registry alone takes and releases them.
-  describe('backup and restore lists', () => {
+  // The apps an operation holds are the operation registry's leases; the
+  // registry alone takes and releases them.
+  describe('held apps', () => {
     // eslint-disable-next-line global-require
     const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 
@@ -159,6 +97,21 @@ describe('globalState tests', () => {
       expect(globalState.restoreInProgress).to.deep.equal(['app1']);
       expect(globalState.backupInProgress).to.deep.equal(['app2']);
       expect(Object.isFrozen(globalState.backupInProgress)).to.equal(true);
+    });
+
+    it('lists the apps any operation holds, as a frozen snapshot', () => {
+      operationRegistry.acquire('app1', 'install', 'test');
+      operationRegistry.acquire('app2', 'redeploy', 'test');
+
+      expect(globalState.heldApps).to.have.members(['app1', 'app2']);
+      expect(Object.isFrozen(globalState.heldApps)).to.equal(true);
+    });
+
+    it('lists no app once its operation releases it', () => {
+      const token = operationRegistry.acquire('app1', 'remove', 'test');
+      operationRegistry.release('app1', token);
+
+      expect(globalState.heldApps).to.deep.equal([]);
     });
   });
 

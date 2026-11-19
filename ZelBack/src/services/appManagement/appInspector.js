@@ -1177,15 +1177,10 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
  * Monitor shared database applications and handle uninstall signals
  * @param {Function} installedApps - Async function to get installed apps
  * @param {Function} removeAppLocally - Async function to remove app locally
- * @param {object} globalState - Global state object with installation/removal flags
  * @returns {Promise<void>}
  */
-async function monitorSharedDBApps(installedApps, removeAppLocally, globalState) {
+async function monitorSharedDBApps(installedApps, removeAppLocally) {
   try {
-    // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
-    if (globalState.installationInProgress || globalState.removalInProgress || globalState.softRedeployInProgress || globalState.hardRedeployInProgress) {
-      return;
-    }
     // get list of all installed apps
     const appsInstalled = await installedApps();
     // Decrypt enterprise apps (version 8 with encrypted content)
@@ -1222,7 +1217,7 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
     log.error(`monitorSharedDBApps: ${error}`);
   } finally {
     await serviceHelper.delay(5 * 60 * 1000);
-    monitorSharedDBApps(installedApps, removeAppLocally, globalState);
+    monitorSharedDBApps(installedApps, removeAppLocally);
   }
 }
 

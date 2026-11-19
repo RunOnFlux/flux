@@ -1054,7 +1054,7 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
             // Use dynamic require to avoid circular dependency
             // eslint-disable-next-line global-require
             const appUninstaller = require('../appLifecycle/appUninstaller');
-            // force=true to bypass removalInProgress checks, endResponse=false since no res, sendMessage=true to notify peers
+            // force: removed by the stored or global spec; no response to end; peers told
             await appUninstaller.removeAppLocally(specifications.name, null, true, false, true);
           }
 

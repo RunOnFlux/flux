@@ -1,5 +1,4 @@
 const serviceHelper = require('../serviceHelper');
-const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const registryManager = require('../appDatabase/registryManager');
@@ -64,12 +63,6 @@ async function removeAllApps(reason) {
  */
 async function checkDaemonHealthAndCleanup() {
   try {
-    // Skip checks if operations in progress
-    if (globalState.removalInProgress || globalState.installationInProgress
-      || globalState.softRedeployInProgress || globalState.hardRedeployInProgress) {
-      return;
-    }
-
     // Check daemon sync status (updated every 30 seconds by daemonServiceMiscRpcs)
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
 

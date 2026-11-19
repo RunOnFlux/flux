@@ -5,13 +5,6 @@ const operationRegistry = require('./operationRegistry');
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
 
-// The removals running: each removal marks its own start and end.
-let removals = 0;
-// The installs running: each install marks its own start and end.
-let installations = 0;
-let softRedeployInProgress = false;
-let hardRedeployInProgress = false;
-let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
 let shutdownInProgress = false;
 const daemonReadyGate = new AsyncGate();
@@ -206,16 +199,6 @@ const seedMarks = new Map();
 let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
 
-/**
- * Marks one install running (true) or none (false), for a caller that is not an
- * install. An install marks itself with beginInstallation and endInstallation, so
- * one ending leaves the others marked.
- * @param {boolean} value
- */
-function setInstallationInProgress(value) {
-  installations = value ? Math.max(installations, 1) : 0;
-}
-
 // Initialize cache references - this must be called after cacheManager is ready
 function initializeCaches(cacheManager) {
   if (cacheManager && cacheManager.appSpawnErrorCache && cacheManager.appSpawnCache) {
@@ -227,28 +210,6 @@ function initializeCaches(cacheManager) {
 
 module.exports = {
   // State getters/setters
-  get removalInProgress() { return removals > 0; },
-  // Marks one removal running (true) or none (false), for a caller that is not a
-  // removal. A removal marks itself with beginRemoval and endRemoval, so one ending
-  // leaves the others marked.
-  set removalInProgress(value) { removals = value ? Math.max(removals, 1) : 0; },
-  beginRemoval() { removals += 1; },
-  endRemoval() { removals = Math.max(0, removals - 1); },
-
-  get installationInProgress() { return installations > 0; },
-  set installationInProgress(value) { setInstallationInProgress(value); },
-  beginInstallation() { installations += 1; },
-  endInstallation() { installations = Math.max(0, installations - 1); },
-
-  get softRedeployInProgress() { return softRedeployInProgress; },
-  set softRedeployInProgress(value) { softRedeployInProgress = value; },
-
-  get hardRedeployInProgress() { return hardRedeployInProgress; },
-  set hardRedeployInProgress(value) { hardRedeployInProgress = value; },
-
-  get reinstallationOfOldAppsInProgress() { return reinstallationOfOldAppsInProgress; },
-  set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
-
   // Set by the graceful shutdown path and never cleared: the process exits at the
   // end of it. From then on no container starts and no decider acts, so what the
   // shutdown stops and drains stays stopped and drained.
@@ -318,6 +279,8 @@ module.exports = {
   // registry, which alone takes and releases an app (operationRegistry.js).
   get backupInProgress() { return Object.freeze(operationRegistry.listByType('backup')); },
   get restoreInProgress() { return Object.freeze(operationRegistry.listByType('restore')); },
+  // The apps any operation holds, as a frozen snapshot of the operation registry.
+  get heldApps() { return Object.freeze(operationRegistry.listHeld()); },
 
   get appsMonitored() { return appsMonitored; },
   set appsMonitored(value) { appsMonitored = value; },
@@ -359,16 +322,6 @@ module.exports = {
 
   get trySpawningGlobalAppCache() { return trySpawningGlobalAppCache; },
   set trySpawningGlobalAppCache(value) { trySpawningGlobalAppCache = value; },
-
-  // Helper functions to match original API
-  removalInProgressReset() { removals = 0; },
-  setRemovalInProgressToTrue() { removals = Math.max(removals, 1); },
-  installationInProgressReset() { setInstallationInProgress(false); },
-  setInstallationInProgressTrue() { setInstallationInProgress(true); },
-  softRedeployInProgressReset() { softRedeployInProgress = false; },
-  setSoftRedeployInProgressTrue() { softRedeployInProgress = true; },
-  hardRedeployInProgressReset() { hardRedeployInProgress = false; },
-  setHardRedeployInProgressTrue() { hardRedeployInProgress = true; },
 
   // Clear functions
   clearAppsMonitored() { appsMonitored = {}; },

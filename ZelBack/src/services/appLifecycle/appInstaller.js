@@ -357,8 +357,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
   // get applications specifics from app messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
-  // Whether this call marked itself as an install running. The guards below
-  // return before it does, and must not end another install's mark.
+  // Whether this call got past its refusals: one that did not installed nothing.
   let acquired = false;
   // Whether this node's local table has named the app during this call. The
   // announcement is built from that table, so the row is the claim, and the
@@ -379,7 +378,6 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       }
       return InstallOutcome.BUSY;
     }
-    globalState.beginInstallation();
     acquired = true;
     // A test install holds nothing: it writes the app's row like any other install
     // and throws it away, so the announcement must not read that row as a claim.
@@ -707,14 +705,8 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
-    // THE ONE PLACE THE MARK IS ENDED, so every way out of this function ends it -
-    // including the early returns above. A mark left standing holds back every
-    // whole-node pass that waits for installs, until FluxOS restarts.
-    if (acquired) globalState.endInstallation();
     portClaims.release(portClaim);
-    // The mark is bound to the hold: it is set under the hold with nothing awaited
-    // in between, so a call that took the hold has a mark to take back. The
-    // teardown is bound to the row: a call that never wrote one created nothing,
+    // The teardown is bound to the row: a call that never wrote one created nothing,
     // and an app a refusal finds already installed is not its to remove.
     if (test && acquired) {
       if (claimed) {
@@ -731,11 +723,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     }
   }
 
-  // Announced once the finally above has released the install hold: a broadcast
-  // cycle takes as long as it takes, and every other install, removal and redeploy
-  // on this node refuses while the hold is up. Below the block rather than ordered
-  // by hand inside it, so the release cannot drift back after it.
-  // checkAndNotifyPeersOfRunningApps never throws.
+  // Announced once the finally above has released this install's port claims, so
+  // a broadcast cycle, which takes as long as it takes, holds no port another
+  // install needs. checkAndNotifyPeersOfRunningApps never throws.
   if (!test && onInstallComplete) {
     await onInstallComplete();
     fluxEventBus.publish('app:installed', { name: appSpecs.name, hash: appSpecs.hash });
