@@ -7,8 +7,8 @@
  * app's install is held, because no node-wide lock stands between installs of different apps.
  *
  * Every meeting is made by holding the first operation at a checkpoint, or, for the running tar,
- * by an archive large enough that the tar is still running when the removal is asked for and a
- * tar process the test sees in the node.
+ * by a tar the test sees in the node and freezes, so the archive cannot end before the removal
+ * stops it.
  *
  * Each case has an app of its own, a plain one on one node of three (the ring needs three).
  */
@@ -140,23 +140,31 @@ describe('an operation on an app meets another', function () {
   it('stops a backup whose tar is running for a removal, and removes the app', async function () {
     this.timeout(900000);
     const appName = await placedApp('tarstop');
-    // incompressible, so the tar is still running when the removal is asked for
+    // incompressible, so the tar is still running when the test freezes it
     const big = `${appdataOf(appName)}/big.bin`;
     const written = await execInContainer(client().container, `head -c 400M /dev/urandom > ${big} && stat -c %s ${big}`);
     expect(written.stdout.trim(), 'the data the backup archives').to.equal(String(400 * 1024 * 1024));
 
-    // the bracket keeps the pattern from matching the shell that runs pgrep
+    // the bracket keeps the pattern from matching the shell that runs pgrep or pkill
+    const TAR = '"[t]ar -czf"';
+    const tarRunning = async () => (await execInContainer(client().container, `pgrep -f ${TAR}`)).exitCode === 0;
     const backingUp = client().appendBackupTask(appName, [appName], await ownerAuth());
-    await waitFor(async () => (await execInContainer(client().container, 'pgrep -f "[t]ar -czf"')).exitCode === 0, {
-      timeout: 180000, interval: 200, label: `the backup of ${appName} is archiving`,
-    });
-
+    await waitFor(tarRunning, { timeout: 180000, interval: 200, label: `the backup of ${appName} is archiving` });
+    // Frozen, the archive cannot finish on its own: only the backup's stop ends it.
+    const frozen = await execInContainer(client().container, `pkill -STOP -f ${TAR}`);
+    expect(frozen.exitCode, 'the archive had ended before it was frozen').to.equal(0);
     const mark = client().getLastEventId();
     const removing = client().removeAppLocally(appName, await ownerAuth());
-    await client().waitForEvent('app:operationPreempted', (d) => d.appName === appName && d.operation === 'backup' && d.by === 'removal', 120000, { afterId: mark });
+    removing.catch(() => {});
+    try {
+      await client().waitForEvent('app:operationPreempted', (d) => d.appName === appName && d.operation === 'backup' && d.by === 'removal', 120000, { afterId: mark });
 
-    expect(await backingUp, 'the backup').to.include(`${appName}: stopped for its removal`);
-    expect((await execInContainer(client().container, 'pgrep -f "[t]ar -czf"')).exitCode, 'the archive kept running').to.not.equal(0);
+      expect(await backingUp, 'the backup').to.include(`${appName}: stopped for its removal`);
+    } finally {
+      // a stop sent to a frozen process is delivered when it resumes
+      await execInContainer(client().container, `pkill -CONT -f ${TAR}`);
+    }
+    await waitFor(async () => !(await tarRunning()), { timeout: 120000, interval: 500, label: 'the archive is ended' });
     await removing;
     await removed(appName);
   });
