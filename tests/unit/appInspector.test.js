@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const { resetGlobalState } = require('./fixtures/globalState');
+const { installInFlight } = require('./fixtures/installInFlight');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
@@ -101,6 +102,40 @@ describe('appInspector tests', () => {
 
   afterEach(() => {
     sinon.restore();
+  });
+
+  describe('monitorSharedDBApps', () => {
+    it('removes an app its operator marks for uninstall while another app is being installed', async () => {
+      const sharedDbApp = {
+        name: 'shareddbapp',
+        version: 4,
+        compose: [{ name: 'operator', repotag: 'runonflux/shared-db:latest', ports: [31000, 31001] }],
+      };
+      let reachedDelay;
+      const passEnded = new Promise((resolve) => { reachedDelay = resolve; });
+      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': {
+          decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
+        },
+        '../serviceHelper': {
+          axiosGet: sinon.stub().resolves({ data: { status: 'UNINSTALL' } }),
+          // the pass ends at its wait for the next one, which never comes
+          delay: sinon.stub().callsFake(() => {
+            reachedDelay();
+            return new Promise(() => {});
+          }),
+        },
+      });
+      const removeAppLocally = sinon.stub().resolves();
+      const install = await installInFlight('otherapp');
+
+      inspector.monitorSharedDBApps(sinon.stub().resolves({ status: 'success', data: [sharedDbApp] }), removeAppLocally);
+      await passEnded;
+      await install.finish();
+
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'shareddbapp', null, true, false, true);
+    });
   });
 
   describe('checkStorageSpaceForApps', () => {

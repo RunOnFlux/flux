@@ -1254,14 +1254,8 @@ describe('appInstaller tests', () => {
       height: 0,
     };
 
-    beforeEach(() => {
-      globalStateStub.removalInProgress = false;
-      globalStateStub.installationInProgress = false;
-    });
-
     afterEach(() => {
-      globalStateStub.removalInProgress = false;
-      globalStateStub.installationInProgress = false;
+      operationRegistry.clear();
       expect(portClaims.claimedPorts(), 'an install left its ports claimed').to.deep.equal([]);
       expect(portClaims.waiting(), 'an install is still waiting for a port').to.equal(0);
     });
@@ -1276,26 +1270,35 @@ describe('appInstaller tests', () => {
     it('never closes a response it was handed, on any path', async () => {
       const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
 
-      globalStateStub.removalInProgress = true;
-      await appInstaller.registerAppLocally(appSpec, false, res);
-      globalStateStub.removalInProgress = false;
+      globalStateStub.departingApps.enter(appSpec.name);
+      try {
+        await appInstaller.registerAppLocally(appSpec, false, res);
+      } finally {
+        globalStateStub.departingApps.leave(appSpec.name);
+      }
 
-      globalStateStub.installationInProgress = true;
+      const backup = operationRegistry.acquire(appSpec.name, 'backup', 'test');
+      try {
+        await appInstaller.registerAppLocally(appSpec, false, res, false, false, { wait: false });
+      } finally {
+        operationRegistry.release(appSpec.name, backup);
+      }
+
       await appInstaller.registerAppLocally(appSpec, false, res);
-      globalStateStub.installationInProgress = false;
 
       expect(res.write.called, 'it must still report what happened').to.be.true;
       expect(res.end.called, 'the endpoint that opened the response is the only thing that closes it').to.be.false;
     });
 
-    it('installs beside another app\'s install, and leaves that install marked as running', async () => {
+    it('installs beside another app\'s install, and leaves that install holding its app', async () => {
       const res = { write: sinon.stub(), end: sinon.stub() };
-      globalStateStub.installationInProgress = true;
+      const other = operationRegistry.acquire('otherapp', 'install', 'test');
 
       const result = await appInstaller.registerAppLocally(appSpec, false, res);
 
       expect(result, 'refused for another app\'s install').to.not.equal(InstallOutcome.BUSY);
-      expect(globalStateStub.installationInProgress, 'this install ended the other install\'s mark').to.be.true;
+      expect(operationRegistry.get('otherapp'), 'this install released the other install\'s app').to.deep.include({ type: 'install' });
+      operationRegistry.release('otherapp', other);
     });
 
     it('refuses an app whose removal is pending, taking no hold', async () => {
@@ -1305,7 +1308,7 @@ describe('appInstaller tests', () => {
         const result = await appInstaller.registerAppLocally(appSpec, false, res);
 
         expect(result).to.equal(InstallOutcome.BUSY);
-        expect(globalStateStub.installationInProgress, 'the refusal took the install hold').to.be.false;
+        expect(operationRegistry.isHeld(appSpec.name), 'the refusal left the app held').to.equal(false);
       } finally {
         globalStateStub.departingApps.leave(appSpec.name);
       }
@@ -1416,10 +1419,7 @@ describe('appInstaller tests', () => {
       // failed and tore the app down - a caller acting on the second when it
       // got the first destroys a running app.
       expect(result).to.equal(InstallOutcome.DECLINED);
-      // The hold was raised one line before the tier lookup and this return used
-      // to walk straight past it. The node then refused every install, redeploy,
-      // spawn and reinstall pass it was offered until FluxOS restarted.
-      expect(globalStateStub.installationInProgress, 'the node is left holding an install that never began').to.be.false;
+      expect(operationRegistry.isHeld(appSpec.name), 'the app is left held by an install that never began').to.equal(false);
     });
 
     // The guard sits behind the socket lookup and the database connection, so a stub missing
@@ -1472,7 +1472,7 @@ describe('appInstaller tests', () => {
       // away with the app absent, and from one that tore it down: a caller asking whether the
       // node holds the app has its yes here.
       expect(result).to.equal(InstallOutcome.ALREADY_INSTALLED);
-      expect(globalStateStub.installationInProgress, 'the hold outlived the attempt that took it').to.be.false;
+      expect(operationRegistry.isHeld(appSpec.name), 'the hold outlived the attempt that took it').to.equal(false);
     });
 
     it('does not answer ALREADY_INSTALLED for a component when the app row exists', async () => {
@@ -1630,7 +1630,7 @@ describe('appInstaller tests', () => {
       expect(result).to.equal(InstallOutcome.DECLINED);
       sinon.assert.notCalled(dockerService.createFluxAppDockerNetwork);
       sinon.assert.notCalled(removeAppLocallyStub);
-      expect(globalStateStub.installationInProgress, 'the refusal left an install marked').to.be.false;
+      expect(operationRegistry.isHeld(appSpec.name), 'the refusal left the app held').to.equal(false);
     });
 
     describe('in the app\'s manager', () => {
@@ -2015,7 +2015,7 @@ describe('appInstaller tests', () => {
           expect(result).to.equal(InstallOutcome.BUSY);
           sinon.assert.notCalled(dockerService.appDockerCreate);
           expect(portClaims.holderOf([PORT])).to.equal(other);
-          expect(globalStateStub.installationInProgress, 'kept the install hold').to.equal(false);
+          expect(operationRegistry.isHeld(appSpec.name), 'kept the install hold').to.equal(false);
         } finally {
           portClaims.release(other);
         }
@@ -2040,13 +2040,13 @@ describe('appInstaller tests', () => {
       });
     });
 
-    it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
-      // The announcement runs for as long as a broadcast cycle takes, and every
-      // other install, removal and redeploy on this node refuses while the install
-      // lock is up - so the lock is released before onInstallComplete is called.
-      let lockHeldWhenBroadcasting = null;
+    it('runs the post-install broadcast only after releasing its port claims', async () => {
+      // The announcement runs for as long as a broadcast cycle takes, and another
+      // install waits on a port this install claims, so the claims are released
+      // before onInstallComplete is called.
+      let portsClaimedWhenBroadcasting = null;
       const onInstallComplete = sinon.stub().callsFake(() => {
-        lockHeldWhenBroadcasting = globalStateStub.installationInProgress;
+        portsClaimedWhenBroadcasting = portClaims.claimedPorts();
         return Promise.resolve();
       });
       const appInstallerSuccess = buildSucceedingInstaller();
@@ -2058,8 +2058,7 @@ describe('appInstaller tests', () => {
 
       expect(result, 'install should succeed').to.equal(InstallOutcome.INSTALLED);
       expect(onInstallComplete.calledOnce, 'post-install broadcast should fire').to.be.true;
-      expect(lockHeldWhenBroadcasting, 'install lock must be released BEFORE broadcasting').to.equal(false);
-      expect(globalStateStub.installationInProgress).to.equal(false);
+      expect(portsClaimedWhenBroadcasting, 'port claims must be released before broadcasting').to.deep.equal([]);
     });
   });
 

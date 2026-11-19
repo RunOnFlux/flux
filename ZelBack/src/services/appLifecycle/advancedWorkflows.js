@@ -79,13 +79,6 @@ const { callerAddress } = require('../utils/apiSocket');
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 // Taken at the door of reinstallOldApplications, and held for the whole pass.
-// Deliberately NOT globalState.reinstallationOfOldAppsInProgress: that flag is a
-// signal to other subsystems that this node is being torn down, so it is raised
-// late, only for the destructive part, and forceAppRemovals and the spawner
-// stand aside on it. Raise it at the door instead and they would stand aside for
-// every scan, including the ones that find nothing to do. A re-entrancy lock has
-// the opposite requirement - it is worthless anywhere but the first line - so
-// the two are separate mechanisms rather than one flag doing both jobs badly.
 const reinstallPassLock = new AsyncLock();
 
 // Held for the whole give-up pass. The block scanner starts the pass without
@@ -1057,9 +1050,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
   // check if hash is in blockchain
   // register and launch according to specifications in message
   // throw without catching
-  // Whether this call marked itself as an install running. The guards below
-  // return before it does, and must not end another install's mark.
-  let acquired = false;
   try {
     // A pending removal of the app removes whatever is installed in its place, so
     // the app takes no install until that removal has finished.
@@ -1072,8 +1062,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
       }
       return InstallOutcome.BUSY;
     }
-    globalState.beginInstallation();
-    acquired = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
@@ -1316,9 +1304,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
     // this outcome the same as a refusal either announces an installation that is
     // not there, or destroys a running app over a scheduling collision.
     return InstallOutcome.FAILED;
-  } finally {
-    // The one place the mark is ended, so every way out of this function ends it.
-    if (acquired) globalState.endInstallation();
   }
 }
 
@@ -1425,50 +1410,43 @@ async function softRemoveAppLocally(app, res) {
   if (!app) {
     throw new Error('No Flux App specified');
   }
+  // Parse app name and component
+  const isComponent = app.includes('_'); // component is defined by appComponent.name_appSpecs.name
+  const appName = isComponent ? app.split('_')[1] : app;
+  const appComponent = app.split('_')[0];
 
-  globalState.beginRemoval();
+  // Fetch app specifications from database
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const appsQuery = { name: appName };
+  const appsProjection = {};
 
-  try {
-    // Parse app name and component
-    const isComponent = app.includes('_'); // component is defined by appComponent.name_appSpecs.name
-    const appName = isComponent ? app.split('_')[1] : app;
-    const appComponent = app.split('_')[0];
+  let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  if (!appSpecifications) {
+    throw new Error('Flux App not found');
+  }
 
-    // Fetch app specifications from database
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsQuery = { name: appName };
-    const appsProjection = {};
+  // Decrypt and format specifications
+  appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+  appSpecifications = specificationFormatter(appSpecifications);
 
-    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    if (!appSpecifications) {
-      throw new Error('Flux App not found');
-    }
+  const appId = dockerService.getAppIdentifier(app);
 
-    // Decrypt and format specifications
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-    appSpecifications = specificationFormatter(appSpecifications);
+  // Determine uninstall strategy based on app type
+  if (appSpecifications.version >= 4 && !isComponent) {
+    // Composed application - uninstall all components
+    await softUninstallComposedApp(appSpecifications, appName, res);
+  } else if (isComponent) {
+    // Single component of a composed app
+    await softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res);
+  } else {
+    // Simple non-composed application
+    await softUninstallSimpleApp(appSpecifications, appName, appId, res);
+  }
 
-    const appId = dockerService.getAppIdentifier(app);
-
-    // Determine uninstall strategy based on app type
-    if (appSpecifications.version >= 4 && !isComponent) {
-      // Composed application - uninstall all components
-      await softUninstallComposedApp(appSpecifications, appName, res);
-    } else if (isComponent) {
-      // Single component of a composed app
-      await softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res);
-    } else {
-      // Simple non-composed application
-      await softUninstallSimpleApp(appSpecifications, appName, appId, res);
-    }
-
-    // Clean up database (only for full app removal, not individual components)
-    if (!isComponent) {
-      await cleanupAppDatabase(appsDatabase, appName, res);
-    }
-  } finally {
-    globalState.endRemoval();
+  // Clean up database (only for full app removal, not individual components)
+  if (!isComponent) {
+    await cleanupAppDatabase(appsDatabase, appName, res);
   }
 }
 
@@ -1672,15 +1650,12 @@ async function softRedeployApp(appSpecs, res, op) {
         }
       }
     }
-
-    globalState.softRedeployInProgress = true;
     log.info('Starting softRedeploy');
     try {
       await softRemoveAppLocally(appSpecs.name, res);
       softRemoved = true;
     } catch (error) {
       log.error(error);
-      globalState.softRedeployInProgress = false;
       throw error;
     }
     const appRedeployResponse = messageHelper.createSuccessMessage('Application softly removed. Awaiting installation...');
@@ -1700,19 +1675,14 @@ async function softRedeployApp(appSpecs, res, op) {
       // the removal above has already taken its containers AND its local row,
       // and this is the only pass that would have put them back.
       //
-      // BUSY is the node being held by another operation for the length of the
-      // delay above, DECLINED a check that would not pass: either leaves this
-      // node with no containers, no row, and peers holding a location record
-      // until it expires on its own - nothing here announces the loss, and with
-      // no row there is nothing for the reconciler to converge either. FAILED is
-      // the installer's own teardown, which removes the app and tells the
-      // network.
-      //
-      // Left as it is deliberately: v9 replaces this path with the operation
-      // registry, which is where the recovery belongs. Uninstalling and
-      // broadcasting from here would answer it at the cost of the app's data,
-      // and a retry belongs to something that owns the whole redeploy rather
-      // than to its last step.
+      // BUSY is a removal of the app pending, DECLINED a check that would not
+      // pass: either leaves this node with no containers, no row, and peers
+      // holding a location record until it expires on its own - nothing here
+      // announces the loss, and with no row there is nothing for the reconciler to
+      // converge either. FAILED is the installer's own teardown, which removes the
+      // app and tells the network. Uninstalling and broadcasting from here would
+      // answer it at the cost of the app's data, and a retry belongs to something
+      // that owns the whole redeploy rather than to its last step.
       const notReinstalled = messageHelper.createErrorMessage(
         `Application ${appSpecs.name} was not reinstalled (${outcome})`,
       );
@@ -1721,17 +1691,14 @@ async function softRedeployApp(appSpecs, res, op) {
         res.write(serviceHelper.ensureString(notReinstalled));
         if (res.flush) res.flush();
       }
-      globalState.softRedeployInProgress = false;
       fluxEventBus.publish('app:softRedeployed', { name: appSpecs.name, outcome });
       return;
     }
     log.info('Application softly redeployed');
-    globalState.softRedeployInProgress = false;
     fluxEventBus.publish('app:softRedeployed', { name: appSpecs.name, outcome });
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
-    globalState.softRedeployInProgress = false;
     if (error instanceof operationRegistry.OperationPreemptedError) throw error;
     if (!softRemoved) {
       // The removal never completed, so the app was not taken down as a unit.
@@ -1790,8 +1757,6 @@ async function hardRedeployApp(appSpecs, res, op) {
   try {
     if (!await mayTearDownToRebuild(appSpecs, res, op)) return;
     await reserveForRedeploy(appSpecs);
-
-    globalState.hardRedeployInProgress = true;
     log.warn(`REMOVAL REASON: Hard redeploy initiated - ${appSpecs.name} being removed as part of hard redeploy process (hardRedeploy)`);
     const outcome = await appRebuild.rebuildApp(appSpecs, res, { parent: op });
     if (outcome !== InstallOutcome.INSTALLED) {
@@ -1803,15 +1768,12 @@ async function hardRedeployApp(appSpecs, res, op) {
         res.write(serviceHelper.ensureString(notReinstalled));
         if (res.flush) res.flush();
       }
-      globalState.hardRedeployInProgress = false;
       return;
     }
     log.info('Application redeployed');
-    globalState.hardRedeployInProgress = false;
   } catch (error) {
     // rebuildApp settles every failure of its own, so this is a failure before it ran
     log.error(error);
-    globalState.hardRedeployInProgress = false;
     if (error instanceof operationRegistry.OperationPreemptedError) throw error;
     const notStarted = messageHelper.createErrorMessage(
       `Hard redeploy of ${appSpecs.name} failed before the app was taken down: ${error.message}`,
@@ -1841,7 +1803,6 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
   const appInstaller = require('./appInstaller');
 
   try {
-    globalState.softRedeployInProgress = true;
     log.info(`Starting soft redeploy of component ${componentName} from app ${appName}`);
 
     // Get app specifications
@@ -1858,7 +1819,6 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
     // Asked of the whole app, and answered by handing back the whole app: a spec
     // pinned to other nodes does not belong here one component at a time.
     if (!await mayTearDownToRebuild(appSpecifications, res, op)) {
-      globalState.softRedeployInProgress = false;
       return;
     }
     await reserveForRedeploy(appSpecifications);
@@ -1938,7 +1898,6 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
           res.write(serviceHelper.ensureString(notReinstalled));
           if (res.flush) res.flush();
         }
-        globalState.softRedeployInProgress = false;
         return;
       }
 
@@ -1952,10 +1911,8 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
       fluxEventBus.publish('app:componentRedeployed', {
         name: appName, component: componentName, identifier: fullComponentName, hard: false,
       });
-      globalState.softRedeployInProgress = false;
     } catch (error) {
       log.error(error);
-      globalState.softRedeployInProgress = false;
       if (error instanceof operationRegistry.OperationPreemptedError) throw error;
       if (!componentRemoved) {
         // One component's removal did not complete, and the answer to that was
@@ -1985,7 +1942,6 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
   } catch (error) {
     log.error('Error on softRedeployComponent');
     log.error(error);
-    globalState.softRedeployInProgress = false;
     throw error;
   }
 }
@@ -2007,7 +1963,6 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
   const appInstaller = require('./appInstaller');
 
   try {
-    globalState.hardRedeployInProgress = true;
     log.info(`Starting hard redeploy of component ${componentName} from app ${appName}`);
 
     // Get app specifications
@@ -2023,7 +1978,6 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
     // Asked of the whole app, and answered by handing back the whole app: a spec
     // pinned to other nodes does not belong here one component at a time.
     if (!await mayTearDownToRebuild(appSpecifications, res, op)) {
-      globalState.hardRedeployInProgress = false;
       return;
     }
     await reserveForRedeploy(appSpecifications);
@@ -2088,7 +2042,6 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
           res.write(serviceHelper.ensureString(notReinstalled));
           if (res.flush) res.flush();
         }
-        globalState.hardRedeployInProgress = false;
         return;
       }
 
@@ -2098,10 +2051,8 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
       fluxEventBus.publish('app:componentRedeployed', {
         name: appName, component: componentName, identifier: fullComponentName, hard: true,
       });
-      globalState.hardRedeployInProgress = false;
     } catch (error) {
       log.error(error);
-      globalState.hardRedeployInProgress = false;
       if (error instanceof operationRegistry.OperationPreemptedError) throw error;
       if (!componentRemoved) {
         // See the soft path. A hard redeploy asks for one component's volume to
@@ -2126,7 +2077,6 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
   } catch (error) {
     log.error('Error on hardRedeployComponent');
     log.error(error);
-    globalState.hardRedeployInProgress = false;
     throw error;
   }
 }
@@ -3564,51 +3514,6 @@ async function validateApplicationUpdateCompatibility(specifications, previousAp
 }
 
 /**
- * Set removal progress state
- * @param {boolean} state - Removal progress state
- */
-function setRemovalInProgress(state) {
-  globalState.removalInProgress = state;
-}
-
-/**
- * Get installation progress state
- * @returns {boolean} Current installation state
- */
-function getInstallationInProgress() {
-  return globalState.installationInProgress;
-}
-
-/**
- * Get removal progress state
- * @returns {boolean} Current removal state
- */
-function getRemovalInProgress() {
-  return globalState.removalInProgress;
-}
-
-/**
- * Reset removal progress state
- */
-function removalInProgressReset() {
-  globalState.removalInProgress = false;
-}
-
-/**
- * Set removal in progress to true
- */
-function setRemovalInProgressToTrue() {
-  globalState.removalInProgress = true;
-}
-
-/**
- * Reset installation progress state
- */
-function installationInProgressReset() {
-  globalState.installationInProgress = false;
-}
-
-/**
  * Validate and broadcast an app update to the network.
  * Business logic only — no HTTP concerns.
  * @param {object} params - Update parameters
@@ -4139,20 +4044,6 @@ async function checkAndRemoveApplicationInstance({
       return;
     }
 
-    // removeAppLocally refuses while another removal or install holds the node,
-    // so a pass that knows it would be refused has no reason to start. The same
-    // guard reinstallOldApplications and softRemoveAppLocally use. A removal or
-    // install can still begin while the pass is deciding; the removal's outcome
-    // below is what decides whether this pass removed anything.
-    if (globalState.removalInProgress) {
-      log.info('Give-up-an-app pass skipped: another removal is in progress');
-      return;
-    }
-    if (globalState.installationInProgress) {
-      log.info('Give-up-an-app pass skipped: an installation is in progress');
-      return;
-    }
-
     // Which components this node is actually running, read once for the pass
     // rather than once per app. Only the g: ones matter downstream: a node not
     // running the writer component cannot be the writer, which is what lets the
@@ -4520,7 +4411,6 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
   if (!await mayTearDownToRebuild(appSpecifications, null, op)) {
     return;
   }
-  globalState.reinstallationOfOldAppsInProgress = true;
 
   // A DIFFERENT OWNER ON A NAME WHOSE INSTALLED TERM HAD ENDED is a new
   // registration of a released name, not the old app updated. The expiry
@@ -4858,28 +4748,11 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
  * @returns {Promise<void>} Completion status
  */
 async function reinstallOldApplications() {
-  // This pass is not re-entrant, and everything around it already knows that:
-  // forceAppRemovals stands aside on reinstallationOfOldAppsInProgress, as do
-  // the soft and hard redeploy paths on theirs. What was missing is this
-  // function standing aside for ITSELF, which that flag cannot do - see
-  // reinstallPassLock. It is started fire-and-forget from the block scanner, so
-  // a pass that outlives the gap between blocks is simply run again on top of
-  // itself.
-  //
-  // Two passes on one app destroy it. Observed: the first soft-uninstalled a
-  // component and was sleeping out composedDelay before reinstalling it; the
-  // second started on the same app, asked docker to remove the container the
-  // first had already begun removing, and got `(HTTP code 409) removal of
-  // container ... is already in progress`. That throw lands in the redeployment
-  // catch below, whose cleanup force-removes the ENTIRE app - so when the first
-  // pass woke and tried to install, it was refused with "Another application is
-  // undergoing removal" and the app was left deleted with nothing to put it
-  // back. A specification update is an ordinary thing to do to a running app.
-  //
-  // Skipped rather than queued: the scanner runs this again on a later block,
-  // and the app is still obsolete then, so the work is not lost by declining it
-  // now. The lock cannot strand a later pass - it is released in a finally, so
-  // no return or throw inside the body can leave it held.
+  // One pass at a time. It is started fire-and-forget from the block scanner, so
+  // a pass that outlives the gap between blocks would otherwise run again on top
+  // of itself. Skipped rather than queued: the scanner runs this again on a later
+  // block, and the app is still obsolete then. Released in a finally, so no return
+  // or throw inside the body can leave it held.
   if (reinstallPassLock.locked) {
     log.info('reinstallOldApplications - a reinstall pass is already running, leaving this block to it');
     return;
@@ -4958,15 +4831,8 @@ async function reinstallOldApplications() {
     log.error(error);
   } finally {
     reinstallPassLock.disable();
-    // Cleared here rather than at each exit: the signal is raised inside the
-    // loop, on a path that can return or throw from several places, and a leaked
-    // true would make every neighbour stand aside indefinitely.
-    globalState.reinstallationOfOldAppsInProgress = false;
     fluxEventBus.publish('reinstall:passEnded', {});
-    // ASKED ONCE THIS PASS IS OVER, because both of them uninstall and what holds them
-    // apart is the node's install and removal flags: a removal the sweep attempts while
-    // this pass holds those is refused, and goes onto the sweep's backoff rather than
-    // being taken.
+    // Asked once this pass is over, so the sweep judges what the pass left installed.
     //
     // One request for the whole set: a scoped request coalesces into a full pass once
     // another is in flight, so asking per application buys nothing.
@@ -4989,28 +4855,6 @@ async function reinstallOldApplications() {
 async function forceAppRemovals() {
   try {
     log.info('Executing forceAppRemovals.');
-
-    // Skip if any installation or removal operations are in progress
-    if (globalState.removalInProgress) {
-      log.info('Skipping forceAppRemovals: Another application removal is in progress');
-      return;
-    }
-    if (globalState.installationInProgress) {
-      log.info('Skipping forceAppRemovals: Another application installation is in progress');
-      return;
-    }
-    if (globalState.softRedeployInProgress) {
-      log.info('Skipping forceAppRemovals: Soft redeploy is in progress');
-      return;
-    }
-    if (globalState.hardRedeployInProgress) {
-      log.info('Skipping forceAppRemovals: Hard redeploy is in progress');
-      return;
-    }
-    if (globalState.reinstallationOfOldAppsInProgress) {
-      log.info('Skipping forceAppRemovals: Reinstallation of old apps is in progress');
-      return;
-    }
 
     // Import services to match original business logic where everything was in the same file
     // eslint-disable-next-line global-require
@@ -5336,9 +5180,7 @@ async function masterSlaveApps(globalStateParam, installedApps, https) {
   try {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
-    // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
-    if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress
-      || globalStateParam.shutdownInProgress) {
+    if (globalStateParam.shutdownInProgress) {
       return;
     }
 
@@ -5447,10 +5289,10 @@ async function masterSlaveApps(globalStateParam, installedApps, https) {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       let fdmOk = true;
-      const backupSkip = globalStateParam.backupInProgress.some((backupItem) => installedApp.name === backupItem);
-      const restoreSkip = globalStateParam.restoreInProgress.some((backupItem) => installedApp.name === backupItem);
-      if (backupSkip || restoreSkip) {
-        log.info(`masterSlaveApps: Backup/Restore is running for ${installedApp.name}, syncthing masterSlave check is disabled for that app`);
+      // An app an operation holds is passed over: the operation builds, stops or
+      // tears down what the election would start or stand down.
+      if (globalStateParam.heldApps.includes(installedApp.name)) {
+        log.info(`masterSlaveApps: an operation holds ${installedApp.name}; not elected this pass`);
         fluxEventBus.count('masterSlave:decision', installedApp.name, 'skippedBusy');
         // eslint-disable-next-line no-continue
         continue;
@@ -6044,12 +5886,6 @@ module.exports = {
   appendBackupTask,
   appendRestoreTask,
   validateApplicationUpdateCompatibility,
-  setRemovalInProgress,
-  getInstallationInProgress,
-  getRemovalInProgress,
-  removalInProgressReset,
-  setRemovalInProgressToTrue,
-  installationInProgressReset,
   checkAndRemoveApplicationInstance,
   reasonToGiveUpApp,
   isElectedPrimaryHere,

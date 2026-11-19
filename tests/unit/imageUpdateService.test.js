@@ -103,12 +103,6 @@ describe('imageUpdateService tests', () => {
     logStub.error.reset();
     logStub.debug.reset();
 
-    // Reset globalState
-    globalStateStub.removalInProgress = false;
-    globalStateStub.installationInProgress = false;
-    globalStateStub.softRedeployInProgress = false;
-    globalStateStub.hardRedeployInProgress = false;
-
     // Reset mock verifier state
     mockVerifierParseError = false;
     mockVerifierError = false;

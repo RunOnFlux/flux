@@ -120,6 +120,13 @@ function listByType(type) {
 }
 
 /**
+ * @returns {string[]} The apps an operation holds.
+ */
+function listHeld() {
+  return [...leases.keys()];
+}
+
+/**
  * Asks the operation holding the app to stop: its signal aborts, with an
  * OperationPreemptedError naming `by` as the reason.
  * @param {string} key
@@ -309,6 +316,7 @@ module.exports = {
   get,
   isHeld,
   listByType,
+  listHeld,
   preempt,
   signalOf,
   throwIfPreempted,

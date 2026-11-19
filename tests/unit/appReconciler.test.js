@@ -1027,7 +1027,7 @@ describe('appReconciler tests', () => {
 
     it('acts on its app while another app is installed or redeployed', async () => {
       operationRegistry.acquire('OtherApp', 'redeploy', 'test');
-      stubs.globalState.installationInProgress = true;
+      operationRegistry.acquire('ThirdApp', 'install', 'test');
       await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
     });

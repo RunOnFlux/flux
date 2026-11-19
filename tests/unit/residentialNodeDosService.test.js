@@ -10,6 +10,7 @@ const { StickyDosOwner } = require('../../ZelBack/src/services/nodeDosState');
 const { EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
 const { CLASSIFICATION } = require('../../ZelBack/src/services/utils/networkClassifier');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 
 describe('residentialNodeDosService tests', () => {
   const OWNER = StickyDosOwner.RESIDENTIAL_DOS;
@@ -21,7 +22,6 @@ describe('residentialNodeDosService tests', () => {
   let dbHelperStub;
   let markerStore;
   let applyUpdate;
-  let globalStateStub;
   let deps;
   let installedApps;
 
@@ -52,7 +52,6 @@ describe('residentialNodeDosService tests', () => {
       './nodeDosState': fluxNetworkHelperStub,
       './geolocationService': geolocationServiceStub,
       './benchmarkService': benchmarkServiceStub,
-      './utils/globalState': globalStateStub,
       // A private emitter per load. The service registers its readiness
       // listeners at module top level - deliberately, so the listener exists
       // before SPAWNER_READY can fire, which appSpawner's registration inside
@@ -97,9 +96,9 @@ describe('residentialNodeDosService tests', () => {
       getBenchmarks: sinon.stub().resolves({ status: 'success', data: { systemsecure: false } }),
     };
 
-    // An install in flight is real before its database record exists, so the
-    // empty check reads this rather than trusting an ordering in another file.
-    globalStateStub = resetGlobalState();
+    // Empties the operation registry: an install in flight holds its app there
+    // before its database record exists, and the empty check reads it.
+    resetGlobalState();
 
     // The settle marker lives in mongo, so the double has to remember it across
     // a reload - surviving a restart is the whole point of that field.
@@ -739,14 +738,14 @@ describe('residentialNodeDosService tests', () => {
     });
 
     it('does not DOS an apparently empty node while an install is in flight', async () => {
-      // The placement hold stops the spawner taking anything NEW, but not an
-      // install already running - and an install is real from
-      // installationProgress some way before its database record exists for the
-      // app list to see.
+      // The placement hold stops the spawner taking anything new, but not an
+      // install already running, which holds its app before its database record
+      // exists for the app list to see.
       installedApps = [];
-      globalStateStub.installationInProgress = true;
+      const install = operationRegistry.acquire('arrivingapp', 'install', 'test');
 
       const { decided } = await service.enforceResidentialPolicy(deps);
+      operationRegistry.release('arrivingapp', install);
 
       expect(decided).to.equal(false);
       expect(service.isDosActive()).to.equal(false);
@@ -754,9 +753,20 @@ describe('residentialNodeDosService tests', () => {
 
     it('DOSes an empty node once no install is in flight', async () => {
       installedApps = [];
-      globalStateStub.installationInProgress = false;
+      const install = operationRegistry.acquire('arrivingapp', 'install', 'test');
+      operationRegistry.release('arrivingapp', install);
 
       await service.enforceResidentialPolicy(deps);
+
+      expect(service.isDosActive()).to.equal(true);
+    });
+
+    it('DOSes an empty node while another kind of operation holds an app', async () => {
+      installedApps = [];
+      const backup = operationRegistry.acquire('leavingapp', 'backup', 'test');
+
+      await service.enforceResidentialPolicy(deps);
+      operationRegistry.release('leavingapp', backup);
 
       expect(service.isDosActive()).to.equal(true);
     });
