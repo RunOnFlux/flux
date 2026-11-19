@@ -1,18 +1,19 @@
-// One owner for every operation on an app: a lease keyed by the app's name, held
-// by an install, a removal, a redeploy, a backup, a restore or an owner's start,
-// stop or restart of that app from its start until it ends. run() takes the app
-// for an operation; when another holds it, the arriving operation's rule decides:
-//   - a removal stops the holder at its next step (preempt) and runs once it is
-//     released; a removal arriving while one is pending or running gets that
-//     removal's outcome;
-//   - a backup, a restore or an owner action is refused;
-//   - a redeploy or an install runs once the holder is released, and is refused
-//     while a removal is pending or running.
-// A step of an operation - a redeploy's removal and install - runs under that
-// operation, passed as `parent`, never as a second operation. The app is released
-// when its operation ends, on every exit, and every wait ends on that release;
-// nothing is released on a timer. In memory only: after a restart no operation is
-// in progress.
+// A manager per app: every operation on an app - an install, a removal, a
+// redeploy, a backup, a restore, an owner's start, stop or restart - is sent to
+// the app's manager with submit(), which runs them one at a time and releases the
+// app when each ends, on every exit. Nothing is released on a timer. When the app
+// is busy, the arriving operation's rule decides:
+//   - a removal stops the running operation at its next step (preempt), refuses
+//     what is pending, and runs next; a removal arriving while one is pending or
+//     running gets that removal's outcome;
+//   - a redeploy or an install waits in the app's manager and runs once the app
+//     is free; a pending one of the same type takes the newest, and every caller
+//     gets its outcome; refused while a removal is pending or running;
+//   - a backup, a restore or an owner action is taken now or refused.
+// A wait is the app's own: a caller that needs no outcome sends and moves on, so
+// one app's wait never holds another. A step of an operation - a redeploy's
+// removal and install - runs under that operation, passed as `parent`. In memory
+// only: after a restart no operation is in progress.
 
 // What each operation is called in a refusal.
 const OPERATION_NAMES = Object.freeze({
@@ -44,6 +45,8 @@ class OperationRefusedError extends Error {
 
 // key -> { type, owner, token, controller, waiters }
 const leases = new Map();
+// key -> the operations waiting for the app, in the order they run
+const queues = new Map();
 // key -> the outcome of the removal pending or running on the app
 const removals = new Map();
 let nextToken = 0;
@@ -77,6 +80,8 @@ function release(key, token) {
   if (!lease || !token || lease.token !== token) return false;
   leases.delete(key);
   lease.waiters.forEach((resolve) => resolve());
+  // eslint-disable-next-line no-use-before-define
+  startNext(key);
   return true;
 }
 
@@ -147,19 +152,54 @@ function throwIfPreempted(signal) {
 }
 
 /**
- * What an arriving operation does when another holds the app. A removal pending
- * or running refuses every other operation before this is asked.
- * @param {string} type The arriving operation.
- * @returns {'preempt'|'wait'|'refuse'}
+ * Runs `entry` holding the app: takes the app now, calls the entry's newest `fn`
+ * once the take is done, and settles the entry with what it returns.
+ * @param {string} key
+ * @param {object} entry
  */
-function ruleFor(type) {
-  if (type === 'remove') return 'preempt';
-  if (type === 'redeploy' || type === 'install') return 'wait';
-  return 'refuse';
+function start(key, entry) {
+  const token = acquire(key, entry.type, entry.owner);
+  const op = {
+    key, type: entry.type, token, signal: signalOf(key, token),
+  };
+  (async () => {
+    try {
+      await null;
+      entry.resolve(await entry.fn(op));
+    } catch (error) {
+      entry.reject(error);
+    } finally {
+      release(key, token);
+    }
+  })();
 }
 
 /**
- * Takes the app, runs `fn` holding it, and releases it when `fn` settles.
+ * Starts the app's next waiting operation, when the app is free.
+ * @param {string} key
+ */
+function startNext(key) {
+  if (leases.has(key)) return;
+  const queue = queues.get(key);
+  const next = queue?.shift();
+  if (!queue?.length) queues.delete(key);
+  if (next) start(key, next);
+}
+
+function entryFor(type, fn, owner) {
+  const entry = { type, fn, owner };
+  entry.promise = new Promise((resolve, reject) => {
+    entry.resolve = resolve;
+    entry.reject = reject;
+  });
+  // A caller that sends and moves on reads no outcome; one that awaits still
+  // receives the rejection.
+  entry.promise.catch(() => {});
+  return entry;
+}
+
+/**
+ * Sends an operation to the app's manager.
  * @param {string} key The app's name.
  * @param {string} type 'install' | 'remove' | 'redeploy' | 'backup' | 'restore' | 'control'.
  * @param {function({key: string, type: string, token: string, signal: AbortSignal}): Promise<*>} fn
@@ -169,12 +209,13 @@ function ruleFor(type) {
  * @param {string} [options.owner] The calling site, for diagnostics.
  * @param {object} [options.parent] The operation this one is a step of: `fn`
  *   runs under the parent's hold, with the parent's op.
- * @param {function({holder: string, preempted: boolean}): void} [options.onWait]
- *   Told each time the operation waits on a holder, before it waits.
- * @returns {Promise<*>} What `fn` returns. Rejects with OperationRefusedError
- *   when the rule refuses, and with what `fn` throws.
+ * @param {function({holder: string}): void} [options.onWait] Told when the
+ *   operation waits for the app, before it waits.
+ * @returns {Promise<*>} What `fn` returns - for a joined removal or a coalesced
+ *   redeploy or install, what the operation that ran returns. Rejects with
+ *   OperationRefusedError when the rule refuses, and with what `fn` throws.
  */
-function run(key, type, fn, { owner = type, parent = null, onWait = null } = {}) {
+function submit(key, type, fn, { owner = type, parent = null, onWait = null } = {}) {
   if (parent) {
     const lease = leases.get(key);
     if (!lease || lease.token !== parent.token) {
@@ -187,42 +228,50 @@ function run(key, type, fn, { owner = type, parent = null, onWait = null } = {})
     }
     return Promise.resolve().then(() => fn(parent));
   }
-  if (type === 'remove' && removals.has(key)) return removals.get(key);
-  if (type !== 'remove' && removals.has(key)) return Promise.reject(new OperationRefusedError(key, 'remove'));
-
-  const admitted = (async () => {
-    let lease = leases.get(key);
-    while (lease) {
-      const rule = ruleFor(type);
-      if (rule === 'refuse') throw new OperationRefusedError(key, lease.type);
-      if (rule === 'preempt') preempt(key, OPERATION_NAMES[type]);
-      if (onWait) onWait({ holder: lease.type, preempted: rule === 'preempt' });
-      // eslint-disable-next-line no-await-in-loop
-      await whenReleased(key);
-      if (type !== 'remove' && removals.has(key)) throw new OperationRefusedError(key, 'remove');
-      lease = leases.get(key);
-    }
-    const token = acquire(key, type, owner);
-    const op = {
-      key, type, token, signal: signalOf(key, token),
-    };
-    try {
-      return await fn(op);
-    } finally {
-      release(key, token);
-    }
-  })();
-  if (type === 'remove') {
-    removals.set(key, admitted);
-    const forget = () => { if (removals.get(key) === admitted) removals.delete(key); };
-    admitted.then(forget, forget);
+  if (removals.has(key)) {
+    return type === 'remove' ? removals.get(key) : Promise.reject(new OperationRefusedError(key, 'remove'));
   }
-  return admitted;
+  const holder = leases.get(key)?.type;
+
+  if (type === 'remove') {
+    const entry = entryFor(type, fn, owner);
+    (queues.get(key) || []).forEach((waiting) => waiting.reject(new OperationRefusedError(key, 'remove')));
+    queues.set(key, [entry]);
+    removals.set(key, entry.promise);
+    const forget = () => { if (removals.get(key) === entry.promise) removals.delete(key); };
+    entry.promise.then(forget, forget);
+    if (holder) {
+      preempt(key, OPERATION_NAMES.remove);
+      if (onWait) onWait({ holder });
+    }
+    startNext(key);
+    return entry.promise;
+  }
+
+  if (type === 'redeploy' || type === 'install') {
+    const queue = queues.get(key) || [];
+    const pending = queue.find((waiting) => waiting.type === type);
+    if (pending) {
+      pending.fn = fn;
+      return pending.promise;
+    }
+    const entry = entryFor(type, fn, owner);
+    queues.set(key, [...queue, entry]);
+    if (holder && onWait) onWait({ holder });
+    startNext(key);
+    return entry.promise;
+  }
+
+  if (holder) return Promise.reject(new OperationRefusedError(key, holder));
+  const entry = entryFor(type, fn, owner);
+  start(key, entry);
+  return entry.promise;
 }
 
 // Drops every lease, resolving their waiters. For tests.
 function clear() {
   removals.clear();
+  queues.clear();
   const held = [...leases.values()];
   leases.clear();
   held.forEach((lease) => lease.waiters.forEach((resolve) => resolve()));
@@ -232,7 +281,7 @@ module.exports = {
   OPERATION_NAMES,
   OperationPreemptedError,
   OperationRefusedError,
-  run,
+  submit,
   acquire,
   release,
   get,
