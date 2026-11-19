@@ -189,6 +189,25 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.calledOnceWithExactly(removeAppLocally, 'failedsoftapp', res, true, false, true, { parent: null });
     });
 
+    it('leaves an install a removal stopped to that removal, removing nothing', async () => {
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new operationRegistry.OperationPreemptedError('stoppedapp', 'removal'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      let thrown = null;
+      await advancedWorkflows.softRegisterAppLocally({
+        name: 'stoppedapp', version: 4, compose: [{ name: 'web', containerData: '/data', cpu: 0.5, ram: 500, hdd: 5 }],
+      }, false, makeRes()).catch((error) => { thrown = error; });
+
+      expect(thrown).to.be.instanceOf(operationRegistry.OperationPreemptedError);
+      sinon.assert.notCalled(removeAppLocally);
+    });
+
     it('does not release a hold it never took', async () => {
       // Refused because another install owns the node. Lowering the flag here
       // hands the node to the next caller while that install is still running.
@@ -8186,10 +8205,12 @@ describe('advancedWorkflows tests', () => {
       dbHelper.findOneInDatabase.resolves({ ...v3, hash: 'newhash', repotag: 'nginx:2.0' });
       const soft = sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
       // eslint-disable-next-line global-require
-      sinon.stub(require('../../ZelBack/src/services/appLifecycle/appInstaller'), 'installApplicationSoft').resolves();
+      const install = sinon.stub(require('../../ZelBack/src/services/appLifecycle/appInstaller'), 'installApplicationSoft').resolves();
 
       await advancedWorkflows.reinstallOldApplications();
 
+      // the install stops when a removal stops the pass's redeploy of the app
+      sinon.assert.calledWith(install, sinon.match.any, 'myapp', false, null, sinon.match.any, { signal: sinon.match.instanceOf(AbortSignal) });
       sinon.assert.calledOnce(soft);
       expect(soft.firstCall.args[1]).to.equal(dockerService.getAppIdentifier('myapp'));
       expect(soft.firstCall.args[4]).to.equal(stopAppMonitoring);

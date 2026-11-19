@@ -47,6 +47,7 @@ const hwRequirements = require('../appRequirements/hwRequirements');
 const config = require('config');
 const fluxEventBus = require('../utils/fluxEventBus');
 const volumeService = require('../utils/volumeService');
+const operationRegistry = require('../utils/operationRegistry');
 const { Privilege, authOf } = require('../utils/privileges');
 
 // Legacy apps that use old gateway IP assignment method
@@ -174,9 +175,11 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
  * @param {boolean} isComponent - Whether this is a component
  * @param {object} res - Response object for streaming
  * @param {object} fullAppSpecs - Full app specifications
+ * @param {object} [options]
+ * @param {AbortSignal} [options.signal] - Ends the pull when aborted
  * @returns {Promise<void>}
  */
-async function verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+async function verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, { signal = null } = {}) {
   // check image and its architecture
   const architecture = await systemArchitecture();
   if (!supportedArchitectures.includes(architecture)) {
@@ -238,6 +241,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   pullConfig.provider = imgVerifier.provider;
 
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_BEFORE_PULL, appName);
+  if (signal) pullConfig.signal = signal;
   // eslint-disable-next-line no-unused-vars
   await dockerService.pullImage(pullConfig, res);
 
@@ -619,14 +623,15 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
           appComponentSpecs.ram = test ? 300 : appComponentSpecs[ramTier] || appComponentSpecs.ram;
           appComponentSpecs.hdd = test ? 2 : appComponentSpecs[hddTier] || appComponentSpecs.hdd;
           // eslint-disable-next-line no-await-in-loop, no-use-before-define
-          await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test);
+          await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test, { signal: parent?.signal });
         }
       } else {
         // eslint-disable-next-line no-use-before-define
-        await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
+        await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test, { signal: parent?.signal });
       }
     } catch (error) {
-      if (!test) {
+      // An install a removal stopped is that removal's to take down and tell.
+      if (!test && !(error instanceof operationRegistry.OperationPreemptedError)) {
         const errorResponse = messageHelper.createErrorMessage(
           error.message || error,
           error.name,
@@ -683,6 +688,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
+    if (error instanceof operationRegistry.OperationPreemptedError) throw error;
 
     if (!test) {
       const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
@@ -766,19 +772,36 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
  * @param {boolean} [sendRemovalMessage] Whether a teardown announces itself.
  * @param {object} [options]
  * @param {object} [options.parent] The operation this install is a step of.
- * @returns {Promise<string>} One of InstallOutcome.
+ * @param {boolean} [options.wait] False refuses the install, as BUSY, while another
+ *   operation holds the app, for a caller whose next round asks again.
+ * @returns {Promise<string>} One of InstallOutcome. The install is sent to the
+ *   app's manager; refused there, it is BUSY.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false, { parent = null } = {}) {
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false, { parent = null, wait = true } = {}) {
   await fluxosTrial.settled();
   // Published for every outcome but INSTALLED, which has app:installed of its own.
   const announce = (outcome) => {
     if (test || outcome === InstallOutcome.INSTALLED) return;
     fluxEventBus.publish('app:installOutcome', { name: appSpecs?.name, outcome });
   };
+  const attempt = (op) => attemptRegisterAppLocally(appSpecs, componentSpecs, res, test, sendRemovalMessage, { parent: op });
   let outcome;
   try {
-    outcome = await attemptRegisterAppLocally(appSpecs, componentSpecs, res, test, sendRemovalMessage, { parent });
+    outcome = appSpecs?.name
+      ? await operationRegistry.submit(appSpecs.name, 'install', attempt, {
+        parent, wait, owner: test ? 'test install' : 'install',
+      })
+      : await attempt(null);
   } catch (error) {
+    if (error instanceof operationRegistry.OperationRefusedError) {
+      log.warn(`registerAppLocally - ${error.message}`);
+      if (res) {
+        res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(error.message)));
+        if (res.flush) res.flush();
+      }
+      announce(InstallOutcome.BUSY);
+      return InstallOutcome.BUSY;
+    }
     announce(InstallOutcome.FAILED);
     throw error;
   }
@@ -873,9 +896,12 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
  * @param {object} res - Response object
  * @param {object} fullAppSpecs - Full app specifications
  * @param {boolean} test - Whether this is a test installation
+ * @param {object} [options]
+ * @param {AbortSignal} [options.signal] - The operation's: the install stops at its
+ *   next step, and its pull at once, when it aborts
  * @returns {Promise<void>} Installation result
  */
-async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
+async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false, { signal = null } = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
   // installed locally and owned by the same owner. Enforced here too — not just
   // in registerAppLocally — so direct callers that bypass it (container health
@@ -887,11 +913,13 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
 
   // Verify and pull Docker image
-  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
+  operationRegistry.throwIfPreempted(signal);
+  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, { signal });
 
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const advancedWorkflows = require('./advancedWorkflows');
+  operationRegistry.throwIfPreempted(signal);
   await advancedWorkflows.createAppVolume(appSpecifications, appName, isComponent, res);
 
   // Verify that the volume was mounted successfully
@@ -927,6 +955,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // Mount paths must exist before the container is created (Syncthing cleanup can
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
+  operationRegistry.throwIfPreempted(signal);
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   // Attach this component to the private network of every app it is linked with
@@ -934,6 +963,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   const componentContainerName = dockerService.getAppIdentifier(isComponent ? `${appSpecifications.name}_${appName}` : appName);
   await appNetworkLinker.connectComponentToLinkedApps(componentContainerName, fullAppSpecs);
 
+  operationRegistry.throwIfPreempted(signal);
   const startStatus = {
     status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
   };
@@ -978,9 +1008,11 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {object} [options]
  * @param {boolean} [options.start] False creates the container without starting
  *   it, for a caller whose next reconcile pass starts it.
+ * @param {AbortSignal} [options.signal] - The operation's: the install stops at its
+ *   next step, and its pull at once, when it aborts
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, { start = true } = {}) {
+async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, { start = true, signal = null } = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
   // installed locally and owned by the same owner. Enforced here too — not just
   // in softRegisterAppLocally — so direct callers that bypass it (container
@@ -992,7 +1024,9 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   await setupApplicationPorts(appSpecifications, appName, isComponent, res);
 
   // Verify and pull Docker image
-  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
+  operationRegistry.throwIfPreempted(signal);
+  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, { signal });
+  operationRegistry.throwIfPreempted(signal);
 
   const createApp = {
     status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,

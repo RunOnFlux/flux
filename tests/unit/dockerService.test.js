@@ -2615,6 +2615,31 @@ describe('dockerService tests', () => {
       sinon.assert.calledOnce(cb);
     });
 
+    it('ends a pull when its caller\'s signal aborts, with the signal\'s reason, and aborts its transfer', () => {
+      const cb = sinon.stub();
+      const controller = new AbortController();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', stallMs: 50, signal: controller.signal }, null, cb);
+      const reason = new Error('stopped for its removal');
+      controller.abort(reason);
+
+      sinon.assert.calledOnceWithExactly(cb, reason, undefined);
+      expect(pullStub.firstCall.args[1].abortSignal.aborted, 'the transfer is aborted').to.equal(true);
+      onFinished(new Error('aborted'));
+      sinon.assert.calledOnce(cb);
+    });
+
+    it('starts no pull whose caller\'s signal has already aborted', () => {
+      const cb = sinon.stub();
+      const controller = new AbortController();
+      const reason = new Error('stopped for its removal');
+      controller.abort(reason);
+
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', signal: controller.signal }, null, cb);
+
+      sinon.assert.calledOnceWithExactly(cb, reason, undefined);
+      sinon.assert.notCalled(pullStub);
+    });
+
     it('lets a pull whose layers keep moving run for as long as it takes', () => {
       const cb = sinon.stub();
       dockerService.dockerPullStream({ repoTag: 'nginx:latest', stallMs: 50 }, null, cb);
