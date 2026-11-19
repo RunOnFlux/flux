@@ -183,6 +183,9 @@ describe('syncthingService tests', () => {
     const MAX_PAGES = 16;
     const entry = (i) => ({ name: `f${i}`, type: 'FILE_INFO_TYPE_FILE', size: 1, deleted: false, modified: '2026-09-16T10:00:00Z' });
     const pageOf = (n) => Array.from({ length: n }, (_, i) => entry(i));
+    // One full page, served for every full page a case needs: the walk decides on a
+    // page's length, so the same entries stand for any page number.
+    const fullPage = pageOf(PAGE);
 
     let pagesServed;
     let pathsRequested;
@@ -227,7 +230,7 @@ describe('syncthingService tests', () => {
     });
 
     it('reads on while a page comes back full, and hands over every entry', async () => {
-      serve((p) => (p <= 2 ? pageOf(PAGE) : pageOf(7)));
+      serve((p) => (p <= 2 ? fullPage : pageOf(7)));
 
       const { seen, outcome } = await collect();
 
@@ -240,7 +243,7 @@ describe('syncthingService tests', () => {
     it('stops on a page with no list at all, which is how an exact multiple ends', async () => {
       // A folder holding exactly one page answers the second request with no list
       // rather than an empty one. That is the end, not a failure.
-      serve((p) => (p === 1 ? pageOf(PAGE) : null));
+      serve((p) => (p === 1 ? fullPage : null));
 
       const { seen, outcome } = await collect();
 
@@ -266,7 +269,7 @@ describe('syncthingService tests', () => {
       // How many entries exist is the app's to choose - it writes the files. The
       // walk hands each page over and keeps none of it, so a folder of any size
       // costs this process the same.
-      serve((p) => (p <= 3 ? pageOf(PAGE) : pageOf(1)));
+      serve((p) => (p <= 3 ? fullPage : pageOf(1)));
 
       const batchSizes = [];
       await syncthingService.eachDbLocalChanged('fluxapp_x', (batch) => { batchSizes.push(batch.length); });
@@ -278,7 +281,9 @@ describe('syncthingService tests', () => {
       // Every one of these requests is paid again on the next monitor pass, so a
       // folder large enough would make the pass itself the expense. The bound is
       // ours rather than the app's, and what was counted is reported as partial.
-      serve(() => pageOf(PAGE));
+      // The folder ends one page past the bound, so a walk that ignores the bound
+      // still ends.
+      serve((p) => (p <= MAX_PAGES + 1 ? fullPage : pageOf(1)));
 
       const { seen, outcome } = await collect();
 
