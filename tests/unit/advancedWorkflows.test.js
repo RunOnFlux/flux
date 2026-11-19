@@ -7576,6 +7576,23 @@ describe('advancedWorkflows tests', () => {
       globalState.removalInProgress = false;
     });
 
+    it('hard redeploy reinstalls the component as a step of the redeploy', async () => {
+      sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.hardRedeployComponent('myapp', 'web', null);
+
+      sinon.assert.calledWith(
+        appInstaller.registerAppLocally,
+        sinon.match.any,
+        sinon.match({ name: 'web' }),
+        null,
+        false,
+        false,
+        { parent: sinon.match({ key: 'myapp', type: 'redeploy' }) },
+      );
+    });
+
     it('soft redeploy tears down the component by its docker id, under the bare app name', async () => {
       const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();

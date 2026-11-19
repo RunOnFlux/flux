@@ -2122,7 +2122,7 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
 
       // Register component
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
-      const outcome = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
+      const outcome = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res, false, false, { parent: op });
       if (outcome !== InstallOutcome.INSTALLED) {
         // Neither outcome reaches the catch below, which would uninstall the
         // WHOLE app over one component: a scheduling collision is not grounds
