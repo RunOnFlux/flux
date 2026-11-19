@@ -525,6 +525,7 @@ describe('appUninstaller tests', () => {
           clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
+          getBaseAppName: sinon.stub().returnsArg(0),
         },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
@@ -693,6 +694,7 @@ describe('appUninstaller tests', () => {
           appDockerRemove: sinon.stub().resolves(),
           clearFluxRemovedContainers: sinon.stub(),
           getAppIdentifier: sinon.stub().returns('testapp'),
+          getBaseAppName: sinon.stub().returnsArg(0),
         },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
@@ -1708,6 +1710,7 @@ describe('appUninstaller tests', () => {
       });
 
       const res = {
+          getBaseAppName: sinon.stub().returnsArg(0),
         write: sinon.stub(),
         end: sinon.stub(),
       };
