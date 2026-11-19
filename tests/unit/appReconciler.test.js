@@ -1000,7 +1000,7 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
     });
 
-    // A backup or restore holds its app's components through drive(), and the
+    // A backup or restore holds its app's components through holdStopped, and the
     // reconciler keeps acting on them: its claim alone stands nothing aside.
     describe('an operation hold', () => {
       const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
