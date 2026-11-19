@@ -3,7 +3,8 @@
  * cannot see: an owner's start, stop or restart while a restore holds the app is refused and leaves
  * the restore's record as the restore wrote it; two removals of one app asked at once run one
  * teardown and answer both; a removal stops a redeploy held before its image pull and removes the
- * app; a removal stops a backup whose tar is running; and a second app installs while a first
+ * app; a removal stops a backup whose tar is running and nothing starts the app before it is
+ * removed; and a second app installs while a first
  * app's install is held, because no node-wide lock stands between installs of different apps.
  *
  * Every meeting is made by holding the first operation at a checkpoint, or, for the running tar,
@@ -167,6 +168,10 @@ describe('an operation on an app meets another', function () {
     await waitFor(async () => !(await tarRunning()), { timeout: 120000, interval: 500, label: 'the archive is ended' });
     await removing;
     await removed(appName);
+
+    const started = client().getEventBuffer().filter((e) => e.id > mark && e.event === 'reconciler:actuated'
+      && e.data?.identifier === `${appName}_${appName}` && e.data?.action === 'started');
+    expect(started, 'the component was started between the stopped backup and its removal').to.have.lengthOf(0);
   });
 
   it('installs a second app while a first app\'s install is held', async function () {

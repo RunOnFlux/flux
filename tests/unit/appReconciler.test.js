@@ -1025,6 +1025,22 @@ describe('appReconciler tests', () => {
       });
     });
 
+    // A removal stops the backup holding the app, and the backup lifts its hold
+    // before it releases the app: the pass that lifting causes starts nothing.
+    it('defers while a removal of its app waits for the operation it stopped', async () => {
+      const token = operationRegistry.acquire('App', 'backup', 'test');
+      let finishRemoval;
+      const removal = operationRegistry.submit('App', 'remove', () => new Promise((resolve) => { finishRemoval = resolve; }));
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStart.called, 'started the app its removal waits for').to.be.false;
+      operationRegistry.release('App', token);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      finishRemoval('removed');
+      await removal;
+    });
+
     it('acts on its app while another app is installed or redeployed', async () => {
       operationRegistry.acquire('OtherApp', 'redeploy', 'test');
       operationRegistry.acquire('ThirdApp', 'install', 'test');
