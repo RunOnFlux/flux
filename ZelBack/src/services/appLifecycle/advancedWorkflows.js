@@ -3048,8 +3048,8 @@ async function appendBackupTask(req, res) {
       await setSyncthingFolderPaused(folderId, false);
     }
     await sendChunk(res, `${error?.message}\n`);
-    // The response ends once the app is back where its other inputs put it, so a
-    // caller that sees it end can start the next operation on the app.
+    // The hold is lifted before the response ends, so a caller that sees it end
+    // can start the next operation on the app.
     if (heldIds.length) {
       const releasing = heldIds;
       heldIds = [];
@@ -3509,8 +3509,8 @@ async function appendRestoreTask(req, res) {
       ? `. ${swapInFlight.name.toLowerCase()} is kept stopped: restore it again, or start it to keep its data as it is${swapInFlight.syncMode === 'none' ? '' : ' and send it to the other instances'}.`
       : '';
     await sendChunk(res, `${error?.message}${held}\n`);
-    // The response ends once the app is back where its other inputs put it, so a
-    // caller that sees it end can start the next operation on the app.
+    // The hold is lifted before the response ends, so a caller that sees it end
+    // can start the next operation on the app.
     if (heldIds.length) {
       const releasing = heldIds;
       heldIds = [];
