@@ -357,9 +357,8 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
   // get applications specifics from app messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
-  // Whether THIS call raised the install hold. The guards below refuse because
-  // someone else is holding the node, and a refusal must not release their hold
-  // on its way out.
+  // Whether this call marked itself as an install running. The guards below
+  // return before it does, and must not end another install's mark.
   let acquired = false;
   // Whether this node's local table has named the app during this call. The
   // announcement is built from that table, so the row is the claim, and the
@@ -378,15 +377,6 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       }
       return InstallOutcome.BUSY;
     }
-    if (globalState.installationInProgress) {
-      const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
-      return InstallOutcome.BUSY;
-    }
     // A pending removal of the app removes whatever is installed in its place, so
     // the app takes no install until that removal has finished.
     if (globalState.departingApps.has(appSpecs.name)) {
@@ -398,8 +388,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       }
       return InstallOutcome.BUSY;
     }
-    globalState.installationInProgress = true;
-    globalState.installingApp = appSpecs.name;
+    globalState.beginInstallation();
     acquired = true;
     // A test install holds nothing: it writes the app's row like any other install
     // and throws it away, so the announcement must not read that row as a claim.
@@ -482,6 +471,22 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         if (res.flush) res.flush();
       }
       return InstallOutcome.ALREADY_INSTALLED;
+    }
+
+    if (!test) {
+      // Room on the node for the app, reserved until the operation holding it ends;
+      // an install that no longer fits touches nothing.
+      try {
+        await hwRequirements.admitApp(appSpecs);
+      } catch (error) {
+        const rStatus = messageHelper.createErrorMessage(error.message);
+        log.error(rStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(rStatus));
+          if (res.flush) res.flush();
+        }
+        return InstallOutcome.DECLINED;
+      }
     }
 
     // Lazy-load appQueryService to avoid circular dependency issues
@@ -711,11 +716,10 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
-    // THE ONE PLACE THE HOLD IS RELEASED, so every way out of this function releases
-    // it - including the early returns above. A path that leaves without releasing
-    // costs the node every install, redeploy, spawn and reinstall pass it is offered
-    // until FluxOS restarts.
-    if (acquired) globalState.installationInProgress = false;
+    // THE ONE PLACE THE MARK IS ENDED, so every way out of this function ends it -
+    // including the early returns above. A mark left standing holds back every
+    // whole-node pass that waits for installs, until FluxOS restarts.
+    if (acquired) globalState.endInstallation();
     portClaims.release(portClaim);
     // The mark is bound to the hold: it is set under the hold with nothing awaited
     // in between, so a call that took the hold has a mark to take back. The

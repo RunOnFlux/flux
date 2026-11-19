@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 
 describe('nodeStatusMonitor tests', () => {
   let nodeStatusMonitor;
@@ -516,84 +517,32 @@ describe('nodeStatusMonitor tests', () => {
       sinon.assert.calledWithMatch(logStub.error, /stuck was not removed within 300s, moving on/);
     });
 
-    describe('with an install running', () => {
-      const listings = (...lists) => {
-        const stub = sinon.stub();
-        lists.forEach((names, call) => stub.onCall(call).resolves({ status: 'success', data: names.map((name) => ({ name })) }));
-        return stub;
-      };
+    describe('with an install or redeploy running', () => {
       const removedNames = (remove) => remove.getCalls().map((call) => call.args[0]);
 
-      beforeEach(() => {
-        dos = true;
-        globalState.installationInProgress = true;
-        globalState.installingApp = 'newapp';
-      });
+      beforeEach(() => { dos = true; });
+      afterEach(() => operationRegistry.clear());
 
-      it('removes every other app, and the install\'s app once the install releases the node', async () => {
-        const remove = sinon.stub().resolves('removed');
+      ['install', 'redeploy'].forEach((type) => {
+        it(`removes an app ${type === 'install' ? 'an install' : 'a redeploy'} is putting on the node, which the table does not list yet`, async () => {
+          operationRegistry.acquire('newapp', type, 'test');
+          const remove = sinon.stub().resolves('removed');
 
-        monitor.monitorNodeStatus(listings(['oldapp', 'newapp'], ['newapp']), remove);
-        await clock.tickAsync(0);
-        expect(removedNames(remove)).to.deep.equal(['oldapp']);
+          monitor.monitorNodeStatus(installed('oldapp'), remove);
+          await clock.tickAsync(SPACING);
 
-        globalState.installationInProgress = false;
-        await clock.tickAsync(0);
-
-        expect(removedNames(remove)).to.deep.equal(['oldapp', 'newapp']);
-      });
-
-      it('leaves the install\'s app when the node is back in service by the time the install finishes', async () => {
-        const remove = sinon.stub().resolves('removed');
-
-        monitor.monitorNodeStatus(listings(['oldapp', 'newapp'], ['newapp']), remove);
-        await clock.tickAsync(0);
-        dos = false;
-        globalState.installationInProgress = false;
-        await clock.tickAsync(0);
-
-        expect(removedNames(remove)).to.deep.equal(['oldapp']);
-        sinon.assert.calledWithMatch(logStub.info, /back in service while the install of newapp ran/);
-      });
-
-      it('removes the install\'s app for whatever keeps the node out of service when the install finishes', async () => {
-        const remove = sinon.stub().resolves('removed');
-
-        monitor.monitorNodeStatus(listings(['oldapp', 'newapp'], ['newapp']), remove);
-        await clock.tickAsync(0);
-        dos = false;
-        confirmed = false;
-        globalState.installationInProgress = false;
-        await clock.tickAsync(0);
-
-        expect(removedNames(remove)).to.deep.equal(['oldapp', 'newapp']);
-        sinon.assert.calledWithMatch(logStub.info, /newapp going to be removed: node not confirmed/);
-      });
-
-      it('removes the install\'s app when the install finishes while the other apps are removed', async () => {
-        const remove = sinon.stub().resolves('removed');
-        remove.withArgs('oldapp').callsFake(async () => {
-          globalState.installationInProgress = false;
-          return 'removed';
+          expect(removedNames(remove)).to.deep.equal(['oldapp', 'newapp']);
         });
-
-        monitor.monitorNodeStatus(listings(['oldapp', 'newapp'], ['newapp']), remove);
-        await clock.tickAsync(0);
-
-        expect(removedNames(remove)).to.deep.equal(['oldapp', 'newapp']);
       });
 
-      it('leaves nothing to remove when the install took its own app back', async () => {
+      it('removes an app both installed and being redeployed once', async () => {
+        operationRegistry.acquire('app', 'redeploy', 'test');
         const remove = sinon.stub().resolves('removed');
-        const installedFn = listings(['oldapp', 'newapp'], []);
 
-        monitor.monitorNodeStatus(installedFn, remove);
-        await clock.tickAsync(0);
-        globalState.installationInProgress = false;
-        await clock.tickAsync(0);
+        monitor.monitorNodeStatus(installed('app'), remove);
+        await clock.tickAsync(SPACING);
 
-        sinon.assert.calledTwice(installedFn);
-        expect(removedNames(remove)).to.deep.equal(['oldapp']);
+        expect(removedNames(remove)).to.deep.equal(['app']);
       });
     });
 

@@ -6,11 +6,8 @@ const operationRegistry = require('./operationRegistry');
 // These need to be shared across all modules to maintain the original business logic
 
 let removalInProgress = false;
-let installationInProgress = false;
-// The app the install holding installationInProgress is for, when its holder names one.
-let installingApp = null;
-// Resolved once installationInProgress is released, for every caller waiting on it.
-let installationReleased = null;
+// The installs running: each install marks its own start and end.
+let installations = 0;
 let softRedeployInProgress = false;
 let hardRedeployInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
@@ -209,18 +206,13 @@ let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
 
 /**
- * Every write of installationInProgress comes through here, so a release is seen
- * by whoever waits on it.
+ * Marks one install running (true) or none (false), for a caller that is not an
+ * install. An install marks itself with beginInstallation and endInstallation, so
+ * one ending leaves the others marked.
  * @param {boolean} value
  */
 function setInstallationInProgress(value) {
-  installationInProgress = value;
-  if (value) return;
-  installingApp = null;
-  if (installationReleased) {
-    installationReleased.resolve();
-    installationReleased = null;
-  }
+  installations = value ? Math.max(installations, 1) : 0;
 }
 
 // Initialize cache references - this must be called after cacheManager is ready
@@ -237,26 +229,12 @@ module.exports = {
   get removalInProgress() { return removalInProgress; },
   set removalInProgress(value) { removalInProgress = value; },
 
-  get installationInProgress() { return installationInProgress; },
+  get installationInProgress() { return installations > 0; },
   set installationInProgress(value) { setInstallationInProgress(value); },
+  beginInstallation() { installations += 1; },
+  endInstallation() { installations = Math.max(0, installations - 1); },
 
-  get installingApp() { return installingApp; },
-  set installingApp(value) { installingApp = value; },
 
-  /**
-   * Resolves once no install holds the node: at once when none does, otherwise
-   * when the holder releases installationInProgress, however long it runs.
-   * @returns {Promise<void>}
-   */
-  whenInstallationReleased() {
-    if (!installationInProgress) return Promise.resolve();
-    if (!installationReleased) {
-      let resolve;
-      const promise = new Promise((done) => { resolve = done; });
-      installationReleased = { promise, resolve };
-    }
-    return installationReleased.promise;
-  },
 
   get softRedeployInProgress() { return softRedeployInProgress; },
   set softRedeployInProgress(value) { softRedeployInProgress = value; },
@@ -280,7 +258,7 @@ module.exports = {
   operationHolding(except = null) {
     const held = [
       ['removal', removalInProgress],
-      ['installation', installationInProgress],
+      ['installation', installations > 0],
       ['soft redeploy', softRedeployInProgress],
       ['hard redeploy', hardRedeployInProgress],
       ['reinstallation', reinstallationOfOldAppsInProgress],
@@ -289,7 +267,7 @@ module.exports = {
   },
 
   isOperationInProgress() {
-    return removalInProgress || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
+    return removalInProgress || installations > 0 || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
   },
 
   // Set by the graceful shutdown path and never cleared: the process exits at the

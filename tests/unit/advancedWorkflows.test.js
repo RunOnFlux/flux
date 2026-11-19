@@ -67,6 +67,8 @@ describe('advancedWorkflows tests', () => {
     sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
     // no unfinished restore holds anything, unless a test says one does
     sinon.stub(appsRuntimeState, 'isRestoreUnfinished').resolves(false);
+    // the node has room for every app, unless a test says it does not
+    sinon.stub(hwRequirements, 'admitApp').resolves();
   });
 
   afterEach(() => {
@@ -208,17 +210,37 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.notCalled(removeAppLocally);
     });
 
-    it('does not release a hold it never took', async () => {
-      // Refused because another install owns the node. Lowering the flag here
-      // hands the node to the next caller while that install is still running.
+    it('registers beside another app\'s install, and leaves that install marked as running', async () => {
       globalState.installationInProgress = true;
-      const nodeTier = sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(appNetworkLinker, 'reconnectLinkedApps').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      const result = await advancedWorkflows.softRegisterAppLocally({
+        name: 'besideapp', version: 4, compose: [{ name: 'web', containerData: '/data', cpu: 0.5, ram: 500, hdd: 5 }],
+      }, false, makeRes());
+
+      expect(result, 'refused for another app\'s install').to.equal(InstallOutcome.INSTALLED);
+      expect(globalState.installationInProgress, 'this registration ended the other install\'s mark').to.be.true;
+      globalState.installationInProgress = false;
+    });
+
+    it('declines, touching nothing, an app the node has no room for', async () => {
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      hwRequirements.admitApp.rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+      const insert = sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
 
       const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
 
-      expect(result).to.equal(InstallOutcome.BUSY);
-      expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
-      expect(globalState.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
+      expect(result).to.equal(InstallOutcome.DECLINED);
+      sinon.assert.notCalled(insert);
+      expect(globalState.installationInProgress, 'the refusal left an install marked').to.be.false;
     });
 
     it('refuses an app whose removal is pending', async () => {
@@ -10259,6 +10281,36 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
       await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
 
       sinon.assert.called(appUninstaller.removeAppLocally);
+    });
+  });
+
+  // No other app's install takes the room a redeploy's teardown frees.
+  describe('room for the specification a redeploy moves to', () => {
+    const spec = () => ({ version: 4, name: 'plainapp', nodes: [] });
+
+    it('is reserved before the app is taken down', async () => {
+      const admit = sinon.stub(hwRequirements, 'admitApp').resolves();
+
+      await advancedWorkflows.hardRedeploy(spec(), res);
+
+      sinon.assert.calledWithMatch(admit, { name: 'plainapp' });
+      sinon.assert.callOrder(admit, appUninstaller.removeAppLocally);
+    });
+
+    it('leaves the redeploy to its own check when the specification does not fit', async () => {
+      sinon.stub(hwRequirements, 'admitApp').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+
+      await advancedWorkflows.hardRedeploy(spec(), res);
+
+      sinon.assert.called(appUninstaller.removeAppLocally);
+    });
+
+    it('is reserved before a soft redeploy takes the app down', async () => {
+      const admit = sinon.stub(hwRequirements, 'admitApp').resolves();
+
+      await advancedWorkflows.softRedeploy(spec(), res);
+
+      sinon.assert.calledWithMatch(admit, { name: 'plainapp' });
     });
   });
 });

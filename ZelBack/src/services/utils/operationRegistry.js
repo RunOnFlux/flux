@@ -51,6 +51,8 @@ const leases = new Map();
 const queues = new Map();
 // key -> [{ target, promise }], the removals pending or running on the app
 const removals = new Map();
+// told the key of every lease released
+const releasedListeners = [];
 let nextToken = 0;
 
 /**
@@ -81,9 +83,19 @@ function release(key, token) {
   const lease = leases.get(key);
   if (!lease || !token || lease.token !== token) return false;
   leases.delete(key);
+  releasedListeners.forEach((listener) => listener(key));
   // eslint-disable-next-line no-use-before-define
   startNext(key);
   return true;
+}
+
+/**
+ * Tells `listener` the app of every lease released, before the app's next
+ * operation starts.
+ * @param {function(string): void} listener
+ */
+function onReleased(listener) {
+  releasedListeners.push(listener);
 }
 
 /**
@@ -293,6 +305,7 @@ module.exports = {
   submit,
   acquire,
   release,
+  onReleased,
   get,
   isHeld,
   listByType,
