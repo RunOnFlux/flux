@@ -2461,6 +2461,7 @@ async function shuttingDownNodes() {
 }
 
 module.exports = {
+  HASH_RECONSTRUCTION_BATCH,
   appsListedAt,
   shuttingDownNodes,
   getAppHashes,
