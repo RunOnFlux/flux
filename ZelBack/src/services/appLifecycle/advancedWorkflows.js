@@ -1057,22 +1057,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
   // check if hash is in blockchain
   // register and launch according to specifications in message
   // throw without catching
-  // Whether THIS call raised the install hold. The guards below refuse because
-  // someone else is holding the node, and a refusal must not release their hold
-  // on its way out.
+  // Whether this call marked itself as an install running. The guards below
+  // return before it does, and must not end another install's mark.
   let acquired = false;
   try {
     if (globalState.removalInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
-      return InstallOutcome.BUSY;
-    }
-    if (globalState.installationInProgress) {
-      const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
@@ -1091,12 +1081,24 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
       }
       return InstallOutcome.BUSY;
     }
-    globalState.installationInProgress = true;
-    globalState.installingApp = appSpecs.name;
+    globalState.beginInstallation();
     acquired = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        if (res.flush) res.flush();
+      }
+      return InstallOutcome.DECLINED;
+    }
+    // Room on the node for the app, reserved until the operation holding it ends;
+    // an install that no longer fits touches nothing.
+    try {
+      await hwRequirements.admitApp(appSpecs);
+    } catch (error) {
+      const rStatus = messageHelper.createErrorMessage(error.message);
       log.error(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
@@ -1324,11 +1326,8 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
     // not there, or destroys a running app over a scheduling collision.
     return InstallOutcome.FAILED;
   } finally {
-    // The one place the hold is released, so every way out of this function
-    // releases it. A tier lookup that failed used to return without releasing,
-    // and the node then refused every install, redeploy, spawn and reinstall
-    // pass it was offered until FluxOS restarted.
-    if (acquired) globalState.installationInProgress = false;
+    // The one place the mark is ended, so every way out of this function ends it.
+    if (acquired) globalState.endInstallation();
   }
 }
 
@@ -1580,6 +1579,20 @@ async function mayTearDownToRebuild(appSpecs, res, op) {
 }
 
 /**
+ * Reserves room for the specification a redeploy moves the app to, held until the
+ * redeploy ends, so no other app's install takes the room its teardown frees. When
+ * the specification does not fit, nothing is reserved and the redeploy's own
+ * requirement check decides.
+ * @param {object} appSpecs The specification redeployed to, decrypted.
+ * @returns {Promise<void>}
+ */
+async function reserveForRedeploy(appSpecs) {
+  await hwRequirements.admitApp(appSpecs).catch((error) => {
+    log.info(`${appSpecs.name}: no room reserved for its redeploy, its requirement check decides: ${error.message}`);
+  });
+}
+
+/**
  * Sends a redeploy of the app to its manager: it runs now when the app is free,
  * or once the operation holding the app ends; a removal stops it at its next
  * step. A refused or stopped redeploy is told to the caller and ends here.
@@ -1659,6 +1672,7 @@ async function softRedeployApp(appSpecs, res, op) {
     }
 
     if (!await mayTearDownToRebuild(appSpecs, res, op)) return;
+    await reserveForRedeploy(appSpecs);
 
     // Check if component structure changed for version 8+ apps.
     if (appSpecs.version >= 8) {
@@ -1820,6 +1834,7 @@ async function hardRedeployApp(appSpecs, res, op) {
       return;
     }
     if (!await mayTearDownToRebuild(appSpecs, res, op)) return;
+    await reserveForRedeploy(appSpecs);
 
     globalState.hardRedeployInProgress = true;
     log.warn(`REMOVAL REASON: Hard redeploy initiated - ${appSpecs.name} being removed as part of hard redeploy process (hardRedeploy)`);
@@ -1906,6 +1921,7 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
       globalState.softRedeployInProgress = false;
       return;
     }
+    await reserveForRedeploy(appSpecifications);
 
     // Find the component in the app specs
     if (!appSpecifications.compose || appSpecifications.compose.length === 0) {
@@ -2085,6 +2101,7 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
       globalState.hardRedeployInProgress = false;
       return;
     }
+    await reserveForRedeploy(appSpecifications);
 
     // Find the component in the app specs
     if (!appSpecifications.compose || appSpecifications.compose.length === 0) {
@@ -4684,6 +4701,7 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
   }
   // Specs differ - log for debugging purposes
   log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
+  await reserveForRedeploy(appSpecifications);
 
   // check if node is capable to run it according to specifications
   // run the verification

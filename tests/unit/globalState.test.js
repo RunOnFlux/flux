@@ -148,46 +148,25 @@ describe('globalState tests', () => {
     });
   });
 
-  describe('whenInstallationReleased', () => {
-    const settled = async (promise) => {
-      let done = false;
-      promise.then(() => { done = true; });
-      await new Promise((resolve) => { setImmediate(resolve); });
-      return done;
-    };
+  describe('the installs running', () => {
+    afterEach(() => { globalState.installationInProgress = false; });
 
-    it('resolves at once when no install holds the node', async () => {
-      expect(await settled(globalState.whenInstallationReleased())).to.equal(true);
+    it('stays marked while any install runs, so one ending does not clear another', () => {
+      globalState.beginInstallation();
+      globalState.beginInstallation();
+
+      globalState.endInstallation();
+      expect(globalState.installationInProgress, 'one install ending cleared the other').to.equal(true);
+
+      globalState.endInstallation();
+      expect(globalState.installationInProgress).to.equal(false);
     });
 
-    it('resolves every waiter when the install releases the node, and not before', async () => {
-      globalState.installationInProgress = true;
-      const first = globalState.whenInstallationReleased();
-      const second = globalState.whenInstallationReleased();
-      expect(await settled(first)).to.equal(false);
+    it('a canary: one install marked and ended leaves none', () => {
+      globalState.beginInstallation();
+      globalState.endInstallation();
 
-      globalState.installationInProgress = false;
-
-      expect(await settled(first)).to.equal(true);
-      expect(await settled(second)).to.equal(true);
-    });
-
-    it('is released by the reset helper too', async () => {
-      globalState.setInstallationInProgressTrue();
-      const waiting = globalState.whenInstallationReleased();
-
-      globalState.installationInProgressReset();
-
-      expect(await settled(waiting)).to.equal(true);
-    });
-
-    it('forgets the app the install was for once it releases the node', () => {
-      globalState.installationInProgress = true;
-      globalState.installingApp = 'newapp';
-
-      globalState.installationInProgress = false;
-
-      expect(globalState.installingApp).to.equal(null);
+      expect(globalState.installationInProgress).to.equal(false);
     });
   });
 

@@ -125,6 +125,8 @@ describe('appInstaller tests', () => {
 
     hwRequirementsStub = {
       checkAppHWRequirements: sinon.stub().resolves(),
+      // the node has room for every app, unless a test says it does not
+      admitApp: sinon.stub().resolves(),
       checkAppStaticIpRequirements: sinon.stub(),
       checkAppNodesRequirements: sinon.stub().resolves(),
       appGeolocationVerdict: sinon.stub().resolves({ verdict: GeoVerdict.PASS, source: null, reason: null }),
@@ -1303,25 +1305,14 @@ describe('appInstaller tests', () => {
       expect(result).to.equal(InstallOutcome.BUSY);
     });
 
-    it('should return error if another installation is in progress', async () => {
-      const componentSpecs = false;
-      const res = {
-        write: sinon.stub(),
-        end: sinon.stub(),
-      };
+    it('installs beside another app\'s install, and leaves that install marked as running', async () => {
+      const res = { write: sinon.stub(), end: sinon.stub() };
       globalStateStub.installationInProgress = true;
 
-      const result = await appInstaller.registerAppLocally(appSpec, componentSpecs, res);
+      const result = await appInstaller.registerAppLocally(appSpec, false, res);
 
-      expect(logStub.error.called).to.be.true;
-      // Nothing was touched, which is not the same answer as an install that
-      // failed and tore the app down - a caller acting on the second when it
-      // got the first destroys a running app.
-      expect(result).to.equal(InstallOutcome.BUSY);
-      // The hold belongs to the install this call was refused for. Releasing on
-      // the way out would hand the node to the next caller while that install is
-      // still running.
-      expect(globalStateStub.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
+      expect(result, 'refused for another app\'s install').to.not.equal(InstallOutcome.BUSY);
+      expect(globalStateStub.installationInProgress, 'this install ended the other install\'s mark').to.be.true;
     });
 
     it('refuses an app whose removal is pending, taking no hold', async () => {
@@ -1645,6 +1636,20 @@ describe('appInstaller tests', () => {
       });
     }
 
+    it('declines, touching nothing, an app the node has no room for', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const dockerService = makeDockerServiceStub();
+      const installer = buildFailingInstaller(removeAppLocallyStub, { dockerService });
+      hwRequirementsStub.admitApp.rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+
+      const result = await installer.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(result).to.equal(InstallOutcome.DECLINED);
+      sinon.assert.notCalled(dockerService.createFluxAppDockerNetwork);
+      sinon.assert.notCalled(removeAppLocallyStub);
+      expect(globalStateStub.installationInProgress, 'the refusal left an install marked').to.be.false;
+    });
+
     describe('in the app\'s manager', () => {
       const res = () => ({ write: sinon.stub(), end: sinon.stub() });
       afterEach(() => operationRegistry.clear());
@@ -1825,9 +1830,11 @@ describe('appInstaller tests', () => {
       const removeAppLocallyStub = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
       globalStateStub.testInstallingApps.add('testapp');
-      globalStateStub.installationInProgress = true;
+      // the running test install holds the app in its manager
+      const running = operationRegistry.acquire('testapp', 'install', 'test');
 
-      const result = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
+      const result = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true, false, { wait: false });
+      operationRegistry.release('testapp', running);
 
       // Names the path: an install that ran to the end would clear its own mark,
       // and this assertion would then be true of a test proving nothing.
