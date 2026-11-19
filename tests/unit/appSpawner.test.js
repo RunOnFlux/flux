@@ -1348,6 +1348,18 @@ describe('appSpawner tests', () => {
       expect(installStub.firstCall.args[4], 'tore the placement down without telling the network').to.equal(true);
     });
 
+    it('sends its install without waiting on another operation holding the app', async () => {
+      const installStub = sinon.stub().resolves(InstallOutcome.BUSY);
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, installStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(installStub.calledOnce, 'the install must have been attempted, or the argument below proves nothing').to.be.true;
+      expect(installStub.firstCall.args[5]).to.deep.equal({ wait: false });
+    });
+
     it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {
       buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});

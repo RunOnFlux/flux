@@ -1230,7 +1230,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
         appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
         appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await appInstaller.installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications);
+        await appInstaller.installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications, { signal: parent?.signal });
       }
 
       // Restore syncthing cache for apps with syncthing data to prevent data deletion
@@ -1251,7 +1251,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
         }
       }
     } else {
-      await appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
+      await appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications, { signal: parent?.signal });
 
       // Restore syncthing cache for non-compose apps with syncthing data
       const hasSyncthingData = specificationsToInstall.containerData && (specificationsToInstall.containerData.includes('g:') || specificationsToInstall.containerData.includes('r:'));
@@ -1296,6 +1296,8 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
+    // An install a removal stopped is that removal's to take down and tell.
+    if (error instanceof operationRegistry.OperationPreemptedError) throw error;
     if (dbHelper.isDatabaseError(error)) {
       // A soft registration keeps the app's data, and the teardown below would not:
       // a database that did not answer is no reason to destroy it.
@@ -4750,13 +4752,13 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
       log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
       // soft redeployment
       await appUninstaller.softUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
-      await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications);
+      await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications, { signal: op.signal });
     } else {
       log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
       log.warn(`REMOVAL REASON: Hard redeployment - ${appSpecifications.name} HDD changed from ${installedApp.hdd} to ${appSpecifications.hdd}`);
       // hard redeployment
       await appUninstaller.hardUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
-      await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications);
+      await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications, false, { signal: op.signal });
     }
   } else {
     // composed application

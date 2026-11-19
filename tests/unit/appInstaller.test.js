@@ -7,6 +7,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const { GeoVerdict, GeoSource } = require('../../ZelBack/src/services/appRequirements/hwRequirements');
 
 // what portReconciler.want answers for a port mapped, and for one the router refused
@@ -1524,6 +1525,7 @@ describe('appInstaller tests', () => {
     // the row instead.
     function buildFailingInstaller(removeAppLocallyStub, {
       failBeforeRow = false, alreadyInstalled = false, broadcastMessageToAll = sinon.stub().resolves(), volumeError = new Error('volume creation failed'),
+      dockerService = makeDockerServiceStub(),
     } = {}) {
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
@@ -1569,7 +1571,7 @@ describe('appInstaller tests', () => {
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
         },
-        '../dockerService': makeDockerServiceStub(),
+        '../dockerService': dockerService,
         './appUninstaller': {
           removeAppLocally: removeAppLocallyStub,
         },
@@ -1642,6 +1644,68 @@ describe('appInstaller tests', () => {
         },
       });
     }
+
+    describe('in the app\'s manager', () => {
+      const res = () => ({ write: sinon.stub(), end: sinon.stub() });
+      afterEach(() => operationRegistry.clear());
+
+      it('leaves an install a removal stopped to that removal: it tells no installing error and removes nothing', async () => {
+        const removeAppLocallyStub = sinon.stub().resolves();
+        const broadcastMessageToAll = sinon.stub().resolves();
+        const installer = buildFailingInstaller(removeAppLocallyStub, {
+          broadcastMessageToAll, volumeError: new operationRegistry.OperationPreemptedError('testapp', 'removal'),
+        });
+
+        let thrown = null;
+        await installer.registerAppLocally(appSpec, false, res()).catch((error) => { thrown = error; });
+
+        expect(thrown).to.be.instanceOf(operationRegistry.OperationPreemptedError);
+        sinon.assert.notCalled(removeAppLocallyStub);
+        sinon.assert.notCalled(broadcastMessageToAll);
+      });
+
+      it('answers BUSY, touching nothing, for an install whose caller does not wait while another operation holds the app', async () => {
+        const removeAppLocallyStub = sinon.stub().resolves();
+        const installer = buildFailingInstaller(removeAppLocallyStub);
+        const backup = operationRegistry.acquire('testapp', 'backup', 'test');
+
+        const result = await installer.registerAppLocally(appSpec, false, res(), false, false, { wait: false });
+
+        expect(result).to.equal(InstallOutcome.BUSY);
+        sinon.assert.notCalled(removeAppLocallyStub);
+        operationRegistry.release('testapp', backup);
+      });
+
+      it('installs once the operation holding the app releases it', async () => {
+        const removeAppLocallyStub = sinon.stub().resolves();
+        const installer = buildFailingInstaller(removeAppLocallyStub);
+        const backup = operationRegistry.acquire('testapp', 'backup', 'test');
+        let settled = false;
+
+        const installing = installer.registerAppLocally(appSpec, false, res()).finally(() => { settled = true; });
+        await new Promise((resolve) => { setImmediate(resolve); });
+
+        expect(settled, 'the install ran while the backup held the app').to.equal(false);
+        operationRegistry.release('testapp', backup);
+        // the failing installer's volume error: the install ran, and cleaned up after itself
+        expect(await installing).to.equal(InstallOutcome.FAILED);
+        sinon.assert.calledOnce(removeAppLocallyStub);
+      });
+
+      it('stops before its pull when its operation was stopped, pulling nothing', async () => {
+        const dockerService = makeDockerServiceStub();
+        const installer = buildFailingInstaller(sinon.stub().resolves(), { dockerService });
+        const controller = new AbortController();
+        controller.abort(new operationRegistry.OperationPreemptedError('testapp', 'removal'));
+
+        let thrown = null;
+        await installer.installApplicationHard(appSpec, 'testapp', false, null, appSpec, false, { signal: controller.signal })
+          .catch((error) => { thrown = error; });
+
+        expect(thrown).to.be.instanceOf(operationRegistry.OperationPreemptedError);
+        sinon.assert.notCalled(dockerService.pullImage);
+      });
+    });
 
     it('answers FAILED when an install errors and cleans up after itself', async () => {
       const removeAppLocallyStub = sinon.stub().resolves();
