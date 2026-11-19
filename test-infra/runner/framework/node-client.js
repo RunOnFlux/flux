@@ -365,6 +365,7 @@ export function nodeClient(nodeNum) {
         'network:appinstallingerrorRefused',
         'network:appremoved',
         'app:operationPreempted',
+        'app:operationEnded',
         'app:operationWaiting',
         'network:appmessage',
         'network:appmessageRefused',

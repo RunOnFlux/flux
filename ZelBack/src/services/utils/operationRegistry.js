@@ -17,6 +17,8 @@
 // removal and install - runs under that operation, passed as `parent`. In memory
 // only: after a restart no operation is in progress.
 
+const fluxEventBus = require('./fluxEventBus');
+
 // What each operation is called in a refusal.
 const OPERATION_NAMES = Object.freeze({
   install: 'installation',
@@ -75,6 +77,7 @@ function acquire(key, type, owner) {
 /**
  * Releases the app's lease when `token` is the one that took it; any other token
  * releases nothing, so a call that never took the lease cannot drop another's.
+ * Publishes app:operationEnded.
  * @param {string} key
  * @param {string|null} token
  * @returns {boolean} Whether a lease was released.
@@ -83,6 +86,7 @@ function release(key, token) {
   const lease = leases.get(key);
   if (!lease || !token || lease.token !== token) return false;
   leases.delete(key);
+  fluxEventBus.publish('app:operationEnded', { appName: key, operation: lease.type });
   releasedListeners.forEach((listener) => listener(key));
   // eslint-disable-next-line no-use-before-define
   startNext(key);
