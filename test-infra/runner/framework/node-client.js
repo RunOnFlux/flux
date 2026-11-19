@@ -649,6 +649,9 @@ export function nodeClient(nodeNum) {
       const res = await controlFetch(`${url}/apps/appremove/${appname}/${force}/false`, { headers: { zelidauth } });
       return res.text();
     },
+    // An owner's start, stop or restart of an app on THIS node - `action` is appstart,
+    // appstop or apprestart - answered as { status, headers, data }.
+    appControl: (action, appname, zelidauth) => request('GET', `/apps/${action}/${appname}`, { headers: { zelidauth } }),
     // Redeploy the WHOLE app on this node, reading the spec from the global table
     // rather than from what is installed - so a spec seeded since the install is
     // what the redeploy is judged against. Body is drained as text for the same
