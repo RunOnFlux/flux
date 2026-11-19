@@ -149,7 +149,10 @@ describe('globalState tests', () => {
   });
 
   describe('the installs running', () => {
-    afterEach(() => { globalState.installationInProgress = false; });
+    afterEach(() => {
+      globalState.installationInProgress = false;
+      globalState.removalInProgress = false;
+    });
 
     it('stays marked while any install runs, so one ending does not clear another', () => {
       globalState.beginInstallation();
@@ -160,6 +163,17 @@ describe('globalState tests', () => {
 
       globalState.endInstallation();
       expect(globalState.installationInProgress).to.equal(false);
+    });
+
+    it('stays marked as removing while any removal runs, so one ending does not clear another', () => {
+      globalState.beginRemoval();
+      globalState.beginRemoval();
+
+      globalState.endRemoval();
+      expect(globalState.removalInProgress, 'one removal ending cleared the other').to.equal(true);
+
+      globalState.endRemoval();
+      expect(globalState.removalInProgress).to.equal(false);
     });
 
     it('a canary: one install marked and ended leaves none', () => {

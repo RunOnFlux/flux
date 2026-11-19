@@ -276,9 +276,7 @@ describe('advancedWorkflows tests', () => {
     it('should set specific app removal in progress', () => {
       advancedWorkflows.setRemovalInProgress('TestApp', true);
 
-      const inProgress = advancedWorkflows.getRemovalInProgress();
-      // When setting specific app, function returns the app name, not just true
-      expect(inProgress).to.equal('TestApp');
+      expect(advancedWorkflows.getRemovalInProgress()).to.equal(true);
     });
   });
 

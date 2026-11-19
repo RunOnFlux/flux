@@ -113,7 +113,7 @@ describe('appReconciler tests', () => {
     });
   });
 
-  afterEach(() => { appReconciler.stop(); sinon.restore(); });
+  afterEach(() => { appReconciler.stop(); sinon.restore(); operationRegistry.clear(); });
 
   // resolves exactly when its .resolve() is called — lets tests await the real
   // completion signal of an async reconcile instead of guessing with timer ticks
@@ -698,6 +698,29 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    describe('a missing container while an operation holds its app', () => {
+      beforeEach(() => {
+        stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+        stubs.dockerService.dockerListContainers.resolves([]);
+        stubs.globalState.bootContainerStateSettled = true;
+      });
+
+      it('is not recreated while a backup holds the app, and is once the backup ends', async () => {
+        const token = operationRegistry.acquire('App', 'backup', 'test');
+        await appReconciler.reconcile('www_App');
+        expect(stubs.containerHealthMonitor.recreateMissingContainers.called, 'recreated under the backup').to.be.false;
+
+        operationRegistry.release('App', token);
+        // the pass the release starts, bounded so a pass that never comes fails here
+        for (let turn = 0; turn < 50 && !stubs.containerHealthMonitor.recreateMissingContainers.called; turn += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { setImmediate(resolve); });
+        }
+
+        expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App')).to.be.true;
+      });
+    });
+
     it('recreates a missing container that should run (docker reachable)', async () => {
       // production shape of a genuinely-missing container: getDockerContainerOnly
       // finds nothing -> getDockerContainerByIdOrName throws `Container <name>
@@ -993,11 +1016,53 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.calledOnceWith('db_App')).to.be.true;
     });
 
-    it('defers while another operation owns the container', async () => {
+    ['install', 'remove', 'redeploy'].forEach((type) => {
+      it(`defers while a ${type} of its app owns the container`, async () => {
+        operationRegistry.acquire('App', type, 'test');
+        await appReconciler.reconcile('www_App');
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+        expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      });
+    });
+
+    it('acts on its app while another app is installed or redeployed', async () => {
+      operationRegistry.acquire('OtherApp', 'redeploy', 'test');
       stubs.globalState.installationInProgress = true;
       await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+    });
+
+    it('passes a component again only once the app\'s next operation has taken it', async () => {
+      stubs.globalState.bootContainerStateSettled = true;
+      let finishInstall;
+      const install = operationRegistry.submit('App', 'install', () => new Promise((resolve) => { finishInstall = resolve; }));
+      await appReconciler.reconcile('www_App');
+      let finishRemoval;
+      const removal = operationRegistry.submit('App', 'remove', () => new Promise((resolve) => { finishRemoval = resolve; }));
+
+      finishInstall('installed');
+      await install;
+      for (let turn = 0; turn < 20; turn += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+
+      expect(stubs.dockerService.appDockerStart.called, 'started the app the removal holds').to.be.false;
+      finishRemoval('removed');
+      await removal;
+    });
+
+    it('passes a component again once the operation holding its app ends', async () => {
+      stubs.globalState.bootContainerStateSettled = true;
+      const token = operationRegistry.acquire('App', 'install', 'test');
+      await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
-      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+
+      operationRegistry.release('App', token);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
     });
 
     // A backup or restore holds its app's components through holdStopped, and the
@@ -1066,9 +1131,9 @@ describe('appReconciler tests', () => {
         expect(verdict).to.deep.equal({ stopped: false, refused: [{ identifier: 'www_App', reason: 'unavailable' }] });
       });
 
-      it('refuses, without waiting, a component whose pass another operation on the node held aside', async () => {
+      it('refuses, without waiting, a component whose pass another operation held aside', async () => {
         followActuation();
-        stubs.globalState.installationInProgress = true;
+        stubs.globalState.stoppingContainers.add('fluxwww_App');
         const verdict = await appReconciler.holdStopped(['www_App']);
         expect(verdict).to.deep.equal({ stopped: false, refused: [{ identifier: 'www_App', reason: 'busy' }] });
         expect(stubs.dockerService.appDockerStop.called).to.be.false;
@@ -1797,7 +1862,22 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App'); // opens the persistence window
       clock.tick(61 * 1000);
       stubs.serviceHelper.delay.callsFake(async () => {
-        stubs.globalState.installationInProgress = true; // a redeploy starts mid-settle
+        operationRegistry.acquire('App', 'redeploy', 'test'); // a redeploy starts mid-settle
+      });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerForceRemove.called, 'must not actuate on a container another subsystem owns').to.be.false;
+    });
+
+    it('aborts the remove if a backup took the app during the confirmation', async () => {
+      // isManagedElsewhere is sampled at reconcile entry, but the heal spends seconds
+      // confirming - a redeploy/backup starting in that window must not have its
+      // container force-removed underneath it.
+      await appReconciler.reconcile('www_App'); // opens the persistence window
+      clock.tick(61 * 1000);
+      stubs.serviceHelper.delay.callsFake(async () => {
+        operationRegistry.acquire('App', 'backup', 'test'); // a backup starts mid-settle
       });
 
       await appReconciler.reconcile('www_App');

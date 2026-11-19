@@ -777,6 +777,8 @@ describe('appUninstaller tests', () => {
         unconfirmedApps,
         announceCycle,
         removalInProgress: false,
+        beginRemoval() { this.removalInProgress = true; },
+        endRemoval() { this.removalInProgress = false; },
         installationInProgress: false,
         runningAppsCache: new Set(),
         receiveOnlySyncthingAppsCache: new Map(),
@@ -985,6 +987,17 @@ describe('appUninstaller tests', () => {
 
         sinon.assert.calledTwice(deleteRow);
         sinon.assert.calledOnce(broadcastStub);
+      });
+
+      it('is marked as a removal running while it runs, and not once it ends', async () => {
+        let markedWhileRemoving = null;
+        const deleteRow = sinon.stub().callsFake(async () => { markedWhileRemoving = globalStateStub.removalInProgress; });
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        await uninstaller.removeAppLocally('testapp', res, true);
+
+        expect(markedWhileRemoving, 'the removal ran unmarked').to.equal(true);
+        expect(globalStateStub.removalInProgress, 'the mark outlived the removal').to.equal(false);
       });
 
       it('runs one removal for two removals of the app asked at once, and answers both with its outcome', async () => {
@@ -1669,6 +1682,8 @@ describe('appUninstaller tests', () => {
       };
       const globalStateRef = {
         removalInProgress: false,
+        beginRemoval() { this.removalInProgress = true; },
+        endRemoval() { this.removalInProgress = false; },
         installationInProgress: false,
       };
       const stopAppMonitoring = sinon.stub();
@@ -1754,6 +1769,8 @@ describe('appUninstaller tests', () => {
       const appName = 'testapp';
       const globalStateRef = {
         removalInProgress: false,
+        beginRemoval() { this.removalInProgress = true; },
+        endRemoval() { this.removalInProgress = false; },
         installationInProgress: false,
       };
       const stopAppMonitoring = sinon.stub();
@@ -1854,6 +1871,8 @@ describe('appUninstaller tests', () => {
       const appName = 'testapp';
       const globalStateRef = {
         removalInProgress: false,
+        beginRemoval() { this.removalInProgress = true; },
+        endRemoval() { this.removalInProgress = false; },
         installationInProgress: false,
       };
       const stopAppMonitoring = sinon.stub();
