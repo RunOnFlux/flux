@@ -11,6 +11,7 @@ const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsR
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const bootGateAtStart = globalState.bootContainerStateSettled;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -713,6 +714,53 @@ describe('appController tests', () => {
     });
   });
 
+
+  describe('an owner action while another operation holds the app', () => {
+    beforeEach(() => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      sinon.stub(appsRuntimeState, 'requestRestart').resolves();
+      sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').resolves(false);
+      sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
+        await mutate();
+        return true;
+      });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
+      appsRuntimeState.isRestoreUnfinished.resolves(true);
+    });
+
+    afterEach(() => operationRegistry.clear());
+
+    const req = (query = {}) => ({ params: { appname: 'TestApp' }, query });
+    const actions = {
+      start: (res) => appController.appStart(req(), res),
+      stop: (res) => appController.appStop(req(), res),
+      restart: (res) => appController.appRestart(req(), res),
+      kill: (res) => appController.appKill(req(), res),
+      'restart of what runs': (res) => appController.appRestart(req({ unlessstopped: 'true' }), res),
+    };
+
+    Object.entries(actions).forEach(([name, act]) => {
+      it(`refuses a ${name} while a restore holds the app, changing nothing`, async () => {
+        const restore = operationRegistry.acquire('TestApp', 'restore', 'test');
+        const res = { json: sinon.fake((param) => param) };
+
+        await act(res);
+
+        expect(JSON.stringify(res.json.firstCall.args[0])).to.include('Refused: a restore of TestApp is in progress');
+        sinon.assert.notCalled(appReconciler.applyIntent);
+        sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
+        operationRegistry.release('TestApp', restore);
+      });
+    });
+
+    it('a canary: a start of an app nothing holds clears its restore record', async () => {
+      await actions.start({ json: sinon.fake((param) => param) });
+
+      sinon.assert.calledOnceWithExactly(appsRuntimeState.setRestoreUnfinished, 'TestApp', false);
+    });
+  });
 
   describe('componentStates tests', () => {
     it('refuses a caller who is neither the owner nor the Flux team', async () => {
