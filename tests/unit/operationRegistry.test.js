@@ -1,4 +1,9 @@
-const { expect } = require('chai');
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
+const sinon = require('sinon');
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 
 describe('operationRegistry tests', () => {
@@ -57,5 +62,206 @@ describe('operationRegistry tests', () => {
     expect(() => operationRegistry.throwIfPreempted(signal))
       .to.throw(operationRegistry.OperationPreemptedError, 'app1: stopped for its removal');
     expect(operationRegistry.preempt('free', 'removal')).to.equal(false);
+  });
+  describe('run', () => {
+    const { run, OperationRefusedError, OperationPreemptedError } = operationRegistry;
+
+    // An operation that holds the app until let go, and settles with `value`.
+    function held(key, type, value = type) {
+      let letGo;
+      const gate = new Promise((resolve) => { letGo = resolve; });
+      let op = null;
+      const done = run(key, type, async (current) => {
+        op = current;
+        await gate;
+        return value;
+      });
+      return {
+        done, letGo, op: () => op,
+      };
+    }
+    const turn = () => new Promise((resolve) => { setImmediate(resolve); });
+    const a = (type) => (type === 'install' ? `an ${type}` : `a ${type}`);
+
+    ['backup', 'restore', 'control'].forEach((type) => {
+      ['install', 'remove', 'redeploy', 'backup', 'restore', 'control'].forEach((holder) => {
+        it(`refuses ${a(type)} while ${a(holder)} holds the app`, async () => {
+          const holding = held('app1', holder);
+          await turn();
+          const fn = sinon.spy();
+
+          await expect(run('app1', type, fn)).to.be.rejectedWith(OperationRefusedError, `Refused: a ${operationRegistry.OPERATION_NAMES[holder]} of app1 is in progress`);
+          expect(fn.called).to.equal(false);
+          holding.letGo();
+          await holding.done;
+        });
+      });
+    });
+
+    it('takes the app in the call, so of two backups asked at once one is refused', async () => {
+      const first = run('app1', 'backup', async () => 'first');
+      const second = run('app1', 'backup', async () => 'second');
+
+      expect(await first).to.equal('first');
+      await expect(second).to.be.rejectedWith(OperationRefusedError);
+    });
+
+    ['install', 'redeploy', 'backup', 'restore', 'control'].forEach((holder) => {
+      it(`stops ${a(holder)} for a removal and removes once it is released`, async () => {
+        const holding = held('app1', holder);
+        await turn();
+        const removing = sinon.spy(async () => 'removed');
+        const removal = run('app1', 'remove', removing);
+        await turn();
+
+        expect(holding.op().signal.aborted).to.equal(true);
+        expect(() => operationRegistry.throwIfPreempted(holding.op().signal)).to.throw(OperationPreemptedError, 'app1: stopped for its removal');
+        expect(removing.called, 'the removal ran while the holder held the app').to.equal(false);
+        holding.letGo();
+        expect(await removal).to.equal('removed');
+        expect(removing.calledOnce).to.equal(true);
+      });
+    });
+
+    it('gives a removal arriving while one runs that removal\'s outcome', async () => {
+      const first = held('app1', 'remove', 'removed once');
+      await turn();
+      const second = sinon.spy(async () => 'removed twice');
+      const joining = run('app1', 'remove', second);
+      first.letGo();
+
+      expect(await joining).to.equal('removed once');
+      expect(second.called).to.equal(false);
+    });
+
+    it('gives a removal arriving while one waits for the app that removal\'s outcome', async () => {
+      const backup = held('app1', 'backup');
+      await turn();
+      const firstRemoval = sinon.spy(async () => 'removed once');
+      const secondRemoval = sinon.spy(async () => 'removed twice');
+      const first = run('app1', 'remove', firstRemoval);
+      const second = run('app1', 'remove', secondRemoval);
+      backup.letGo();
+
+      expect(await first).to.equal('removed once');
+      expect(await second).to.equal('removed once');
+      expect(secondRemoval.called).to.equal(false);
+    });
+
+    ['install', 'redeploy'].forEach((type) => {
+      ['backup', 'restore', 'install', 'redeploy', 'control'].forEach((holder) => {
+        it(`runs ${a(type)} once ${a(holder)} releases the app`, async () => {
+          const holding = held('app1', holder);
+          await turn();
+          const waits = [];
+          const fn = sinon.spy(async () => type);
+          const waiting = run('app1', type, fn, { onWait: (wait) => waits.push(wait) });
+          await turn();
+
+          expect(fn.called, `the ${type} ran while the ${holder} held the app`).to.equal(false);
+          expect(holding.op().signal.aborted).to.equal(false);
+          expect(waits).to.deep.equal([{ holder, preempted: false }]);
+          holding.letGo();
+          expect(await waiting).to.equal(type);
+        });
+      });
+
+      it(`refuses ${a(type)} while a removal runs`, async () => {
+        const removal = held('app1', 'remove');
+        await turn();
+
+        await expect(run('app1', type, sinon.spy())).to.be.rejectedWith(OperationRefusedError, 'Refused: a removal of app1 is in progress');
+        removal.letGo();
+        await removal.done;
+      });
+
+      it(`refuses ${a(type)} while a removal waits for the app`, async () => {
+        const backup = held('app1', 'backup');
+        await turn();
+        const removal = run('app1', 'remove', async () => 'removed');
+
+        await expect(run('app1', type, sinon.spy())).to.be.rejectedWith(OperationRefusedError, 'Refused: a removal of app1 is in progress');
+        backup.letGo();
+        await removal;
+      });
+
+      it(`refuses ${a(type)} already waiting when a removal arrives before it has the app`, async () => {
+        const backup = held('app1', 'backup');
+        await turn();
+        const fn = sinon.spy();
+        const waiting = run('app1', type, fn);
+        const removal = run('app1', 'remove', async () => 'removed');
+        backup.letGo();
+
+        await expect(waiting).to.be.rejectedWith(OperationRefusedError, 'Refused: a removal of app1 is in progress');
+        expect(fn.called).to.equal(false);
+        expect(await removal).to.equal('removed');
+      });
+    });
+
+    it('runs a step under the operation it is part of, with its op', async () => {
+      const removalStep = sinon.spy(async (op) => op);
+      const result = await run('app1', 'redeploy', async (op) => {
+        const stepOp = await run('app1', 'remove', removalStep, { parent: op });
+        return { op, stepOp };
+      });
+
+      expect(result.stepOp).to.equal(result.op);
+      expect(removalStep.calledOnce).to.equal(true);
+    });
+
+    it('refuses a step of an operation that does not hold the app', async () => {
+      const outside = { key: 'app1', type: 'redeploy', token: 'lease-none' };
+
+      await expect(run('app1', 'remove', sinon.spy(), { parent: outside })).to.be.rejectedWith('a remove step of an operation that does not hold the app');
+    });
+
+    it('stops a step of an operation a removal has stopped', async () => {
+      let parent;
+      const holding = run('app1', 'redeploy', async (op) => {
+        parent = op;
+        await turn();
+        await turn();
+        return run('app1', 'install', sinon.spy(), { parent: op });
+      });
+      await turn();
+      const removal = run('app1', 'remove', async () => 'removed');
+
+      await expect(holding).to.be.rejectedWith(OperationPreemptedError);
+      expect(parent.signal.aborted).to.equal(true);
+      expect(await removal).to.equal('removed');
+    });
+
+    it('releases the app when the operation throws', async () => {
+      await expect(run('app1', 'redeploy', async () => { throw new Error('pull failed'); })).to.be.rejectedWith('pull failed');
+
+      expect(operationRegistry.isHeld('app1')).to.equal(false);
+      expect(await run('app1', 'backup', async () => 'backed up')).to.equal('backed up');
+    });
+
+    it('holds the app however long its operation runs', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'Date'] });
+      try {
+        const holding = held('app1', 'backup');
+        await Promise.resolve();
+        clock.tick(7 * 24 * 60 * 60 * 1000);
+
+        expect(operationRegistry.get('app1')).to.deep.include({ type: 'backup' });
+        holding.letGo();
+        await holding.done;
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('holds one app without holding another', async () => {
+      const removal = held('app1', 'remove');
+      await turn();
+
+      expect(await run('app2', 'install', async () => 'installed')).to.equal('installed');
+      expect(await run('app2', 'backup', async () => 'backed up')).to.equal('backed up');
+      removal.letGo();
+      await removal.done;
+    });
   });
 });
