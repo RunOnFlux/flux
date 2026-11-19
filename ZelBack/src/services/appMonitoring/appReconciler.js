@@ -376,14 +376,15 @@ const CONSTRUCTING = new Set(['install', 'remove', 'redeploy']);
 const awaitingRelease = new Map();
 
 /**
- * Whether an operation holding the component's app builds or tears down its
- * containers: an install, removal or redeploy of that app, never of another.
+ * Whether the component's app is being built or torn down: an install, removal
+ * or redeploy of that app holds it, or a removal of it is pending - the
+ * operation it stops releases the app to that removal, never to a start.
  * @param {string} identifier
  * @returns {boolean}
  */
 function heldByConstruction(identifier) {
   const mainAppName = identifier.split('_')[1] || identifier;
-  return CONSTRUCTING.has(operationRegistry.get(mainAppName)?.type);
+  return operationRegistry.isRemoving(mainAppName) || CONSTRUCTING.has(operationRegistry.get(mainAppName)?.type);
 }
 
 /**

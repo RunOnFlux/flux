@@ -112,6 +112,14 @@ function isHeld(key) {
 }
 
 /**
+ * @param {string} key
+ * @returns {boolean} Whether a removal of the app is pending or running.
+ */
+function isRemoving(key) {
+  return removals.has(key);
+}
+
+/**
  * @param {string} type
  * @returns {string[]} The apps an operation of this type holds.
  */
@@ -315,6 +323,7 @@ module.exports = {
   onReleased,
   get,
   isHeld,
+  isRemoving,
   listByType,
   listHeld,
   preempt,
