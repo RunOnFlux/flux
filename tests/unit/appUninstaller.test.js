@@ -987,6 +987,43 @@ describe('appUninstaller tests', () => {
         sinon.assert.calledOnce(broadcastStub);
       });
 
+      it('runs one removal for two removals of the app asked at once, and answers both with its outcome', async () => {
+        const deleteRow = sinon.stub().resolves();
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        const outcomes = await Promise.all([
+          uninstaller.removeAppLocally('testapp', res, true),
+          uninstaller.removeAppLocally('testapp', res, true),
+        ]);
+
+        expect(outcomes).to.deep.equal(['removed', 'removed']);
+        sinon.assert.calledOnce(deleteRow);
+      });
+
+      it('tells the network for a removal that joins one that does not', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+
+        await Promise.all([
+          uninstaller.removeAppLocally('testapp', res, true, false, false),
+          uninstaller.removeAppLocally('testapp', res, true, false, true),
+        ]);
+
+        sinon.assert.calledOnce(broadcastStub);
+      });
+
+      it('a canary: a removal joining one that tells the network does not tell it again', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+
+        await Promise.all([
+          uninstaller.removeAppLocally('testapp', res, true, false, true),
+          uninstaller.removeAppLocally('testapp', res, true, false, true),
+        ]);
+
+        sinon.assert.calledOnce(broadcastStub);
+      });
+
       it('a canary: the same removal told nothing meanwhile tells the network once it finishes', async () => {
         const deleteRow = sinon.stub().resolves();
         deleteRow.onFirstCall().rejects(new Error('connection timed out'));
@@ -1673,6 +1710,7 @@ describe('appUninstaller tests', () => {
           clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
+          getBaseAppName: sinon.stub().returnsArg(0),
         },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
@@ -1710,7 +1748,6 @@ describe('appUninstaller tests', () => {
       });
 
       const res = {
-          getBaseAppName: sinon.stub().returnsArg(0),
         write: sinon.stub(),
         end: sinon.stub(),
       };

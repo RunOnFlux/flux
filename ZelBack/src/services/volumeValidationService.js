@@ -228,8 +228,9 @@ async function hardRedeployApp(appName) {
     // eslint-disable-next-line global-require
     const { hardRedeploy } = require('./appLifecycle/advancedWorkflows');
 
-    // Perform hard redeploy (removes and reinstalls with correct paths)
-    await hardRedeploy(appSpecs, null);
+    // Perform hard redeploy (removes and reinstalls with correct paths); an app
+    // another operation holds is left for the next validation.
+    if (!await hardRedeploy(appSpecs, null, { wait: false })) return false;
 
     log.info(`Successfully redeployed app ${appName} with correct volume paths`);
     return true;

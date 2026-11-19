@@ -344,9 +344,11 @@ async function ensureAppDockerNetwork(appName, res) {
  *   True wherever this node does not already hold the app: an announcement landing
  *   during the install claims it, and nothing else takes that claim back before it
  *   expires. False for a rebuild, whose claim the node is keeping.
+ * @param {object} [options]
+ * @param {object} [options.parent] The operation this install is a step of.
  * @returns {Promise<string>} One of InstallOutcome.
  */
-async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false, { parent = null } = {}) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -693,7 +695,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       // true, this teardown's own "was successfuly removed" landed as the last
       // thing the caller saw, and the reinstall failure that caused it was
       // written into a response that had already closed.
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage && claimed);
+      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage && claimed, { parent });
       log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
     }
 
@@ -716,7 +718,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     if (test && acquired) {
       if (claimed) {
         try {
-          await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
+          await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false, { parent });
           log.info(`Test cleanup completed for ${appSpecs.name}`);
         } catch (cleanupError) {
           log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
@@ -762,9 +764,11 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
  * @param {object} res Response stream, when a caller holds one.
  * @param {boolean} [test] A test install, torn down again on the way out.
  * @param {boolean} [sendRemovalMessage] Whether a teardown announces itself.
+ * @param {object} [options]
+ * @param {object} [options.parent] The operation this install is a step of.
  * @returns {Promise<string>} One of InstallOutcome.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false, { parent = null } = {}) {
   await fluxosTrial.settled();
   // Published for every outcome but INSTALLED, which has app:installed of its own.
   const announce = (outcome) => {
@@ -773,7 +777,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
   };
   let outcome;
   try {
-    outcome = await attemptRegisterAppLocally(appSpecs, componentSpecs, res, test, sendRemovalMessage);
+    outcome = await attemptRegisterAppLocally(appSpecs, componentSpecs, res, test, sendRemovalMessage, { parent });
   } catch (error) {
     announce(InstallOutcome.FAILED);
     throw error;

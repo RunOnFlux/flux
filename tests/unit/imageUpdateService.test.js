@@ -444,13 +444,23 @@ describe('imageUpdateService tests', () => {
     it('should call softRedeploy when no operation in progress', async () => {
       const appSpec = { name: 'TestApp', version: 3 };
 
-      advancedWorkflowsStub.softRedeploy.resolves();
+      advancedWorkflowsStub.softRedeploy.resolves(true);
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
       expect(result).to.equal(true);
       sinon.assert.calledOnce(advancedWorkflowsStub.softRedeploy);
-      sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null);
+      sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null, { wait: false });
+    });
+
+    it('leaves an app another operation holds for the next check', async () => {
+      const appSpec = { name: 'TestApp', version: 3 };
+      advancedWorkflowsStub.softRedeploy.resolves(false);
+
+      const result = await imageUpdateService.triggerAppUpdate(appSpec);
+
+      expect(result).to.equal(false);
+      sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null, { wait: false });
     });
 
     it('should return false when removal is in progress', async () => {

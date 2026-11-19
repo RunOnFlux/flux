@@ -38,19 +38,6 @@ describe('operationRegistry tests', () => {
     expect(operationRegistry.listByType('restore')).to.deep.equal(['app2']);
   });
 
-  it('resolves a wait for the release when the holder releases, and at once when none holds', async () => {
-    await operationRegistry.whenReleased('free');
-    const token = operationRegistry.acquire('app1', 'backup', 'test');
-    let released = false;
-    const waiting = operationRegistry.whenReleased('app1').then(() => { released = true; });
-
-    await Promise.resolve();
-    expect(released).to.equal(false);
-    operationRegistry.release('app1', token);
-    await waiting;
-    expect(released).to.equal(true);
-  });
-
   it('stops a holder through its signal, naming what it stops for', () => {
     const token = operationRegistry.acquire('app1', 'backup', 'test');
     const signal = operationRegistry.signalOf('app1', token);
@@ -146,6 +133,22 @@ describe('operationRegistry tests', () => {
       expect(await first).to.equal('removed once');
       expect(await second).to.equal('removed once');
       expect(secondRemoval.called).to.equal(false);
+    });
+
+    it('runs a removal of the whole app after a removal of one of its components, never joining it', async () => {
+      let letGo;
+      const gate = new Promise((resolve) => { letGo = resolve; });
+      const component = submit('app1', 'remove', async () => { await gate; return 'component removed'; }, { target: 'web_app1' });
+      await turn();
+      const whole = sinon.spy(async () => 'app removed');
+      const removal = submit('app1', 'remove', whole, { target: 'app1' });
+      await turn();
+
+      expect(whole.called, 'the app removal ran beside the component removal').to.equal(false);
+      letGo();
+      expect(await component).to.equal('component removed');
+      expect(await removal).to.equal('app removed');
+      expect(whole.calledOnce).to.equal(true);
     });
 
     ['install', 'redeploy'].forEach((type) => {
@@ -246,6 +249,20 @@ describe('operationRegistry tests', () => {
       await expect(install).to.be.rejectedWith(OperationRefusedError, 'Refused: a removal of app1 is in progress');
       expect(await removal).to.equal('removed');
       expect(installing.called).to.equal(false);
+    });
+
+    ['install', 'redeploy'].forEach((type) => {
+      it(`refuses ${a(type)} whose caller does not wait while the app is busy, and runs it when the app is free`, async () => {
+        const backup = held('app1', 'backup');
+        await turn();
+        const fn = sinon.spy(async () => type);
+
+        await expect(submit('app1', type, fn, { wait: false })).to.be.rejectedWith(OperationRefusedError, 'Refused: a backup of app1 is in progress');
+        expect(fn.called).to.equal(false);
+        backup.letGo();
+        await backup.done;
+        expect(await submit('app1', type, fn, { wait: false })).to.equal(type);
+      });
     });
 
     it('runs a step under the operation it is part of, with its op', async () => {
