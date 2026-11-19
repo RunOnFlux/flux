@@ -5,6 +5,7 @@ const sinon = require('sinon');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 describe('operationRegistry tests', () => {
   afterEach(() => operationRegistry.clear());
@@ -17,6 +18,18 @@ describe('operationRegistry tests', () => {
     expect(operationRegistry.acquire('app1', 'backup', 'test')).to.equal(null);
     expect(operationRegistry.get('app1')).to.deep.equal({ type: 'backup', owner: 'test' });
     expect(operationRegistry.acquire('app2', 'restore', 'test')).to.be.a('string');
+  });
+
+  it('tells the bus each operation that ends, and nothing for a release that frees nothing', () => {
+    const publish = sinon.spy(fluxEventBus, 'publish');
+    const token = operationRegistry.acquire('app1', 'control', 'test');
+
+    operationRegistry.release('app1', 'lease-other');
+    expect(publish.calledWith('app:operationEnded'), 'a release by another token').to.equal(false);
+    operationRegistry.release('app1', token);
+
+    sinon.assert.calledOnceWithExactly(publish.withArgs('app:operationEnded'), 'app:operationEnded', { appName: 'app1', operation: 'control' });
+    publish.restore();
   });
 
   it('releases only for the token that took the lease', () => {
