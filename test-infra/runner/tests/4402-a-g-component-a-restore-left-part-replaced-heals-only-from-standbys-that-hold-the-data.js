@@ -243,7 +243,14 @@ describe('a g: component a restore left part replaced heals only from standbys t
       await heldInvariant(PRIMARY, A);
       return recordWrites(p, A.identifier, mark).includes(false);
     }, { timeout: 300000, interval: 2000, label: 'the record of a restore that deleted nothing is cleared' });
-    expect(await heldPasses(PRIMARY, A), 'folder passes it was held for before clearing').to.be.at.most(2);
+    // once the scan asked for since the restore is recorded, the pass under way and
+    // the next one clear it: no wait for syncthing's own periodic scan
+    const events = p.getEventBuffer().filter((e) => e.id > mark && e.data?.identifier === A.identifier);
+    const scanned = events.find((e) => e.event === 'restore:scanned');
+    const cleared = events.find((e) => e.event === 'restore:record' && e.data.unfinished === false);
+    expect(scanned, 'a scan asked for since the restore was recorded').to.not.equal(undefined);
+    const between = p.getEventBuffer().filter((e) => e.event === 'syncthing:passComplete' && e.id > scanned.id && e.id < cleared.id);
+    expect(between.length, 'folder passes completed between the scan and the clear').to.be.at.most(1);
     await currentRunner(A);
   });
 

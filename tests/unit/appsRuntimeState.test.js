@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 describe('appsRuntimeState tests', () => {
   let appsRuntimeState;
@@ -53,11 +54,14 @@ describe('appsRuntimeState tests', () => {
         }
         return docs;
       },
-      // upsert and $max as mongo does them: without upsert a missing document is
-      // left missing, and $max keeps the larger of what is there and what is given.
+      // upsert and $max as mongo does them: without upsert a document the query
+      // does not match - missing, or differing in any field the query names - is
+      // left as it is, and $max keeps the larger of what is there and what is given.
       updateOneInDatabase: async (_db, _coll, query, update, options = {}) => {
-        if (!store.has(query.identifier) && options.upsert !== true) return;
-        const existing = store.get(query.identifier) || {};
+        const found = store.get(query.identifier);
+        const matched = found && Object.entries(query).every(([field, value]) => found[field] === value);
+        if (!matched && options.upsert !== true) return { matchedCount: 0 };
+        const existing = found || {};
         const next = { ...existing, ...update.$set };
         Object.entries(update.$max || {}).forEach(([field, value]) => {
           next[field] = existing[field] === undefined ? value : Math.max(existing[field], value);
@@ -70,6 +74,7 @@ describe('appsRuntimeState tests', () => {
           next[field] = (existing[field] || 0) + by;
         });
         store.set(query.identifier, next);
+        return { matchedCount: matched ? 1 : 0 };
       },
       removeDocumentsFromCollection: async (_db, _coll, query) => {
         if (removeFails) throw new Error('connection timed out');
@@ -135,17 +140,56 @@ describe('appsRuntimeState tests', () => {
     it('says when the record was set, and nothing once it is cleared', async () => {
       const before = Date.now();
       await appsRuntimeState.setRestoreUnfinished('www_App', true);
-      const since = await appsRuntimeState.restoreUnfinishedSince('www_App');
-      expect(since).to.be.within(before, Date.now());
+      const record = await appsRuntimeState.unfinishedRestore('www_App');
+      expect(record.at).to.be.within(before, Date.now());
+      expect(record.scanned).to.equal(false);
 
       await appsRuntimeState.setRestoreUnfinished('www_App', false);
-      expect(await appsRuntimeState.restoreUnfinishedSince('www_App')).to.equal(null);
-      expect(await appsRuntimeState.restoreUnfinishedSince('nope_App')).to.equal(null);
+      expect(await appsRuntimeState.unfinishedRestore('www_App')).to.equal(null);
+      expect(await appsRuntimeState.unfinishedRestore('nope_App')).to.equal(null);
+    });
+
+    it('marks the record it was asked for scanned, and a new record starts unscanned', async () => {
+      await appsRuntimeState.setRestoreUnfinished('www_App', true);
+      const { at } = await appsRuntimeState.unfinishedRestore('www_App');
+      await appsRuntimeState.setRestoreScanned('www_App', at);
+      expect(await appsRuntimeState.unfinishedRestore('www_App')).to.deep.equal({ at, scanned: true });
+
+      await appsRuntimeState.setRestoreUnfinished('www_App', true);
+      expect((await appsRuntimeState.unfinishedRestore('www_App')).scanned).to.equal(false);
+    });
+
+    it('says when it marked a record scanned, and only then', async () => {
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      await appsRuntimeState.setRestoreUnfinished('www_App', true);
+      const { at } = await appsRuntimeState.unfinishedRestore('www_App');
+      publish.resetHistory();
+
+      await appsRuntimeState.setRestoreScanned('www_App', at - 1);
+      sinon.assert.notCalled(publish);
+      await appsRuntimeState.setRestoreScanned('www_App', at);
+      sinon.assert.calledOnceWithExactly(publish, 'restore:scanned', { identifier: 'www_App' });
+    });
+
+    it('leaves a record set again since the scan was asked for unscanned', async () => {
+      await appsRuntimeState.setRestoreUnfinished('www_App', true);
+      const { at } = await appsRuntimeState.unfinishedRestore('www_App');
+      await appsRuntimeState.setRestoreScanned('www_App', at - 1);
+      expect((await appsRuntimeState.unfinishedRestore('www_App')).scanned).to.equal(false);
+    });
+
+    it('leaves a cleared record cleared', async () => {
+      await appsRuntimeState.setRestoreUnfinished('www_App', true);
+      const { at } = await appsRuntimeState.unfinishedRestore('www_App');
+      await appsRuntimeState.setRestoreUnfinished('www_App', false);
+      await appsRuntimeState.setRestoreScanned('www_App', at);
+      expect(await appsRuntimeState.unfinishedRestore('www_App')).to.equal(null);
+      expect(store.get('www_App').restoreScanned).to.equal(false);
     });
 
     it('rejects when the record\'s time cannot be read', async () => {
       readFails = true;
-      const error = await appsRuntimeState.restoreUnfinishedSince('www_App').catch((caught) => caught);
+      const error = await appsRuntimeState.unfinishedRestore('www_App').catch((caught) => caught);
       expect(error).to.be.an('error');
     });
 

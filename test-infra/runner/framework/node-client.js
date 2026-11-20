@@ -341,6 +341,8 @@ export function nodeClient(nodeNum) {
         'primaryRole:returned',
         // a restore's record that it is replacing a component's data, written or cleared
         'restore:record',
+        // a scan asked for since that record was set has finished
+        'restore:scanned',
         'shutdown:paused',
         'system:packages-checked',
         'system:apt-command',

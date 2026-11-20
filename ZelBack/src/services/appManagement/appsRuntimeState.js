@@ -308,16 +308,39 @@ async function isRestoreUnfinished(identifier) {
 }
 
 /**
- * When the unfinished restore's record was set: the restore deleted and unpacked
- * only after it, with the folder paused. Rejects when the read fails.
+ * The unfinished restore's record: when it was set (the restore deleted and unpacked
+ * only after it, with the folder paused), and whether a scan of the folder asked for
+ * since has finished. Rejects when the read fails.
  * @param {string} identifier
- * @returns {Promise<number|null>} ms since the epoch, or null when no record is set
- *   or it carries no time
+ * @returns {Promise<{at: (number|null), scanned: boolean}|null>} null when no record
+ *   is set; `at` is null for a record that carries no time
  */
-async function restoreUnfinishedSince(identifier) {
+async function unfinishedRestore(identifier) {
   const state = await getState(identifier);
   if (state?.restoreUnfinished !== true) return null;
-  return Number.isFinite(state.restoreUnfinishedAt) ? state.restoreUnfinishedAt : null;
+  return {
+    at: Number.isFinite(state.restoreUnfinishedAt) ? state.restoreUnfinishedAt : null,
+    scanned: state.restoreScanned === true,
+  };
+}
+
+/**
+ * Records that syncthing finished a scan of the folder asked for while the record
+ * set at `at` held it, and publishes `restore:scanned`. A record cleared or set
+ * again since is left as it is, and nothing is published. Rejects when the write
+ * fails.
+ * @param {string} identifier
+ * @param {number} at The record's time, as unfinishedRestore read it
+ * @returns {Promise<void>}
+ */
+async function setRestoreScanned(identifier, at) {
+  const result = await dbHelper.updateOneInDatabase(
+    collection(),
+    appsRuntimeState,
+    { identifier: canonical(identifier), restoreUnfinished: true, restoreUnfinishedAt: at },
+    { $set: { restoreScanned: true, updatedAt: Date.now() } },
+  );
+  if (result?.matchedCount > 0) fluxEventBus.publish('restore:scanned', { identifier: canonical(identifier) });
 }
 
 /**
@@ -333,7 +356,9 @@ async function restoreUnfinishedSince(identifier) {
  * @returns {Promise<void>}
  */
 async function setRestoreUnfinished(identifier, unfinished) {
-  await setFields(identifier, { restoreUnfinished: unfinished, restoreUnfinishedAt: unfinished ? Date.now() : null });
+  await setFields(identifier, {
+    restoreUnfinished: unfinished, restoreUnfinishedAt: unfinished ? Date.now() : null, restoreScanned: false,
+  });
   fluxEventBus.publish('restore:record', { identifier: canonical(identifier), unfinished });
 }
 
@@ -864,7 +889,8 @@ module.exports = {
   operatorStoppedOrThrow,
   operatorStopState,
   isRestoreUnfinished,
-  restoreUnfinishedSince,
+  unfinishedRestore,
+  setRestoreScanned,
   setRestoreUnfinished,
   operatorHeldIdentifiers,
   recordRestart,

@@ -1315,31 +1315,49 @@ async function nudgeFolderDevices(folderId) {
   }
 }
 
+// How long a scan asked for a held folder may take. Syncthing has scanned the folder
+// once already as it was unpaused, so this one checks files rather than reads them.
+const HELD_SCAN_TIMEOUT_MS = 10 * 60 * 1000;
+// folder id -> the record time a scan asked for that folder is running for
+const heldScans = new Map();
+
 /**
- * Whether syncthing's counts describe a held folder's disk as the restore left it.
- * Syncthing counts local changes only in a receiving folder and only once it has
- * scanned it, and it scans no paused folder; the restore wrote with the folder
- * paused, after its record was set. So the folder is receiving, unpaused and idle,
- * and its last scan finished after the record was set. A read that fails, or a
- * record that carries no time, says no.
+ * Syncthing's status of a held folder once it describes the disk as the restore left
+ * it, else null. Syncthing counts local changes only in a receiving folder and only
+ * once it has scanned it, and it scans no paused folder; the restore wrote with the
+ * folder paused, after its record was set. So the counts hold once a scan asked for
+ * with the folder receiving and unpaused has finished: the first pass that finds it so
+ * asks syncthing for one and returns, syncthing's answer marks the record scanned, and
+ * the status is read after the record says so. A read that fails, or a record that
+ * carries no time, says null.
  * @param {string} appId Folder id.
- * @param {object|null} syncStatus getFolderSyncCompletion's answer
- * @returns {Promise<boolean>}
+ * @returns {Promise<object|null>} getFolderSyncCompletion's answer, idle
  */
-async function countsScannedSinceRestore(appId, syncStatus) {
-  if (syncStatus?.state !== 'idle') return false;
+async function statusScannedSinceRestore(appId) {
+  let folder;
+  let record;
   try {
-    const [folder, since, lastScan] = await Promise.all([
+    [folder, record] = await Promise.all([
       syncthingService.getConfigFolders(appId),
-      appsRuntimeState.restoreUnfinishedSince(appId),
-      syncthingService.folderLastScan(appId),
+      appsRuntimeState.unfinishedRestore(appId),
     ]);
-    return folder?.type === 'receiveonly' && folder.paused !== true
-      && since !== null && lastScan !== null && lastScan > since;
   } catch (error) {
     log.warn(`healHeldFolder - ${appId}: whether syncthing has scanned it since the restore could not be read: ${error.message}`);
-    return false;
+    return null;
   }
+  if (folder?.type !== 'receiveonly' || folder.paused === true || record?.at == null) return null;
+  if (!record.scanned) {
+    if (!heldScans.has(appId)) {
+      heldScans.set(appId, record.at);
+      syncthingService.scanFolder(appId, { timeoutMs: HELD_SCAN_TIMEOUT_MS })
+        .then(() => appsRuntimeState.setRestoreScanned(appId, record.at))
+        .catch((error) => log.warn(`healHeldFolder - ${appId}: the scan asked for since the restore did not finish: ${error.message}`))
+        .finally(() => heldScans.delete(appId));
+    }
+    return null;
+  }
+  const status = await getFolderSyncCompletion(appId);
+  return status?.state === 'idle' ? status : null;
 }
 
 /**
@@ -1353,11 +1371,11 @@ async function countsScannedSinceRestore(appId, syncStatus) {
  * The peer is one findSyncedPeer shows holds the data, never this node: a folder
  * sending here says nothing about where else its data is.
  * @param {string} appId Folder id.
- * @param {object|null} syncStatus getFolderSyncCompletion's answer
  * @returns {Promise<boolean>} true once the record is cleared
  */
-async function healHeldFolder(appId, syncStatus) {
-  if (!(await countsScannedSinceRestore(appId, syncStatus))) {
+async function healHeldFolder(appId) {
+  const syncStatus = await statusScannedSinceRestore(appId);
+  if (!syncStatus) {
     fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
     return false;
   }
@@ -1604,7 +1622,7 @@ async function handleReceiveOnlyTransition(params) {
   // would decide. With no such peer nothing heals it: a restore that finishes, or
   // its owner's start, releases it.
   if (restoreHeld) {
-    if (!(await healHeldFolder(appId, syncStatus))) {
+    if (!(await healHeldFolder(appId))) {
       // a held folder seeds nothing: it claims no holdings, so no peer defers to it,
       // and a mark it made before the restore goes too
       folderStates.measured(appId, null);
@@ -2354,13 +2372,12 @@ async function decideFolderSyncState(params) {
 }
 
 /**
- * healHeldFolder for a folder the state machine does not run for (s:), from
- * fresh reads.
+ * healHeldFolder for a folder the state machine does not run for (s:).
  * @param {string} appId Folder id.
  * @returns {Promise<boolean>} true once the record is cleared
  */
 async function healHeldSharedFolder(appId) {
-  return healHeldFolder(appId, await getFolderSyncCompletion(appId));
+  return healHeldFolder(appId);
 }
 
 module.exports = {

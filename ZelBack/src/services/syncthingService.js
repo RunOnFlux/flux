@@ -738,18 +738,6 @@ async function setFolderIgnores(folderId, lines) {
 }
 
 /**
- * When syncthing last finished a scan of a folder. It scans no paused folder.
- * @param {string} folderId Folder id
- * @returns {Promise<number|null>} ms since the epoch, or null when it has never
- *   scanned the folder
- */
-async function folderLastScan(folderId) {
-  const stats = await request('get', '/rest/stats/folder');
-  const at = Date.parse(stats?.[folderId]?.lastScan);
-  return Number.isFinite(at) && at > 0 ? at : null;
-}
-
-/**
  * A folder's current status.
  *
  * Throws with `httpStatus` 404 when syncthing holds no such folder, which is an
@@ -2800,7 +2788,6 @@ module.exports = {
   getFolderIgnores,
   setFolderIgnores,
   getDbStatus,
-  folderLastScan,
   getDbStatusInFileBytes,
   nonFileEntryBytes,
   nonFileEntryBytesForVersion,

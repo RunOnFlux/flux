@@ -417,9 +417,7 @@ describe('syncthingService tests', () => {
     let fakePost;
     let completion;
     let mounted;
-    let folderStats;
     beforeEach(() => {
-      folderStats = {};
       syncthingService.getAxiosCache().reset();
       syncthingService.resetDeviceIdCache();
       syncthingService.setSyncthingRunningState(true);
@@ -434,7 +432,6 @@ describe('syncthingService tests', () => {
         if (reqPath === '/rest/config/folders') return { data: folders };
         if (reqPath === '/rest/system/connections') return { data: { connections: { [peer]: { connected: true }, [gone]: { connected: false } } } };
         if (reqPath.startsWith('/rest/db/completion')) return { data: completion() };
-        if (reqPath === '/rest/stats/folder') return { data: folderStats };
         return {};
       });
       fakePost = sinon.fake.resolves({ data: '' });
@@ -444,22 +441,6 @@ describe('syncthingService tests', () => {
       syncthingService.getAxiosCache().reset();
       syncthingService.resetDeviceIdCache();
       sinon.restore();
-    });
-
-    it('folderLastScan reads when syncthing last finished a scan of the folder named', async () => {
-      folderStats = {
-        fluxa_app: { lastScan: '2026-11-20T10:00:00.5Z' },
-        fluxb_app: { lastScan: '2026-11-20T11:00:00Z' },
-      };
-
-      expect(await syncthingService.folderLastScan('fluxa_app')).to.equal(Date.parse('2026-11-20T10:00:00.5Z'));
-    });
-
-    it('folderLastScan answers null for a folder syncthing has never scanned', async () => {
-      folderStats = { fluxa_app: { lastScan: '0001-01-01T00:00:00Z' } };
-
-      expect(await syncthingService.folderLastScan('fluxa_app')).to.equal(null);
-      expect(await syncthingService.folderLastScan('fluxb_app')).to.equal(null);
     });
 
     it('scanFolder asks syncthing to scan exactly the folder named', async () => {
