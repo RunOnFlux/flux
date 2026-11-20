@@ -19,9 +19,7 @@ describe('what a message carries reaches an update pipeline as data', () => {
   };
   let database;
 
-  before(async () => {
-    await requireMongo();
-  });
+  before(requireMongo);
 
   beforeEach(async () => {
     await dbHelper.initiateDB();

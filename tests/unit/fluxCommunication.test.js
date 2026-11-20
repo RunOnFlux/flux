@@ -2729,6 +2729,7 @@ describe('fluxCommunication tests', () => {
         sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
         const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(fluxCommunicationUtils.VerifyResult.OK);
         sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+        const storeAppStateEventStub = sinon.stub(messageStore, 'storeAppStateEvent').resolves();
         const storeAppRunningMessageStub = sinon.stub(messageStore, 'storeAppRunningMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -2743,6 +2744,7 @@ describe('fluxCommunication tests', () => {
         await waitFor(() => storeAppRunningMessageStub.called);
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(storeAppStateEventStub, messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: JSON.parse(message) });
         sinon.assert.calledOnceWithExactly(storeAppRunningMessageStub, JSON.parse(message).data);
       });
     }
