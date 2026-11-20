@@ -26,6 +26,7 @@ const syncthingServiceMock = {
   getDeviceId: sinon.stub().resolves('LOCAL-DEVICE'),
   getConfigDevices: sinon.stub(),
   getConfigFolders: sinon.stub(),
+  folderLastScan: sinon.stub(),
   dbRevert: sinon.stub(),
   getDeviceStats: sinon.stub(),
   getSystemStatus: sinon.stub(),
@@ -194,7 +195,10 @@ const syncthingFolderWritesMock = {
   restoreHolds: async (folderId) => (await syncthingFolderWritesMock.restoreRecord(folderId)) !== false,
   exclusive: sinon.stub().callsFake(async (ids, write) => write()),
 };
-const appsRuntimeStateMock = { setRestoreUnfinished: sinon.stub().resolves() };
+const appsRuntimeStateMock = {
+  setRestoreUnfinished: sinon.stub().resolves(),
+  restoreUnfinishedSince: sinon.stub(),
+};
 
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
   './localChangeCheck': localChangeCheck,
@@ -221,6 +225,8 @@ describe('syncthingFolderStateMachine tests', () => {
     syncthingFolderWritesMock.restoreRecord.reset();
     syncthingFolderWritesMock.restoreRecord.resolves(false);
     appsRuntimeStateMock.setRestoreUnfinished.resetHistory();
+    appsRuntimeStateMock.restoreUnfinishedSince.reset();
+    syncthingServiceMock.folderLastScan.reset();
     peerIdentityMock.reset();
     primaryRoleMock.holdAsStandby.resetHistory();
     peerComponentMock.componentStateOnPeers.reset();
@@ -816,6 +822,16 @@ describe('syncthingFolderStateMachine tests', () => {
         folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'SELF' }] }],
       });
 
+      // the folder receiving and unpaused, scanned after the record was set
+      const RECORD_AT = 1000;
+      const scannedSinceTheRestore = () => {
+        syncthingServiceMock.getConfigFolders.withArgs('test-app').resolves({
+          id: 'test-app', type: 'receiveonly', paused: false, devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'PEER-DEVICE' }],
+        });
+        appsRuntimeStateMock.restoreUnfinishedSince.withArgs('test-app').resolves(RECORD_AT);
+        syncthingServiceMock.folderLastScan.withArgs('test-app').resolves(RECORD_AT + 1);
+      };
+
       beforeEach(() => {
         mockParams.containerDataFlags = 'g';
         fsMock.promises.readdir.resolves([]);
@@ -823,6 +839,39 @@ describe('syncthingFolderStateMachine tests', () => {
           restarted: false, numberOfExecutions: 1, leaderStreak: 5,
         });
         syncthingFolderWritesMock.restoreRecord.withArgs('test-app').resolves(true);
+        scannedSinceTheRestore();
+      });
+
+      // Syncthing counts local changes only in a receiving folder it has scanned, and
+      // scans no paused folder: counts it has not scanned since the restore read as
+      // no changes over a disk the restore left part replaced.
+      describe('on counts syncthing has not scanned since the restore', () => {
+        const unscanned = {
+          'the folder sends': () => syncthingServiceMock.getConfigFolders.withArgs('test-app').resolves({ id: 'test-app', type: 'sendreceive', paused: false, devices: [] }),
+          'the folder is paused': () => syncthingServiceMock.getConfigFolders.withArgs('test-app').resolves({ id: 'test-app', type: 'receiveonly', paused: true, devices: [] }),
+          'syncthing is scanning it': () => syncthingServiceMock.getDbStatus.resolves(syncedStatus({ state: 'scanning', receiveOnlyChangedDeletes: 3 })),
+          'its last scan finished before the record was set': () => syncthingServiceMock.folderLastScan.withArgs('test-app').resolves(RECORD_AT - 1),
+          'syncthing has never scanned it': () => syncthingServiceMock.folderLastScan.withArgs('test-app').resolves(null),
+          'the record carries no time': () => appsRuntimeStateMock.restoreUnfinishedSince.withArgs('test-app').resolves(null),
+          'its last scan cannot be read': () => syncthingServiceMock.folderLastScan.withArgs('test-app').rejects(new Error('connect ECONNREFUSED')),
+        };
+        Object.entries(unscanned).forEach(([why, arrange]) => {
+          it(`neither reverts nor releases it when ${why}`, async () => {
+            aPeerHoldsTheData();
+            mockParams.appLocation.resolves([{ ip: PEER, runningSince: 1000, broadcastedAt: 1000 }]);
+            syncthingServiceMock.getDbStatus.resolves(syncedStatus({ receiveOnlyChangedDeletes: 3 }));
+            arrange();
+
+            await stateMachine.manageFolderSyncState(mockParams);
+            sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+
+            if (why !== 'syncthing is scanning it') syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+            const result = await stateMachine.manageFolderSyncState(mockParams);
+
+            sinon.assert.notCalled(appsRuntimeStateMock.setRestoreUnfinished);
+            expect(result.cache.restarted, 'the election reads this as ready to start').to.not.equal(true);
+          });
+        });
       });
 
       it('is not ready when it is the only holder, though syncthing calls its leftovers synced', async () => {

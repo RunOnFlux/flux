@@ -1316,11 +1316,39 @@ async function nudgeFolderDevices(folderId) {
 }
 
 /**
+ * Whether syncthing's counts describe a held folder's disk as the restore left it.
+ * Syncthing counts local changes only in a receiving folder and only once it has
+ * scanned it, and it scans no paused folder; the restore wrote with the folder
+ * paused, after its record was set. So the folder is receiving, unpaused and idle,
+ * and its last scan finished after the record was set. A read that fails, or a
+ * record that carries no time, says no.
+ * @param {string} appId Folder id.
+ * @param {object|null} syncStatus getFolderSyncCompletion's answer
+ * @returns {Promise<boolean>}
+ */
+async function countsScannedSinceRestore(appId, syncStatus) {
+  if (syncStatus?.state !== 'idle') return false;
+  try {
+    const [folder, since, lastScan] = await Promise.all([
+      syncthingService.getConfigFolders(appId),
+      appsRuntimeState.restoreUnfinishedSince(appId),
+      syncthingService.folderLastScan(appId),
+    ]);
+    return folder?.type === 'receiveonly' && folder.paused !== true
+      && since !== null && lastScan !== null && lastScan > since;
+  } catch (error) {
+    log.warn(`healHeldFolder - ${appId}: whether syncthing has scanned it since the restore could not be read: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * One pass over a folder an unfinished restore holds. Every local change in it is
  * that restore's damage: when a peer holds the data they are reverted to the
  * peers' copy, and once the folder is synced, a peer holds the data and no local
  * change is left, the record is cleared. With no such peer nothing heals it: a
- * restore that finishes, or its owner's start, releases it.
+ * restore that finishes, or its owner's start, releases it. Nothing is reverted
+ * or cleared on counts syncthing has not scanned since the restore.
  *
  * The peer is one findSyncedPeer shows holds the data, never this node: a folder
  * sending here says nothing about where else its data is.
@@ -1329,7 +1357,11 @@ async function nudgeFolderDevices(folderId) {
  * @returns {Promise<boolean>} true once the record is cleared
  */
 async function healHeldFolder(appId, syncStatus) {
-  const localChanges = syncStatus ? receiveOnlyChanges(syncStatus) : null;
+  if (!(await countsScannedSinceRestore(appId, syncStatus))) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
+    return false;
+  }
+  const localChanges = receiveOnlyChanges(syncStatus);
   const aPeerHasData = Boolean(await findSyncedPeer(appId));
   if (aPeerHasData === true && localChanges > 0) {
     log.warn(`healHeldFolder - ${appId} holds ${localChanges} local changes an unfinished restore left; reverting to the copy its peers hold`);

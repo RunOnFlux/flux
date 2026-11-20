@@ -132,6 +132,23 @@ describe('appsRuntimeState tests', () => {
       expect(await appsRuntimeState.isRestoreUnfinished('nope_App')).to.be.false;
     });
 
+    it('says when the record was set, and nothing once it is cleared', async () => {
+      const before = Date.now();
+      await appsRuntimeState.setRestoreUnfinished('www_App', true);
+      const since = await appsRuntimeState.restoreUnfinishedSince('www_App');
+      expect(since).to.be.within(before, Date.now());
+
+      await appsRuntimeState.setRestoreUnfinished('www_App', false);
+      expect(await appsRuntimeState.restoreUnfinishedSince('www_App')).to.equal(null);
+      expect(await appsRuntimeState.restoreUnfinishedSince('nope_App')).to.equal(null);
+    });
+
+    it('rejects when the record\'s time cannot be read', async () => {
+      readFails = true;
+      const error = await appsRuntimeState.restoreUnfinishedSince('www_App').catch((caught) => caught);
+      expect(error).to.be.an('error');
+    });
+
     it('rejects when the record cannot be read, rather than reading as none', async () => {
       readFails = true;
       const error = await appsRuntimeState.isRestoreUnfinished('www_App').catch((caught) => caught);

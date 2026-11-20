@@ -308,6 +308,19 @@ async function isRestoreUnfinished(identifier) {
 }
 
 /**
+ * When the unfinished restore's record was set: the restore deleted and unpacked
+ * only after it, with the folder paused. Rejects when the read fails.
+ * @param {string} identifier
+ * @returns {Promise<number|null>} ms since the epoch, or null when no record is set
+ *   or it carries no time
+ */
+async function restoreUnfinishedSince(identifier) {
+  const state = await getState(identifier);
+  if (state?.restoreUnfinished !== true) return null;
+  return Number.isFinite(state.restoreUnfinishedAt) ? state.restoreUnfinishedAt : null;
+}
+
+/**
  * Records that a restore has begun replacing this component's data (true, set
  * before anything is deleted, in every sync mode) or that its data is whole
  * again or accepted as it is (false: the unpack finished, its owner started it,
@@ -320,7 +333,7 @@ async function isRestoreUnfinished(identifier) {
  * @returns {Promise<void>}
  */
 async function setRestoreUnfinished(identifier, unfinished) {
-  await setFields(identifier, { restoreUnfinished: unfinished });
+  await setFields(identifier, { restoreUnfinished: unfinished, restoreUnfinishedAt: unfinished ? Date.now() : null });
   fluxEventBus.publish('restore:record', { identifier: canonical(identifier), unfinished });
 }
 
@@ -851,6 +864,7 @@ module.exports = {
   operatorStoppedOrThrow,
   operatorStopState,
   isRestoreUnfinished,
+  restoreUnfinishedSince,
   setRestoreUnfinished,
   operatorHeldIdentifiers,
   recordRestart,
