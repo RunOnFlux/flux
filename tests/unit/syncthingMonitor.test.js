@@ -1495,6 +1495,32 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.neverCalledWith(syncthingFolderStateMachineMock.healHeldSharedFolder, 'brokenapp');
     });
 
+    // The record is read once per folder per pass. A pass that could read it for the
+    // state machine and not after would leave a designation made for a folder it never
+    // wrote, which the end of the pass turns into a start as primary.
+    it('asks the state machine nothing for a g: folder whose record cannot be read, and designates nothing', async () => {
+      twoSendingFolders();
+      volumeServiceMock.isPathMounted.resolves(true);
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').rejects(new Error('database unavailable'));
+      syncthingFolderStateMachineMock.manageFolderSyncState.callsFake(async ({ syncthingFolder }) => ({
+        syncthingFolder, cache: { restarted: true, designationPending: true }, restoreHeld: false,
+      }));
+      try {
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const asked = syncthingFolderStateMachineMock.manageFolderSyncState.getCalls().map((call) => call.args[0].appId);
+        expect(asked, 'fixture: the pass reached the readable folder').to.include('goodapp');
+        expect(asked).to.not.include('brokenapp');
+        expect(mockState.receiveOnlySyncthingAppsCache.get('brokenapp')?.designatedLeader).to.not.equal(true);
+        expect(mockState.receiveOnlySyncthingAppsCache.get('goodapp')?.designatedLeader, 'fixture: a designation the pass wrote').to.equal(true);
+      } finally {
+        syncthingFolderStateMachineMock.manageFolderSyncState.resetBehavior();
+        syncthingFolderStateMachineMock.manageFolderSyncState.resolves({ syncthingFolder: { type: 'sendreceive' }, cache: null });
+      }
+    });
+
     it('writes a held s: folder sending once it has healed', async () => {
       twoSendingFolders();
       // both mounted: the record alone decides

@@ -838,7 +838,7 @@ describe('syncthingFolderStateMachine tests', () => {
         mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
           restarted: false, numberOfExecutions: 1, leaderStreak: 5,
         });
-        syncthingFolderWritesMock.restoreRecord.withArgs('test-app').resolves(true);
+        mockParams.restoreHeld = true;
         scannedSinceTheRestore();
       });
 
@@ -903,28 +903,30 @@ describe('syncthingFolderStateMachine tests', () => {
         mockParams.appLocation.resolves([{ ip: PEER, runningSince: 1000, broadcastedAt: 1000 }]);
         syncthingServiceMock.getDbStatus.resolves(syncedStatus());
 
-        await stateMachine.manageFolderSyncState(mockParams);
+        const result = await stateMachine.manageFolderSyncState(mockParams);
 
         sinon.assert.calledOnceWithExactly(appsRuntimeStateMock.setRestoreUnfinished, 'test-app', false);
+        expect(result.restoreHeld, 'what the pass tells the monitor of the record').to.equal(false);
       });
 
-      ['g', 'r'].forEach((flags) => {
-        it(`reverts nothing and leaves a ${flags}: folder as it is on passes that cannot read its record`, async () => {
-          mockParams.containerDataFlags = flags;
-          aPeerHoldsTheData();
-          mockParams.appLocation.resolves([{ ip: PEER, runningSince: 1000, broadcastedAt: 1000 }]);
-          // a running app's own writes, which a revert would discard
-          syncthingServiceMock.getDbStatus.resolves(syncedStatus({ receiveOnlyChangedFiles: 3 }));
-          syncthingFolderWritesMock.restoreRecord.withArgs('test-app').resolves(null);
+      it('tells the monitor the record still holds a folder it did not heal', async () => {
+        noPeer();
+        mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus());
 
-          for (let pass = 0; pass < 3; pass += 1) {
-            // eslint-disable-next-line no-await-in-loop
-            const result = await stateMachine.manageFolderSyncState(mockParams);
-            expect(result.skipProcessing, `pass ${pass + 1}`).to.equal(true);
-          }
-          sinon.assert.notCalled(syncthingServiceMock.dbRevert);
-          sinon.assert.notCalled(appsRuntimeStateMock.setRestoreUnfinished);
-        });
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.restoreHeld).to.equal(true);
+      });
+
+      it('reads no record of its own: it decides on the one the monitor read for the pass', async () => {
+        aPeerHoldsTheData();
+        mockParams.appLocation.resolves([{ ip: PEER, runningSince: 1000, broadcastedAt: 1000 }]);
+        syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingFolderWritesMock.restoreRecord);
       });
 
       it('reverts the deletions it holds to the peers\' copy, and stays held until they are gone', async () => {
@@ -1007,7 +1009,7 @@ describe('syncthingFolderStateMachine tests', () => {
       beforeEach(() => {
         mockParams.containerDataFlags = 'r';
         fsMock.promises.readdir.resolves([]);
-        syncthingFolderWritesMock.restoreRecord.withArgs('test-app').resolves(true);
+        mockParams.restoreHeld = true;
         mockParams.appLocation.resolves([{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }]);
         syncthingServiceMock.getConfig.resolves({
           folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'SELF' }] }],

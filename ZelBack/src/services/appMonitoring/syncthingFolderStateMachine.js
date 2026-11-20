@@ -1543,6 +1543,7 @@ async function electedAppWriter(siblings, electionList, localSocketAddr, livenes
  *   components, for a g: folder; empty for any other.
  * @param {boolean} params.restoreHeld Whether an unfinished restore holds the
  *   folder's component, as read for this pass.
+ * @param {Function} [params.onHealed] Called once this pass clears that record.
  * @returns {Promise<Object>} Updated folder config and cache
  */
 async function handleReceiveOnlyTransition(params) {
@@ -1559,6 +1560,7 @@ async function handleReceiveOnlyTransition(params) {
     receiveOnlySyncthingAppsCache,
     othersRunTheApp = null,
     restoreHeld,
+    onHealed = () => {},
   } = params;
 
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
@@ -1601,13 +1603,16 @@ async function handleReceiveOnlyTransition(params) {
   // own; until then it stays receiveonly and not ready, whatever else this cycle
   // would decide. With no such peer nothing heals it: a restore that finishes, or
   // its owner's start, releases it.
-  if (restoreHeld && !(await healHeldFolder(appId, syncStatus))) {
-    // a held folder seeds nothing: it claims no holdings, so no peer defers to it,
-    // and a mark it made before the restore goes too
-    folderStates.measured(appId, null);
-    globalState.seedMarks.delete(appId);
-    decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-    return { syncthingFolder, cache };
+  if (restoreHeld) {
+    if (!(await healHeldFolder(appId, syncStatus))) {
+      // a held folder seeds nothing: it claims no holdings, so no peer defers to it,
+      // and a mark it made before the restore goes too
+      folderStates.measured(appId, null);
+      globalState.seedMarks.delete(appId);
+      decideType(syncthingFolder, containerDataFlags, 'receiveonly');
+      return { syncthingFolder, cache };
+    }
+    onHealed();
   }
   // Designated-leader election, debounced: require leadership to hold for
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
@@ -2142,9 +2147,18 @@ async function ensureContainerRunning(appId, containerDataFlags) {
  * Manages the transition from receiveonly to sendreceive mode
  *
  * @param {Object} params - All required parameters
- * @returns {Promise<Object>} Updated folder config and cache
+ * @param {boolean} params.restoreHeld Whether an unfinished restore holds the
+ *   folder's component, as the caller read it for this pass.
+ * @returns {Promise<Object>} Updated folder config and cache, and `restoreHeld`:
+ *   whether the record still holds it once this pass is done
  */
 async function manageFolderSyncState(params) {
+  let restoreHeld = params.restoreHeld === true;
+  const result = await decideFolderSyncState({ ...params, restoreHeld, onHealed: () => { restoreHeld = false; } });
+  return { ...result, restoreHeld };
+}
+
+async function decideFolderSyncState(params) {
   const {
     appId,
     identifier,
@@ -2160,6 +2174,8 @@ async function manageFolderSyncState(params) {
     installedAppName,
     liveness,
     electedSiblings = [],
+    restoreHeld,
+    onHealed,
   } = params;
 
   // One per pass per folder, whatever the pass decides: a harness suite counts
@@ -2175,18 +2191,10 @@ async function manageFolderSyncState(params) {
   // turns on whether another holder runs the app. Every holder of an r: folder runs it.
   const othersRunTheApp = containerDataFlags.includes('g') ? othersHold : null;
 
-  // Check if folder already exists and is in sendreceive mode
   // A folder an unfinished restore holds takes the transition on every pass,
   // whatever state it is in - sending, settled, just started - so only healing
   // from a peer that holds the data, a restore that finishes, or its owner's
-  // start releases it; until then it receives. A record that cannot be read
-  // decides nothing: the folder is left as it is for the pass, and no write makes
-  // it send meanwhile (syncthingFolderWrites).
-  const restoreHeld = await syncthingFolderWrites.restoreRecord(appId);
-  if (restoreHeld === null) {
-    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'unknown');
-    return { syncthingFolder, cache: null, skipProcessing: true };
-  }
+  // start releases it; until then it receives.
   if (restoreHeld) {
     const existing = receiveOnlySyncthingAppsCache.get(appId);
     const cache = existing?.restarted === false ? existing : { restarted: false, numberOfExecutions: 0 };
@@ -2203,6 +2211,7 @@ async function manageFolderSyncState(params) {
       receiveOnlySyncthingAppsCache,
       othersRunTheApp,
       restoreHeld,
+      onHealed,
     });
   }
 
@@ -2286,6 +2295,7 @@ async function manageFolderSyncState(params) {
       receiveOnlySyncthingAppsCache,
       othersRunTheApp,
       restoreHeld,
+      onHealed,
     });
     return result;
   }

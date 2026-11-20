@@ -372,12 +372,24 @@ async function processContainerData(params) {
   // Create base folder configuration
   const syncthingFolder = createSyncthingFolderConfig(id, label, folder, devices);
 
+  // The restore record is read once per folder per pass, and everything below
+  // decides on that one answer. A record that cannot be read decides nothing: the
+  // folder is left as it is for the pass, and no write makes it send meanwhile.
+  const recordRead = await syncthingFolderWrites.restoreRecord(appId);
+  if (recordRead === null) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'unknown');
+    return;
+  }
+  let restoreHeld = recordRead;
+
   // Handle receive-only or global sync flags
   if (primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g')) {
     // Read before the pass: the state machine updates the entry in place.
     const wasReady = !!state.receiveOnlySyncthingAppsCache.get(appId)?.restarted;
     // Use state machine to manage folder sync transitions
-    const { syncthingFolder: updatedFolder, cache, skipProcessing } = await manageFolderSyncState({
+    const {
+      syncthingFolder: updatedFolder, cache, skipProcessing, restoreHeld: heldAfterPass,
+    } = await manageFolderSyncState({
       appId,
       identifier,
       syncFolder,
@@ -392,7 +404,10 @@ async function processContainerData(params) {
       installedAppName,
       liveness,
       electedSiblings: electedFolderIds.includes(appId) ? electedFolderIds.filter((folderId) => folderId !== appId) : [],
+      restoreHeld,
     });
+    // false once the pass healed it
+    restoreHeld = heldAfterPass;
 
     // Update cache if provided
     if (cache !== null) {
@@ -430,13 +445,6 @@ async function processContainerData(params) {
   // releases it. Its type is written even for a g: folder, so one left sending is
   // turned; one already receiving is left as it is. The state machine heals an r:
   // or g: folder above; an s: folder, which it does not run for, is healed here.
-  // A record that cannot be read decides nothing: the folder is left as it is for
-  // the pass, and no write makes it send meanwhile.
-  const restoreHeld = await syncthingFolderWrites.restoreRecord(appId);
-  if (restoreHeld === null) {
-    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'unknown');
-    return;
-  }
   if (restoreHeld) {
     const shared = !(primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g'));
     if (!(shared && await healHeldSharedFolder(appId))) syncthingFolder.type = 'receiveonly';
