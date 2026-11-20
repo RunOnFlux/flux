@@ -5,7 +5,8 @@
  * their copy; once synced from them with no local change left, it is released. A soft
  * redeploy does not start it, a FluxOS crash part way through its restore does not
  * make it send, and the restore another instance broadcasts leaves its record and its
- * owner's stop as they are.
+ * owner's stop as they are. A copy whose demotion syncthing refused heals only once
+ * syncthing has scanned it receiving.
  *
  * Three holders on real syncthing daemons and a fourth node that keeps the ring whole.
  * Every copy sends once its holder is ready; the data is written on one and reaches the
@@ -23,7 +24,8 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, dropConnections,
+  isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, dropConnections,
+  stopDaemon, startDaemon, getDeviceId, getConnectedDevices,
 } from '../framework/syncthing-real.js';
 import {
   ORIGINAL, DELETED_BY_CLEAR, writeAppdata, readAppdata, lockPart, unlockPart, stageLocalArchive,
@@ -38,6 +40,7 @@ const API_PORT = 16127;
 const SYNCTHING_PORT = API_PORT + 2;
 const RESTORED = Object.freeze({ 'restored.txt': 'restored' });
 const NO_CLAIM = Object.freeze({ unreadable: true });
+const AFTER_FOLDER_READ = 'syncthing:afterFolderRead';
 
 describe('an r: or s: component a restore left part replaced sends nothing and heals from its peers', function () {
   let env;
@@ -207,6 +210,53 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
     const mark = await damageAndFail(subject, S);
     await unlockPart(client(subject), S.appName);
     await healsFromPeers(subject, S, mark, 'the held s: copy heals from its peers');
+  });
+
+  // A failed restore demotes its folder; when syncthing refuses the demotion the folder
+  // is left paused and sending. Syncthing scans no paused folder and counts local
+  // changes only in a receiving one, so it reports none of the restore's deletions.
+  it('heals an s: copy whose demotion was refused only once syncthing has scanned it receiving', async function () {
+    this.timeout(1200000);
+    const subject = HOLDERS[2];
+    const p = client(subject);
+    const peers = HOLDERS.filter((i) => i !== subject);
+    await waitFor(() => sending(subject, S), { timeout: 300000, interval: 3000, label: 'the folder sends before its restore' });
+    await stageLocalArchive(p, S.appName, S.appName, RESTORED);
+    // a node whose syncthing is down refuses logins, so the session comes first
+    const auth = await ownerAuth(subject);
+    const peerIds = await Promise.all(peers.map((i) => getDeviceId(client(i))));
+    await lockPart(p, S.appName);
+    await p.holdCheckpoint('restore:beforeClear', S.folder);
+    const mark = p.getLastEventId();
+    try {
+      const restore = restoreLocal(p, S.appName, [S.appName], auth);
+      await p.waitForEvent('checkpoint:held', (d) => d.name === 'restore:beforeClear' && d.key === S.folder, 180000, { afterId: mark });
+      // syncthing goes down after the restore paused the folder and before it demotes
+      // it, and no folder pass runs until the fixture is read
+      await stopDaemon(p);
+      await p.holdCheckpoint(AFTER_FOLDER_READ);
+      await p.releaseCheckpoint('restore:beforeClear', S.folder);
+      expect(await restore, 'fixture: the restore failed at the clear').to.match(/could not clear/i);
+      expect(recordWrites(p, S.identifier, mark), 'fixture: the restore recorded the component held').to.deep.equal([true]);
+      await startDaemon(p);
+      const folder = await getFolderConfig(p, S.folder);
+      expect({ type: folder?.type, paused: folder?.paused }, 'fixture: the held folder as the refused demotion left it').to.deep.equal({ type: 'sendreceive', paused: true });
+      await waitFor(async () => {
+        const connected = await getConnectedDevices(p);
+        return peerIds.every((id) => connected.includes(id));
+      }, { timeout: 180000, interval: 2000, label: 'the held node\'s syncthing reaches its peers' });
+      const left = await readAppdata(p, S.appName, S.appName, Object.keys(ORIGINAL));
+      DELETED_BY_CLEAR.forEach((path) => expect(left[path], `fixture: the clear deleted ${path}`).to.equal(null));
+      const status = await getFolderStatus(p, S.folder);
+      const counted = ['receiveOnlyChangedFiles', 'receiveOnlyChangedDirectories', 'receiveOnlyChangedDeletes']
+        .reduce((sum, field) => sum + (status?.[field] ?? 0), 0);
+      expect(counted, `what syncthing counts of the restore's deletions: ${JSON.stringify(status)}`).to.equal(0);
+    } finally {
+      await unlockPart(p, S.appName);
+      await p.releaseAllCheckpoints().catch(() => {});
+      if (!(await isDaemonUp(p))) await startDaemon(p);
+    }
+    await healsFromPeers(subject, S, mark, 'the held s: copy heals once scanned receiving');
   });
 
   it('leaves another instance\'s record and its owner\'s stop as they are when a restore broadcasts its restart', async function () {
