@@ -1498,7 +1498,7 @@ describe('appInstaller tests', () => {
     // the time the install gives up. `failBeforeRow` moves the failure ahead of
     // the row instead.
     function buildFailingInstaller(removeAppLocallyStub, {
-      failBeforeRow = false, alreadyInstalled = false, broadcastMessageToAll = sinon.stub().resolves(), volumeError = new Error('volume creation failed'),
+      failBeforeRow = false, alreadyInstalled = false, signBroadcast = sinon.stub().resolves(), sendToAll = sinon.stub().resolves(), storeSignedAppInstallingErrorBroadcast = sinon.stub().resolves(), volumeError = new Error('volume creation failed'),
       dockerService = makeDockerServiceStub(),
     } = {}) {
       const dbHelperStubLocal = {
@@ -1562,11 +1562,13 @@ describe('appInstaller tests', () => {
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
           broadcastMessageToIncoming: sinon.stub().resolves(),
-          broadcastMessageToAll,
+          signBroadcast,
+          sendToAll,
         },
         '../appMessaging/messageStore': {
           storeAppRunningMessage: sinon.stub().resolves(),
           storeAppInstallingErrorMessage: sinon.stub().resolves(),
+          storeSignedAppInstallingErrorBroadcast,
         },
         '../appSystem/systemIntegration': {
           systemArchitecture: sinon.stub().resolves('amd64'),
@@ -1639,9 +1641,9 @@ describe('appInstaller tests', () => {
 
       it('leaves an install a removal stopped to that removal: it tells no installing error and removes nothing', async () => {
         const removeAppLocallyStub = sinon.stub().resolves();
-        const broadcastMessageToAll = sinon.stub().resolves();
+        const signBroadcast = sinon.stub().resolves();
         const installer = buildFailingInstaller(removeAppLocallyStub, {
-          broadcastMessageToAll, volumeError: new operationRegistry.OperationPreemptedError('testapp', 'removal'),
+          signBroadcast, volumeError: new operationRegistry.OperationPreemptedError('testapp', 'removal'),
         });
 
         let thrown = null;
@@ -1649,7 +1651,7 @@ describe('appInstaller tests', () => {
 
         expect(thrown).to.be.instanceOf(operationRegistry.OperationPreemptedError);
         sinon.assert.notCalled(removeAppLocallyStub);
-        sinon.assert.notCalled(broadcastMessageToAll);
+        sinon.assert.notCalled(signBroadcast);
       });
 
       it('answers BUSY, touching nothing, for an install whose caller does not wait while another operation holds the app', async () => {
@@ -1717,16 +1719,33 @@ describe('appInstaller tests', () => {
 
     it('tells the network the first 1000 characters of an install error', async () => {
       messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
-      const broadcastMessageToAll = sinon.stub().resolves();
+      const signBroadcast = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), {
-        broadcastMessageToAll, volumeError: new Error('e'.repeat(5000)),
+        signBroadcast, volumeError: new Error('e'.repeat(5000)),
       });
 
       await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
 
-      const [sent] = broadcastMessageToAll.getCalls().map((c) => c.args[0]).filter((m) => m.type === 'fluxappinstallingerror');
+      const [sent] = signBroadcast.getCalls().map((c) => c.args[0]).filter((m) => m.type === 'fluxappinstallingerror');
       expect(sent, 'no install error was told').to.exist;
       expect(sent.error).to.have.lengthOf(1000);
+    });
+
+    // A peer syncing from this node is given its install error with the errors it
+    // received: the signed error is recorded where they are served from, then sent.
+    it('records its signed install error where it serves errors from, before it sends it', async () => {
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+      const signBroadcast = sinon.stub().callsFake(async (data) => ({ serialised: `signed:${data.type}`, message: { data } }));
+      const sendToAll = sinon.stub().resolves();
+      const storeSignedAppInstallingErrorBroadcast = sinon.stub().resolves();
+      const installer = buildFailingInstaller(sinon.stub().resolves(), { signBroadcast, sendToAll, storeSignedAppInstallingErrorBroadcast });
+
+      await installer.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
+
+      sinon.assert.calledOnce(storeSignedAppInstallingErrorBroadcast);
+      expect(storeSignedAppInstallingErrorBroadcast.firstCall.args[0].data.type).to.equal('fluxappinstallingerror');
+      sinon.assert.calledOnceWithExactly(sendToAll, 'signed:fluxappinstallingerror');
+      sinon.assert.callOrder(storeSignedAppInstallingErrorBroadcast, sendToAll);
     });
 
     // A caller that already holds the app keeps its claim: a redeploy's teardown

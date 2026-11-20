@@ -275,6 +275,8 @@ describe('appSpawner tests', () => {
         broadcastMessageToOutgoing: sinon.stub().resolves(),
         broadcastMessageToIncoming: sinon.stub().resolves(),
         broadcastMessageToAll: sinon.stub().resolves(),
+        signBroadcast: opts.signStub ?? sinon.stub().callsFake(async (data) => ({ serialised: `signed:${data.type}`, message: { data } })),
+        sendToAll: opts.sendStub ?? sinon.stub().resolves(),
       },
       '../utils/appConstants': {
         globalAppsInformation: 'appsInformation',
@@ -292,6 +294,7 @@ describe('appSpawner tests', () => {
       '../appMessaging/messageStore': {
         storeAppInstallingMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
         storeAppInstallingErrorMessage: opts.installingErrorStub ?? sinon.stub().resolves(true),
+        storeSignedAppInstallingBroadcast: opts.signedClaimStub ?? sinon.stub().resolves(),
       },
       './appInstaller': {
         registerAppLocally: installStubRef,
@@ -1114,6 +1117,24 @@ describe('appSpawner tests', () => {
       sinon.assert.callOrder(siblingCheck, claimStub);
     });
 
+    // A peer that links while the claim is being sent, or after, asks this node for
+    // the claims it holds, and is given this one with the rest.
+    it('records its signed claim where it serves claims from, before it sends it', async () => {
+      const signedClaimStub = sinon.stub().resolves();
+      const sendStub = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, signedClaimStub, sendStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.calledOnce(signedClaimStub);
+      const [stored] = signedClaimStub.firstCall.args;
+      expect(stored.data).to.include({ type: 'fluxappinstalling', version: 1 });
+      sinon.assert.calledWithExactly(sendStub, 'signed:fluxappinstalling');
+      sinon.assert.callOrder(signedClaimStub, sendStub);
+    });
+
     // A node whose calls to other nodes are redirected cannot ask a synced app's
     // partners anything, so it is not given one. Anything else it still takes.
     describe('a node whose calls to other nodes are redirected', () => {
@@ -1714,6 +1735,20 @@ describe('appSpawner tests', () => {
       expect(withdrawal.version).to.equal(2);
       expect(withdrawal.ip).to.equal('192.168.1.1:16127');
       expect(withdrawal.name).to.be.a('string');
+    });
+
+    // A peer syncing from this node learns the claim is withdrawn, as it learns the
+    // claim: the signed withdrawal is recorded where claims are served from, then sent.
+    it('records its signed withdrawal where it serves claims from, before it sends it', async () => {
+      const signedClaimStub = sinon.stub().resolves();
+      const sendStub = sinon.stub().resolves();
+      await runAttempt({ portsAvailable: false, portCheck: sinon.stub(), signedClaimStub, sendStub });
+
+      const withdrawals = signedClaimStub.getCalls().filter((c) => c.args[0].data.withdrawn === true);
+      expect(withdrawals, 'signed withdrawals recorded').to.have.lengthOf(1);
+      const sent = sendStub.getCalls().filter((c) => c.args[0] === 'signed:fluxappinstalling');
+      expect(sent, 'claim and withdrawal sent').to.have.lengthOf(2);
+      expect(withdrawals[0].calledBefore(sent[1]), 'the withdrawal was sent before it was recorded').to.equal(true);
     });
 
     it('withdraws its claim when the port check refuses, the last check before the install', async () => {

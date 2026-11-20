@@ -321,8 +321,11 @@ async function checkAndNotifyPeersOfRunningApps() {
         fluxEventBus.publish('app:announcementRefused', { reason: ownStore.message });
         return;
       }
-      const signed = await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
-      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });
+      // Recorded before it is sent: a peer that links while it is being sent is
+      // answered from this record by the state sync its link starts.
+      const signed = await fluxCommunicationMessagesSender.signBroadcast(appRunningMessage);
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed?.message ?? null });
+      if (signed) await fluxCommunicationMessagesSender.sendToAll(signed.serialised);
       fluxEventBus.publish('app:running', { apps, ip: appRunningMessage.ip, unannounced: refused.map((application) => application?.name ?? null) });
       log.info(`App Running Message broadcasted: ${apps.length} apps`);
       moveUnannounced = false;

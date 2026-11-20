@@ -2374,6 +2374,47 @@ describe('FluxPeerManager tests', () => {
       sinon.assert.calledOnce(ws3.send);
     });
 
+    // The peers are taken once, both directions together, and sent to one after
+    // another. A peer that links while the sends are under way learns the message
+    // from the state sync its link starts.
+    describe('to every peer', () => {
+      let clock;
+      beforeEach(() => { clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] }); });
+      afterEach(() => clock.restore());
+
+      it('sends to the inbound peers straight after the outbound ones', async () => {
+        const out = createMockWs('10.0.0.1', '16127');
+        const inb = createMockWs('10.0.0.2', '16127');
+        out.readyState = 1;
+        inb.readyState = 1;
+        manager.add(out, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        manager.add(inb, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
+
+        const sending = manager.broadcast('hello', { delayMs: 1 });
+        await clock.tickAsync(10);
+
+        sinon.assert.calledOnce(out.send);
+        sinon.assert.calledOnce(inb.send);
+        await sending;
+      });
+
+      it('does not send to a peer that links while the sends are under way', async () => {
+        const out = createMockWs('10.0.0.1', '16127');
+        out.readyState = 1;
+        manager.add(out, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+        const sending = manager.broadcast('hello', { delayMs: 1 });
+        const late = createMockWs('10.0.0.2', '16127');
+        late.readyState = 1;
+        manager.add(late, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
+        await clock.tickAsync(1000);
+        await sending;
+
+        sinon.assert.calledOnce(out.send);
+        sinon.assert.notCalled(late.send);
+      });
+    });
+
     it('should send only to outbound when direction is outbound', async () => {
       const ws1 = createMockWs('10.0.0.1', '16127');
       const ws2 = createMockWs('10.0.0.2', '16127');
