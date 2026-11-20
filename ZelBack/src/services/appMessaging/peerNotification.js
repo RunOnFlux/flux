@@ -325,6 +325,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       // answered from this record by the state sync its link starts.
       const signed = await fluxCommunicationMessagesSender.signBroadcast(appRunningMessage);
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed?.message ?? null });
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.APPS_BEFORE_ANNOUNCEMENT_SENT);
       if (signed) await fluxCommunicationMessagesSender.sendToAll(signed.serialised);
       fluxEventBus.publish('app:running', { apps, ip: appRunningMessage.ip, unannounced: refused.map((application) => application?.name ?? null) });
       log.info(`App Running Message broadcasted: ${apps.length} apps`);
