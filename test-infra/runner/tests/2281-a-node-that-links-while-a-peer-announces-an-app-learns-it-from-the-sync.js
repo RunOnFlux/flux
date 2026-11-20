@@ -40,6 +40,9 @@ describe('a node that links while a peer announces an app learns it from the syn
   const appName = `e2elinkmid${Date.now()}`;
   const client = (i) => env.clients[i];
   const holderAt = () => subnet.nodeIp(HOLDER + 1);
+  // The install answers once the app's announcement is sent, so it is awaited only
+  // once the held announcement is released.
+  let installing;
 
   before(async function () {
     this.timeout(600000);
@@ -92,7 +95,8 @@ describe('a node that links while a peer announces an app learns it from the syn
     // is the one that carries this app, and it is held once recorded.
     const heldFrom = client(HOLDER).getLastEventId();
     await client(HOLDER).holdCheckpoint(BEFORE_SENT);
-    await installSeededOnNodes(env, app, [HOLDER]);
+    installing = installSeededOnNodes(env, app, [HOLDER]);
+    installing.catch(() => {});
     await client(HOLDER).waitForEvent('checkpoint:held', (d) => d.name === BEFORE_SENT, 300000, { afterId: heldFrom });
   });
 
@@ -120,5 +124,8 @@ describe('a node that links while a peer announces an app learns it from the syn
     const locations = await dbClient(NEWCOMER + 1).getAppLocations(appName);
     expect(locations.map((row) => String(row.ip).split(':')[0]), 'where the newcomer holds the app').to.deep.equal([holderAt()]);
     expect(await dbClient(BYSTANDERS[0] + 1).getAppLocations(appName), 'fixture: the announcement was still held').to.deep.equal([]);
+
+    await client(HOLDER).releaseCheckpoint(BEFORE_SENT);
+    await installing;
   });
 });
