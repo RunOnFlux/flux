@@ -39,6 +39,9 @@ const RING_BUFFER_SIZE = 1024;
 const Checkpoint = Object.freeze({
   // A node is becoming the primary of a g: component: committed, not yet running.
   MASTERSLAVE_BEFORE_START: 'masterSlave:beforeStart',
+  // A node has recorded its running announcement where the state sync serves it
+  // from, and has not yet sent it.
+  APPS_BEFORE_ANNOUNCEMENT_SENT: 'apps:beforeAnnouncementSent',
   // A node becoming the primary of a g: component has its folder sending and its
   // restart covered, and has not yet asked for the container to run. Keyed by
   // the component identifier.
