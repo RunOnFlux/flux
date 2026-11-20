@@ -1,5 +1,8 @@
 const http = require('node:http');
 const net = require('node:net');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { once } = require('node:events');
 const { expect } = require('chai');
 const express = require('express');
@@ -802,12 +805,16 @@ describe('messageVerifier tests', () => {
   });
 
   describe('getAppsPermanentMessages, to a reader that takes nothing', () => {
-    // 40 MB of answer: more than the socket buffers at both ends hold, so a reader that stops
-    // reading leaves the server waiting for it.
+    // Served on a Unix socket: a stream socket there buffers what its sender's socket buffer
+    // holds (net.core.wmem_default, 208 KiB unless a host raises it), whatever the host's TCP
+    // tuning, so 40 MB of answer is more than it holds and a reader that stops reading leaves
+    // the server waiting for it.
     const PADDING = 'x'.repeat(10 * 1024);
     const ANSWER_MESSAGES = 4000;
     const answer = Array.from({ length: ANSWER_MESSAGES }, (_, i) => ({ hash: `h${i}`, padding: PADDING }));
     let server;
+    let socketPath;
+    let served = 0;
 
     afterEach(async () => {
       if (!server) return;
@@ -815,6 +822,7 @@ describe('messageVerifier tests', () => {
       server.close();
       await once(server, 'close');
       server = null;
+      fs.rmSync(socketPath, { force: true });
     });
 
     /**
@@ -845,14 +853,17 @@ describe('messageVerifier tests', () => {
         route({ res, done, closed });
       });
       server = http.createServer(app);
-      server.listen(0, '127.0.0.1');
+      served += 1;
+      socketPath = path.join(os.tmpdir(), `messageVerifier-${process.pid}-${served}.sock`);
+      fs.rmSync(socketPath, { force: true });
+      server.listen(socketPath);
       await once(server, 'listening');
-      return { port: server.address().port, handled, readMessages };
+      return { handled, readMessages };
     }
 
-    async function readWhole(port) {
+    async function readWhole() {
       const res = await new Promise((resolve, reject) => {
-        http.get(`http://127.0.0.1:${port}/apps/permanentmessages`, resolve).on('error', reject);
+        http.get({ socketPath, path: '/apps/permanentmessages' }, resolve).on('error', reject);
       });
       const chunks = [];
       // eslint-disable-next-line no-restricted-syntax
@@ -864,8 +875,8 @@ describe('messageVerifier tests', () => {
       this.timeout(10000);
       // no limit is armed, so the answer need not outgrow the socket buffers
       const messages = answer.slice(0, 10);
-      const { port, handled, readMessages } = await serveAnswer(200, { armIdleLimit: false, messages });
-      const body = readWhole(port);
+      const { handled, readMessages } = await serveAnswer(200, { armIdleLimit: false, messages });
+      const body = readWhole();
       body.catch(() => {});
 
       const { res, done } = await handled;
@@ -882,11 +893,11 @@ describe('messageVerifier tests', () => {
 
     it('closes the connection of a reader that takes nothing for messageReaderIdleMs', async function () {
       this.timeout(10000);
-      const { port, handled, readMessages } = await serveAnswer(200);
+      const { handled, readMessages } = await serveAnswer(200);
 
-      const reader = net.connect(port, '127.0.0.1');
+      const reader = net.connect(socketPath);
       reader.on('error', () => {});
-      reader.write('GET /apps/permanentmessages HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');
+      reader.write('GET /apps/permanentmessages HTTP/1.1\r\nHost: localhost\r\n\r\n');
       reader.pause();
 
       const { res, closed } = await handled;
