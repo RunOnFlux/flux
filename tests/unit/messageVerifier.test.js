@@ -847,6 +847,7 @@ describe('messageVerifier tests', () => {
       app.get('/apps/permanentmessages', (req, res) => {
         if (armIdleLimit) sinon.spy(res, 'setTimeout');
         else sinon.stub(res, 'setTimeout').returns(res);
+        sinon.spy(res, 'destroy');
         sinon.spy(res, 'json');
         const closed = once(res, 'close');
         const done = verifier.getAppsPermanentMessages(req, res);
@@ -903,10 +904,15 @@ describe('messageVerifier tests', () => {
       const { res, closed } = await handled;
       readMessages();
       await closed;
-      reader.destroy();
-
       expect(res.setTimeout.calledOnceWith(200)).to.equal(true);
-      expect(res.writableFinished, 'closed after the reader had taken the whole answer').to.equal(false);
+      expect(res.destroy.calledOnce, 'closed by the reader limit').to.equal(true);
+
+      // what the reader can still take is what the connection held when it was closed
+      let taken = 0;
+      reader.on('data', (chunk) => { taken += chunk.length; });
+      reader.resume();
+      await once(reader, 'close');
+      expect(taken, 'bytes the reader could take, of the answer').to.be.below(JSON.stringify(answer).length);
     });
   });
 });
