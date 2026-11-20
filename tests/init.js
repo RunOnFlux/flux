@@ -1,6 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 
+// The config module reads its directory once, when it is first loaded, and what
+// this file loads below reads config. A run that names no directory (the suites
+// under tests/ZelBack) gets the node's own, as FluxOS does (pinEnvironment.js).
+process.env.NODE_CONFIG_DIR ??= path.join(process.cwd(), 'ZelBack', 'config');
+
 // Ensure log files exist so the log module doesn't throw ENOENT during tests
 for (const name of ['error.log', 'debug.log', 'warn.log']) {
   const p = path.join(process.cwd(), name);
