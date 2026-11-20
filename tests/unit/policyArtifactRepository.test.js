@@ -139,7 +139,8 @@ describe('policyArtifactRepository - the stored bundle against a database', () =
   before(requireMongo);
   beforeEach(clear);
   after(async () => {
-    await clear();
+    // a before that skipped, with no database to reach, opened no connection
+    if (dbHelper.databaseConnection()) await clear();
     await releaseMongo();
   });
 
