@@ -12,7 +12,7 @@ import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
-  waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged, assertNoEvent,
+  waitFor, waitForReconcileActuated, waitForFolderTakenOn, waitForReconcilerDesiredChanged, assertNoEvent,
 } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -66,10 +66,10 @@ describe('reconciler enforces masterSlave g: election', function () {
     // synced, so without real data neither holder would ever become ready — that
     // sourceless cold-start path is covered separately by suite 51. A synced index
     // also requires matching data on disk (the promote gate refuses a claimed-bytes
-    // index over an empty volume), written after each holder's first-run reset.
+    // index over an empty volume), written once each holder has taken its folder on.
     const folder = `flux${appName}_${appName}`;
     await Promise.all(holders.map(async (i, k) => {
-      await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfters[k] });
+      await waitForFolderTakenOn(env.clients[i], identifier, 60000, { afterId: installAfters[k] });
       await seedSyncScopedData(env, appName, i);
     }));
     await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));

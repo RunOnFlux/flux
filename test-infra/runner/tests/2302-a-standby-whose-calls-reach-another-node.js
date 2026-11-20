@@ -9,7 +9,7 @@ import {
 } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  waitFor, waitForReconcileActuated, waitForUp, waitForElectionDecisions, electionDecisionCount,
+  waitFor, waitForFolderTakenOn, waitForUp, waitForElectionDecisions, electionDecisionCount,
 } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import {
@@ -122,14 +122,14 @@ describe('a standby whose calls to its primary reach another node', function () 
     await electMaster(appName, env.clients[B].ip);
     const primaryAfter = env.clients[B].getLastEventId();
     await installOnNodes(env, app, [B]);
-    await waitForReconcileActuated(env.clients[B], identifier, 'dataCleared', 120000, { afterId: primaryAfter });
+    await waitForFolderTakenOn(env.clients[B], identifier, 120000, { afterId: primaryAfter });
     await seedSyncScopedData(env, appName, B);
     await waitForUp(env.clients[B], appName, 'the primary is running', { timeout: 180000, interval: 3000 });
 
     // Then the standby.
     standbyInstalledFrom = env.clients[A].getLastEventId();
     await installOnNodes(env, app, [A]);
-    await waitForReconcileActuated(env.clients[A], identifier, 'dataCleared', 120000, { afterId: standbyInstalledFrom });
+    await waitForFolderTakenOn(env.clients[A], identifier, 120000, { afterId: standbyInstalledFrom });
   });
 
   afterTeardown(async function () {

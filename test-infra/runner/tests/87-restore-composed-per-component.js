@@ -8,7 +8,7 @@ import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.
 import {
   setSynced, resetSyncState, resetFolderWrites, getPauseWrites, getFolderWrites, getFolderConfig,
 } from '../framework/syncthing-control.js';
-import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -93,16 +93,15 @@ describe('a restore acts on the components it was asked for, by their own folder
 
     const installAfter = env.clients[0].getLastEventId();
     await installOnNodes(env, app, [0]);
-    // data goes down only after the sync layer's first-run reset has cleared
-    // appdata, or the phantom-index guard holds the components down
-    await Promise.all([compA, compB].map((comp) => waitForReconcileActuated(
-      env.clients[0], `${comp}_${appName}`, 'dataCleared', 90000, { afterId: installAfter },
+    // data goes down once the sync layer has taken each folder on, or the
+    // phantom-index guard holds the components down
+    await Promise.all([compA, compB].map((comp) => waitForFolderTakenOn(
+      env.clients[0], `${comp}_${appName}`, 90000, { afterId: installAfter },
     )));
-    // A folder is held paused until its clear is done and resumed by the next
-    // pass. A restore finding it paused leaves that pause to its owner, so each
-    // case starts from folders that pass has resumed.
+    // A restore finding a folder paused leaves that pause to its owner, so each
+    // case starts from unpaused folders.
     await waitFor(async () => (await Promise.all([compA, compB].map(async (comp) => (await getFolderConfig(nodeIp, folderOf(comp)))?.paused === false)))
-      .every(Boolean), { timeout: 120000, interval: 1000, label: 'both folders resumed after their clear' });
+      .every(Boolean), { timeout: 120000, interval: 1000, label: 'both folders unpaused' });
     for (const comp of [compA, compB]) {
       // eslint-disable-next-line no-await-in-loop
       const r = await execInContainer(env.clients[0].container,

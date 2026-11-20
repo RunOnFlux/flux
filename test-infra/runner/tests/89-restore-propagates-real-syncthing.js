@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { waitFor, waitForReconcileActuated, waitForUp } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn, waitForUp } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import {
   isDaemonUp, getDeviceId, getVersion, getConnectedDevices, listFolderFiles,
@@ -69,7 +69,7 @@ describe('a restore reaches the other instances through syncthing', function () 
     const installAfters = nodes.map((i) => env.clients[i].getLastEventId());
     await installOnNodes(env, app, nodes);
     await Promise.all(nodes.map(async (i, k) => {
-      await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 120000, { afterId: installAfters[k] });
+      await waitForFolderTakenOn(env.clients[i], identifier, 120000, { afterId: installAfters[k] });
       await seedSyncScopedData(env, appName, i);
     }));
 

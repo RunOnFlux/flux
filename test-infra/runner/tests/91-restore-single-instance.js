@@ -6,7 +6,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
-import { waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn, waitForReconcilerDesiredChanged } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -98,15 +98,12 @@ describe('a restore with no peer to fall back on', function () {
       // eslint-disable-next-line no-await-in-loop
       await installOnNodes(env, spec, [0]);
       if (data.startsWith('r:')) {
-        // the sync layer clears appdata on a clean install, and seeding before
-        // that lands would have the seed wiped out from under the test
+        // seeded once the sync layer has taken the folder on
         // eslint-disable-next-line no-await-in-loop
-        await waitForReconcileActuated(client, idOf(app), 'dataCleared', 120000, { afterId: after });
+        await waitForFolderTakenOn(client, idOf(app), 120000, { afterId: after });
       } else {
-        // A component with no sync flag never enters the syncthing clean-install
-        // path, so it never emits dataCleared - waiting for it here waits for an
-        // event that cannot arrive. Its container running is the readiness that
-        // exists for this shape of app.
+        // A component with no sync flag has no folder to take on. Its container
+        // running is the readiness that exists for this shape of app.
         // eslint-disable-next-line no-await-in-loop
         await waitFor(async () => {
           const status = await getAppContainerStatus(client.container, app);

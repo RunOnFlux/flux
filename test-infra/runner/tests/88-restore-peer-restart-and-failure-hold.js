@@ -10,7 +10,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   setSynced, resetSyncState, resetFolderWrites, getFolderWrites,
 } from '../framework/syncthing-control.js';
-import { waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn, waitForReconcilerDesiredChanged } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -82,7 +82,7 @@ describe('a restore restarts the other instances and never rebuilds them', funct
     const installAfters = nodes.map((i) => env.clients[i].getLastEventId());
     await installOnNodes(env, app, nodes);
     await Promise.all(nodes.map(async (i, k) => {
-      await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 90000, { afterId: installAfters[k] });
+      await waitForFolderTakenOn(env.clients[i], identifier, 90000, { afterId: installAfters[k] });
       await seedSyncScopedData(env, appName, i);
     }));
     await Promise.all(nodes.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));

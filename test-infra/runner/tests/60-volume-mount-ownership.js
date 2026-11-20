@@ -5,7 +5,7 @@ import { execInContainer, getAppContainerStatus, restartFluxos } from '../framew
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableEnterpriseApp } from '../framework/seed-helper.js';
 import {
-  waitFor, waitForReconcileActuated, waitForAppRemoved, assertNoEvent,
+  waitFor, waitForReconcileActuated, waitForFolderTakenOn, waitForAppRemoved, assertNoEvent,
 } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp, seedSyncScopedData, installOnNodes } from '../framework/reconciler-suite.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
@@ -131,12 +131,12 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await bootAndPeer(env);
     await resetSyncState();
 
-    // first-run reset first, real data on disk second, pin synced LAST - an
+    // folder taken on first, real data on disk second, pin synced LAST - an
     // index claiming bytes over an empty disk is the phantom state the guard
     // demotes, and the demote/hold would latch the app down mid-suite
     const syncInstallAfter = env.clients[0].getLastEventId();
     await seedSyncthingApp(env, { name: syncName, mode: 'r', index: 0 });
-    await waitForReconcileActuated(env.clients[0], syncIdentifier, 'dataCleared', 60000, { afterId: syncInstallAfter });
+    await waitForFolderTakenOn(env.clients[0], syncIdentifier, 60000, { afterId: syncInstallAfter });
     await seedSyncScopedData(env, syncName, 0);
     // pin the folder synced so the leader promotes and the app runs steadily
     await setSynced({ ip: subnet.nodeIp(1), folder: appId(syncName) });

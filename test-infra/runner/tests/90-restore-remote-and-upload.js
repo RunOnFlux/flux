@@ -7,7 +7,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { stageArtifact, artifactUrl } from '../framework/external-http-control.js';
-import { waitForReconcileActuated } from '../framework/wait.js';
+import { waitForFolderTakenOn } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -120,7 +120,7 @@ describe('a restore fetches its archive from where it was told', function () {
 
     const installAfter = client.getLastEventId();
     await installOnNodes(env, app, [0]);
-    await waitForReconcileActuated(client, `${comp}_${appName}`, 'dataCleared', 90000, { afterId: installAfter });
+    await waitForFolderTakenOn(client, `${comp}_${appName}`, 90000, { afterId: installAfter });
     await setSynced({ ip: nodeIp, folder: folderId });
 
     auth = await authenticate(client.url, appOwnerKey());

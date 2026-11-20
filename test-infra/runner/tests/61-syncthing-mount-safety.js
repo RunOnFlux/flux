@@ -7,7 +7,7 @@ import {
   injectSyncthingEvent, setStatusUnreadable,
 } from '../framework/syncthing-control.js';
 import {
-  waitFor, waitForReconcilerDesiredChanged, waitForReconcileActuated, assertNoEvent,
+  waitFor, waitForReconcilerDesiredChanged, waitForFolderTakenOn, assertNoEvent,
 } from '../framework/wait.js';
 import {
   bootAndPeer, seedSyncthingApp, seedSyncScopedData, installOnNodes,
@@ -82,13 +82,13 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
 
     // both apps are r: leaders on their own nodes: they seed, promote to
     // sendreceive and start - the state every test here begins from.
-    // Order matters: the sync layer's first-run reset clears local appdata, so
-    // wait for it, put real data on disk, and only THEN pin the index synced -
+    // Order matters: wait for the sync layer to take the folder on, put real data
+    // on disk, and only THEN pin the index synced -
     // if the index ever claims bytes over an empty disk, the phantom guard
     // (correctly) demotes and holds, and the app never reaches the premise.
     const leakInstallAfter = env.clients[0].getLastEventId();
     await seedSyncthingApp(env, { name: leakName, mode: 'r', index: 0 });
-    await waitForReconcileActuated(env.clients[0], leakIdentifier, 'dataCleared', 60000, { afterId: leakInstallAfter });
+    await waitForFolderTakenOn(env.clients[0], leakIdentifier, 60000, { afterId: leakInstallAfter });
     await seedSyncScopedData(env, leakName, 0);
     await setSynced({ ip: ip0, folder: leakFolder });
 
@@ -96,13 +96,13 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // The phantom app carries an f: mount, because that is the volume shape the guard
     // has to be right about. FluxOS touches the named file at the volume root when it
     // builds the volume - docker would create a directory where a bind source is
-    // missing - and a wipe leaves it there, zero-length. A bare r:/appdata app puts no
+    // missing - zero-length. A bare r:/appdata app puts no
     // regular file at the root at all, so it cannot tell a walk that counts any file
     // from one that counts the owner's data, and the guard reads the same either way.
     await seedSyncthingApp(env, {
       name: phantomName, mode: 'r', index: 1, extraMounts: ['f:server.json:/etc/server.json'],
     });
-    await waitForReconcileActuated(env.clients[1], phantomIdentifier, 'dataCleared', 60000, { afterId: phantomInstallAfter });
+    await waitForFolderTakenOn(env.clients[1], phantomIdentifier, 60000, { afterId: phantomInstallAfter });
     await seedSyncScopedData(env, phantomName, 1);
     await setSynced({ ip: ip1, folder: phantomFolder });
 
@@ -305,7 +305,7 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
       await client.holdCheckpoint(BEFORE_SEED_CHECK, folder);
       await claimSyncedOverEmptyDisk(subnet.nodeIp(index + 1), folder);
       await installOnNodes(env, app, [index]);
-      await waitForReconcileActuated(client, `${name}_${name}`, 'dataCleared', 60000, { afterId });
+      await waitForFolderTakenOn(client, `${name}_${name}`, 60000, { afterId });
 
       await holdEmptyAndRelease({ index, name, afterId, checkpoint: BEFORE_SEED_CHECK });
 

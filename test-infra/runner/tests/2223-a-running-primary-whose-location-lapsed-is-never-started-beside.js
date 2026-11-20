@@ -9,7 +9,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { crashFluxos, getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  waitFor, waitForReconcileActuated, waitForUp, waitForElectionDecisions,
+  waitFor, waitForFolderTakenOn, waitForUp, waitForElectionDecisions,
 } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { isDaemonUp, listFolderFiles } from '../framework/syncthing-real.js';
@@ -76,13 +76,13 @@ describe('a running primary whose location lapsed is never started beside', func
     await electMaster(appName, client(B).ip);
     const primaryAfter = client(B).getLastEventId();
     await installOnNodes(env, app, [B]);
-    await waitForReconcileActuated(client(B), identifier, 'dataCleared', 120000, { afterId: primaryAfter });
+    await waitForFolderTakenOn(client(B), identifier, 120000, { afterId: primaryAfter });
     await seedSyncScopedData(env, appName, B);
     await waitForUp(client(B), appName, 'the primary is running', { timeout: 180000, interval: 3000 });
 
     const standbyAfter = client(A).getLastEventId();
     await installOnNodes(env, app, [A]);
-    await waitForReconcileActuated(client(A), identifier, 'dataCleared', 120000, { afterId: standbyAfter });
+    await waitForFolderTakenOn(client(A), identifier, 120000, { afterId: standbyAfter });
     await waitFor(async () => (await listFolderFiles(client(A), `${appDir(appName)}/appdata`)).split(' ').includes('seed-data'), {
       timeout: 240000, interval: 5000, label: 'the primary\'s data reached the standby',
     });

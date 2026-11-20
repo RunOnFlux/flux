@@ -10,8 +10,7 @@ import { execInContainer } from './container.js';
 // false). A volume a suite has put data on itself is left as it is.
 //
 // A volume is written only at the moments a sync would write it: when a declaration
-// changes, when FluxOS builds the volume (app:installed, a hard component redeploy),
-// and when FluxOS empties it for a sync to refill (reconciler:actuated dataCleared).
+// changes, and when FluxOS builds the volume (app:installed, a hard component redeploy).
 // A restore empties a volume for the owner's archive, not for a sync, so nothing
 // here writes into it. A node whose event stream opens or reports a gap may have
 // missed one of those moments, and is brought to every declaration at once.
@@ -101,9 +100,6 @@ export function startSyncedDataKeeper(env) {
       client.subscribe('app:installed', ({ data }) => { apply(client, (folder) => belongsTo(folder, data.name)); }),
       client.subscribe('app:componentRedeployed', ({ data }) => {
         if (data.hard) apply(client, (folder) => folder === folderOf(data.identifier));
-      }),
-      client.subscribe('reconciler:actuated', ({ data }) => {
-        if (data.action === 'dataCleared') apply(client, (folder) => folder === folderOf(data.identifier));
       }),
     );
     everything();
