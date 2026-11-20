@@ -6148,6 +6148,21 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.notCalled(dockerService.appDockerStart);
     });
 
+    it('lifts its hold on the components it stopped when the app\'s spec cannot be read at the end', async () => {
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      IOUtils.createTarGz.callsFake(async () => {
+        registryManager.getApplicationSpecifications.rejects(new Error('database unavailable'));
+        return { status: true };
+      });
+
+      await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      sinon.assert.calledOnceWithExactly(appReconciler.releaseHold, [`palworld_${appname}`]);
+    });
+
     describe('a volume that holds a link where a directory or the archive should be', () => {
       /* eslint-disable global-require */
       const nodeFs = require('node:fs');
@@ -7125,6 +7140,17 @@ describe('advancedWorkflows tests', () => {
 
         sinon.assert.calledWithExactly(IOUtils.removeFile, `${mount}/backup/remote/backup_palworld.tar.gz`);
         sinon.assert.callOrder(IOUtils.untarFile, appReconciler.releaseHold, IOUtils.removeFile);
+      });
+
+      it('lifts its hold on the components it stopped when the app\'s spec cannot be read at the end', async () => {
+        IOUtils.untarFile.callsFake(async () => {
+          registryManager.getApplicationSpecifications.rejects(new Error('database unavailable'));
+          return { status: true };
+        });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledOnceWithExactly(appReconciler.releaseHold, [`palworld_${appname}`]);
       });
 
       it('keeps an uploaded archive - it is the owner\'s copy, not ours', async () => {

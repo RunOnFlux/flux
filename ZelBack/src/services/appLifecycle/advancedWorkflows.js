@@ -2529,14 +2529,17 @@ const STOP_REFUSALS = {
  * archiving it under one leaves the app writing into a half-emptied tree, or
  * tears the archive.
  *
- * The hold stays whatever the verdict: startApplication lifts it, on every exit.
+ * The hold stays whatever the verdict: startApplication lifts it, on every exit,
+ * from the identifiers onHold was given.
  *
  * @param {string} appname - App name, or a single component identifier
  * @param {Function} [onWait] - Called with a progress line while the stop runs
+ * @param {Function} [onHold] - Called with the component identifiers before they
+ *  are held
  * @returns {Promise<{stopped: boolean, refusal: string|null}>} `refusal` says
  *  which components are not down, and why.
  */
-async function stopApplication(appname, onWait) {
+async function stopApplication(appname, onWait, onHold = () => {}) {
   let identifiers;
   try {
     identifiers = await operationTargetIds(appname);
@@ -2546,6 +2549,7 @@ async function stopApplication(appname, onWait) {
     // what is running - which is a refusal, not an empty success.
     return { stopped: false, refusal: error.message };
   }
+  onHold(identifiers);
   // A graceful stop runs as long as the app's shutdown takes.
   const stopping = appReconciler.holdStopped(identifiers);
   let settled = false;
@@ -2565,17 +2569,18 @@ async function stopApplication(appname, onWait) {
 }
 
 /**
- * Lifts the operation's hold on every container the given app name covers.
- * Each goes where the reconciler puts it - a g: component as its election
- * decides, an operator-stopped one stopped, one a restore left unfinished
- * stopped - and starting one is the reconciler's, retried as any start is.
- * Never throws.
- * @param {string} appname - App name, or a single component identifier
+ * Lifts the operation's hold on the containers its stop held. Each goes where
+ * the reconciler puts it - a g: component as its election decides, an
+ * operator-stopped one stopped, one a restore left unfinished stopped - and
+ * starting one is the reconciler's, retried as any start is. Reads nothing, so
+ * the release does not depend on the database. Never throws.
+ * @param {string[]} identifiers - The component identifiers stopApplication held
  * @returns {Promise<void>}
  */
-async function startApplication(appname) {
+async function startApplication(identifiers) {
+  if (!identifiers.length) return;
   try {
-    await appReconciler.releaseHold(await operationTargetIds(appname));
+    await appReconciler.releaseHold(identifiers);
   } catch (error) {
     log.error(error);
   }
@@ -2757,9 +2762,9 @@ async function appendBackupTask(req, res) {
   let force;
   // folders this task paused, so a failure anywhere below can resume them
   const pausedFolderIds = [];
-  // Whether this task has asked the reconciler to hold the app stopped; lifted on
+  // The components this task has asked the reconciler to hold stopped; lifted on
   // every exit, so a backup that fails part way never leaves the app held down.
-  let operationHeld = false;
+  let heldIds = [];
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     log.info(processedBody);
@@ -2879,8 +2884,7 @@ async function appendBackupTask(req, res) {
       }
 
       await sendChunk(res, 'Stopping application...\n');
-      operationHeld = true;
-      const stopVerdict = await stopApplication(appname, (line) => sendChunk(res, `${line}\n`));
+      const stopVerdict = await stopApplication(appname, (line) => sendChunk(res, `${line}\n`), (ids) => { heldIds = ids; });
       // Same reason the folders are held: an archive taken while a container is
       // still writing is torn, and a torn archive is what this path exists to
       // stop being created.
@@ -2939,8 +2943,9 @@ async function appendBackupTask(req, res) {
       await sendChunk(res, 'Starting application...\n');
       // The reconciler brings each component back where its other inputs put it:
       // a g: component as its election decides, an operator-stopped one stays down.
-      operationHeld = false;
-      await startApplication(appname);
+      const releasing = heldIds;
+      heldIds = [];
+      await startApplication(releasing);
       await sendChunk(res, 'Finalizing...\n');
       await serviceHelper.delay(5 * 1000);
       res.end();
@@ -2960,14 +2965,15 @@ async function appendBackupTask(req, res) {
     await sendChunk(res, `${error?.message}\n`);
     // The response ends once the app is back where its other inputs put it, so a
     // caller that sees it end can start the next operation on the app.
-    if (operationHeld) {
-      operationHeld = false;
-      await startApplication(appname);
+    if (heldIds.length) {
+      const releasing = heldIds;
+      heldIds = [];
+      await startApplication(releasing);
     }
     res.end();
     return false;
   } finally {
-    if (operationHeld) await startApplication(appname);
+    if (heldIds.length) await startApplication(heldIds);
     // The one release, reached by every exit the claim can survive to: success,
     // unauthorized, and error alike. The claim is made in the block above this
     // try, so a request that never claimed never reaches here.
@@ -3006,10 +3012,10 @@ async function appendRestoreTask(req, res) {
   // directory that is neither the old copy nor the new one - and nothing else.
   // A component that finished is whole, however the components after it fare.
   let swapInFlight = null;
-  // Whether this task has asked the reconciler to hold the app stopped; lifted on
+  // The components this task has asked the reconciler to hold stopped; lifted on
   // every exit. A component the restore left half-replaced stays down by its own
   // record (restoreUnfinished, or its election's stop), not by this hold.
-  let operationHeld = false;
+  let heldIds = [];
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     log.info(processedBody);
@@ -3123,8 +3129,7 @@ async function appendRestoreTask(req, res) {
     }
 
     await sendChunk(res, 'Stopping application...\n');
-    operationHeld = true;
-    const stopVerdict = await stopApplication(appname, (line) => sendChunk(res, `${line}\n`));
+    const stopVerdict = await stopApplication(appname, (line) => sendChunk(res, `${line}\n`), (ids) => { heldIds = ids; });
     // A container still up is still writing to the volume whose appdata is
     // about to be emptied - it would write into a half-cleared tree and can
     // save its own state back over what the archive puts there.
@@ -3322,8 +3327,9 @@ async function appendRestoreTask(req, res) {
     await sendChunk(res, 'Starting application...\n');
     // Every component the stop held, each back where the reconciler puts it: an
     // elected one as its election decides, an operator-stopped one stays down.
-    operationHeld = false;
-    await startApplication(appname);
+    const releasing = heldIds;
+    heldIds = [];
+    await startApplication(releasing);
 
     // Only the copy this task downloaded is ours to remove. An uploaded or
     // local archive is the owner's restore point, and restoring from it must
@@ -3408,14 +3414,15 @@ async function appendRestoreTask(req, res) {
     await sendChunk(res, `${error?.message}${held}\n`);
     // The response ends once the app is back where its other inputs put it, so a
     // caller that sees it end can start the next operation on the app.
-    if (operationHeld) {
-      operationHeld = false;
-      await startApplication(appname);
+    if (heldIds.length) {
+      const releasing = heldIds;
+      heldIds = [];
+      await startApplication(releasing);
     }
     res.end();
     return false;
   } finally {
-    if (operationHeld) await startApplication(appname);
+    if (heldIds.length) await startApplication(heldIds);
     // The one release, reached by every exit the claim can survive to: success,
     // unauthorized, and error alike. The claim is made in the block above this
     // try, so a request that never claimed never reaches here.
