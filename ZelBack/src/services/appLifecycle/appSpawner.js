@@ -1073,7 +1073,13 @@ async function trySpawningGlobalApplication() {
         await messageStore.storeAppInstallingMessage(withdrawal);
         // eslint-disable-next-line global-require
         const fluxCommMessagesSenderLib = require('../fluxCommunicationMessagesSender');
-        await fluxCommMessagesSenderLib.broadcastMessageToAll(withdrawal);
+        // Recorded before it is sent, as a claim is: a peer syncing from this node
+        // learns the claim is withdrawn.
+        const signedWithdrawal = await fluxCommMessagesSenderLib.signBroadcast(withdrawal);
+        if (signedWithdrawal) {
+          await messageStore.storeSignedAppInstallingBroadcast(signedWithdrawal.message);
+          await fluxCommMessagesSenderLib.sendToAll(signedWithdrawal.serialised);
+        }
       } catch (error) {
         // best effort - the installing TTL remains the backstop
         log.warn(`trySpawningGlobalApplication - could not retract installing claim for ${appToRun}: ${error.message}`);
@@ -1093,10 +1099,16 @@ async function trySpawningGlobalApplication() {
 
     // store it in local database first
     await registryManager.storeAppInstallingMessage(newAppInstallingMessage);
-    // broadcast messages about running apps to all peers
+    // The signed claim is recorded before it is sent, where the claims this node
+    // received are: a peer that links while it is being sent, or later, is
+    // given it by the state sync its link starts.
     // eslint-disable-next-line global-require
     const fluxCommMessagesSender = require('../fluxCommunicationMessagesSender');
-    await fluxCommMessagesSender.broadcastMessageToAll(newAppInstallingMessage);
+    const signedClaim = await fluxCommMessagesSender.signBroadcast(newAppInstallingMessage);
+    if (signedClaim) {
+      await messageStore.storeSignedAppInstallingBroadcast(signedClaim.message);
+      await fluxCommMessagesSender.sendToAll(signedClaim.serialised);
+    }
 
     await serviceHelper.delay(collisionWaitMs); // give it 1.5m so messages are propagated on the network
 

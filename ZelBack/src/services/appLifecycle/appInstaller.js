@@ -14,7 +14,7 @@ const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-const { storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
+const { storeAppInstallingErrorMessage, storeSignedAppInstallingErrorBroadcast } = require('../appMessaging/messageStore');
 
 let onInstallComplete = null;
 function setOnInstallComplete(callback) {
@@ -645,9 +645,13 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop, no-use-before-define
         await storeAppInstallingErrorMessage(newAppRunningMessage);
-        // broadcast messages about running apps to all peers
-        await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
-        // broadcast messages about running apps to all peers
+        // Recorded signed before it is sent, where the errors this node received
+        // are: a peer syncing from this node is given it.
+        const signedError = await fluxCommunicationMessagesSender.signBroadcast(newAppRunningMessage);
+        if (signedError) {
+          await storeSignedAppInstallingErrorBroadcast(signedError.message);
+          await fluxCommunicationMessagesSender.sendToAll(signedError.serialised);
+        }
       }
       throw error;
     }
