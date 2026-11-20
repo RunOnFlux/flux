@@ -1072,28 +1072,10 @@ async function handleFirstRun(params) {
     containerDataFlags,
     syncFolder,
     syncthingFolder,
-    receiveOnlySyncthingAppsCache,
   } = params;
 
-  if (!syncFolder) {
-    // No sync folder exists - clean install. Declare the stop + local appdata clear
-    // to the reconciler (the sole container/data actuator) so the wipe runs inside
-    // its per-key single-flight and a start can never race it (the S1 data-loss
-    // window the old imperative stop+rm-rf left open).
-    log.info(`handleFirstRun - First run, no sync folder - requesting stop + clean of ${appId}`);
-    decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-    const cache = { numberOfExecutions: 1 };
-
-    // Set cache BEFORE requesting the reset to prevent re-processing as "new"
-    receiveOnlySyncthingAppsCache.set(appId, cache);
-
-    appReconciler.requestStopAndClearData(appId, 'syncthing first-run clean install');
-
-    return { syncthingFolder, cache };
-  }
-
-  // Sync folder exists - check container status
-  log.info('handleFirstRun - First run, sync folder exists - checking container status');
+  // The container's state decides, whether or not syncthing has the folder yet.
+  log.info(`handleFirstRun - First run, ${syncFolder ? 'sync folder exists' : 'no sync folder'} - checking container status`);
   let containerRunning = false;
 
   try {
@@ -1143,11 +1125,10 @@ async function handleSkippedAppSecondEncounter(params) {
   decideType(syncthingFolder, containerDataFlags, 'receiveonly');
   const cache = { numberOfExecutions: 1 };
 
-  // Set cache BEFORE requesting the reset to prevent re-processing as "new"
+  // Set before the stop, so the next pass does not process it as new again
   receiveOnlySyncthingAppsCache.set(appId, cache);
 
-  // stop + local appdata clear is declared to the reconciler (the sole actuator)
-  appReconciler.requestStopAndClearData(appId, 'syncthing skipped-app second encounter');
+  appReconciler.setControllerDesired(appId, 'stopped', 'syncthing: receives its data before it runs');
 
   return { syncthingFolder, cache };
 }
@@ -2078,16 +2059,14 @@ async function handleNewApp(params) {
     receiveOnlySyncthingAppsCache,
   } = params;
 
-  log.info(`handleNewApp - ${appId} NOT in cache. requesting stop + clean of ${appId}`);
+  log.info(`handleNewApp - ${appId} NOT in cache, receiving its data before it runs`);
   decideType(syncthingFolder, containerDataFlags, 'receiveonly');
   const cache = { numberOfExecutions: 1 };
 
-  // Set cache BEFORE requesting the reset so subsequent monitoring cycles don't
-  // re-process this app as "new"
+  // Set before the stop, so the next pass does not process it as new again
   receiveOnlySyncthingAppsCache.set(appId, cache);
 
-  // stop + local appdata clear is declared to the reconciler (the sole actuator)
-  appReconciler.requestStopAndClearData(appId, 'syncthing new app clean install');
+  appReconciler.setControllerDesired(appId, 'stopped', 'syncthing: receives its data before it runs');
 
   return { syncthingFolder, cache };
 }
@@ -2242,7 +2221,6 @@ async function manageFolderSyncState(params) {
       containerDataFlags,
       syncFolder,
       syncthingFolder,
-      receiveOnlySyncthingAppsCache,
     });
     return result;
   }

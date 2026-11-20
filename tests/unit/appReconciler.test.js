@@ -63,7 +63,6 @@ describe('appReconciler tests', () => {
         ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
         // the heal will not destroy a container whose volume it cannot verify
         verifyAppVolumeMount: sinon.stub().resolves(true),
-        clearAppVolumeData: sinon.stub().resolves(),
       },
       appsRuntimeState: {
         operatorStopState: sinon.stub().resolves({ stopped: false, force: false }),
@@ -385,28 +384,6 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
     });
 
-    // A paused container is LIVE: its processes are frozen but the volume is
-    // still mounted and held. The wipe path stops a running container first
-    // because "an rm -rf under a live container corrupts it", and that is just as
-    // true here - which is why the paused normalisation has to run ahead of the
-    // wipe rather than merely ahead of the run decision.
-    it('does not wipe app data out from under a paused container', async () => {
-      stubs.dockerService.dockerContainerInspect.resolves({
-        State: {
-          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
-        },
-      });
-
-      appReconciler.requestStopAndClearData('www_App', 'test wipe');
-      await new Promise((resolve) => { setTimeout(resolve, 50); });
-
-      expect(
-        stubs.volumeService.clearAppVolumeData.called,
-        'wiped the volume while the container was still holding it',
-      ).to.equal(false);
-      expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
-    });
-
     // Stopping it is only half the job - it has to come back. The stop makes the
     // container exited, and the pass that follows starts it on the normal path,
     // with the backoff pacing and the burst reapplication appDockerStart owns.
@@ -507,7 +484,6 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
-      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
       const deferredLoud = stubs.log.error.getCalls().some((c) => /data volume not mounted/.test(c.args[0]));
       expect(deferredLoud, 'should log the volume defer loudly').to.equal(true);
     });
@@ -523,7 +499,6 @@ describe('appReconciler tests', () => {
         await new Promise((resolve) => { setTimeout(resolve, 50); });
         expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
         expect(stubs.dockerService.appDockerStart.called).to.be.false;
-        expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
       } finally {
         appReconciler.clearControllerDesired('www_App');
       }
@@ -543,7 +518,6 @@ describe('appReconciler tests', () => {
         await new Promise((resolve) => { setTimeout(resolve, 50); });
         expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
         expect(stubs.dockerService.appDockerStart.called).to.be.false;
-        expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
       } finally {
         appReconciler.clearControllerDesired('www_App');
       }
@@ -563,7 +537,6 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
       expect(stubs.dockerService.appDockerKill.called, 'a plain stop is not a kill').to.be.false;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
-      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
     });
 
     // An appkill against an unmounted volume must still be a kill: this branch
@@ -689,92 +662,6 @@ describe('appReconciler tests', () => {
       expect(
         stubs.appTamperingDetectionService.recordEvent.getCalls().some((c) => c.args[1] === 'volume_image_moved'),
       ).to.equal(false);
-    });
-
-    it('ensures the volume is mounted before actuating a pending data wipe', async () => {
-      appReconciler.requestStopAndClearData('www_App', 'test wipe');
-      // requestStopAndClearData enqueues its own reconcile; wait for it to land
-      await new Promise((resolve) => { setTimeout(resolve, 50); });
-      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
-      sinon.assert.callOrder(stubs.volumeService.ensureAppVolumeMounted, stubs.volumeService.clearAppVolumeData);
-    });
-
-    // Nothing may arrive in a component's folder while its local appdata is still
-    // to be cleared, so whether one is still owed is asked, and its end announced.
-    it('says a data clear is owed from the request until the clear is done, whichever name it is asked by', async () => {
-      appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
-
-      expect(appReconciler.dataClearPending('www_App')).to.equal(true);
-      expect(appReconciler.dataClearPending('fluxwww_App'), 'the folder\'s name').to.equal(true);
-      // requestStopAndClearData enqueues its own reconcile; wait for it to land
-      await new Promise((resolve) => { setTimeout(resolve, 50); });
-
-      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
-      expect(appReconciler.dataClearPending('www_App')).to.equal(false);
-    });
-
-    it('announces a clear once the data is cleared, and not before', async () => {
-      const cleared = sinon.spy();
-      appReconciler.dataEvents.on('cleared', cleared);
-      let clearedWhenWiped = null;
-      stubs.volumeService.clearAppVolumeData.callsFake(async () => { clearedWhenWiped = cleared.called; });
-      try {
-        appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
-        await new Promise((resolve) => { setTimeout(resolve, 50); });
-
-        expect(clearedWhenWiped, 'announced before the wipe').to.equal(false);
-        sinon.assert.calledOnceWithExactly(cleared, 'www_App');
-      } finally {
-        appReconciler.dataEvents.off('cleared', cleared);
-      }
-    });
-
-    it('keeps a clear owed, and announces nothing, when the clear fails', async () => {
-      const cleared = sinon.spy();
-      appReconciler.dataEvents.on('cleared', cleared);
-      stubs.volumeService.clearAppVolumeData.rejects(new Error('device busy'));
-      try {
-        appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
-        await new Promise((resolve) => { setTimeout(resolve, 50); });
-
-        expect(stubs.volumeService.clearAppVolumeData.called, 'canary: the clear was tried').to.be.true;
-        expect(appReconciler.dataClearPending('www_App')).to.equal(true);
-        sinon.assert.notCalled(cleared);
-      } finally {
-        appReconciler.dataEvents.off('cleared', cleared);
-        appReconciler.forgetDesiredState('www_App');
-      }
-    });
-
-    it('owes no clear for a component that is removed', () => {
-      appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
-      appReconciler.forgetDesiredState('www_App');
-
-      expect(appReconciler.dataClearPending('www_App')).to.equal(false);
-    });
-
-    // An operator stopping an app says nothing about whether its local data can
-    // be trusted. Dropping the pending clear here loses it for good: the sync
-    // layer marks a component processed BEFORE it asks, so it never asks again,
-    // and the component eventually starts on the data the clear existed to
-    // remove.
-    it('keeps a pending data clear when the operator retracts the run opinion', async () => {
-      appReconciler.requestStopAndClearData('www_App', 'syncthing first-run clean install');
-      appReconciler.clearControllerDesired('www_App');
-      // requestStopAndClearData enqueues its own reconcile; wait for it to land
-      await new Promise((resolve) => { setTimeout(resolve, 50); });
-
-      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
-    });
-
-    // removal is the one case where nothing about the component is worth acting
-    // on, data clear included - it is gone
-    it('drops a pending data clear when the component is removed', async () => {
-      appReconciler.requestStopAndClearData('www_App', 'syncthing first-run clean install');
-      appReconciler.forgetDesiredState('www_App');
-      await new Promise((resolve) => { setTimeout(resolve, 50); });
-
-      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
     });
 
     it('ensures mount paths exist (recreating any syncthing-cleaned source) before starting', async () => {
@@ -965,18 +852,17 @@ describe('appReconciler tests', () => {
     });
 
     // The controller verdict is sampled at reconcile entry, but the syncthing
-    // decider's stop wrapper runs OUTSIDE the reconciler's single-flight: it can
-    // flip the verdict and begin a data wipe while this reconcile is awaiting
-    // (mount-path recreation, DB reads). The verdict must therefore be re-read at
-    // actuation time - starting onto a folder mid-wipe corrupts the fresh sync.
+    // decider's stop runs OUTSIDE the reconciler's single-flight: it can flip the
+    // verdict while this reconcile is awaiting (mount-path recreation, DB reads).
+    // The verdict must therefore be re-read at actuation time.
     it('aborts the start when the controller verdict flips to stopped mid-reconcile', async () => {
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
       stubs.globalState.bootContainerStateSettled = false;
       appReconciler.setControllerDesired('db_App', 'running', 'test');
       stubs.globalState.bootContainerStateSettled = true;
-      // decider stop+wipe lands during the mount-path await
+      // the decider's stop lands during the mount-path await
       stubs.volumeService.ensureMountPathsExist.callsFake(async () => {
-        appReconciler.setControllerDesired('db_App', 'stopped', 'decider stop+wipe');
+        appReconciler.setControllerDesired('db_App', 'stopped', 'decider stop');
       });
       await appReconciler.reconcile('db_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
@@ -1379,120 +1265,6 @@ describe('appReconciler tests', () => {
 
       const line = stubs.log.warn.getCalls().map((c) => c.args[0]).find((m) => m.includes('backing off'));
       expect(line, 'three rungs stand, so this is the third').to.include('rung 3');
-    });
-  });
-
-  // The sync layer's first-run / new-app reset was previously an imperative
-  // stop+rm-rf done OUTSIDE the reconciler's single-flight, so a backoff-elapsed
-  // start could land in the wipe window and corrupt fresh data (the S1 data-loss
-  // race). The wipe is now declared as desired data-state and actuated by the
-  // reconciler - the sole container/data actuator - inside the per-key single-
-  // flight, which makes start-into-wipe structurally impossible.
-  describe('data-clear (sync-layer wipe via the reconciler)', () => {
-    // requestStopAndClearData is wired with the flux-prefixed docker name (the form
-    // the syncthing flow uses); the reconciler keys state by the bare component id,
-    // and the volume layer prefixes it again for the on-disk wipe path.
-    it('wipes local appdata (prefixed path) and does not start, on a clear request', async () => {
-      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
-      stubs.globalState.bootContainerStateSettled = true;
-      await appReconciler.reconcile('db_App');
-      expect(stubs.volumeService.clearAppVolumeData.calledOnceWith('db_App')).to.be.true;
-      expect(stubs.dockerService.appDockerStart.called).to.be.false;
-    });
-
-    // The structural guarantee: even with a contradictory running verdict, the
-    // pending clear is resolved before the run decision in the SAME single-flight,
-    // so a start can never race the wipe.
-    it('never starts while a clear is pending, even if the controller says running', async () => {
-      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
-      appReconciler.setControllerDesired('fluxdb_App', 'running', 'contrived contradiction');
-      stubs.globalState.bootContainerStateSettled = true;
-      await appReconciler.reconcile('db_App');
-      expect(stubs.volumeService.clearAppVolumeData.called).to.be.true;
-      expect(stubs.dockerService.appDockerStart.called).to.be.false;
-    });
-
-    it('stops a running container before wiping (no rm -rf under a live container)', async () => {
-      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing reset');
-      stubs.globalState.bootContainerStateSettled = true;
-      await appReconciler.reconcile('db_App');
-      expect(stubs.dockerService.appDockerStop.calledWith('db_App')).to.be.true;
-      sinon.assert.callOrder(stubs.dockerService.appDockerStop, stubs.volumeService.clearAppVolumeData);
-    });
-
-    it('is one-shot: wipes first, then the next reconcile starts once the verdict is running', async () => {
-      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
-      // sync layer has already confirmed a source and elected running; the pending
-      // clear must still win the first pass
-      appReconciler.setControllerDesired('fluxdb_App', 'running', 'syncthing synced');
-      stubs.globalState.bootContainerStateSettled = true;
-
-      await appReconciler.reconcile('db_App'); // clear wins -> wipes, no start
-      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
-      expect(stubs.dockerService.appDockerStart.called).to.be.false;
-
-      await appReconciler.reconcile('db_App'); // flag cleared -> now starts
-      expect(stubs.dockerService.appDockerStart.calledOnceWith('db_App')).to.be.true;
-      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true; // no second wipe
-    });
-
-    it('keys the clear per-component (clearing one app does not wipe another)', async () => {
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('fluxdb_App', 'reset db');
-      appReconciler.setControllerDesired('fluxweb_Other', 'running', 'synced');
-      stubs.globalState.bootContainerStateSettled = true;
-      localSpec = { name: 'Other', version: 4, compose: [{ name: 'web', containerData: 'r:/data' }] };
-      await appReconciler.reconcile('web_Other');
-      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
-      expect(stubs.dockerService.appDockerStart.calledOnceWith('web_Other')).to.be.true;
-    });
-
-    // A failed stop/wipe (busy mount, fs error, docker blip) is the one actuation
-    // path that otherwise just drops to the hourly sweep (~1h down). It must arm its
-    // own quick retry like the start path does.
-    it('schedules its own retry when the wipe fails (not the hourly sweep)', async () => {
-      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
-      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
-      stubs.volumeService.clearAppVolumeData.rejects(new Error('mount busy'));
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
-      stubs.globalState.bootContainerStateSettled = true;
-
-      await appReconciler.reconcile('db_App'); // must not throw
-
-      expect(stubs.volumeService.clearAppVolumeData.callCount).to.equal(1);
-      clock.tick(6000); // past the near-term retry (MANAGED_RETRY_MS)
-      await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
-      expect(stubs.volumeService.clearAppVolumeData.callCount).to.equal(2);
-      clock.restore();
-    });
-
-    // The data-safety invariant must survive a failed wipe: the clear stays pending so
-    // a later reconcile re-runs the (idempotent) wipe and can NEVER start the container
-    // on un-wiped data, even when the controller already says running.
-    it('keeps the clear pending on a failed wipe — never starts on un-wiped data', async () => {
-      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
-      stubs.volumeService.clearAppVolumeData.rejects(new Error('mount busy'));
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
-      appReconciler.setControllerDesired('fluxdb_App', 'running', 'contrived contradiction');
-      stubs.globalState.bootContainerStateSettled = true;
-
-      await appReconciler.reconcile('db_App'); // first attempt: wipe throws, caught
-
-      stubs.volumeService.clearAppVolumeData.resetHistory();
-      await appReconciler.reconcile('db_App'); // flag still 'clear' -> re-wipes, no start
-      expect(stubs.volumeService.clearAppVolumeData.called).to.be.true;
-      expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
   });
 
@@ -2540,7 +2312,7 @@ describe('appReconciler tests', () => {
       expect((await appReconciler.desiredRunState('db_App')).reason).to.equal('controllerDesired');
     });
 
-    it('adopts nothing over a stop and clear requested while it read docker', async () => {
+    it('adopts nothing over a stop requested while it read docker', async () => {
       let answer;
       // the adoption's own read waits; every later one answers at once
       stubs.dockerService.dockerContainerInspect.resolves(running);
@@ -2551,7 +2323,7 @@ describe('appReconciler tests', () => {
         // eslint-disable-next-line no-await-in-loop
         await new Promise(setImmediate);
       }
-      appReconciler.requestStopAndClearData('db_App', 'syncthing new app clean install');
+      appReconciler.setControllerDesired('db_App', 'stopped', 'syncthing: receives its data before it runs');
       answer(running);
 
       expect(await adopting).to.equal(false);
@@ -2571,16 +2343,6 @@ describe('appReconciler tests', () => {
       read(false);
 
       expect(await adopting).to.equal(false);
-      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
-    });
-
-    it('adopts nothing while a data clear is pending', async () => {
-      stubs.dockerService.dockerContainerInspect.resolves(running);
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('db_App', 'syncthing first-run clean install');
-      appReconciler.clearControllerDesired('db_App');
-
-      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
       expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
     });
 
@@ -2796,15 +2558,6 @@ describe('appReconciler tests', () => {
       read(false);
 
       expect(await running).to.equal(appReconciler.RunRequest.STOOD_DOWN);
-      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
-    });
-
-    it('writes nothing while a data clear is pending', async () => {
-      // boot gate closed: the pass that would carry out the clear is held
-      stubs.globalState.bootContainerStateSettled = false;
-      appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
-
-      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(appReconciler.RunRequest.SUPERSEDED);
       expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
     });
 

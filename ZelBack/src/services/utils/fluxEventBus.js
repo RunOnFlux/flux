@@ -51,9 +51,6 @@ const Checkpoint = Object.freeze({
   // checked that no controller opinion was written since it read the verdict.
   // Keyed by the component identifier.
   RECONCILER_BEFORE_START: 'reconciler:beforeStart',
-  // A reconcile pass has stopped a component whose local appdata is to be
-  // cleared and has not yet cleared it. Keyed by the component identifier.
-  RECONCILER_BEFORE_DATA_CLEAR: 'reconciler:beforeDataClear',
   // A reconcile pass has found a component's container missing and has not yet
   // recreated it. Keyed by the component identifier.
   RECONCILER_BEFORE_RECREATE: 'reconciler:beforeRecreate',

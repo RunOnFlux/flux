@@ -73,7 +73,6 @@ const appTamperingDetectionServiceMock = {
 
 const appReconcilerMock = {
   setControllerDesired: sinon.stub(),
-  requestStopAndClearData: sinon.stub(),
   enqueue: sinon.stub(),
   hasControllerOpinion: sinon.stub(),
   adoptControllerDesired: sinon.stub(),
@@ -295,7 +294,6 @@ describe('syncthingFolderStateMachine tests', () => {
     fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
     appUninstallerMock.removeAppLocally.resolves();
     appReconcilerMock.setControllerDesired.reset();
-    appReconcilerMock.requestStopAndClearData.reset();
     appReconcilerMock.enqueue.reset();
 
     // Default filesystem state: app dir exists, is a mountpoint, holds files with
@@ -1034,17 +1032,30 @@ describe('syncthingFolderStateMachine tests', () => {
       });
     });
 
-    it('should handle first run with no sync folder', async () => {
+    // A first run decides from the container whether or not syncthing has the
+    // folder: what is on the volume is kept, and a stopped copy receives first.
+    it('receives first, keeping its data, on a first run with no sync folder and the container stopped', async () => {
       mockParams.syncthingAppsFirstRun = true;
       mockParams.syncFolder = null;
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
       expect(result.syncthingFolder.type).to.equal('receiveonly');
-      expect(result.cache.numberOfExecutions).to.equal(1);
-      // the stop+wipe is now declared to the reconciler (the sole actuator), not done
-      // imperatively here - so a start can never race the wipe (S1)
-      sinon.assert.calledOnceWithExactly(appReconcilerMock.requestStopAndClearData, 'test-app', sinon.match.string);
+      expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 1 });
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    it('keeps a running container running on a first run with no sync folder', async () => {
+      mockParams.syncthingAppsFirstRun = true;
+      mockParams.syncFolder = null;
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache).to.deep.equal({ restarted: true });
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
     it('should handle first run with existing receiveonly folder', async () => {
@@ -3907,7 +3918,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.numberOfExecutions).to.equal(1);
-      sinon.assert.calledOnceWithExactly(appReconcilerMock.requestStopAndClearData, 'test-app', sinon.match.string);
+      sinon.assert.calledOnceWithExactly(appReconcilerMock.setControllerDesired, 'test-app', 'stopped', sinon.match.string);
     });
 
     it('should process skipped app on second encounter', async () => {
@@ -3919,7 +3930,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.numberOfExecutions).to.equal(1);
-      sinon.assert.calledOnceWithExactly(appReconcilerMock.requestStopAndClearData, 'test-app', sinon.match.string);
+      sinon.assert.calledOnceWithExactly(appReconcilerMock.setControllerDesired, 'test-app', 'stopped', sinon.match.string);
     });
 
     it('never force-starts when sync status is unavailable (stays receiveonly on unverified data)', async () => {
@@ -3984,7 +3995,6 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledOnce(syncthingServiceMock.systemResume);
       expect(syncthingServiceMock.systemResume.firstCall.args[0]).to.equal('DEVICE123');
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
-      sinon.assert.notCalled(appReconcilerMock.requestStopAndClearData);
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
       expect(result.cache.nudgeCount).to.equal(1);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
@@ -4020,7 +4030,6 @@ describe('syncthingFolderStateMachine tests', () => {
 
       sinon.assert.notCalled(syncthingServiceMock.systemPause);
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
-      sinon.assert.notCalled(appReconcilerMock.requestStopAndClearData);
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
     });
@@ -4063,7 +4072,6 @@ describe('syncthingFolderStateMachine tests', () => {
 
       sinon.assert.calledOnceWithExactly(appUninstallerMock.removeAppLocally, 'test-app', null, true, false, true);
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
-      sinon.assert.notCalled(appReconcilerMock.requestStopAndClearData);
       expect(result.cache.restarted).to.be.true;
     });
 
