@@ -851,7 +851,7 @@ async function startFluxFunctions() {
         https,
       ); // stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {
-        appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
+        appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally); // Monitor SharedDB Apps.
       }, 60 * 1000);
     });
     // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)

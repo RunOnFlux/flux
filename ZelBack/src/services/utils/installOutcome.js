@@ -11,10 +11,10 @@
  * FAILED both mean it does not. BUSY and DEFERRED say nothing about the app at all -
  * only about the node at that instant.
  *
- * Every outcome except BUSY is returned after the install hold is acquired, so each
- * is a true statement about the app whoever asked for it: concurrent attempts are
- * serialised, and the ones that lose get BUSY. BUSY and DEFERRED are therefore the
- * outcomes a caller must keep waiting through rather than act on.
+ * Every outcome except BUSY is returned by an install its app's manager ran, so each
+ * is a true statement about the app whoever asked for it: attempts on one app run
+ * one at a time, and one refused there gets BUSY. BUSY and DEFERRED are therefore
+ * the outcomes a caller must keep waiting through rather than act on.
  *
  * Internal only - nothing answers these to a client, so unlike Privilege the values
  * are ours as well as the names. They are strings rather than booleans so a call
@@ -29,12 +29,12 @@ const InstallOutcome = Object.freeze({
   // The node already held the app, so this attempt did nothing. The app is there,
   // and a caller waiting for the node to hold it has its answer.
   ALREADY_INSTALLED: 'alreadyInstalled',
-  // Another install or removal holds the node, so this attempt did nothing. Carries
-  // no claim about the app: the operation in the way may be an install of this very
-  // app, and the next attempt may install it.
+  // Another operation holds the app, or a removal the node, so this attempt did
+  // nothing. Carries no claim about the app: the operation in the way may be an
+  // install of this very app, and the next attempt may install it.
   BUSY: 'busy',
-  // The node will not take this app, and nothing was touched. Whatever was running
-  // before is still running.
+  // The node will not take this app - it has no room for it, or a check refused it -
+  // and nothing was touched. Whatever was running before is still running.
   DECLINED: 'declined',
   // The install got part way and cleaned up after itself, so the app is no longer on
   // this node. The only outcome that justifies a caller acting on the loss.

@@ -1073,7 +1073,13 @@ async function trySpawningGlobalApplication() {
         await messageStore.storeAppInstallingMessage(withdrawal);
         // eslint-disable-next-line global-require
         const fluxCommMessagesSenderLib = require('../fluxCommunicationMessagesSender');
-        await fluxCommMessagesSenderLib.broadcastMessageToAll(withdrawal);
+        // Recorded before it is sent, as a claim is: a peer syncing from this node
+        // learns the claim is withdrawn.
+        const signedWithdrawal = await fluxCommMessagesSenderLib.signBroadcast(withdrawal);
+        if (signedWithdrawal) {
+          await messageStore.storeSignedAppInstallingBroadcast(signedWithdrawal.message);
+          await fluxCommMessagesSenderLib.sendToAll(signedWithdrawal.serialised);
+        }
       } catch (error) {
         // best effort - the installing TTL remains the backstop
         log.warn(`trySpawningGlobalApplication - could not retract installing claim for ${appToRun}: ${error.message}`);
@@ -1093,10 +1099,16 @@ async function trySpawningGlobalApplication() {
 
     // store it in local database first
     await registryManager.storeAppInstallingMessage(newAppInstallingMessage);
-    // broadcast messages about running apps to all peers
+    // The signed claim is recorded before it is sent, where the claims this node
+    // received are: a peer that links while it is being sent, or later, is
+    // given it by the state sync its link starts.
     // eslint-disable-next-line global-require
     const fluxCommMessagesSender = require('../fluxCommunicationMessagesSender');
-    await fluxCommMessagesSender.broadcastMessageToAll(newAppInstallingMessage);
+    const signedClaim = await fluxCommMessagesSender.signBroadcast(newAppInstallingMessage);
+    if (signedClaim) {
+      await messageStore.storeSignedAppInstallingBroadcast(signedClaim.message);
+      await fluxCommMessagesSender.sendToAll(signedClaim.serialised);
+    }
 
     await serviceHelper.delay(collisionWaitMs); // give it 1.5m so messages are propagated on the network
 
@@ -1147,20 +1159,6 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    // The node is already doing something to an app, and the spawner is the one
-    // that gives way: the periodic reinstall pass holds this flag across its own
-    // teardown-and-rebuild, and an install started inside that window is refused
-    // when the pass comes back for its node - leaving the app it tore down with
-    // nothing to rebuild it. The claim is withdrawn rather than held, so another
-    // node can take the placement now instead of waiting this one out.
-    const heldBy = globalState.operationHolding();
-    if (heldBy) {
-      log.info(`trySpawningGlobalApplication - Application ${appToRun} not installed, this node is undergoing ${heldBy}`);
-      await withdrawInstallingClaim(`node is undergoing ${heldBy}`);
-      globalState.trySpawningGlobalAppCache.delete(appHash);
-      return shortDelayTime;
-    }
-
     // The dearest check, so the last: it maps the app's ports on the router and has
     // a peer read them, and the install keeps the mappings it makes.
     testedPorts = { ports: appPorts, appName: appSpecifications.name, holder: {} };
@@ -1201,8 +1199,9 @@ async function trySpawningGlobalApplication() {
     let installError = null;
     try {
       // A placement this node does not hold yet, so a failed install retracts the
-      // claim rather than keeping it.
-      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, false, true); // can throw
+      // claim rather than keeping it. An app another operation holds is refused,
+      // never waited for: the spawner goes on to its next app.
+      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, false, true, { wait: false }); // can throw
       registerOk = outcome === InstallOutcome.INSTALLED;
       if (!registerOk) installError = `installer ${outcome}`;
     } catch (error) {

@@ -103,12 +103,6 @@ describe('imageUpdateService tests', () => {
     logStub.error.reset();
     logStub.debug.reset();
 
-    // Reset globalState
-    globalStateStub.removalInProgress = false;
-    globalStateStub.installationInProgress = false;
-    globalStateStub.softRedeployInProgress = false;
-    globalStateStub.hardRedeployInProgress = false;
-
     // Reset mock verifier state
     mockVerifierParseError = false;
     mockVerifierError = false;
@@ -444,53 +438,23 @@ describe('imageUpdateService tests', () => {
     it('should call softRedeploy when no operation in progress', async () => {
       const appSpec = { name: 'TestApp', version: 3 };
 
-      advancedWorkflowsStub.softRedeploy.resolves();
+      advancedWorkflowsStub.softRedeploy.resolves(true);
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
       expect(result).to.equal(true);
       sinon.assert.calledOnce(advancedWorkflowsStub.softRedeploy);
-      sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null);
+      sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null, { wait: false });
     });
 
-    it('should return false when removal is in progress', async () => {
-      globalStateStub.removalInProgress = true;
+    it('leaves an app another operation holds for the next check', async () => {
       const appSpec = { name: 'TestApp', version: 3 };
+      advancedWorkflowsStub.softRedeploy.resolves(false);
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
       expect(result).to.equal(false);
-      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
-    });
-
-    it('should return false when installation is in progress', async () => {
-      globalStateStub.installationInProgress = true;
-      const appSpec = { name: 'TestApp', version: 3 };
-
-      const result = await imageUpdateService.triggerAppUpdate(appSpec);
-
-      expect(result).to.equal(false);
-      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
-    });
-
-    it('should return false when soft redeploy is in progress', async () => {
-      globalStateStub.softRedeployInProgress = true;
-      const appSpec = { name: 'TestApp', version: 3 };
-
-      const result = await imageUpdateService.triggerAppUpdate(appSpec);
-
-      expect(result).to.equal(false);
-      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
-    });
-
-    it('should return false when hard redeploy is in progress', async () => {
-      globalStateStub.hardRedeployInProgress = true;
-      const appSpec = { name: 'TestApp', version: 3 };
-
-      const result = await imageUpdateService.triggerAppUpdate(appSpec);
-
-      expect(result).to.equal(false);
-      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
+      sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null, { wait: false });
     });
 
     it('should return false and log error when softRedeploy throws', async () => {
@@ -505,15 +469,6 @@ describe('imageUpdateService tests', () => {
   });
 
   describe('checkForImageUpdates tests', () => {
-    it('should skip check when operation in progress', async () => {
-      globalStateStub.installationInProgress = true;
-
-      await imageUpdateService.checkForImageUpdates();
-
-      sinon.assert.notCalled(appQueryServiceStub.installedApps);
-      sinon.assert.calledWith(logStub.info, 'Skipping image update check: another operation in progress');
-    });
-
     it('should process all installed apps', async () => {
       appQueryServiceStub.installedApps.resolves({
         status: 'success',
@@ -547,35 +502,6 @@ describe('imageUpdateService tests', () => {
       sinon.assert.calledWith(logStub.warn, 'Could not get installed apps list');
     });
 
-    it('should abort when operation starts during check', async () => {
-      const apps = [
-        { name: 'App1', version: 3, repotag: 'nginx:latest' },
-        { name: 'App2', version: 3, repotag: 'redis:latest' },
-      ];
-
-      appQueryServiceStub.installedApps.resolves({ status: 'success', data: apps });
-      dockerServiceStub.getAppIdentifier.callsFake((name) => `flux${name}`);
-
-      // First app check triggers state change
-      let callCount = 0;
-      dockerServiceStub.dockerContainerInspect.callsFake(() => {
-        callCount += 1;
-        if (callCount === 1) {
-          // After first app, set flag to simulate operation starting
-          globalStateStub.removalInProgress = true;
-        }
-        return Promise.resolve({ Image: 'sha256:img' });
-      });
-
-      dockerServiceStub.dockerListImages.resolves([
-        { Id: 'sha256:img', RepoDigests: ['repo@sha256:same'] },
-      ]);
-      mockDigestToReturn = 'sha256:same';
-
-      await imageUpdateService.checkForImageUpdates();
-
-      sinon.assert.calledWith(logStub.info, 'Aborting image update check: operation started');
-    });
   });
 
   describe('startImageUpdateService and stopImageUpdateService tests', () => {

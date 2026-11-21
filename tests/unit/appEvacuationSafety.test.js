@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const sinon = require('sinon');
 const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
@@ -65,7 +66,7 @@ describe('appEvacuationSafety tests', () => {
 
   describe('refuses on anything it cannot establish', () => {
     it('refuses while a backup is running', async () => {
-      globalStateStub.tryStartBackup('plainapp');
+      operationRegistry.acquire('plainapp', 'backup', 'test');
 
       const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
 
@@ -74,7 +75,7 @@ describe('appEvacuationSafety tests', () => {
     });
 
     it('refuses while a restore is running', async () => {
-      globalStateStub.tryStartRestore('plainapp');
+      operationRegistry.acquire('plainapp', 'restore', 'test');
 
       const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
 

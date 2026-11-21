@@ -9,7 +9,8 @@ describe('peerNotification tests', () => {
   let waitForBootDrainSettledStub;
   let storeAppRunningMessageStub;
   let storeAppStateEventStub;
-  let broadcastMessageToAllStub;
+  let signBroadcastStub;
+  let sendToAllStub;
   let nodeSignerStub;
   let installedAppsStub;
   // A fresh copy of globalState per test, handed to the module under test as
@@ -74,7 +75,8 @@ describe('peerNotification tests', () => {
     '../fluxCommunicationMessagesSender': {
       broadcastMessageToOutgoing: sinon.stub().resolves(),
       broadcastMessageToIncoming: sinon.stub().resolves(),
-      broadcastMessageToAll: broadcastMessageToAllStub,
+      signBroadcast: signBroadcastStub,
+      sendToAll: sendToAllStub,
     },
     './messageStore': {
       storeAppRunningMessage: storeAppRunningMessageStub,
@@ -149,7 +151,8 @@ describe('peerNotification tests', () => {
     storeAppRunningMessageStub = sinon.stub().resolves();
     storeAppStateEventStub = sinon.stub().resolves();
     announceKeptRemovalsStub = sinon.stub().resolves();
-    broadcastMessageToAllStub = sinon.stub().resolves('signed');
+    signBroadcastStub = sinon.stub().resolves({ serialised: 'serialised', message: 'signed' });
+    sendToAllStub = sinon.stub().resolves();
     nodeSignerStub = sinon.stub().resolves({ pubKey: '04', sign: () => 'sig' });
     installedAppsStub = sinon.stub().resolves({
       status: 'success',
@@ -199,6 +202,16 @@ describe('peerNotification tests', () => {
       expect(storeAppStateEventStub.calledOnce, 'the announcement is recorded in the event log').to.be.true;
     });
 
+    // A peer that links while the announcement is being sent asks this node for its
+    // state at once, and is answered from the event log.
+    it('records the signed announcement in the event log before it sends it', async () => {
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      sinon.assert.calledOnceWithExactly(storeAppStateEventStub, sinon.match.any, { signedBroadcast: 'signed' });
+      sinon.assert.calledOnceWithExactly(sendToAllStub, 'serialised');
+      sinon.assert.callOrder(signBroadcastStub, storeAppStateEventStub, sendToAllStub);
+    });
+
     // The announcement is one fact recorded twice - the location table and the
     // event log peers sync from - and sent once. A node that cannot sign as
     // itself sends nothing a peer would accept, so it records nothing either:
@@ -209,7 +222,7 @@ describe('peerNotification tests', () => {
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       expect(storeAppRunningMessageStub.called, 'wrote its own location').to.be.false;
-      expect(broadcastMessageToAllStub.called, 'sent an announcement').to.be.false;
+      expect(sendToAllStub.called, 'sent an announcement').to.be.false;
       expect(storeAppStateEventStub.called, 'wrote the event log').to.be.false;
       expect(logStub.warn.calledWith(sinon.match('cannot sign'))).to.be.true;
     });
@@ -309,7 +322,7 @@ describe('peerNotification tests', () => {
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       expect(storeAppRunningMessageStub.called, 'wrote its own location').to.be.false;
-      expect(broadcastMessageToAllStub.called, 'sent an announcement').to.be.false;
+      expect(sendToAllStub.called, 'sent an announcement').to.be.false;
     });
 
     it('announces an app with no container running at all', async () => {
@@ -446,7 +459,7 @@ describe('peerNotification tests', () => {
 
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.apps.map((a) => a.name)).to.deep.equal(['app1', 'app2']);
-      expect(broadcastMessageToAllStub.firstCall.args[0]).to.equal(message);
+      expect(signBroadcastStub.firstCall.args[0]).to.equal(message);
       expect(logStub.warn.calledWithMatch(/not announced: probe/)).to.equal(true);
     });
 
@@ -459,7 +472,7 @@ describe('peerNotification tests', () => {
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       expect(storeAppRunningMessageStub.called).to.equal(false);
-      expect(broadcastMessageToAllStub.called).to.equal(false);
+      expect(sendToAllStub.called).to.equal(false);
     });
 
     // Every peer applies the store's rule, so a message this node refuses is one
@@ -470,7 +483,7 @@ describe('peerNotification tests', () => {
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       expect(storeAppRunningMessageStub.calledOnce).to.equal(true);
-      expect(broadcastMessageToAllStub.called, 'a refused announcement is not sent').to.equal(false);
+      expect(sendToAllStub.called, 'a refused announcement is not sent').to.equal(false);
       expect(storeAppStateEventStub.called).to.equal(false);
       expect(logStub.error.calledWithMatch(/refuses its own announcement/)).to.equal(true);
     });
@@ -494,7 +507,7 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({ status: 'success', data: [] });
       await peerNotification.checkAndNotifyPeersOfRunningApps(); // first run after boot
       expect(storeAppRunningMessageStub.called, 'must not store an empty snapshot (self-wipe)').to.be.false;
-      expect(broadcastMessageToAllStub.called, 'must not broadcast an empty snapshot').to.be.false;
+      expect(sendToAllStub.called, 'must not broadcast an empty snapshot').to.be.false;
     });
 
     // The first broadcast after boot races the reconciler's container starts; a
@@ -510,11 +523,11 @@ describe('peerNotification tests', () => {
       await new Promise((resolve) => { setImmediate(resolve); });
       await new Promise((resolve) => { setImmediate(resolve); });
       expect(storeAppRunningMessageStub.called, 'must not snapshot/broadcast before the boot drain settles').to.be.false;
-      expect(broadcastMessageToAllStub.called).to.be.false;
+      expect(sendToAllStub.called).to.be.false;
 
       openDrainGate();
       await callPromise;
-      expect(broadcastMessageToAllStub.calledOnce, 'broadcast proceeds once the drain settles').to.be.true;
+      expect(sendToAllStub.calledOnce, 'broadcast proceeds once the drain settles').to.be.true;
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
     });
@@ -527,12 +540,12 @@ describe('peerNotification tests', () => {
       await new Promise((resolve) => { setImmediate(resolve); });
       await new Promise((resolve) => { setImmediate(resolve); });
       expect(placementsOfStub.called, 'read the records before the backfill finished').to.be.false;
-      expect(broadcastMessageToAllStub.called).to.be.false;
+      expect(sendToAllStub.called).to.be.false;
 
       openBackfillGate();
       await callPromise;
       expect(placementsOfStub.calledOnce).to.be.true;
-      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+      expect(sendToAllStub.calledOnce).to.be.true;
     });
 
     it('announces as soon as this node learns its address', async () => {
@@ -542,11 +555,11 @@ describe('peerNotification tests', () => {
       const callPromise = peerNotification.checkAndNotifyPeersOfRunningApps();
       await new Promise((resolve) => { setImmediate(resolve); });
       await new Promise((resolve) => { setImmediate(resolve); });
-      expect(broadcastMessageToAllStub.called, 'broadcast before the node knew its address').to.be.false;
+      expect(sendToAllStub.called, 'broadcast before the node knew its address').to.be.false;
 
       learnAddress('192.168.1.1:16127');
       await callPromise;
-      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+      expect(sendToAllStub.calledOnce).to.be.true;
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.ip).to.equal('192.168.1.1:16127');
     });
@@ -577,7 +590,7 @@ describe('peerNotification tests', () => {
       learnAddress('192.168.1.1:16127');
       await callPromise;
       expect(announceCycle.locked).to.equal(false);
-      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+      expect(sendToAllStub.calledOnce).to.be.true;
     });
 
     // g:/r: apps needed a carve-out while the set came from run-state, because a
@@ -643,14 +656,14 @@ describe('peerNotification tests', () => {
 
     it('subtracts the time the cycle took from the wait for the next one', async () => {
       await runOneCycle({ announceIntervalMs: 30000, cycleMs: 20000 });
-      const announced = broadcastMessageToAllStub.callCount;
+      const announced = sendToAllStub.callCount;
 
       await clock.tickAsync(9999);
-      expect(broadcastMessageToAllStub.callCount, 'announced before the interval was up').to.equal(announced);
+      expect(sendToAllStub.callCount, 'announced before the interval was up').to.equal(announced);
 
       await clock.tickAsync(1);
       expect(
-        broadcastMessageToAllStub.callCount,
+        sendToAllStub.callCount,
         'the cycle time was added to the interval rather than subtracted from it',
       ).to.equal(announced + 1);
     });
@@ -662,7 +675,7 @@ describe('peerNotification tests', () => {
       await runOneCycle({ announceIntervalMs: 30000, cycleMs: 40000 });
 
       expect(
-        broadcastMessageToAllStub.callCount,
+        sendToAllStub.callCount,
         'a cycle that outran its interval waited another whole one',
       ).to.equal(2);
     });
@@ -690,11 +703,11 @@ describe('peerNotification tests', () => {
       await clock.tickAsync(0);
       await inFlight;
       await stopping;
-      const announced = broadcastMessageToAllStub.callCount;
+      const announced = sendToAllStub.callCount;
 
       await clock.tickAsync(600000);
       expect(
-        broadcastMessageToAllStub.callCount,
+        sendToAllStub.callCount,
         'the loop outlived the stop and went on announcing',
       ).to.equal(announced);
     });
@@ -719,14 +732,14 @@ describe('peerNotification tests', () => {
       // is a request to announce, not a request to resume announcing.
       const mod = await runOneCycle({ announceIntervalMs: 30000, cycleMs: 20000 });
       await mod.stopBroadcasting();
-      const announced = broadcastMessageToAllStub.callCount;
+      const announced = sendToAllStub.callCount;
 
       await mod.checkAndNotifyPeersOfRunningApps();
-      expect(broadcastMessageToAllStub.callCount, 'the explicit announcement was refused').to.equal(announced + 1);
+      expect(sendToAllStub.callCount, 'the explicit announcement was refused').to.equal(announced + 1);
 
       await clock.tickAsync(600000);
       expect(
-        broadcastMessageToAllStub.callCount,
+        sendToAllStub.callCount,
         'announcing once restarted the loop that had been stopped',
       ).to.equal(announced + 1);
     });
@@ -734,14 +747,14 @@ describe('peerNotification tests', () => {
     it('announces on the interval the expiry derives, not on one of its own', async () => {
       // 60s of expiry derives a 28s announce: two to a lifetime, with slack.
       await runOneCycle({ announceIntervalMs: 28000 });
-      const announced = broadcastMessageToAllStub.callCount;
+      const announced = sendToAllStub.callCount;
 
       await clock.tickAsync(27999);
-      expect(broadcastMessageToAllStub.callCount).to.equal(announced);
+      expect(sendToAllStub.callCount).to.equal(announced);
 
       await clock.tickAsync(1);
       expect(
-        broadcastMessageToAllStub.callCount,
+        sendToAllStub.callCount,
         'the announcement did not follow the derived interval',
       ).to.equal(announced + 1);
     });
@@ -755,7 +768,7 @@ describe('peerNotification tests', () => {
       peerNotification.initialize();
       peerNotification.startBroadcasting();
       await settle();
-      broadcastMessageToAllStub.resetHistory();
+      sendToAllStub.resetHistory();
     };
 
     afterEach(() => peerNotification.stopBroadcasting());
@@ -766,7 +779,7 @@ describe('peerNotification tests', () => {
       capabilityChanged(true);
       await settle();
 
-      sinon.assert.calledOnce(broadcastMessageToAllStub);
+      sinon.assert.calledOnce(sendToAllStub);
     });
 
     it('announces a move on its third list update after capability returns, and once', async () => {
@@ -779,17 +792,17 @@ describe('peerNotification tests', () => {
       listUpdated();
       listUpdated();
       await settle();
-      sinon.assert.notCalled(broadcastMessageToAllStub);
+      sinon.assert.notCalled(sendToAllStub);
 
       listUpdated();
       await settle();
-      sinon.assert.calledOnce(broadcastMessageToAllStub);
+      sinon.assert.calledOnce(sendToAllStub);
 
       listUpdated();
       listUpdated();
       listUpdated();
       await settle();
-      sinon.assert.calledOnce(broadcastMessageToAllStub);
+      sinon.assert.calledOnce(sendToAllStub);
     });
 
     it('counts list updates from capability returning, not from the move', async () => {
@@ -799,12 +812,12 @@ describe('peerNotification tests', () => {
       listUpdated();
       listUpdated();
       await settle();
-      sinon.assert.notCalled(broadcastMessageToAllStub);
+      sinon.assert.notCalled(sendToAllStub);
 
       capabilityChanged(true);
       listUpdated();
       await settle();
-      sinon.assert.notCalled(broadcastMessageToAllStub);
+      sinon.assert.notCalled(sendToAllStub);
     });
 
     it('starts the count again when capability goes and returns', async () => {
@@ -816,16 +829,16 @@ describe('peerNotification tests', () => {
       capabilityChanged(false);
       listUpdated();
       await settle();
-      sinon.assert.notCalled(broadcastMessageToAllStub);
+      sinon.assert.notCalled(sendToAllStub);
 
       capabilityChanged(true);
       listUpdated();
       listUpdated();
       await settle();
-      sinon.assert.notCalled(broadcastMessageToAllStub);
+      sinon.assert.notCalled(sendToAllStub);
       listUpdated();
       await settle();
-      sinon.assert.calledOnce(broadcastMessageToAllStub);
+      sinon.assert.calledOnce(sendToAllStub);
     });
 
     it('sends kept removals once its peers have had time to list it where it moved, not before', async () => {
@@ -853,13 +866,13 @@ describe('peerNotification tests', () => {
       capabilityChanged(true);
       await peerNotification.checkAndNotifyPeersOfRunningApps();
       await settle();
-      sinon.assert.calledOnce(broadcastMessageToAllStub);
+      sinon.assert.calledOnce(sendToAllStub);
 
       listUpdated();
       listUpdated();
       listUpdated();
       await settle();
-      sinon.assert.calledOnce(broadcastMessageToAllStub);
+      sinon.assert.calledOnce(sendToAllStub);
     });
 
     it('announces nothing while it is not broadcasting', async () => {
@@ -872,7 +885,7 @@ describe('peerNotification tests', () => {
       listUpdated();
       await settle();
 
-      sinon.assert.notCalled(broadcastMessageToAllStub);
+      sinon.assert.notCalled(sendToAllStub);
     });
   });
 });

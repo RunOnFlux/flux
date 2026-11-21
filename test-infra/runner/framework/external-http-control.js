@@ -24,12 +24,38 @@ async function post(path, body) {
  * sent, which is how a download that stops short of what was promised is
  * reproduced - a dropped connection, or an error page served as 200.
  *
+ * `stallAfter` sends that many bytes of a GET, then one byte a second, and the
+ * rest on releaseArtifact, or nothing more once the client closes the
+ * transfer: a download in flight, never idle, for as long as the suite needs
+ * one (artifactTransfers reports it).
+ *
  * @param {string} name - artifact name, used in the URL
  * @param {string} base64 - the bytes, base64 encoded
- * @param {{declaredLength?: number}} [opts]
+ * @param {{declaredLength?: number, stallAfter?: number}} [opts]
  */
-export async function stageArtifact(name, base64, { declaredLength = null } = {}) {
-  return post('/artifact', { name, base64, declaredLength });
+export async function stageArtifact(name, base64, { declaredLength = null, stallAfter = null } = {}) {
+  return post('/artifact', {
+    name, base64, declaredLength, stallAfter,
+  });
+}
+
+/**
+ * The GETs of a stalling artifact, oldest first: whether each is held, was
+ * released, or was closed by its client before it ended.
+ * @param {string} name
+ * @returns {Promise<Array<{stalled: boolean, released: boolean, clientClosed: boolean}>>}
+ */
+export async function artifactTransfers(name) {
+  const res = await fetch(`${CONTROL}/artifact/${name}/transfers`);
+  return res.json();
+}
+
+/**
+ * Sends the rest of every held GET of a stalling artifact.
+ * @param {string} name
+ */
+export async function releaseArtifact(name) {
+  return post(`/artifact/${name}/release`);
 }
 
 /**

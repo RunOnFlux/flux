@@ -8,15 +8,11 @@ const sinon = require('sinon');
 const portFile = require('../../ZelBack/src/services/utils/portFile');
 const publicPorts = require('../../ZelBack/src/services/utils/publicPorts');
 
-const settle = () => new Promise((resolve) => { setTimeout(resolve, 100); });
+// Resolves on the listener's nth call.
+const call = (listener, n) => new Promise((resolve) => { listener.onCall(n - 1).callsFake(resolve); });
 
-async function until(condition) {
-  const deadline = Date.now() + 5000;
-  while (!condition() && Date.now() < deadline) {
-    // eslint-disable-next-line no-await-in-loop
-    await new Promise((resolve) => { setTimeout(resolve, 10); });
-  }
-}
+// Resolves once every promise already settled has run its continuations.
+const drained = () => new Promise((resolve) => { setImmediate(resolve); });
 
 describe('publicPorts tests', () => {
   const before = process.env.FLUXOS_API_SOCKET;
@@ -24,6 +20,18 @@ describe('publicPorts tests', () => {
   let dir;
   let file;
   let written;
+
+  // Resolves once the module has read the file and found this text in it.
+  function readOf(text) {
+    const read = fs.readFileSync;
+    return new Promise((resolve) => {
+      sinon.stub(fs, 'readFileSync').callsFake((...args) => {
+        const content = read(...args);
+        if (args[0] === file && content === text) resolve();
+        return content;
+      });
+    });
+  }
 
   function publish(ports) {
     fs.writeFileSync(`${file}.tmp`, JSON.stringify(ports));
@@ -68,10 +76,11 @@ describe('publicPorts tests', () => {
     publicPorts.onChange(moved);
     publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await publicPorts.start({ file });
+    const second = call(moved, 2);
     publish({
       uiPort: 16136, apiPort: 16137, apiPortHttps: 16138, alsoServing: [16127],
     });
-    await settle();
+    await second;
     sinon.assert.calledTwice(moved);
     expect(moved.secondCall.args[0].apiPort).to.equal(16137);
     expect(moved.secondCall.args[1].apiPort).to.equal(16127);
@@ -87,10 +96,11 @@ describe('publicPorts tests', () => {
     });
     await publicPorts.start({ file });
     expect(publicPorts.getAlsoServing()).to.deep.equal([16127]);
+    const second = call(moved, 2);
     publish({
       uiPort: 16146, apiPort: 16147, apiPortHttps: 16148, alsoServing: [],
     });
-    await until(() => moved.calledTwice);
+    await second;
     sinon.assert.calledTwice(moved);
     expect(publicPorts.getAlsoServing()).to.deep.equal([]);
     publicPorts.offChange(moved);
@@ -101,21 +111,36 @@ describe('publicPorts tests', () => {
     publicPorts.onChange(moved);
     publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await publicPorts.start({ file });
-    publish({
+    const rewrite = {
       uiPort: 16126, apiPort: 16127, apiPortHttps: 16128, alsoServing: [],
-    });
-    await settle();
-    sinon.assert.calledOnce(moved);
+    };
+    const read = readOf(JSON.stringify(rewrite));
+    publish(rewrite);
+    await read;
+    const second = call(moved, 2);
+    publish({ uiPort: 16136, apiPort: 16137, apiPortHttps: 16138 });
+    await second;
+    sinon.assert.calledTwice(moved);
+    expect(moved.secondCall.args[0].apiPort).to.equal(16137);
     publicPorts.offChange(moved);
   });
 
   it('keeps the ports it has when the file stops being readable', async () => {
+    const moved = sinon.stub();
+    publicPorts.onChange(moved);
     publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await publicPorts.start({ file });
+    const read = readOf('nonsense');
     fs.writeFileSync(`${file}.tmp`, 'nonsense');
     fs.renameSync(`${file}.tmp`, file);
-    await settle();
+    await read;
     expect(publicPorts.getApiPort()).to.equal(16127);
+    const second = call(moved, 2);
+    publish({ uiPort: 16136, apiPort: 16137, apiPortHttps: 16138 });
+    await second;
+    sinon.assert.calledTwice(moved);
+    expect(moved.secondCall.args[1].apiPort).to.equal(16127);
+    publicPorts.offChange(moved);
   });
 
   it('publishes the port the chain lists, once', async () => {
@@ -131,7 +156,7 @@ describe('publicPorts tests', () => {
   it('resolves only once the proxy has published', async () => {
     let held = false;
     const started = publicPorts.start({ file }).then(() => { held = true; });
-    await settle();
+    await drained();
     expect(held).to.equal(false);
     publish({ uiPort: 16156, apiPort: 16157, apiPortHttps: 16158, alsoServing: [] });
     await started;
@@ -142,7 +167,7 @@ describe('publicPorts tests', () => {
     fs.writeFileSync(file, 'not json');
     let held = false;
     const started = publicPorts.start({ file }).then(() => { held = true; });
-    await settle();
+    await drained();
     expect(held).to.equal(false);
     publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128, alsoServing: [] });
     await started;

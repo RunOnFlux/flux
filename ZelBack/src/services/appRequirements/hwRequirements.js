@@ -10,6 +10,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const { extractIp } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
+const admissionControl = require('../utils/admissionControl');
 
 // Node specifications (shared state)
 const nodeSpecs = {
@@ -453,6 +454,23 @@ async function checkAppHWRequirements(appSpecs, options = {}) {
 }
 
 /**
+ * Checks the node has room for an app and reserves it for the operation holding
+ * the app, as one step among admissions, so two apps cannot both be admitted into
+ * room for one. The app's current row and reservation are left out of the check.
+ * @param {object} appSpecs App specifications, decrypted.
+ * @returns {Promise<void>} Rejects with the reason the app does not fit.
+ */
+function admitApp(appSpecs) {
+  // eslint-disable-next-line global-require
+  const resourceQueryService = require('../appQuery/resourceQueryService');
+  return admissionControl.admit(
+    appSpecs.name,
+    () => checkAppHWRequirements(appSpecs, { replacing: appSpecs.name }),
+    async () => resourceQueryService.appFootprint(appSpecs, await generalService.nodeTier()),
+  );
+}
+
+/**
  * Reject apps that would leave <= 4 free vCores on the node once their CPU
  * reservation is added to everything currently locked. The headroom is needed
  * because FluxOS offers automatic CPU burst for enterprise apps, and burst
@@ -506,6 +524,7 @@ module.exports = {
   returnNodeSpecs,
   totalAppHWRequirements,
   checkAppHWRequirements,
+  admitApp,
   checkAppCpuBurstHeadroom,
   checkAppRequirements,
   nodeFullGeolocation,

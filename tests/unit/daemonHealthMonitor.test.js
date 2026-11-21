@@ -4,12 +4,12 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const { resetGlobalState } = require('./fixtures/globalState');
+const { installInFlight } = require('./fixtures/installInFlight');
 const proxyquire = require('proxyquire');
 
 describe('daemonHealthMonitor tests', () => {
   let daemonHealthMonitor;
   let serviceHelperStub;
-  let globalStateStub;
   let logStub;
   let daemonServiceMiscRpcsStub;
   let registryManagerStub;
@@ -27,7 +27,7 @@ describe('daemonHealthMonitor tests', () => {
       delay: sinon.stub().resolves(),
     };
 
-    globalStateStub = resetGlobalState();
+    resetGlobalState();
 
     logStub = {
       info: sinon.stub(),
@@ -50,7 +50,6 @@ describe('daemonHealthMonitor tests', () => {
     // Use proxyquire to inject stubs
     daemonHealthMonitor = proxyquire.noCallThru()('../../ZelBack/src/services/appMonitoring/daemonHealthMonitor', {
       '../serviceHelper': serviceHelperStub,
-      '../utils/globalState': globalStateStub,
       '../../lib/log': logStub,
       '../daemonService/daemonServiceMiscRpcs': daemonServiceMiscRpcsStub,
       '../appDatabase/registryManager': registryManagerStub,
@@ -67,40 +66,15 @@ describe('daemonHealthMonitor tests', () => {
   });
 
   describe('checkDaemonHealthAndCleanup tests', () => {
-    it('should skip checks when removal is in progress', async () => {
-      globalStateStub.removalInProgress = true;
+    it('checks the daemon while another app is being installed', async () => {
+      const install = await installInFlight('otherapp');
       daemonServiceMiscRpcsStub.isDaemonSynced.returns({ data: { synced: false } });
 
       await daemonHealthMonitor.checkDaemonHealthAndCleanup();
+      await install.finish();
 
-      expect(daemonServiceMiscRpcsStub.isDaemonSynced.called).to.be.false;
-    });
-
-    it('should skip checks when installation is in progress', async () => {
-      globalStateStub.installationInProgress = true;
-      daemonServiceMiscRpcsStub.isDaemonSynced.returns({ data: { synced: false } });
-
-      await daemonHealthMonitor.checkDaemonHealthAndCleanup();
-
-      expect(daemonServiceMiscRpcsStub.isDaemonSynced.called).to.be.false;
-    });
-
-    it('should skip checks when soft redeploy is in progress', async () => {
-      globalStateStub.softRedeployInProgress = true;
-      daemonServiceMiscRpcsStub.isDaemonSynced.returns({ data: { synced: false } });
-
-      await daemonHealthMonitor.checkDaemonHealthAndCleanup();
-
-      expect(daemonServiceMiscRpcsStub.isDaemonSynced.called).to.be.false;
-    });
-
-    it('should skip checks when hard redeploy is in progress', async () => {
-      globalStateStub.hardRedeployInProgress = true;
-      daemonServiceMiscRpcsStub.isDaemonSynced.returns({ data: { synced: false } });
-
-      await daemonHealthMonitor.checkDaemonHealthAndCleanup();
-
-      expect(daemonServiceMiscRpcsStub.isDaemonSynced.called).to.be.false;
+      expect(daemonServiceMiscRpcsStub.isDaemonSynced.called, 'stood aside for another app\'s install').to.be.true;
+      expect(logStub.warn.calledWith('Daemon detected as unsynced, starting health monitoring')).to.be.true;
     });
 
     it('should reset state when daemon is synced after being unsynced', async () => {

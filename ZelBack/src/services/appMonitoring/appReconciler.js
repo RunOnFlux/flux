@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const globalState = require('../utils/globalState');
+const operationRegistry = require('../utils/operationRegistry');
 const appInspector = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appQueryService = require('../appQuery/appQueryService');
@@ -367,16 +368,54 @@ async function dockerActual(identifier) {
   }
 }
 
+// The operations that build or tear down an app's containers.
+const CONSTRUCTING = new Set(['install', 'remove', 'redeploy']);
+
+// app -> its component identifiers whose pass waits for the operation holding the
+// app to end
+const awaitingRelease = new Map();
+
 /**
- * Whether another subsystem currently owns this container — a global
- * install/remove/redeploy constructing it, or the transient window of a
- * deliberate stop/restart/kill (tracked in stoppingContainers). The reconciler
- * must not actuate while one of these is in flight. A backup or restore is not
- * one: it holds the component through operationDesired, and the reconciler keeps
- * acting on it.
+ * Whether the component's app is being built or torn down: an install, removal
+ * or redeploy of that app holds it, or a removal of it is pending - the
+ * operation it stops releases the app to that removal, never to a start.
+ * @param {string} identifier
+ * @returns {boolean}
+ */
+function heldByConstruction(identifier) {
+  const mainAppName = identifier.split('_')[1] || identifier;
+  return operationRegistry.isRemoving(mainAppName) || CONSTRUCTING.has(operationRegistry.get(mainAppName)?.type);
+}
+
+/**
+ * Passes the component again once the operation holding its app ends - on the
+ * next turn, after the app's next operation, if any, has taken it.
+ * @param {string} identifier
+ */
+function deferUntilReleased(identifier) {
+  const mainAppName = identifier.split('_')[1] || identifier;
+  if (!awaitingRelease.has(mainAppName)) awaitingRelease.set(mainAppName, new Set());
+  awaitingRelease.get(mainAppName).add(identifier);
+}
+
+operationRegistry.onReleased((mainAppName) => {
+  const identifiers = awaitingRelease.get(mainAppName);
+  if (!identifiers) return;
+  awaitingRelease.delete(mainAppName);
+  // eslint-disable-next-line no-use-before-define
+  setImmediate(() => identifiers.forEach((identifier) => enqueue(identifier)));
+});
+
+/**
+ * Whether another subsystem currently owns this container - an install, removal or
+ * redeploy of its app, or the transient window of a deliberate stop/restart/kill
+ * (tracked in stoppingContainers). The reconciler must not actuate while one of
+ * these is in flight. A backup, restore or owner action is not one: it holds the
+ * component through operationDesired or the operator lock, and the reconciler
+ * keeps acting on it.
  */
 function isManagedElsewhere(identifier) {
-  if (globalState.isOperationInProgress && globalState.isOperationInProgress()) return true;
+  if (heldByConstruction(identifier)) return true;
   const mainAppName = identifier.split('_')[1] || identifier;
   if (globalState.stoppingContainers.has(dockerService.getAppIdentifier(identifier))) return true;
   // an app being removed, including one whose removal is still cleaning up
@@ -701,9 +740,12 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
   // the meantime, and force-removing it from under them is exactly what
   // isManagedElsewhere exists to prevent. Re-check at actuation time (the same
   // re-read-before-acting discipline the controller verdict and recreateMissing use).
-  if (isManagedElsewhere(identifier)) {
+  // Nor while any operation holds the app: a backup or restore reads and replaces
+  // the volume this recreate would rebuild the container over.
+  if (isManagedElsewhere(identifier) || operationRegistry.isHeld(mainAppName)) {
     log.info(`appReconciler - ${identifier} was taken over by another operation during the heal confirmation; aborting the recreate`);
-    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    if (operationRegistry.isHeld(mainAppName)) deferUntilReleased(identifier);
+    else scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
 
@@ -753,13 +795,24 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
   await recreateForNetworkHeal(identifier);
 }
 
+/**
+ * Defers a component another subsystem owns: until the operation holding its app
+ * ends, or, for the other owners, for MANAGED_RETRY_MS.
+ * @param {string} identifier
+ */
+function deferManaged(identifier) {
+  if (heldByConstruction(identifier)) deferUntilReleased(identifier);
+  // eslint-disable-next-line no-use-before-define
+  else scheduleRetry(identifier, MANAGED_RETRY_MS);
+}
+
 // --- the reconcile -------------------------------------------------------
 
 async function reconcile(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   if (isManagedElsewhere(identifier)) {
     fluxEventBus.count('reconciler:deferred', identifier, 'managedElsewhere');
-    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    deferManaged(identifier);
     return;
   }
 
@@ -1037,6 +1090,14 @@ async function reconcile(rawIdentifier) {
   }
 
   if (!actual.exists) {
+    // No recreate while any operation holds the app - a backup or restore included:
+    // a recreate that cannot find the volume mounted rebuilds it, under the archive
+    // being read or the data being replaced.
+    if (operationRegistry.isHeld(mainAppName)) {
+      fluxEventBus.count('reconciler:deferred', identifier, 'operationHeld');
+      deferUntilReleased(identifier);
+      return;
+    }
     // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
     // container to clear a stale endpoint, its absence is not tampering. Keep
     // recreating it - paced on the heal ladder, never escalating to the vanished

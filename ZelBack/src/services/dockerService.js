@@ -305,7 +305,9 @@ async function dockerContainerChanges(idOrName) {
  * @param {function} callback Callback.
  */
 function dockerPullStream(pullConfig, res, callback) {
-  const { repoTag, provider, authToken, stallMs } = pullConfig;
+  const {
+    repoTag, provider, authToken, stallMs, signal,
+  } = pullConfig;
   const pullOptions = {};
 
   // A pull that stops moving is a dead transfer (a registry that accepts and never
@@ -323,12 +325,25 @@ function dockerPullStream(pullConfig, res, callback) {
   let downloading = false;
   // What each layer last reported, by its id.
   const lastReported = new Map();
+  // A caller's signal ends the pull the way a stall does, failing it with the
+  // signal's reason.
+  const stopped = () => {
+    // eslint-disable-next-line no-use-before-define
+    done(signal.reason);
+    stallController.abort();
+  };
   const done = (error, data) => {
     if (settled) return;
     settled = true;
     clearTimeout(stallTimer);
+    if (signal) signal.removeEventListener('abort', stopped);
     callback(error, data);
   };
+  if (signal?.aborted) {
+    done(signal.reason);
+    return;
+  }
+  if (signal) signal.addEventListener('abort', stopped, { once: true });
   const armStallTimer = () => {
     clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {

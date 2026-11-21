@@ -275,6 +275,8 @@ describe('appSpawner tests', () => {
         broadcastMessageToOutgoing: sinon.stub().resolves(),
         broadcastMessageToIncoming: sinon.stub().resolves(),
         broadcastMessageToAll: sinon.stub().resolves(),
+        signBroadcast: opts.signStub ?? sinon.stub().callsFake(async (data) => ({ serialised: `signed:${data.type}`, message: { data } })),
+        sendToAll: opts.sendStub ?? sinon.stub().resolves(),
       },
       '../utils/appConstants': {
         globalAppsInformation: 'appsInformation',
@@ -292,6 +294,7 @@ describe('appSpawner tests', () => {
       '../appMessaging/messageStore': {
         storeAppInstallingMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
         storeAppInstallingErrorMessage: opts.installingErrorStub ?? sinon.stub().resolves(true),
+        storeSignedAppInstallingBroadcast: opts.signedClaimStub ?? sinon.stub().resolves(),
       },
       './appInstaller': {
         registerAppLocally: installStubRef,
@@ -1114,6 +1117,24 @@ describe('appSpawner tests', () => {
       sinon.assert.callOrder(siblingCheck, claimStub);
     });
 
+    // A peer that links while the claim is being sent, or after, asks this node for
+    // the claims it holds, and is given this one with the rest.
+    it('records its signed claim where it serves claims from, before it sends it', async () => {
+      const signedClaimStub = sinon.stub().resolves();
+      const sendStub = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, signedClaimStub, sendStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.calledOnce(signedClaimStub);
+      const [stored] = signedClaimStub.firstCall.args;
+      expect(stored.data).to.include({ type: 'fluxappinstalling', version: 1 });
+      sinon.assert.calledWithExactly(sendStub, 'signed:fluxappinstalling');
+      sinon.assert.callOrder(signedClaimStub, sendStub);
+    });
+
     // A node whose calls to other nodes are redirected cannot ask a synced app's
     // partners anything, so it is not given one. Anything else it still takes.
     describe('a node whose calls to other nodes are redirected', () => {
@@ -1348,6 +1369,18 @@ describe('appSpawner tests', () => {
       expect(installStub.firstCall.args[4], 'tore the placement down without telling the network').to.equal(true);
     });
 
+    it('sends its install without waiting on another operation holding the app', async () => {
+      const installStub = sinon.stub().resolves(InstallOutcome.BUSY);
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, installStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(installStub.calledOnce, 'the install must have been attempted, or the argument below proves nothing').to.be.true;
+      expect(installStub.firstCall.args[5]).to.deep.equal({ wait: false });
+    });
+
     it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {
       buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
@@ -1503,21 +1536,6 @@ describe('appSpawner tests', () => {
         installStub, logged, withdrawalStub, removeStub,
       };
     }
-
-    // The periodic reinstall pass takes an app apart and puts it back, and holds
-    // its flag across the wait in between. An install started inside that window
-    // takes the node, and the pass is then refused when it comes back for it -
-    // leaving an app torn down with nothing to rebuild it. The spawner is the one
-    // that gives way, and it withdraws its claim rather than holding it, so
-    // another node can take the placement now.
-    it('stands down while the node is already doing something to an app', async () => {
-      const { installStub, withdrawalStub } = await runAttempt({
-        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
-      });
-
-      expect(installStub.called, 'installed on top of an operation already in flight').to.be.false;
-      expect(withdrawalStub.called, 'a claim held while standing down blocks the placement for everyone').to.be.true;
-    });
 
     // An application whose specification this node cannot read contributes
     // nothing to the resource totals the capacity check subtracts from this
@@ -1719,6 +1737,20 @@ describe('appSpawner tests', () => {
       expect(withdrawal.name).to.be.a('string');
     });
 
+    // A peer syncing from this node learns the claim is withdrawn, as it learns the
+    // claim: the signed withdrawal is recorded where claims are served from, then sent.
+    it('records its signed withdrawal where it serves claims from, before it sends it', async () => {
+      const signedClaimStub = sinon.stub().resolves();
+      const sendStub = sinon.stub().resolves();
+      await runAttempt({ portsAvailable: false, portCheck: sinon.stub(), signedClaimStub, sendStub });
+
+      const withdrawals = signedClaimStub.getCalls().filter((c) => c.args[0].data.withdrawn === true);
+      expect(withdrawals, 'signed withdrawals recorded').to.have.lengthOf(1);
+      const sent = sendStub.getCalls().filter((c) => c.args[0] === 'signed:fluxappinstalling');
+      expect(sent, 'claim and withdrawal sent').to.have.lengthOf(2);
+      expect(withdrawals[0].calledBefore(sent[1]), 'the withdrawal was sent before it was recorded').to.equal(true);
+    });
+
     it('withdraws its claim when the port check refuses, the last check before the install', async () => {
       const portCheck = sinon.stub();
       const { installStub, withdrawalStub } = await runAttempt({ portsAvailable: false, portCheck });
@@ -1743,17 +1775,6 @@ describe('appSpawner tests', () => {
       });
 
       expect(logged('earlier claimants in fault domain'), 'never reached the stand-down').to.be.true;
-      sinon.assert.notCalled(portCheck);
-    });
-
-    it('stands down while the node is already doing something to an app, before it tests a port', async () => {
-      const portCheck = sinon.stub();
-      const { withdrawalStub } = await runAttempt({
-        portCheck,
-        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
-      });
-
-      expect(withdrawalStub.called, 'never reached the stand-down').to.be.true;
       sinon.assert.notCalled(portCheck);
     });
 

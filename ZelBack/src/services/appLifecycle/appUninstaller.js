@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const fluxosTrial = require('../utils/fluxosTrial');
+const operationRegistry = require('../utils/operationRegistry');
 const folderStates = require('../appMonitoring/folderStates');
 const log = require('../../lib/log');
 const {
@@ -80,13 +81,8 @@ function finishRemoval(appName, force, announce) {
   unfinishedRemovals.set(appName, pending);
   globalState.departingApps.enter(appName);
   log.warn(`${appName} was not fully removed; held stopped and unannounced until it is`);
-  // first run once the removal that stopped has released the node's removal lock
+  // first run once the removal that stopped has ended, so it is not answered by that removal
   serviceHelper.delay(BOOT_STEP_RETRY_MS).then(() => untilSucceeds(`Removal of ${appName}`, async () => {
-    // Another install or removal holding the node is waited out, never run beside:
-    // a forced removal takes the removal lock without asking and clears it when it
-    // ends. Asked in the same turn as the removal starts, so nothing starts between.
-    const holder = globalState.operationHolding();
-    if (holder) throw new Error(`another ${holder} holds the node`);
     // eslint-disable-next-line no-use-before-define
     const outcome = await removeAppLocally(appName, null, force, true, pending.announce);
     if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
@@ -995,9 +991,18 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
   }
 }
 
+// target -> { announced }, for the removal of that target sent to its app's
+// manager and not yet settled, so a removal joining it knows whether the network
+// was told.
+const removalsInFlight = new Map();
+
 /**
- * Remove application completely from local node
- * @param {string} app - Application name
+ * Remove application completely from local node. The removal is sent to the
+ * app's manager: it stops the app's running operation at its next step and runs
+ * next; a removal of the same target already pending or running answers this one
+ * with its outcome, and this call then tells the network itself when it was asked
+ * to and that removal did not.
+ * @param {string} app - Application name, or one component as component_app
  * @param {object} res - Response object for streaming
  * @param {boolean} force - Force removal
  * @param {boolean} endResponse - Whether to end response
@@ -1005,64 +1010,87 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @param {object} [options]
  * @param {object} [options.specifications] - The specification to remove the app by,
  *   used as given in place of the stored one
- * @returns {Promise<string>} One of RemovalOutcome. BUSY carries no claim about the app.
+ * @param {object} [options.parent] - The operation this removal is a step of
+ * @returns {Promise<string>} One of RemovalOutcome.
  */
-async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, { specifications = null } = {}) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, { specifications = null, parent = null } = {}) {
   await fluxosTrial.settled();
-  // Names what this call marked as departing, and nothing else: the guards below
-  // return through the same finally without having marked anything, and a refused
-  // duplicate must not unmark the removal that is actually running.
+  // Normalise to the bare identifier this function reasons about: a caller may
+  // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
+  // otherwise mis-derive the component as `flux{component}` below.
+  // eslint-disable-next-line no-param-reassign
+  app = app ? dockerService.getBaseAppName(app) : app;
+
+  // Log removal trigger with stack trace to identify caller
+  const { stack } = new Error();
+  const callerLine = stack.split('\n')[2]?.trim();
+  log.warn(`APP REMOVAL TRIGGERED: ${app} | force=${force} | sendMessage=${sendMessage} | caller: ${callerLine}`);
+
+  if (!app) return removeAppHolding(app, res, endResponse, sendMessage, { specifications, force });
+
+  const appName = app.includes('_') ? app.split('_')[1] : app;
+  let inFlight = parent ? null : removalsInFlight.get(app);
+  const first = !parent && !inFlight;
+  if (first) {
+    inFlight = { announced: false };
+    removalsInFlight.set(app, inFlight);
+  }
+  let ran = false;
+  try {
+    const outcome = await operationRegistry.submit(appName, 'remove', () => {
+      ran = true;
+      return removeAppHolding(app, res, endResponse, sendMessage, { specifications, force, inFlight });
+    }, {
+      owner: callerLine,
+      target: app,
+      parent,
+      onWait: ({ holder }) => {
+        const message = holder === 'remove'
+          ? `Waiting for the removal of ${appName} in progress before removing ${app}`
+          : `Stopping the ${operationRegistry.OPERATION_NAMES[holder]} of ${appName} for its removal`;
+        log.warn(message);
+        if (res) {
+          res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(message)));
+          if (res.flush) res.flush();
+        }
+        if (holder !== 'remove') fluxEventBus.publish('app:operationPreempted', { appName, operation: holder, by: 'removal' });
+      },
+    });
+    if (!ran) {
+      log.info(`removeAppLocally - ${app} was being removed already: ${outcome}`);
+      if (sendMessage && outcome === RemovalOutcome.REMOVED && !inFlight.announced) await announceRemoval(appName);
+      if (res) {
+        res.write(serviceHelper.ensureString(messageHelper.createSuccessMessage(`Flux App ${app} was being removed already. Result: ${outcome}`)));
+        if (res.flush) res.flush();
+        if (endResponse) res.end();
+      }
+    }
+    return outcome;
+  } finally {
+    if (first && removalsInFlight.get(app) === inFlight) removalsInFlight.delete(app);
+  }
+}
+
+/**
+ * The removal itself, run holding the app.
+ * @param {string} app - Application name, normalised, or component_app
+ * @param {object} res - Response object for streaming
+ * @param {boolean} endResponse - Whether to end response
+ * @param {boolean} sendMessage - Whether to send message to network
+ * @param {object} options
+ * @param {object} [options.specifications] - As removeAppLocally's
+ * @param {boolean} options.force - Force removal
+ * @param {{announced: boolean}} [options.inFlight] - Told when the network is told
+ * @returns {Promise<string>} One of RemovalOutcome.
+ */
+async function removeAppHolding(app, res, endResponse, sendMessage, { specifications = null, force = false, inFlight = null }) {
+  // Names what this call marked as departing, and nothing else.
   let departingName = null;
-  // Whether this call took the node's removal lock. The same guards return through
-  // the same finally, and a refused duplicate must not release the lock the removal
-  // actually running is holding.
-  let acquired = false;
   // Set once a teardown has begun: a failure from there on leaves the app part
   // removed, and an app missing a component cannot run, so it is the whole app.
   let tornDownApp = null;
   let announced = false;
   try {
-    // Normalise to the bare identifier this function reasons about: a caller may
-    // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
-    // otherwise mis-derive the component as `flux{component}` below.
-    // eslint-disable-next-line no-param-reassign
-    app = app ? dockerService.getBaseAppName(app) : app;
-
-    // Log removal trigger with stack trace to identify caller
-    const { stack } = new Error();
-    const callerLine = stack.split('\n')[2]?.trim();
-    log.warn(`APP REMOVAL TRIGGERED: ${app} | force=${force} | sendMessage=${sendMessage} | caller: ${callerLine}`);
-
-    if (!force) {
-      if (globalState.removalInProgress) {
-        const warnResponse = messageHelper.createWarningMessage('Another application is undergoing removal. Removal not possible.');
-        log.warn(warnResponse);
-        if (res) {
-          res.write(serviceHelper.ensureString(warnResponse));
-          if (res.flush) res.flush();
-          if (endResponse) {
-            res.end();
-          }
-        }
-        return RemovalOutcome.BUSY;
-      }
-      if (globalState.installationInProgress) {
-        const warnResponse = messageHelper.createWarningMessage('Another application is undergoing installation. Removal not possible.');
-        log.warn(warnResponse);
-        if (res) {
-          res.write(serviceHelper.ensureString(warnResponse));
-          if (res.flush) res.flush();
-          if (endResponse) {
-            res.end();
-          }
-        }
-        return RemovalOutcome.BUSY;
-      }
-    }
-
-    globalState.removalInProgress = true;
-    acquired = true;
-
     if (!app) {
       throw new Error('No App specified');
     }
@@ -1133,6 +1161,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     if (sendMessage) {
       await announceRemoval(appName);
       announced = true;
+      if (inFlight) inFlight.announced = true;
     }
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_BEFORE_TEARDOWN, appName);
 
@@ -1315,127 +1344,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     if (tornDownApp) finishRemoval(tornDownApp, force, !announced);
     return RemovalOutcome.FAILED;
   } finally {
-    if (acquired) globalState.removalInProgress = false;
     if (departingName) {
       globalState.departingApps.leave(departingName);
     }
-  }
-}
-
-/**
- * Soft remove application locally (database and container only)
- * @param {string} app - Application name
- * @param {object} res - Response object for streaming
- // eslint-disable-next-line no-shadow
- * @param {object} globalStateRef - Global state reference
- * @param {function} stopAppMonitoring - Function to stop monitoring
- * @returns {Promise<void>}
- */
-// eslint-disable-next-line no-shadow
-async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring) {
-  await fluxosTrial.settled();
-  // eslint-disable-next-line no-shadow
-  const globalState = globalStateRef;
-  if (globalState.removalInProgress) {
-    throw new Error('Another application is undergoing removal');
-  }
-  if (globalState.installationInProgress) {
-    throw new Error('Another application is undergoing installation');
-  }
-
-  globalState.removalInProgress = true;
-
-  try {
-    if (!app) {
-      throw new Error('No Flux App specified');
-    }
-
-    const isComponent = app.includes('_');
-    const appName = isComponent ? app.split('_')[1] : app;
-    const appComponent = app.split('_')[0];
-
-    // Find app specifications in database
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
-    const appsQuery = { name: appName };
-    const appsProjection = {};
-    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    if (!appSpecifications) {
-      throw new AppNotFoundError();
-    }
-
-    let appId = dockerService.getAppIdentifier(app);
-
-    // do this temporarily - otherwise we have to move a bunch of functions around
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-    appSpecifications = specificationFormatter(appSpecifications);
-
-    if (appSpecifications.version >= 4 && !isComponent) {
-      // it is a composed application
-      // eslint-disable-next-line no-restricted-syntax
-      for (const appComposedComponent of appSpecifications.compose.reverse()) {
-        appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
-        const appComponentSpecifications = appComposedComponent;
-        // eslint-disable-next-line no-await-in-loop
-        await softUninstallComponent(appName, appId, appComponentSpecifications, res, stopAppMonitoring);
-      }
-    } else if (isComponent) {
-      const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
-      appId = dockerService.getAppIdentifier(`${componentSpecifications.name}_${appSpecifications.name}`);
-      await softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring);
-    } else {
-      await softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
-    }
-
-    // node-local controller state dies with the components on the soft path too:
-    // a (soft) redeploy is an explicit "make it run", so neither the operator
-    // lock nor a stale controller verdict may survive it
-    let removedIdentifiers;
-    if (appSpecifications.version >= 4 && appSpecifications.compose) {
-      removedIdentifiers = isComponent
-        ? [`${appComponent}_${appSpecifications.name}`]
-        : appSpecifications.compose.map((c) => `${c.name}_${appSpecifications.name}`);
-    } else {
-      removedIdentifiers = [appName];
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const identifier of removedIdentifiers) {
-      // eslint-disable-next-line no-await-in-loop
-      await appsRuntimeState.removeControllerState(identifier);
-      if (onComponentRemoved) onComponentRemoved(identifier);
-    }
-
-    if (!isComponent) {
-      const databaseStatus = {
-        status: 'Cleaning up database...',
-      };
-      log.info(databaseStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(databaseStatus));
-        if (res.flush) res.flush();
-      }
-      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-      const databaseStatus2 = {
-        status: 'Database cleaned',
-      };
-      log.info(databaseStatus2);
-      if (res) {
-        res.write(serviceHelper.ensureString(databaseStatus2));
-        if (res.flush) res.flush();
-      }
-      const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
-      log.info(appRemovalResponseDone);
-      if (res) {
-        res.write(serviceHelper.ensureString(appRemovalResponseDone));
-        if (res.flush) res.flush();
-      }
-    }
-  } catch (error) {
-    log.error(`Error soft removing app ${app}: ${error.message}`);
-    throw error;
-  } finally {
-    globalState.removalInProgress = false;
   }
 }
 
@@ -1527,7 +1438,6 @@ module.exports = {
   softUninstallApplication,
   cleanupPorts,
   removeAppLocally,
-  softRemoveAppLocally,
   removeAppLocallyApi,
   removeHere,
   setOnComponentRemoved,

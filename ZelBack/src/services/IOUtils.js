@@ -479,6 +479,7 @@ async function sizeOnDisk(filepath) {
  * @param {number} [options.retryDelayMs] - Pause between attempts.
  * @param {function(): Promise<void>} [options.beforeOpen] - Called before each attempt opens its file; a rejection ends the download.
  * @param {string} [options.containedIn] - Directory the opened file must really be inside, judged from the descriptor; a file elsewhere ends the download.
+ * @param {AbortSignal} [options.signal] - Ends the download, and every attempt after it, once aborted.
  * @returns {Promise<boolean>} - True if the file is downloaded and saved successfully, false on failure.
  */
 async function downloadFileFromUrl(url, localpath, component, rename = false, options = {}) {
@@ -488,6 +489,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
     retryDelayMs = 5 * 1000,
     beforeOpen = null,
     containedIn = null,
+    signal = undefined,
   } = options;
   let filepath = null;
   let refused = false;
@@ -495,7 +497,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
   // changed between attempts is sent whole instead of spliced onto the old one.
   let validator = null;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts && !signal?.aborted; attempt += 1) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const offset = filepath ? await sizeOnDisk(filepath) : 0;
@@ -514,6 +516,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
         timeout: 15000,
         decompress: false,
         headers,
+        signal,
       });
 
       if (!filepath) {
@@ -647,9 +650,10 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
  *
  * @param {string} extractPath - The path where the contents of the tarball will be extracted.
  * @param {string} tarFilePath - The path of the tarball (tar.gz) file to be extracted.
+ * @param {{signal?: AbortSignal}} [options] - `signal` ends the extraction when aborted.
  * @returns {boolean} - True if the extraction is successful, false on failure.
  */
-async function untarFile(extractPath, tarFilePath) {
+async function untarFile(extractPath, tarFilePath, { signal } = {}) {
   try {
     await fs.mkdir(extractPath, { recursive: true });
     // argv, not a command string: a path reaching this from anywhere a user can
@@ -662,6 +666,7 @@ async function untarFile(extractPath, tarFilePath) {
     const result = await serviceHelper.runCommand('tar', {
       runAsRoot: true,
       params: ['-xzf', tarFilePath, '-C', extractPath],
+      signal,
     });
     if (result.error) {
       const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
@@ -749,9 +754,10 @@ async function inspectTarGz(tarFilePath) {
  *
  * @param {string} sourceDirectory - The path of the directory to be archived.
  * @param {string} outputFileName - The name of the tarball archive file to be created.
+ * @param {{signal?: AbortSignal}} [options] - `signal` ends the archiving when aborted.
  * @returns {boolean} - True if the tarball is successfully created, false on failure.
  */
-async function createTarGz(sourceDirectory, outputFileName) {
+async function createTarGz(sourceDirectory, outputFileName, { signal } = {}) {
   try {
     const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
     await fs.mkdir(outputDirectory, { recursive: true });
@@ -759,6 +765,7 @@ async function createTarGz(sourceDirectory, outputFileName) {
     const result = await serviceHelper.runCommand('tar', {
       runAsRoot: true,
       params: ['-czf', outputFileName, '-C', sourceDirectory, '.'],
+      signal,
     });
     if (result.error) {
       const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');

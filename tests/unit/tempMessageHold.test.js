@@ -45,8 +45,8 @@ describe('tempMessageHold', () => {
     return loadedHold;
   };
 
-  before(async () => {
-    await requireMongo();
+  before(async function () {
+    await requireMongo.call(this);
     hold = loadHold();
   });
 

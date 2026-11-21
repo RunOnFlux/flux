@@ -39,6 +39,9 @@ const RING_BUFFER_SIZE = 1024;
 const Checkpoint = Object.freeze({
   // A node is becoming the primary of a g: component: committed, not yet running.
   MASTERSLAVE_BEFORE_START: 'masterSlave:beforeStart',
+  // A node has recorded its running announcement where the state sync serves it
+  // from, and has not yet sent it.
+  APPS_BEFORE_ANNOUNCEMENT_SENT: 'apps:beforeAnnouncementSent',
   // A node becoming the primary of a g: component has its folder sending and its
   // restart covered, and has not yet asked for the container to run. Keyed by
   // the component identifier.
@@ -94,9 +97,12 @@ const Checkpoint = Object.freeze({
   // A removal is committed, has told the network if it tells it, and has not yet
   // torn anything down. Keyed by the app name.
   REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',
-  // An install holds the node and has the app's record, and has not created any
+  // An install holds its app and has the app's record, and has not created any
   // of its containers. Keyed by the app name.
   INSTALL_BEFORE_CONTAINERS: 'install:beforeContainers',
+  // An install has its room on the node reserved and has not yet written its
+  // app's record. Keyed by the app name.
+  INSTALL_AFTER_ADMISSION: 'install:afterAdmission',
   // An install has its app's image verified and has not started pulling it.
   // Keyed by the app name.
   INSTALL_BEFORE_PULL: 'install:beforePull',
@@ -186,6 +192,9 @@ const Checkpoint = Object.freeze({
   // A restore has recorded that it is replacing a component's data and has not
   // yet cleared any of it. Keyed by the component's folder id.
   RESTORE_BEFORE_CLEAR: 'restore:beforeClear',
+  // A backup holds its app stopped and has not yet archived a component. Keyed by
+  // the app name.
+  BACKUP_BEFORE_ARCHIVE: 'backup:beforeArchive',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

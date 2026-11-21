@@ -14,6 +14,7 @@ const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/flux
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const log = require('../../ZelBack/src/lib/log');
+const LogFrameDecoder = require('../../ZelBack/src/services/utils/logFrameDecoder');
 
 // Docker's own answers, recorded by tests/unit/fixtures/docker/record.js. The functions
 // below resolve a container by name, send one request and return the response unchanged,
@@ -1036,32 +1037,35 @@ describe('dockerService tests', () => {
     it('releases the event loop while it decodes rather than holding it for the whole read', async () => {
       // The decode runs on the node's only thread, so a pass that runs to
       // completion without yielding answers no peer and no other request for as
-      // long as it takes - measured on a node against an 8.47MB log at 40ms on
-      // a clean heap and 564ms on a warm one, against a 0.3ms idle baseline.
+      // long as it takes. The rule is a turn of the event loop between every
+      // slice the decoder is handed, so the payload only has to span several
+      // slices, not be the size of a real log.
       //
-      // Counted from the moment docker hands the payload over, NOT from the
-      // call: the container lookup ahead of it yields plenty on its own, and a
-      // count that includes those turns passes just as happily with the whole
-      // decode synchronous - which is what the first version of this test did.
-      const many = Array.from({ length: 60000 }, (_, i) => at(1000 + i, `line-${i} ${'x'.repeat(80)}`));
+      // Turns are watched from the moment docker hands the payload over: the
+      // container lookup ahead of it yields on its own, and turns taken there
+      // say nothing about the decode.
+      const many = Array.from({ length: 8 }, (_, i) => at(1000 + i, 'x'.repeat(32 * 1024)));
       const payload = dockerFrame(many);
+      const push = sinon.spy(LogFrameDecoder.prototype, 'push');
 
-      let turns = 0;
-      let counting = false;
+      // Each turn records how many slices had been decoded when it ran.
+      const seen = new Set();
       let running = true;
-      const tick = () => { if (running) { if (counting) turns += 1; setImmediate(tick); } };
-      setImmediate(tick);
+      const tick = () => { if (running) { seen.add(push.callCount); setImmediate(tick); } };
 
       sinon.stub(Dockerode.Container.prototype, 'logs').callsFake(async () => {
-        counting = true;
+        setImmediate(tick);
         return payload;
       });
 
       const result = await dockerService.dockerContainerLogsPolling('website', { lineCount: 'all' });
       running = false;
 
-      expect(result.lines, 'the answer is the same one, whoever else got to run').to.have.lengthOf(many.length);
-      expect(turns, 'the decode held the loop from the docker read to the answer').to.be.greaterThan(20);
+      expect(result.lines, 'the answer is the same one, whoever else got to run').to.deep.equal(many);
+      expect(push.callCount, 'the payload was decoded in one pass, not a slice at a time').to.be.greaterThan(2);
+      for (let slice = 1; slice < push.callCount; slice += 1) {
+        expect(seen.has(slice), `the loop was held from slice ${slice} to slice ${slice + 1}`).to.equal(true);
+      }
     });
 
     it('rejects for a container that is not there', async () => {
@@ -2613,6 +2617,31 @@ describe('dockerService tests', () => {
       // the error the abort surfaces afterwards does not answer a second time
       onFinished(new Error('aborted'));
       sinon.assert.calledOnce(cb);
+    });
+
+    it('ends a pull when its caller\'s signal aborts, with the signal\'s reason, and aborts its transfer', () => {
+      const cb = sinon.stub();
+      const controller = new AbortController();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', stallMs: 50, signal: controller.signal }, null, cb);
+      const reason = new Error('stopped for its removal');
+      controller.abort(reason);
+
+      sinon.assert.calledOnceWithExactly(cb, reason, undefined);
+      expect(pullStub.firstCall.args[1].abortSignal.aborted, 'the transfer is aborted').to.equal(true);
+      onFinished(new Error('aborted'));
+      sinon.assert.calledOnce(cb);
+    });
+
+    it('starts no pull whose caller\'s signal has already aborted', () => {
+      const cb = sinon.stub();
+      const controller = new AbortController();
+      const reason = new Error('stopped for its removal');
+      controller.abort(reason);
+
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', signal: controller.signal }, null, cb);
+
+      sinon.assert.calledOnceWithExactly(cb, reason, undefined);
+      sinon.assert.notCalled(pullStub);
     });
 
     it('lets a pull whose layers keep moving run for as long as it takes', () => {
