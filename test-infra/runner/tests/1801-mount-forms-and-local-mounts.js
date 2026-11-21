@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import {
   isDaemonUp, getDeviceId, getConnectedDevices, getFolders, getFolderStatus, scanFolder,
@@ -116,8 +116,8 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     });
     const installAfters = nodes.map((i) => env.clients[i].getLastEventId());
     await installOnNodes(env, app, nodes);
-    await Promise.all(nodes.map((i, k) => waitForReconcileActuated(
-      env.clients[i], identifier, 'dataCleared', 120000, { afterId: installAfters[k] },
+    await Promise.all(nodes.map((i, k) => waitForFolderTakenOn(
+      env.clients[i], identifier, 120000, { afterId: installAfters[k] },
     )));
   });
 
@@ -211,7 +211,7 @@ describe('mount forms on a replicated volume, and the directory a spec keeps loc
     const holderFrom = client.getLastEventId();
     await peer.holdCheckpoint(BEFORE_HOLDINGS, folderId);
     await installOnNodes(env, app, nodes);
-    await waitForReconcileActuated(client, claimIdentifier, 'dataCleared', 120000, { afterId: holderFrom });
+    await waitForFolderTakenOn(client, claimIdentifier, 120000, { afterId: holderFrom });
     await peer.waitForEvent(
       'checkpoint:held', (d) => d.name === BEFORE_HOLDINGS && d.key === folderId, 180000, { afterId: peerFrom },
     );

@@ -242,6 +242,14 @@ export async function getAppContainerStatus(container, appName, { all = false } 
   return containers.find((c) => c.name.includes(appName)) ?? null;
 }
 
+// When docker last started a container, whoever started it: a later stop leaves
+// it as it was, so a start the product undid at once still shows.
+export async function containerStartedAt(container, dockerName) {
+  const r = await execInContainer(container, `docker inspect -f '{{.State.StartedAt}}' ${dockerName}`);
+  if (r.exitCode !== 0) throw new Error(`containerStartedAt(${dockerName}): ${r.output}`);
+  return r.output.trim();
+}
+
 function appContainerName(appName, componentName) {
   return `flux${componentName ?? appName}_${appName}`;
 }

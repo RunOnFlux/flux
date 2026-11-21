@@ -29,7 +29,7 @@ fi
 # A live FluxOS on this host owns BOTH container-name spaces: anything NOT
 # named zel*/flux* is stopped by its 2-hourly stopAllNonFluxRunningApps sweep
 # (killed suite 28's fleet mid-boot in the 2026-06-12 gate), and flux*/zel*
-# names are adopted by its containerCrashRecovery (observed restarting a
+# names are adopted by its containerEventsConsumer (observed restarting a
 # deliberately stopped fleet node within 1.3s). No container name escapes
 # both, so refuse to run beside it. The watchdog must be down too or it just
 # restarts fluxos mid-run:

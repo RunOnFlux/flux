@@ -17,8 +17,8 @@ import { afterTeardown } from '../framework/teardown-hook.js';
 // A primary offers its folder to a new holder as soon as it lists the holder's
 // device, which can be before the holder's own monitor has created the folder.
 // A syncthing that accepted the offer would create the folder itself, with its
-// default type, sendreceive - and the new holder's copy, wiped clean for the
-// install, would go out as newer than the primary's data, which the primary would
+// default type, sendreceive - and the new holder's copy, empty from the install,
+// would go out as newer than the primary's data, which the primary would
 // then delete. The offer must wait as pending until the holder creates the folder.
 //
 // The window is held open, not raced for: the new holder's monitor is paused at

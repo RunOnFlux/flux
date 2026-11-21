@@ -237,13 +237,15 @@ function publicContainerView(containers) {
 }
 
 /**
- * The containers this node should be routed to: everything running, plus any
- * container a backup or restore is holding stopped.
+ * The containers this node should be routed to: everything running, plus each
+ * container a backup or restore took down (globalState.operationStoppedContainers),
+ * which was running when the operation began.
  *
  * Not a filter of listAllApps. A container stopped for a backup is still the
  * application's, and leaving it out is FDM dropping that application from
- * haproxy for the length of the backup - so the in-memory backup and restore
- * sets put it back.
+ * haproxy for the length of the backup. A container that was already stopped -
+ * a standby's g: component, one its operator stopped, one that crashed - is not
+ * listed, whatever operation its app is under.
  *
  * Returns docker's container objects whole, for callers inside this process.
  * The public route answers from listRunningAppsApi, which projects them.
@@ -257,35 +259,15 @@ async function listRunningApps() {
       apps = apps.filter((app) => dockerService.isAppContainer(app));
     }
 
-    // Include apps that are in backup or restore as "running" even if container is stopped
     const globalState = require('../utils/globalState');
-    const backupInProgress = globalState.backupInProgress || [];
-    const restoreInProgress = globalState.restoreInProgress || [];
-    const appsInBackupRestore = [...backupInProgress, ...restoreInProgress];
-
-    if (appsInBackupRestore.length > 0) {
-      // Get all containers including stopped ones
+    const { operationStoppedContainers } = globalState;
+    if (operationStoppedContainers.size > 0) {
       const allContainers = await dockerService.dockerListContainers(true);
-      const fluxContainers = allContainers.filter((app) => dockerService.isAppContainer(app));
-
-      // Find stopped containers that are in backup/restore and add them to running list
-      fluxContainers.forEach((container) => {
-        const containerName = container.Names[0].slice(1); // Remove leading '/'
-        const appName = containerName.replace(/^(zel|flux)/, ''); // Remove zel/flux prefix
-        // backup/restore hold the bare MAIN app name; composed containers are
-        // component_app, so compare on the main name
-        const mainAppName = appName.split('_')[1] || appName;
-
-        // If this app is in backup/restore and not already in running list, add it
-        if (appsInBackupRestore.includes(mainAppName)) {
-          const alreadyIncluded = apps.some((app) => app.Names[0] === container.Names[0]);
-          if (!alreadyIncluded) {
-            // Keep original state - FDM treats any container in list as active
-            const containerCopy = { ...container };
-            apps.push(containerCopy);
-          }
-        }
-      });
+      allContainers
+        .filter((container) => operationStoppedContainers.has(container.Names[0].slice(1)))
+        .filter((container) => !apps.some((app) => app.Names[0] === container.Names[0]))
+        // Kept as docker reports it: FDM treats any container in the list as active
+        .forEach((container) => apps.push({ ...container }));
     }
 
     const modifiedApps = [];

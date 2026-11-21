@@ -1,14 +1,16 @@
 import { describe, it, before, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer } from '../framework/container.js';
+import {
+  execInContainer, getAppContainerStatus, crashFluxos, releaseFluxos,
+} from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
+import { buildSeedableApp, buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   setSynced, resetSyncState, resetFolderWrites, getFolderWrites,
 } from '../framework/syncthing-control.js';
-import { waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn, waitForReconcilerDesiredChanged } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -27,7 +29,9 @@ import { afterTeardown } from '../framework/teardown-hook.js';
 // the directory is neither copy, and that is not something the other instances
 // should be given. The folder is demoted and the container held, so the peers
 // heal it instead - and the elected role, where there is one, moves off on its
-// own because a demoted folder is not electable.
+// own because a demoted folder is not electable. A component that does not sync
+// has no peer to heal it from: it is held stopped by a record that outlives a
+// FluxOS restart, until a restore succeeds or its owner starts it.
 
 const subnet = getSubnetConfig();
 
@@ -78,7 +82,7 @@ describe('a restore restarts the other instances and never rebuilds them', funct
     const installAfters = nodes.map((i) => env.clients[i].getLastEventId());
     await installOnNodes(env, app, nodes);
     await Promise.all(nodes.map(async (i, k) => {
-      await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 90000, { afterId: installAfters[k] });
+      await waitForFolderTakenOn(env.clients[i], identifier, 90000, { afterId: installAfters[k] });
       await seedSyncScopedData(env, appName, i);
     }));
     await Promise.all(nodes.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
@@ -183,5 +187,59 @@ describe('a restore restarts the other instances and never rebuilds them', funct
     } finally {
       await execInContainer(client.container, `chattr -i ${appDir(appName)}/appdata 2>/dev/null || true`);
     }
+  });
+
+  it('holds a component that does not sync, whose restore did not finish, stopped across a FluxOS restart until its owner starts it', async function () {
+    this.timeout(600000);
+    const subject = 3;
+    const client = env.clients[subject];
+    const lone = `e2erlone${ts}`;
+    const loneId = `${lone}_${lone}`;
+    const isUp = async () => (await getAppContainerStatus(client.container, lone))?.status?.startsWith('Up') === true;
+    const held = () => client.getDecisionCount('reconciler:held', loneId, 'restoreUnfinished');
+    const startedSince = (mark) => client.getEventBuffer().filter((e) => e.id > mark
+      && e.event === 'reconciler:actuated' && e.data?.identifier === loneId
+      && ['started', 'recreated', 'restarted'].includes(e.data?.action));
+    // the reconciler has decided about the component: held for the restore, or started
+    const decidedSince = (mark, label) => waitFor(async () => (await held()) >= 1 || startedSince(mark).length > 0, {
+      timeout: 300000, interval: 2000, label,
+    });
+
+    await installOnNodes(env, await buildSeedableApp({ name: lone, env, instances: 1 }), [subject]);
+    await waitFor(isUp, { timeout: 120000, interval: 2000, label: `${lone} runs before the restore` });
+    const dir = appDir(lone);
+    const staged = await execInContainer(client.container,
+      `printf old > ${dir}/appdata/old.txt && rm -rf /tmp/stage-${lone} && mkdir -p /tmp/stage-${lone} `
+      + `&& printf restored > /tmp/stage-${lone}/restored.txt && mkdir -p ${dir}/backup/local `
+      + `&& tar -czf ${dir}/backup/local/backup_${lone}.tar.gz -C /tmp/stage-${lone} .`);
+    expect(staged.exitCode, `fixture: staging failed: ${staged.output}`).to.equal(0);
+    const lock = await execInContainer(client.container, `chattr +i ${dir}/appdata`);
+    expect(lock.exitCode, `fixture: could not make appdata immutable: ${lock.output}`).to.equal(0);
+
+    try {
+      const owner = await authenticate(client.url, appOwnerKey());
+      const restored = client.getLastEventId();
+      const body = await client.appendRestoreTask(lone, [{ component: lone, restore: true }], 'local', owner.zelidauth);
+      expect(body, 'fixture: the restore did not fail at the clear').to.match(/could not clear/i);
+      await decidedSince(restored, 'the reconciler decides about the component after the restore');
+      expect(startedSince(restored), 'started on a half-replaced folder').to.deep.equal([]);
+
+      // a FluxOS restart forgets everything held in memory
+      const restarted = client.getLastEventId();
+      await crashFluxos(client.container, { hold: true });
+      await releaseFluxos(client.container);
+      await decidedSince(restarted, 'after the restart, the reconciler decides about the component');
+      expect(startedSince(restarted), 'started on a half-replaced folder after a restart').to.deep.equal([]);
+      expect(await isUp(), 'the component runs after the restart').to.equal(false);
+    } finally {
+      await execInContainer(client.container, `chattr -i ${dir}/appdata 2>/dev/null || true`);
+    }
+
+    // the owner accepts the folder as it is
+    const owner = await authenticate(client.url, appOwnerKey());
+    const accepted = client.getLastEventId();
+    await client.getAuthed(`/apps/appstart/${lone}`, owner.zelidauth);
+    await client.waitForEvent('reconciler:actuated', (d) => d.identifier === loneId
+      && ['started', 'recreated', 'restarted'].includes(d.action), 120000, { afterId: accepted });
   });
 });

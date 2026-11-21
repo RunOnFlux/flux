@@ -22,6 +22,7 @@ const {
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
+  requireDatabase,
   requirePolicyReady,
   requireRegistryReady,
 } = require('./services/utils/routeGuards');
@@ -282,7 +283,7 @@ module.exports = (app) => {
   app.get('/flux/nodetier', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxService.getNodeTier(req, res);
   }));
-  app.get('/flux/info', cache('60 seconds'), asyncRoute((req, res) => {
+  app.get('/flux/info', requireDatabase, cache('60 seconds'), asyncRoute((req, res) => {
     return fluxService.getFluxInfo(req, res);
   }));
   app.get('/flux/timezone', asyncRoute((req, res) => {
@@ -1007,18 +1008,12 @@ module.exports = (app) => {
   app.get('/apps/requestmessage/:hash', asyncRoute((req, res) => {
     return messageVerifier.requestAppMessageAPI(req, res);
   }));
-  // alwaysRespond BEFORE requireBootSettled, on all eight app-control routes.
-  //
-  // Not for the reason it looks like. A 503 from the boot gate cannot collapse
-  // into a bodiless 304 whichever way round these go: express's req.fresh
-  // returns false unless the status is 2xx or 304, so a conditional request can
-  // never turn a 503 into one, whatever ETag it carries. Verified across
-  // bootSettled x order x six request shapes.
-  //
-  // The real reason is smaller: reversed, the 503 goes out with no Cache-Control
-  // header at all instead of no-store, because alwaysRespond never runs. Worth
-  // keeping, and worth writing down - two middlewares in an order with no stated
-  // reason is an invitation to swap them.
+  // Whether each component of an app runs here, and why one does not.
+  app.get('/apps/componentstates/:appname?', asyncRoute((req, res) => {
+    return appController.componentStates(req, res);
+  }));
+  // App-control routes run alwaysRespond before requireBootSettled, so the boot
+  // gate's 503 also carries Cache-Control: no-store.
   app.get('/apps/appstart/:appname?/:global?', alwaysRespond, requireBootSettled, asyncRoute((req, res) => {
     return appController.appStart(req, res);
   }));

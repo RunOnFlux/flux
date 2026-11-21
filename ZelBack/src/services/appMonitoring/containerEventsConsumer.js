@@ -4,12 +4,14 @@ const globalState = require('../utils/globalState');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appReconciler = require('./appReconciler');
 
-// Bridges the Docker container 'die' event stream into the reconcile workqueue.
-// All restart decisions (restart policy, exit code, backoff, operator-stop,
-// in-progress operations) live in appReconciler — this only translates "a flux
-// container exited" into "this component needs reconciling", and on stream
-// reconnect sweeps every component to catch containers orphaned while the
-// stream was down (e.g. a dockerd restart underneath a running FluxOS).
+// Consumes Docker's container events for the reconciler. A 'die' becomes "this
+// component needs reconciling"; a 'stop' records that something asked Docker to
+// stop the container, which is how the reconciler tells a run that was stopped
+// from one that died (both can exit 137). All restart decisions (restart policy,
+// exit code, backoff, operator-stop, in-progress operations) live in
+// appReconciler. On stream reconnect every component is swept, to catch
+// containers orphaned while the stream was down (e.g. a dockerd restart
+// underneath a running FluxOS); a stop missed meanwhile is judged as a death.
 
 let eventStream = null;
 let stopped = false;
@@ -26,7 +28,7 @@ const RESUBSCRIBE_DELAY_MS = 10000;
 // doubled the stream - and every die event was then handled twice.
 function scheduleResubscribe(reason) {
   if (stopped || resubscribeTimer || eventStream) return;
-  log.warn(`containerCrashRecovery - event stream ${reason}; resubscribing in ${RESUBSCRIBE_DELAY_MS / 1000}s`);
+  log.warn(`containerEventsConsumer - event stream ${reason}; resubscribing in ${RESUBSCRIBE_DELAY_MS / 1000}s`);
   resubscribeTimer = setTimeout(() => {
     resubscribeTimer = null;
     // eslint-disable-next-line no-use-before-define
@@ -62,6 +64,20 @@ async function handleContainerDie(event) {
   appReconciler.enqueue(containerName);
 }
 
+// Docker's own time for the request, so the reconciler compares it with the
+// container's StartedAt on one clock.
+async function handleContainerStop(event) {
+  const containerName = event.Actor?.Attributes?.name;
+  if (!containerName || !isFluxContainer(containerName)) return;
+  const atMs = event.timeNano ? Math.floor(Number(event.timeNano) / 1e6) : Number(event.time) * 1000;
+  if (!Number.isFinite(atMs) || atMs <= 0) return;
+  await appsRuntimeState.recordStopRequested(containerName, atMs);
+}
+
+function handleContainerEvent(event) {
+  return event.Action === 'stop' ? handleContainerStop(event) : handleContainerDie(event);
+}
+
 async function subscribe() {
   if (eventStream || subscribing) return;
   subscribing = true;
@@ -69,7 +85,7 @@ async function subscribe() {
 
   try {
     const stream = await dockerService.dockerGetEvents({
-      filters: { type: ['container'], event: ['die'] },
+      filters: { type: ['container'], event: ['die', 'stop'] },
     });
     eventStream = stream;
 
@@ -89,36 +105,36 @@ async function subscribe() {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
-          handleContainerDie(event).catch((err) => {
-            log.error(`containerCrashRecovery - event handler error: ${err.message}`);
+          handleContainerEvent(event).catch((err) => {
+            log.error(`containerEventsConsumer - event handler error: ${err.message}`);
           });
         } catch (parseErr) {
-          log.error(`containerCrashRecovery - failed to parse docker event: ${parseErr.message}`);
+          log.error(`containerEventsConsumer - failed to parse docker event: ${parseErr.message}`);
         }
       }
     });
 
     stream.on('error', (err) => {
-      log.error(`containerCrashRecovery - event stream error: ${err.message}`);
+      log.error(`containerEventsConsumer - event stream error: ${err.message}`);
       onGone('errored');
     });
     stream.on('end', () => onGone('ended'));
     // a raw socket teardown can emit 'close' without 'error' or 'end'
     stream.on('close', () => onGone('closed'));
 
-    log.info('containerCrashRecovery - listening for container crash events');
+    log.info('containerEventsConsumer - listening for container die and stop events');
 
     // a re-established stream may have missed die events while it was down;
     // reconcile every component from actual state to catch orphans
     if (hasConnected && globalState.bootContainerStateSettled) {
-      log.info('containerCrashRecovery - stream reconnected, reconciling all components');
+      log.info('containerEventsConsumer - stream reconnected, reconciling all components');
       appReconciler.enqueueAll('reconnect').catch((err) => {
-        log.error(`containerCrashRecovery - reconnect reconcile failed: ${err.message}`);
+        log.error(`containerEventsConsumer - reconnect reconcile failed: ${err.message}`);
       });
     }
     hasConnected = true;
   } catch (err) {
-    log.error(`containerCrashRecovery - failed to subscribe to docker events: ${err.message}`);
+    log.error(`containerEventsConsumer - failed to subscribe to docker events: ${err.message}`);
     scheduleResubscribe('subscribe failed');
   } finally {
     subscribing = false;
@@ -148,4 +164,6 @@ module.exports = {
   stop,
   // exposed for tests
   handleContainerDie,
+  handleContainerStop,
+  handleContainerEvent,
 };

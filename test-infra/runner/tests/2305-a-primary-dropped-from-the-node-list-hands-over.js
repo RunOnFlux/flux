@@ -8,7 +8,7 @@ import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import { setNodeStatus, removeFromNodeList } from '../framework/daemon-control.js';
 import {
-  waitFor, waitForReconcileActuated, waitForUp, waitForElectionDecisions, electionDecisionCount,
+  waitFor, waitForFolderTakenOn, waitForUp, waitForElectionDecisions, electionDecisionCount,
 } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { isDaemonUp, listFolderFiles } from '../framework/syncthing-real.js';
@@ -88,13 +88,13 @@ describe('a primary dropped from the node list hands its app over', function () 
     await electMaster(appName, env.clients[B].ip);
     const primaryAfter = env.clients[B].getLastEventId();
     await installOnNodes(env, app, [B]);
-    await waitForReconcileActuated(env.clients[B], identifier, 'dataCleared', 120000, { afterId: primaryAfter });
+    await waitForFolderTakenOn(env.clients[B], identifier, 120000, { afterId: primaryAfter });
     await seedSyncScopedData(env, appName, B);
     await waitForUp(env.clients[B], appName, 'the primary is running', { timeout: 180000, interval: 3000 });
 
     const standbyAfter = env.clients[A].getLastEventId();
     await installOnNodes(env, app, [A]);
-    await waitForReconcileActuated(env.clients[A], identifier, 'dataCleared', 120000, { afterId: standbyAfter });
+    await waitForFolderTakenOn(env.clients[A], identifier, 120000, { afterId: standbyAfter });
 
     sampler = setInterval(() => {
       Promise.all([isUp(env.clients[A], appName), isUp(env.clients[B], appName)])

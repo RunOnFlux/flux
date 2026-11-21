@@ -88,12 +88,9 @@ describe('appStartupManager tests', () => {
       getApplicationGlobalSpecifications: sinon.stub(),
     };
 
-    advancedWorkflowsStub = {
-      appDockerStart: sinon.stub().resolves(),
-    };
+    advancedWorkflowsStub = {};
 
-    // boot reconcile hands each component to the reconciler (the single actuator);
-    // it no longer calls appDockerStart directly
+    // boot reconcile hands each component to the reconciler (the single actuator)
     appReconcilerStub = {
       enqueue: sinon.stub(),
     };
@@ -308,7 +305,6 @@ describe('appStartupManager tests', () => {
       expect(results.appsStarted).to.deep.equal(['AppA']);
       expect(results.appsRemoved).to.deep.equal([]);
       expect(appReconcilerStub.enqueue.calledWith('AppA')).to.equal(true);
-      expect(advancedWorkflowsStub.appDockerStart.called).to.equal(false);
     });
 
     it('should remove app when location record has expired', async () => {

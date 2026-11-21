@@ -31,6 +31,7 @@ const portClaims = require('../appNetwork/portClaims');
 const globalState = require('../utils/globalState');
 const fluxosTrial = require('../utils/fluxosTrial');
 const folderStates = require('../appMonitoring/folderStates');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -1033,8 +1034,23 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(startStatus));
     if (res.flush) res.flush();
   }
-  if (start && !appSpecifications.containerData.includes('g:')) {
-    const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  const startedHere = start && !appSpecifications.containerData.includes('g:');
+  const componentId = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  // A soft install keeps the volume, and with it a restore that did not finish
+  // on it: such a component is not started here, and the reconciler keeps it
+  // stopped until the record is cleared. An unread record holds it too.
+  const restoreHolds = startedHere
+    && await appsRuntimeState.isRestoreUnfinished(componentId).catch(() => true);
+  if (restoreHolds) {
+    const held = { status: `${componentId} is not started: a restore of its data did not finish` };
+    log.warn(held);
+    if (res) {
+      res.write(serviceHelper.ensureString(held));
+      if (res.flush) res.flush();
+    }
+  }
+  if (startedHere && !restoreHolds) {
+    const identifier = componentId;
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
       throw new Error(`Failed to start ${identifier} container`);

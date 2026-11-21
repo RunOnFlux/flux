@@ -58,7 +58,7 @@ describe('a restore of a legacy app, which has no compose array', function () {
     expect(app.spec.version, 'legacy version').to.be.at.most(3);
 
     await installOnNodes(env, app, [0]);
-    // no sync flag, so no dataCleared - the container being up is the readiness
+    // no sync flag, so no folder to take on - the container being up is the readiness
     await waitFor(async () => {
       const status = await getAppContainerStatus(client.container, appName);
       return Boolean(status && /up/i.test(status.status ?? ''));

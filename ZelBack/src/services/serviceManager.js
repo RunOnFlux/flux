@@ -31,7 +31,7 @@ const nodeStatusMonitor = require('./appMonitoring/nodeStatusMonitor');
 const peerNotification = require('./appMessaging/peerNotification');
 const syncthingMonitor = require('./appMonitoring/syncthingMonitor');
 const daemonHealthMonitor = require('./appMonitoring/daemonHealthMonitor');
-const containerCrashRecovery = require('./appMonitoring/containerCrashRecovery');
+const containerEventsConsumer = require('./appMonitoring/containerEventsConsumer');
 const appReconciler = require('./appMonitoring/appReconciler');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
@@ -441,7 +441,7 @@ async function startFluxFunctions() {
     appReconciler.start().catch((error) => {
       log.error(`App reconciler error: ${error.message}`);
     });
-    containerCrashRecovery.start();
+    containerEventsConsumer.start();
 
     // Read boot context early — determines startup behavior for container management.
     const bootContext = await AppSyncOrchestrator.readBootContext();
@@ -848,7 +848,6 @@ async function startFluxFunctions() {
       advancedWorkflows.startMasterSlaveApps(
         globalState,
         appQueryService.installedApps,
-        appQueryService.listRunningApps,
         https,
       ); // stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {

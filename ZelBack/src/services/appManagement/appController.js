@@ -139,7 +139,7 @@ async function runGlobalCommandHere(runHere, appname, paramA) {
  * @param {Function} [runHere] - This node's share, called as runHere(appname, paramA)
  * @returns {Promise<void>}
  */
-async function executeAppGlobalCommand(appname, command, zelidauth, paramA, runHere) {
+async function executeAppGlobalCommand(appname, command, zelidauth, paramA, runHere, { query } = {}) {
   try {
     // get a list of the specific app locations
     const locations = await appLocation(appname);
@@ -163,6 +163,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, runH
         if (paramA) {
           url += `/${paramA}`;
         }
+        if (query) url += `?${query}`;
         // Fire-and-forget: each node's delivery, with its own bounded retry of a
         // boot-gate 503, runs on its own while the loop paces the sends.
         deliverGlobalCommand(url, axiosConfig);
@@ -311,6 +312,12 @@ async function setAppOperatorStopped(appname, stopped, { awaitPass = false, forc
         ? { force, asPrimary: await holdsElectedApp(electedIds) }
         : { force };
       if (!awaitsElection) await appsRuntimeState.setOperatorStopped(id, stopped, lockOptions);
+      // A start is the owner accepting the component's data as it is, including
+      // a folder a restore left half-replaced. A restart is not: it is what a
+      // restore sends every other instance, and it accepts nothing.
+      if (!stopped && !alsoRestart && await appsRuntimeState.isRestoreUnfinished(id)) {
+        await appsRuntimeState.setRestoreUnfinished(id, false);
+      }
       // Raised inside the same slot as the lock, so a pass cannot read one
       // without the other and bounce a container the operator meant to keep down.
       if (alsoRestart) await appsRuntimeState.requestRestart(id);
@@ -383,6 +390,8 @@ const PENDING_REASONS = {
   policy: 'its restart policy does not allow it to run',
   invalidSpec: 'its specification cannot be actuated',
   notInstalled: 'it is not installed on this node',
+  restoreUnfinished: 'a restore of its data did not finish: restore it again, or start it to keep its data as it is',
+  operationHold: 'a backup or restore holds it',
 };
 
 /**
@@ -656,6 +665,15 @@ async function appRestart(req, res) {
       return res.json(errMessage);
     }
 
+    // Another instance's restore asks this one to read the data it replaced: what
+    // runs is restarted, and what its owner stopped stays stopped.
+    if (serviceHelper.ensureBoolean(req.query?.unlessstopped || false)) {
+      const { restarted, appName: restartedName } = await restartUnlessStopped(appname);
+      return res.json(messageHelper.createDataMessage(restarted.length
+        ? `Application ${restartedName} will be restarted: ${restarted.join(', ')}`
+        : `Application ${restartedName} was not restarted: its owner stopped it`));
+    }
+
     if (global) {
       executeAppGlobalCommand(appname, 'apprestart', authOf(req), undefined, restartHere); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global restart`);
@@ -878,7 +896,79 @@ async function stopAllNonFluxRunningApps() {
   }
 }
 
+/**
+ * Restarts the components of an app here that their owner has not stopped, and
+ * changes no stop lock and no restore record. A component whose lock cannot be
+ * read is not restarted: an unread lock is not an absent one.
+ * @param {string} appname Application or component name.
+ * @returns {Promise<{ids: string[], restarted: string[], appName: string}>}
+ */
+async function restartUnlessStopped(appname) {
+  const { ids, appName } = await operatorTargetIds(appname);
+  const restarted = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    await appReconciler.applyIntent(id, async () => {
+      const stopped = await appsRuntimeState.operatorStoppedOrThrow(id).catch((error) => {
+        log.warn(`restartUnlessStopped - ${id}: not restarted, its stop lock could not be read: ${error.message}`);
+        return true;
+      });
+      if (!stopped) {
+        await appsRuntimeState.requestRestart(id);
+        restarted.push(id);
+      }
+      fluxEventBus.publish('app:restartRequested', { identifier: dockerService.getBaseAppName(id), restarted: !stopped });
+    });
+  }
+  return { ids, restarted, appName };
+}
+
+/**
+ * Each component of an app on this node: whether its container runs, whether
+ * the reconciler means it to, and its reason when it does not - an operator stop,
+ * an unfinished restore, a backup or restore holding it, the election, its
+ * restart policy. The app's owner and the Flux team, who start and stop it.
+ * @param {object} req Request with `appname` in params or query.
+ * @param {object} res Response.
+ * @returns {Promise<object>}
+ */
+async function componentStates(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    const mainAppName = appname.split('_')[1] || appname;
+    // eslint-disable-next-line global-require
+    const verificationHelper = require('../verificationHelper');
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: mainAppName });
+    if (!authorized) {
+      return res.json(messageHelper.errUnauthorizedMessage());
+    }
+    const { ids } = await operatorTargetIds(appname);
+    const states = await Promise.all(ids.map(async (id) => {
+      const [actual, verdict] = await Promise.all([appReconciler.dockerActual(id), appReconciler.desiredRunState(id)]);
+      return {
+        component: id,
+        // null when docker could not tell
+        running: actual.reachable === false || actual.indeterminate ? null : actual.running === true,
+        // null while a component the election decides has no decision yet
+        desired: verdict.desired,
+        reason: verdict.reason ?? null,
+      };
+    }));
+    return res.json(messageHelper.createDataMessage(states));
+  } catch (error) {
+    log.error(error);
+    return res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+  }
+}
+
 module.exports = {
+  componentStates,
+  restartUnlessStopped,
   executeAppGlobalCommand,
   deliverGlobalCommand,
   appStart,

@@ -62,7 +62,10 @@ const nodes = [];
 for (let i = 0; i < NODE_COUNT; i++) {
   const num = String(i + 1).padStart(2, '0');
   const kp = generateKeypair(`node-${num}`);
-  const txhash = Buffer.from(randomBytes(32)).toString('hex');
+  // Every node joins in the same block, and discovery orders same-block nodes by
+  // txhash, highest first: the leading byte falls with the index, so the ring
+  // runs in index order, the order suites place nodes and stubs by.
+  const txhash = (0xff - i).toString(16).padStart(2, '0') + Buffer.from(randomBytes(31)).toString('hex');
 
   nodes.push({
     ...kp,

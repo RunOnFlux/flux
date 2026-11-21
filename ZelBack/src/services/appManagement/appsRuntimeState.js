@@ -2,11 +2,13 @@ const config = require('config');
 const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 // Node-local, per-component controller state. Sits between the app spec
 // (desired config, in appsInformation) and Docker (actual state). Holds the
-// durable inputs to the reconciler: the operator's stop lock and the
-// crash-recovery backoff history, so both survive a FluxOS restart. The
+// durable inputs to the reconciler: the operator's stop lock, the record of a
+// restore that began replacing the component's data and did not finish, and the
+// crash-recovery backoff history, so all survive a FluxOS restart. The
 // election/sync-derived `controllerDesired` is NOT here — it is in-memory,
 // re-derived from live truth each cycle (see the reconcile workqueue).
 
@@ -33,6 +35,8 @@ const MAX_HISTORY = BACKOFF_DELAYS_MS.length;
 // restarts from a knob that reads as five is worth knowing before tuning it.
 const RESTART_BURST_COUNT = config.fluxapps.restartBurstCount ?? 5;
 const RESTART_BURST_WINDOW_MS = config.fluxapps.restartBurstWindowMs ?? 5 * 60 * 1000;
+// What a deliberate start begins with: no rungs, and an empty burst window.
+const CLEAR_LADDER = Object.freeze({ restartHistory: [], autoRestartWindow: [] });
 
 function collection() {
   const db = dbHelper.databaseConnection();
@@ -140,8 +144,7 @@ async function setOperatorStopped(identifier, stopped, opts = {}) {
   } else {
     fields.operatorStopForce = false;
     fields.operatorStoppedAsPrimary = false;
-    fields.restartHistory = [];
-    fields.autoRestartWindow = [];
+    Object.assign(fields, CLEAR_LADDER);
   }
   await setFields(identifier, fields);
 }
@@ -291,6 +294,72 @@ async function requestRestart(rawIdentifier, { key } = {}) {
  */
 async function recordRestartGeneration(identifier, generation) {
   await setFields(identifier, { actuatedRestartGeneration: generation });
+}
+
+/**
+ * Whether a restore began replacing this component's data and did not finish.
+ * Rejects when the read fails: an unread mark is not a cleared one.
+ * @param {string} identifier
+ * @returns {Promise<boolean>}
+ */
+async function isRestoreUnfinished(identifier) {
+  const state = await getState(identifier);
+  return state?.restoreUnfinished === true;
+}
+
+/**
+ * The unfinished restore's record: when it was set (the restore deleted and unpacked
+ * only after it, with the folder paused), and whether a scan of the folder asked for
+ * since has finished. Rejects when the read fails.
+ * @param {string} identifier
+ * @returns {Promise<{at: (number|null), scanned: boolean}|null>} null when no record
+ *   is set; `at` is null for a record that carries no time
+ */
+async function unfinishedRestore(identifier) {
+  const state = await getState(identifier);
+  if (state?.restoreUnfinished !== true) return null;
+  return {
+    at: Number.isFinite(state.restoreUnfinishedAt) ? state.restoreUnfinishedAt : null,
+    scanned: state.restoreScanned === true,
+  };
+}
+
+/**
+ * Records that syncthing finished a scan of the folder asked for while the record
+ * set at `at` held it, and publishes `restore:scanned`. A record cleared or set
+ * again since is left as it is, and nothing is published. Rejects when the write
+ * fails.
+ * @param {string} identifier
+ * @param {number} at The record's time, as unfinishedRestore read it
+ * @returns {Promise<void>}
+ */
+async function setRestoreScanned(identifier, at) {
+  const result = await dbHelper.updateOneInDatabase(
+    collection(),
+    appsRuntimeState,
+    { identifier: canonical(identifier), restoreUnfinished: true, restoreUnfinishedAt: at },
+    { $set: { restoreScanned: true, updatedAt: Date.now() } },
+  );
+  if (result?.matchedCount > 0) fluxEventBus.publish('restore:scanned', { identifier: canonical(identifier) });
+}
+
+/**
+ * Records that a restore has begun replacing this component's data (true, set
+ * before anything is deleted, in every sync mode) or that its data is whole
+ * again or accepted as it is (false: the unpack finished, its owner started it,
+ * a new volume replaced it, or it synced from a peer that holds the data). While
+ * set, the reconciler keeps the component stopped and no write makes its folder
+ * send. No catch: a mark that did not persist must stop the restore before it
+ * deletes.
+ * @param {string} identifier
+ * @param {boolean} unfinished
+ * @returns {Promise<void>}
+ */
+async function setRestoreUnfinished(identifier, unfinished) {
+  await setFields(identifier, {
+    restoreUnfinished: unfinished, restoreUnfinishedAt: unfinished ? Date.now() : null, restoreScanned: false,
+  });
+  fluxEventBus.publish('restore:record', { identifier: canonical(identifier), unfinished });
 }
 
 /**
@@ -558,6 +627,53 @@ async function clearNetworkHeal(identifier) {
 }
 
 /**
+ * Clears the crash-recovery backoff: the component's next start is a deliberate
+ * one and begins with no rungs and an empty burst window.
+ * @param {string} identifier
+ */
+async function clearRestartLadder(identifier) {
+  await setFields(identifier, { ...CLEAR_LADDER });
+}
+
+/**
+ * Records that Docker was asked to stop the component's container, at Docker's
+ * own time for the request. Only an existing record is written: a stop asked for
+ * while the component is being removed does not bring its record back.
+ *
+ * @param {string} rawIdentifier
+ * @param {number} atMs Docker's time of the stop request, ms since the epoch
+ */
+async function recordStopRequested(rawIdentifier, atMs) {
+  const identifier = canonical(rawIdentifier);
+  try {
+    await dbHelper.updateOneInDatabase(collection(), appsRuntimeState, { identifier }, { $max: { lastStopRequestedAt: atMs } });
+  } catch (err) {
+    log.error(`appsRuntimeState - failed to record a stop request for ${identifier}: ${err.message}`);
+  }
+}
+
+/**
+ * Whether Docker was asked to stop the component's container after the run that
+ * started at `startedAtMs` began: that run ended because something asked it to,
+ * not by dying. False when the run's start is unknown, no request is recorded, or
+ * the record cannot be read - the exit is then judged as a death.
+ *
+ * @param {string} identifier
+ * @param {number|null} startedAtMs Docker's start time of the container's last run
+ * @returns {Promise<boolean>}
+ */
+async function stopRequestedSince(identifier, startedAtMs) {
+  if (!startedAtMs) return false;
+  try {
+    const state = await getState(identifier);
+    return (state?.lastStopRequestedAt || 0) >= startedAtMs;
+  } catch (err) {
+    log.error(`appsRuntimeState - cannot read the stop requests of ${identifier}: ${err.message}; its exit is judged as a death`);
+    return false;
+  }
+}
+
+/**
  * Records the last observed exit for diagnostics / tampering signals.
  *
  * @param {string} identifier
@@ -579,7 +695,7 @@ async function recordExit(identifier, exitCode) {
  * it here. Everything in this list is the node's account of its own storage,
  * which the removal is not touching.
  */
-const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid'];
+const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid', 'restoreUnfinished'];
 
 /**
  * Drops the controller state for a component whose volume stays where it is.
@@ -722,6 +838,9 @@ async function prepareCollection() {
         // a force anywhere is a force: a kill must never be merged down into a
         // graceful stop the operator did not ask for
         operatorStopForce: twins.some((t) => t.operatorStopForce === true),
+        // an unfinished restore anywhere holds the component: starting it on a
+        // half-replaced folder is the harm, and the owner can start it
+        restoreUnfinished: twins.some((t) => t.restoreUnfinished === true),
         // a start waits on the election only if no locked twin withholds it: a
         // stop without one is the operator's later word
         operatorStartRequested: twins.some((t) => t.operatorStopped === true)
@@ -741,6 +860,8 @@ async function prepareCollection() {
       // the read projects _id away, but a spread of whatever the documents
       // carry must not be the thing that reintroduces it into a $set
       delete merged._id;
+      const stopRequestedAt = Math.max(0, ...twins.map((t) => t.lastStopRequestedAt || 0));
+      if (stopRequestedAt > 0) merged.lastStopRequestedAt = stopRequestedAt;
       const newestExit = twins.filter((t) => t.lastDiedAt !== undefined).sort((a, b) => b.lastDiedAt - a.lastDiedAt)[0];
       if (newestExit) {
         merged.lastExitCode = newestExit.lastExitCode;
@@ -767,6 +888,10 @@ module.exports = {
   releaseOperatorStart,
   operatorStoppedOrThrow,
   operatorStopState,
+  isRestoreUnfinished,
+  unfinishedRestore,
+  setRestoreScanned,
+  setRestoreUnfinished,
   operatorHeldIdentifiers,
   recordRestart,
   requestRestart,
@@ -778,6 +903,9 @@ module.exports = {
   networkHealWaitMs,
   clearNetworkHeal,
   recordExit,
+  clearRestartLadder,
+  recordStopRequested,
+  stopRequestedSince,
   setVolumeImage,
   getVolumeImage,
   removeControllerState,

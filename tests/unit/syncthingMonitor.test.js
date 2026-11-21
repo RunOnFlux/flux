@@ -1,10 +1,10 @@
 // Set NODE_CONFIG_DIR before any requires
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
-const { EventEmitter } = require('node:events');
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const eventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const folderStates = require('../../ZelBack/src/services/appMonitoring/folderStates');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
@@ -54,6 +54,7 @@ const syncthingFolderStateMachineMock = {
   isDesignatedLeader: sinon.stub(),
   verifyFolderMountSafety: sinon.stub().resolves({ isSafe: true, isMounted: true, fileCount: 1 }),
   verifySendReceiveFolderSafety: sinon.stub().resolves({ isSafe: true, isMounted: true, fileCount: 1 }),
+  healHeldSharedFolder: sinon.stub().resolves(false),
 };
 
 const volumeServiceMock = {
@@ -64,8 +65,6 @@ const volumeServiceMock = {
 
 const appReconcilerMock = {
   setControllerDesired: sinon.stub(),
-  dataClearPending: sinon.stub().returns(false),
-  dataEvents: new EventEmitter(),
 };
 
 const syncthingMonitorHelpersMock = {
@@ -132,7 +131,10 @@ const syncthingDroppedDevicesMock = {
   cleared: sinon.stub().resolves(),
   folderRemoved: sinon.stub().resolves(),
 };
+// Whether an unfinished restore holds a folder's component.
+const appsRuntimeStateMock = { isRestoreUnfinished: sinon.stub().resolves(false) };
 const syncthingFolderWrites = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites', {
+  '../appManagement/appsRuntimeState': appsRuntimeStateMock,
   './syncthingDroppedDevices': syncthingDroppedDevicesMock,
   '../serviceHelper': serviceHelperMock,
   '../syncthingService': syncthingServiceMock,
@@ -164,6 +166,13 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
 });
 
 describe('syncthingMonitor tests', () => {
+  beforeEach(() => {
+    appsRuntimeStateMock.isRestoreUnfinished.reset();
+    appsRuntimeStateMock.isRestoreUnfinished.resolves(false);
+    syncthingFolderStateMachineMock.healHeldSharedFolder.reset();
+    syncthingFolderStateMachineMock.healHeldSharedFolder.resolves(false);
+  });
+
   let mockState;
   let mockInstalledAppsFn;
   let mockGetGlobalStateFn;
@@ -219,9 +228,6 @@ describe('syncthingMonitor tests', () => {
     syncthingServiceMock.getDbStatus.reset();
     syncthingServiceMock.getDbStatus.resolves({ globalBytes: 0, inSyncBytes: 0, state: 'idle' });
     appReconcilerMock.setControllerDesired.reset();
-    appReconcilerMock.dataClearPending.reset();
-    appReconcilerMock.dataClearPending.returns(false);
-    appReconcilerMock.dataEvents.removeAllListeners();
     syncthingFolderStateMachineMock.verifyFolderMountSafety.reset();
     syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
     syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.reset();
@@ -1447,6 +1453,91 @@ describe('syncthingMonitor tests', () => {
       expect(putFolderIds(), 'one unmounted volume stopped every other folder being written').to.deep.equal([['goodapp']]);
     });
 
+    it('writes a folder an unfinished restore holds receiveonly, and the others as they are, in one batch', async () => {
+      twoSendingFolders();
+      // both mounted: the record alone decides
+      volumeServiceMock.isPathMounted.resolves(true);
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').resolves(true);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const put = syncthingServiceMock.adjustConfigFolders.getCalls().find((call) => call.args[0] === 'put');
+      expect(put, 'the batch was not written').to.not.equal(undefined);
+      const types = Object.fromEntries(put.args[1].map((folder) => [folder.id, folder.type]));
+      expect(types).to.deep.equal({ brokenapp: 'receiveonly', goodapp: 'sendreceive' });
+    });
+
+    it('writes nothing for a held folder already receiving', async () => {
+      twoSendingFolders();
+      // both mounted: the record alone decides
+      volumeServiceMock.isPathMounted.resolves(true);
+      syncthingMonitorHelpersMock.folderNeedsUpdate.callsFake((existing, wanted) => wanted.id === 'goodapp' || existing?.type !== wanted.type);
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'brokenapp', path: `${appsFolder}brokenapp`, type: 'receiveonly' }]);
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').resolves(true);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(putFolderIds().flat()).to.not.include('brokenapp');
+    });
+
+    it('leaves a folder whose record cannot be read as it is, healing nothing, and writes the others', async () => {
+      twoSendingFolders();
+      volumeServiceMock.isPathMounted.resolves(true);
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'brokenapp', path: `${appsFolder}brokenapp`, type: 'sendreceive' }]);
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').rejects(new Error('database unavailable'));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(putFolderIds()).to.deep.equal([['goodapp']]);
+      sinon.assert.neverCalledWith(syncthingFolderStateMachineMock.healHeldSharedFolder, 'brokenapp');
+    });
+
+    // The record is read once per folder per pass. A pass that could read it for the
+    // state machine and not after would leave a designation made for a folder it never
+    // wrote, which the end of the pass turns into a start as primary.
+    it('asks the state machine nothing for a g: folder whose record cannot be read, and designates nothing', async () => {
+      twoSendingFolders();
+      volumeServiceMock.isPathMounted.resolves(true);
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').rejects(new Error('database unavailable'));
+      syncthingFolderStateMachineMock.manageFolderSyncState.callsFake(async ({ syncthingFolder }) => ({
+        syncthingFolder, cache: { restarted: true, designationPending: true }, restoreHeld: false,
+      }));
+      try {
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const asked = syncthingFolderStateMachineMock.manageFolderSyncState.getCalls().map((call) => call.args[0].appId);
+        expect(asked, 'fixture: the pass reached the readable folder').to.include('goodapp');
+        expect(asked).to.not.include('brokenapp');
+        expect(mockState.receiveOnlySyncthingAppsCache.get('brokenapp')?.designatedLeader).to.not.equal(true);
+        expect(mockState.receiveOnlySyncthingAppsCache.get('goodapp')?.designatedLeader, 'fixture: a designation the pass wrote').to.equal(true);
+      } finally {
+        syncthingFolderStateMachineMock.manageFolderSyncState.resetBehavior();
+        syncthingFolderStateMachineMock.manageFolderSyncState.resolves({ syncthingFolder: { type: 'sendreceive' }, cache: null });
+      }
+    });
+
+    it('writes a held s: folder sending once it has healed', async () => {
+      twoSendingFolders();
+      // both mounted: the record alone decides
+      volumeServiceMock.isPathMounted.resolves(true);
+      appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').resolves(true);
+      syncthingFolderStateMachineMock.healHeldSharedFolder.withArgs('brokenapp').callsFake(async () => {
+        appsRuntimeStateMock.isRestoreUnfinished.withArgs('brokenapp').resolves(false);
+        return true;
+      });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const put = syncthingServiceMock.adjustConfigFolders.getCalls().find((call) => call.args[0] === 'put');
+      expect(Object.fromEntries(put.args[1].map((folder) => [folder.id, folder.type]))).to.deep.equal({ brokenapp: 'sendreceive', goodapp: 'sendreceive' });
+    });
+
     it('refuses the whole batch when the unmounted folder reaches it', async () => {
       // The control: with the skip gone, the folder writer's own check is all
       // that stands between the batch and syncthing.
@@ -1814,66 +1905,6 @@ describe('syncthingMonitor tests', () => {
       expect(siblings).to.deep.equal({ db_twin: ['web_twin'], cache_twin: [], web_twin: ['db_twin'] });
     });
 
-    // What arrives in a folder before its local appdata is cleared is cleared
-    // with it, so the folder is written paused until the clear is done, and the
-    // pass after the clear resumes it.
-    describe('a folder whose local appdata is still to be cleared', () => {
-      const written = () => syncthingServiceMock.adjustConfigFolders.getCalls()
-        .filter((c) => c.args[0] === 'put' || c.args[0] === 'patch')
-        .map((c) => (Array.isArray(c.args[1]) ? c.args[1].find((f) => f.id === 'testapp') : c.args[1]))
-        .filter(Boolean);
-
-      it('writes the folder paused while a clear is owed', async () => {
-        writesAFolder();
-        appReconcilerMock.dataClearPending.callsFake((id) => id === 'testapp');
-
-        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
-        await clock.tickAsync(100);
-
-        const [folder] = written();
-        expect(folder, 'the folder was not written, so this asserts nothing').to.not.equal(undefined);
-        expect(folder.paused).to.equal(true);
-      });
-
-      it('leaves the pause to the rest of the pass when no clear is owed', async () => {
-        writesAFolder();
-
-        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
-        await clock.tickAsync(100);
-
-        const [folder] = written();
-        expect(folder, 'the folder was not written, so this asserts nothing').to.not.equal(undefined);
-        expect(folder.paused).to.not.equal(true);
-      });
-
-      it('runs a pass soon after a clear is done, not at the next interval', async () => {
-        writesAFolder();
-        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
-        await clock.tickAsync(100);
-        const passes = () => syncthingFolderStateMachineMock.manageFolderSyncState.callCount;
-        const before = passes();
-
-        appReconcilerMock.dataEvents.emit('cleared', 'testapp');
-        await clock.tickAsync(15000);
-
-        expect(passes(), 'a pass between the clear and the 30 s interval').to.be.above(before);
-      });
-
-      it('runs no early pass on a clear once it has stopped', async () => {
-        writesAFolder();
-        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
-        await clock.tickAsync(100);
-        monitorControl.stop();
-        const before = syncthingFolderStateMachineMock.manageFolderSyncState.callCount;
-
-        appReconcilerMock.dataEvents.emit('cleared', 'testapp');
-        await clock.tickAsync(15000);
-
-        expect(syncthingFolderStateMachineMock.manageFolderSyncState.callCount).to.equal(before);
-        monitorControl = null;
-      });
-    });
-
     describe('the type of a g: folder', () => {
       const folderCalls = () => syncthingServiceMock.adjustConfigFolders.getCalls()
         .filter((c) => c.args[0] === 'put' || c.args[0] === 'patch');
@@ -1991,6 +2022,32 @@ describe('syncthingMonitor tests', () => {
 
         sinon.assert.called(syncthingFolderStateMachineMock.manageFolderSyncState);
         sinon.assert.neverCalledWith(publish, 'syncthing:folderReady');
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderNotReady');
+      });
+
+      it('publishes that it is not ready on the pass that takes a ready holder out of ready', async () => {
+        writesAFolder();
+        mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: true, numberOfExecutions: 1 });
+        passReturns(false);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(mockState.receiveOnlySyncthingAppsCache.get('testapp')?.restarted, 'the pass never stored the entry').to.equal(false);
+        sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderNotReady'), 'syncthing:folderNotReady', { folder: 'testapp' });
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderReady');
+      });
+
+      it('does not publish that it is not ready for a holder that stays ready', async () => {
+        writesAFolder();
+        mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: true, numberOfExecutions: 1 });
+        passReturns(true);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.called(syncthingFolderStateMachineMock.manageFolderSyncState);
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderNotReady');
       });
     });
   });

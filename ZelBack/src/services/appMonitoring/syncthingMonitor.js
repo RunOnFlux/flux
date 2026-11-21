@@ -41,6 +41,7 @@ const syncthingFolderWrites = require('./syncthingFolderWrites');
 const folderStates = require('./folderStates');
 const primaryRole = require('../appLifecycle/primaryRole');
 const {
+  healHeldSharedFolder,
   manageFolderSyncState,
   verifyFolderMountSafety,
   verifySendReceiveFolderSafety,
@@ -371,12 +372,24 @@ async function processContainerData(params) {
   // Create base folder configuration
   const syncthingFolder = createSyncthingFolderConfig(id, label, folder, devices);
 
+  // The restore record is read once per folder per pass, and everything below
+  // decides on that one answer. A record that cannot be read decides nothing: the
+  // folder is left as it is for the pass, and no write makes it send meanwhile.
+  const recordRead = await syncthingFolderWrites.restoreRecord(appId);
+  if (recordRead === null) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'unknown');
+    return;
+  }
+  let restoreHeld = recordRead;
+
   // Handle receive-only or global sync flags
   if (primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g')) {
     // Read before the pass: the state machine updates the entry in place.
     const wasReady = !!state.receiveOnlySyncthingAppsCache.get(appId)?.restarted;
     // Use state machine to manage folder sync transitions
-    const { syncthingFolder: updatedFolder, cache, skipProcessing } = await manageFolderSyncState({
+    const {
+      syncthingFolder: updatedFolder, cache, skipProcessing, restoreHeld: heldAfterPass,
+    } = await manageFolderSyncState({
       appId,
       identifier,
       syncFolder,
@@ -391,15 +404,20 @@ async function processContainerData(params) {
       installedAppName,
       liveness,
       electedSiblings: electedFolderIds.includes(appId) ? electedFolderIds.filter((folderId) => folderId !== appId) : [],
+      restoreHeld,
     });
+    // false once the pass healed it
+    restoreHeld = heldAfterPass;
 
     // Update cache if provided
     if (cache !== null) {
       state.receiveOnlySyncthingAppsCache.set(appId, cache);
       // From here the election reads this holder as ready to take over. A
       // single-writer standby stays receiveonly, so this, not the folder type,
-      // is when it becomes eligible.
+      // is when it becomes eligible. A holder that stops being ready is no longer
+      // eligible, and its folder's health is no longer watched.
       if (cache.restarted && !wasReady) fluxEventBus.publish('syncthing:folderReady', { folder: appId });
+      if (!cache.restarted && wasReady) fluxEventBus.publish('syncthing:folderNotReady', { folder: appId });
     }
 
     // Skip processing if marked to skip
@@ -422,10 +440,15 @@ async function processContainerData(params) {
     syncthingFolder.type = 'sendreceive';
   }
 
-  // Nothing arrives in a folder whose local appdata is still to be cleared: what
-  // arrived before the clear would be cleared with it, and syncthing would hold
-  // an index of files the disk no longer has. The pass after the clear resumes it.
-  if (appReconciler.dataClearPending(appId)) syncthingFolder.paused = true;
+  // A folder an unfinished restore holds receives, in every mode, until healing
+  // from a peer that holds the data, a restore that finishes, or its owner's start
+  // releases it. Its type is written even for a g: folder, so one left sending is
+  // turned; one already receiving is left as it is. The state machine heals an r:
+  // or g: folder above; an s: folder, which it does not run for, is healed here.
+  if (restoreHeld) {
+    const shared = !(primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g'));
+    if (!(shared && await healHeldSharedFolder(appId))) syncthingFolder.type = 'receiveonly';
+  }
 
   // Add to tracking arrays
   folderIds.push(id);
@@ -1202,10 +1225,6 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
     onResync: () => accelerator.onResync(),
   });
 
-  // A folder held paused for a clear is resumed by the pass after it.
-  const onDataCleared = () => accelerator.onResync();
-  appReconciler.dataEvents.on('cleared', onDataCleared);
-
   // Return control object for graceful shutdown
   return {
     stop: () => {
@@ -1213,7 +1232,6 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
         clearInterval(intervalId);
         intervalId = null;
         accelerator.stop();
-        appReconciler.dataEvents.off('cleared', onDataCleared);
         syncthingEventsConsumer.stop();
         log.info('syncthingApps - Monitoring service stopped');
       }

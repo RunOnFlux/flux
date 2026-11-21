@@ -8,7 +8,7 @@
       "tier": "CUMULUS",
       "region": "EU_DE",
       "staticIp": true,
-      "txhash": "0b7c2a5f894aef9ad4f1d791476630d48370206583c1ec1999e852e6ad8e7e70"
+      "txhash": "ff7c2a5f894aef9ad4f1d791476630d48370206583c1ec1999e852e6ad8e7e70"
     },
     {
       "label": "node-02",
@@ -18,7 +18,7 @@
       "tier": "CUMULUS",
       "region": "EU_DE",
       "staticIp": false,
-      "txhash": "3889bb476c8d8b6fe29558b750864ce41e58af74f38199e76116bfc38c7a7079"
+      "txhash": "fe89bb476c8d8b6fe29558b750864ce41e58af74f38199e76116bfc38c7a7079"
     },
     {
       "label": "node-03",
@@ -28,7 +28,7 @@
       "tier": "CUMULUS",
       "region": "EU_FR",
       "staticIp": true,
-      "txhash": "9a51c6986d6f36d39d44864b5b4d1e7693b08513aa8c62cdb77896116f09ad18"
+      "txhash": "fd51c6986d6f36d39d44864b5b4d1e7693b08513aa8c62cdb77896116f09ad18"
     },
     {
       "label": "node-04",
@@ -38,7 +38,7 @@
       "tier": "CUMULUS",
       "region": "EU_CZ",
       "staticIp": true,
-      "txhash": "2c343eb6ffc2b5a22f4c090d6d4f3def64b7d159c8a61fa38eda98f419c26365"
+      "txhash": "fc343eb6ffc2b5a22f4c090d6d4f3def64b7d159c8a61fa38eda98f419c26365"
     },
     {
       "label": "node-05",
@@ -48,7 +48,7 @@
       "tier": "NIMBUS",
       "region": "US_NY",
       "staticIp": true,
-      "txhash": "81543f437e488bcce15f1cdb0de37831cfecc4186ffd301e560b6aedcce36e6a"
+      "txhash": "fb543f437e488bcce15f1cdb0de37831cfecc4186ffd301e560b6aedcce36e6a"
     },
     {
       "label": "node-06",
@@ -58,7 +58,7 @@
       "tier": "NIMBUS",
       "region": "US_NY",
       "staticIp": true,
-      "txhash": "0b14b62cf2582a4907e0c5ce43632e6597ac470e5fcfe6b3e31ccbb3aa93a0e5"
+      "txhash": "fa14b62cf2582a4907e0c5ce43632e6597ac470e5fcfe6b3e31ccbb3aa93a0e5"
     },
     {
       "label": "node-07",
@@ -68,7 +68,7 @@
       "tier": "NIMBUS",
       "region": "US_CA",
       "staticIp": true,
-      "txhash": "1986f4424122486917278f3d9988fb0fd5eeb8b7280fe84931dc3ab7c06456a7"
+      "txhash": "f986f4424122486917278f3d9988fb0fd5eeb8b7280fe84931dc3ab7c06456a7"
     },
     {
       "label": "node-08",
@@ -78,7 +78,7 @@
       "tier": "NIMBUS",
       "region": "US_TX",
       "staticIp": false,
-      "txhash": "ccc37236424fdd9899590088de6a9de9b42df5fb9e69268d0947ef656854ad31"
+      "txhash": "f8c37236424fdd9899590088de6a9de9b42df5fb9e69268d0947ef656854ad31"
     },
     {
       "label": "node-09",
@@ -88,7 +88,7 @@
       "tier": "NIMBUS",
       "region": "US_VA",
       "staticIp": true,
-      "txhash": "54917729eb8239fc3a6a3f78ca683bb58092cf300ccc95533b45978d822ca067"
+      "txhash": "f7917729eb8239fc3a6a3f78ca683bb58092cf300ccc95533b45978d822ca067"
     },
     {
       "label": "node-10",
@@ -108,7 +108,7 @@
       "tier": "STRATUS",
       "region": "AS_SG",
       "staticIp": true,
-      "txhash": "5418dfe928bf409d2806e4a995e650ec963731be3ec060d0f04fc400dd7720b7"
+      "txhash": "f518dfe928bf409d2806e4a995e650ec963731be3ec060d0f04fc400dd7720b7"
     },
     {
       "label": "node-12",
@@ -118,7 +118,7 @@
       "tier": "STRATUS",
       "region": "AS_SG",
       "staticIp": true,
-      "txhash": "13b9941d777e67e1385b4b211c67f4b936bba6b1024881cf843044368cb5c9c1"
+      "txhash": "f4b9941d777e67e1385b4b211c67f4b936bba6b1024881cf843044368cb5c9c1"
     },
     {
       "label": "node-13",
@@ -128,7 +128,7 @@
       "tier": "STRATUS",
       "region": "AS_JP",
       "staticIp": true,
-      "txhash": "9ec1f523bdfcb9131a2cc024944ae44d3d48b6c06dcc5638d7d69550cee709a8"
+      "txhash": "f3c1f523bdfcb9131a2cc024944ae44d3d48b6c06dcc5638d7d69550cee709a8"
     },
     {
       "label": "node-14",
@@ -138,7 +138,7 @@
       "tier": "STRATUS",
       "region": "EU_DE",
       "staticIp": true,
-      "txhash": "9f195543047750aa7720cc5e4e51cad7adb9cf189a5d4ddfa3fc4907bcf8a42b"
+      "txhash": "f2195543047750aa7720cc5e4e51cad7adb9cf189a5d4ddfa3fc4907bcf8a42b"
     },
     {
       "label": "node-15",
@@ -148,7 +148,7 @@
       "tier": "STRATUS",
       "region": "US_CA",
       "staticIp": true,
-      "txhash": "ae526190d8d93552d73a1b4514b1eb43de460bab87a5562eb422bb24f1b16c17"
+      "txhash": "f1526190d8d93552d73a1b4514b1eb43de460bab87a5562eb422bb24f1b16c17"
     },
     {
       "label": "node-16",
@@ -158,7 +158,7 @@
       "tier": "CUMULUS",
       "region": "EU_FR",
       "staticIp": true,
-      "txhash": "a5a6ac49519f023b04ae706e3f6238dc8cba69e48814064e7054120af9def25b"
+      "txhash": "f0a6ac49519f023b04ae706e3f6238dc8cba69e48814064e7054120af9def25b"
     }
   ],
   "appOwner": {
