@@ -34,19 +34,10 @@ export async function waitFor(condition, { timeout = 60000, interval = 2000, lab
       if (await condition()) return true;
       lastError = null;
     } catch (error) {
-      // A POLL THAT COULD NOT BE TAKEN IS NOT A POLL THAT CAME BACK FALSE, and
-      // it is not a reason to abandon the wait. Under gate load a node's API
-      // refuses one connection and answers on the next tick: suite 96 lost a
-      // two-minute wait to a single `fetch failed`, on a fleet that was healthy
-      // either side of it, having passed that same wait twice on an idle box.
-      //
-      // Four suites had already worked this around one predicate at a time with
-      // `.catch(() => null)`; every other wait in the harness was exposed to it.
-      //
-      // Kept rather than swallowed. A predicate that throws EVERY time still
-      // times out - this cannot turn a red into a green - and the timeout now
-      // reports what it was throwing, instead of saying only that a condition
-      // never held.
+      // A poll that throws took no reading: it is neither false nor a reason to
+      // end the wait (a node restarting refuses connections until its API is
+      // back). A predicate that throws on every attempt still times out, and the
+      // timeout names its last error.
       lastError = error;
     }
     await sleepUnlessInfraDead(interval);
