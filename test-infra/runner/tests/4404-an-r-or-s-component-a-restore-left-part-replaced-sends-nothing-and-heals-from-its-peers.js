@@ -257,6 +257,13 @@ describe('an r: or s: component a restore left part replaced sends nothing and h
       if (!(await isDaemonUp(p))) await startDaemon(p);
     }
     await healsFromPeers(subject, S, mark, 'the held s: copy heals once scanned receiving');
+    // syncthing counted none of the deletions while the folder sent, so a heal that
+    // decided before a scan of the receiving folder would clear the record on a zero
+    const events = p.getEventBuffer().filter((e) => e.id > mark && e.data?.identifier === S.identifier);
+    const scanned = events.find((e) => e.event === 'restore:scanned');
+    const cleared = events.find((e) => e.event === 'restore:record' && e.data.unfinished === false);
+    expect(scanned, 'a scan asked for since the restore was recorded').to.not.equal(undefined);
+    expect(scanned.id, 'the scan was recorded before the record was cleared').to.be.below(cleared.id);
   });
 
   it('leaves another instance\'s record and its owner\'s stop as they are when a restore broadcasts its restart', async function () {
