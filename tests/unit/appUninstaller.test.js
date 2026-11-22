@@ -70,6 +70,7 @@ describe('appUninstaller tests', () => {
   let getLocalSocketAddressStub;
   let broadcastStub;
   let canSendMessagesStub;
+  let namesSeveralAppsStub;
   let runCommandStub;
   let dockerServiceStub;
 
@@ -772,6 +773,7 @@ describe('appUninstaller tests', () => {
       getLocalSocketAddressStub = sinon.stub().resolves(null);
       broadcastStub = sinon.stub().resolves();
       canSendMessagesStub = sinon.stub().returns(true);
+      namesSeveralAppsStub = sinon.stub().returns(false);
       globalStateStub = {
         departingApps,
         unconfirmedApps,
@@ -855,6 +857,7 @@ describe('appUninstaller tests', () => {
           broadcastMessageToAll: broadcastStub,
         },
         '../nodeConfirmationService': { canSendMessages: canSendMessagesStub },
+        '../utils/appRemovedMessage': { namesSeveralApps: namesSeveralAppsStub },
         '../appDatabase/registryManager': {
           availableApps: sinon.stub().resolves([]),
         },
@@ -1562,6 +1565,58 @@ describe('appUninstaller tests', () => {
 
           expect(outcome?.message).to.equal('no peers');
           sinon.assert.notCalled(removeStub);
+        });
+
+        it('sends every one in one message once the network reads that', async () => {
+          const future = new Date(Date.now() + 600000);
+          const uninstaller = buildUninstaller(v2Spec, {}, {
+            findInDatabase: kept([{ appName: 'first', expireAt: future }, { appName: 'second', expireAt: future }]),
+            removeDocumentsFromCollection: removeStub,
+          });
+          namesSeveralAppsStub.returns(true);
+
+          await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
+
+          sinon.assert.calledOnceWithMatch(broadcastStub, {
+            type: 'fluxappremoved', version: 2, apps: ['first', 'second'], ip: ADDRESS,
+          });
+          expect(removeStub.getCalls().map((call) => call.args[2].appName)).to.deep.equal(['first', 'second']);
+        });
+      });
+
+      // Removals announced while one is being sent share the next message, once
+      // every node reads a removal naming several apps.
+      describe('announcing removals together', () => {
+        const ADDRESS = '10.0.0.3:16127';
+
+        async function announceThreeWhileTheFirstIsSent(uninstaller) {
+          const first = Promise.withResolvers();
+          broadcastStub.onFirstCall().returns(first.promise);
+          const announced = [uninstaller.announceRemoval('a')];
+          await new Promise((resolve) => { setImmediate(resolve); });
+          announced.push(uninstaller.announceRemoval('b'), uninstaller.announceRemoval('c'));
+          first.resolve();
+          await Promise.all(announced);
+          return broadcastStub.getCalls().map((call) => call.args[0]);
+        }
+
+        it('names the removals asked while one is sent in the next message', async () => {
+          const uninstaller = buildUninstaller(v2Spec);
+          getLocalSocketAddressStub.resolves(ADDRESS);
+          namesSeveralAppsStub.returns(true);
+
+          const sent = await announceThreeWhileTheFirstIsSent(uninstaller);
+
+          expect(sent.map(({ version, apps }) => [version, apps])).to.deep.equal([[2, ['a']], [2, ['b', 'c']]]);
+        });
+
+        it('sends one message per removal until the network reads one naming several', async () => {
+          const uninstaller = buildUninstaller(v2Spec);
+          getLocalSocketAddressStub.resolves(ADDRESS);
+
+          const sent = await announceThreeWhileTheFirstIsSent(uninstaller);
+
+          expect(sent.map(({ version, appName }) => [version, appName])).to.deep.equal([[1, 'a'], [1, 'b'], [1, 'c']]);
         });
       });
 

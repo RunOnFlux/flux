@@ -461,6 +461,7 @@ module.exports = {
     dockerProbeTimeoutMs: 20000,
     dockerStopSlackMs: 30000,
     dockerRequestTimeoutMs: 120000,
+    appRemovedListFrom: '8.25.0',
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
     syncAnswerBatchBytes: 8 * 1024 * 1024,

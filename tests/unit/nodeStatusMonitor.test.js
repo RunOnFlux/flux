@@ -169,6 +169,7 @@ describe('nodeStatusMonitor tests', () => {
     let confirmed;
     let bus;
     let globalState;
+    let namesSeveral;
     const SPACING = 5000;
     const never = () => new Promise(() => {});
     const installed = (...names) => sinon.stub().resolves({ status: 'success', data: names.map((name) => ({ name })) });
@@ -177,6 +178,7 @@ describe('nodeStatusMonitor tests', () => {
       clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       dos = false;
       confirmed = true;
+      namesSeveral = false;
       bus = { publish: sinon.stub() };
       appKill = {
         readContainers: sinon.stub().resolves([]),
@@ -213,6 +215,7 @@ describe('nodeStatusMonitor tests', () => {
         '../dockerService': dockerService,
         '../utils/fluxEventBus': bus,
         '../utils/globalState': globalState,
+        '../utils/appRemovedMessage': { namesSeveralApps: () => namesSeveral },
         '../../lib/log': logStub,
       });
     });
@@ -560,6 +563,18 @@ describe('nodeStatusMonitor tests', () => {
       expect(removed()).to.deep.equal(['one', 'two']);
       await clock.tickAsync(SPACING);
       expect(removed()).to.deep.equal(['one', 'two', 'three']);
+    });
+
+    it('starts every DOS removal at once once the network reads a removal naming several apps', async () => {
+      dos = true;
+      namesSeveral = true;
+      const remove = sinon.stub().callsFake(never);
+
+      monitor.monitorNodeStatus(installed('one', 'two', 'three'), remove);
+      await clock.tickAsync(0);
+
+      expect(remove.getCalls().map((call) => call.args[0])).to.deep.equal(['one', 'two', 'three']);
+      await clock.tickAsync(DEADLINE);
     });
 
     it('starts no DOS removal while a host stall\'s removal has the node', async () => {

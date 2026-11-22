@@ -615,6 +615,10 @@ module.exports = {
     // client tag is refused; below it one is taken from any peer, uncounted
     // (services/appMessaging/unpaidAdmission.js).
     untaggedRefusedFrom: '8.24.0',
+    // The first release that reads a fluxappremoved naming several apps. Once
+    // minimumFluxOSAllowedVersion is at least this, the removals a node announces
+    // while one is being sent go out in one message (utils/appRemovedMessage.js).
+    appRemovedListFrom: '8.25.0',
     // Admitting an unpaid app message (services/appMessaging/admissionQuorum.js).
     // Only an ArcaneOS node admits one, only while it holds admissionQuorum
     // authenticated links on distinct IPs, and answers success only once peers on

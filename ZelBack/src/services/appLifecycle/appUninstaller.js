@@ -31,6 +31,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const appSlice = require('./appSlice');
 const { Privilege, authOf } = require('../utils/privileges');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const appRemovedMessage = require('../utils/appRemovedMessage');
 const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
 
 /**
@@ -103,21 +104,28 @@ function unannouncedRemovals() {
 }
 
 /**
- * Sends this node's fluxappremoved for an app, from `ip`.
- * @param {string} appName
+ * Sends this node's fluxappremoved for these apps, from `ip`: one message naming
+ * them all once the network reads that (appRemovedMessage), one each until then.
+ * @param {string[]} appNames
  * @param {string} ip This node's socket address now.
  * @returns {Promise<void>}
  */
-async function sendRemoval(appName, ip) {
-  const appRemovedMessage = {
-    type: 'fluxappremoved',
-    version: 1,
-    appName,
-    ip,
-    broadcastedAt: Date.now(),
-  };
-  log.info(`Broadcasting appremoved message for ${appName} to the network`);
-  await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
+async function sendRemovals(appNames, ip) {
+  if (appRemovedMessage.namesSeveralApps()) {
+    log.info(`Broadcasting appremoved message for ${appNames.join(', ')} to the network`);
+    await fluxCommunicationMessagesSender.broadcastMessageToAll({
+      type: 'fluxappremoved', version: 2, apps: appNames, ip, broadcastedAt: Date.now(),
+    });
+    return;
+  }
+  // eslint-disable-next-line no-restricted-syntax
+  for (const appName of appNames) {
+    log.info(`Broadcasting appremoved message for ${appName} to the network`);
+    // eslint-disable-next-line no-await-in-loop
+    await fluxCommunicationMessagesSender.broadcastMessageToAll({
+      type: 'fluxappremoved', version: 1, appName, ip, broadcastedAt: Date.now(),
+    });
+  }
 }
 
 /**
@@ -164,46 +172,94 @@ async function announceKeptRemovals(installedNames, ip) {
   const { database, collection } = unannouncedRemovals();
   const kept = await dbHelper.findInDatabase(database, collection, {}, { projection: { _id: 0, appName: 1, expireAt: 1 } });
   const now = new Date();
+  const owed = kept.filter(({ appName, expireAt }) => expireAt > now && !installedNames.has(appName)).map(({ appName }) => appName);
+  if (owed.length) await sendRemovals(owed, ip);
   // eslint-disable-next-line no-restricted-syntax
-  for (const { appName, expireAt } of kept) {
-    // eslint-disable-next-line no-await-in-loop
-    if (expireAt > now && !installedNames.has(appName)) await sendRemoval(appName, ip);
+  for (const { appName } of kept) {
     // eslint-disable-next-line no-await-in-loop
     await dbHelper.removeDocumentsFromCollection(database, collection, { appName });
   }
 }
 
+// The announcements asked for and not yet sent, by app: what each asker waits on.
+const announcementsAsked = new Map();
+// The announcements being sent, while they are.
+let announcing = null;
+
 /**
- * Tells the network this node no longer holds the app (fluxappremoved), and drops it
- * from the running apps cache. For an app whose removal from this node is complete or
- * committed. While peers would not accept this node's messages
- * (nodeConfirmationService.canSendMessages) the removal is kept and announced once
- * they would (keepRemoval).
- * @param {string} appName
+ * Tells the network this node no longer holds these apps, and drops them from the
+ * running apps cache. While peers would not accept this node's messages
+ * (nodeConfirmationService.canSendMessages) each removal is kept and announced
+ * once they would (keepRemoval).
+ * @param {string[]} appNames
  * @returns {Promise<void>}
  */
-async function announceRemoval(appName) {
-  // An announcement cycle that took its list before this removal marked the
-  // app still names it, and a claim arriving after this message re-creates the
+async function announceNow(appNames) {
+  // An announcement cycle that took its list before these removals marked the
+  // apps still names them, and a claim arriving after this message re-creates the
   // row it cleared. Waiting for the cycle in flight puts the two on the wire in
   // the order they happened, so the claim is applied first and this clears it.
-  // A cycle starting from here on reads the mark and leaves the app out. A cycle
+  // A cycle starting from here on reads the mark and leaves the apps out. A cycle
   // is in flight only from its snapshot to its broadcast, and every call in that
   // span has its own time limit.
   await globalState.announceCycle.waitReady({ waitAll: false });
   const ip = await fluxNetworkHelper.getLocalSocketAddress();
   // Read as the message would go out: whether this node can be heard changes
   // while a removal waits its turn.
-  if (ip && nodeConfirmationService.canSendMessages()) await sendRemoval(appName, ip);
-  else await keepRemoval(appName, ip);
-  // a removal still being finished has nothing left to tell
-  const pending = unfinishedRemovals.get(appName);
-  if (pending) pending.announce = false;
-  const { runningAppsCache } = globalState;
-  if (runningAppsCache.has(appName)) {
-    runningAppsCache.delete(appName);
-    log.info(`Removed ${appName} from running apps cache`);
+  if (ip && nodeConfirmationService.canSendMessages()) {
+    await sendRemovals(appNames, ip);
+  } else {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of appNames) {
+      // eslint-disable-next-line no-await-in-loop
+      await keepRemoval(appName, ip);
+    }
   }
+  const { runningAppsCache } = globalState;
+  appNames.forEach((appName) => {
+    // a removal still being finished has nothing left to tell
+    const pending = unfinishedRemovals.get(appName);
+    if (pending) pending.announce = false;
+    if (runningAppsCache.has(appName)) {
+      runningAppsCache.delete(appName);
+      log.info(`Removed ${appName} from running apps cache`);
+    }
+  });
+}
+
+/**
+ * Sends what is asked for, in turns: the apps asked for while one turn is sent
+ * go out together in the next.
+ * @returns {Promise<void>}
+ */
+async function announceAsked() {
+  while (announcementsAsked.size) {
+    const turn = new Map(announcementsAsked);
+    announcementsAsked.clear();
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await announceNow([...turn.keys()]);
+      turn.forEach(({ resolve }) => resolve());
+    } catch (error) {
+      turn.forEach(({ reject }) => reject(error));
+    }
+  }
+  announcing = null;
+}
+
+/**
+ * Tells the network this node no longer holds the app (fluxappremoved), and drops it
+ * from the running apps cache. For an app whose removal from this node is complete or
+ * committed. Removals asked to be announced while others are being sent are told
+ * together in one message once the network reads that (appRemovedMessage).
+ * @param {string} appName
+ * @returns {Promise<void>} Settles once the message naming the app is sent or kept.
+ */
+function announceRemoval(appName) {
+  if (!announcementsAsked.has(appName)) announcementsAsked.set(appName, Promise.withResolvers());
+  const { promise } = announcementsAsked.get(appName);
+  if (!announcing) announcing = announceAsked();
+  return promise;
 }
 
 /**
