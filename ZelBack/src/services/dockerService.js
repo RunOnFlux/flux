@@ -136,6 +136,21 @@ async function dockerRemoveNetwork(netw) {
 }
 
 /**
+ * @returns {Promise<object[]>} Every docker network, as listed.
+ */
+async function dockerListNetworks() {
+  return docker.listNetworks();
+}
+
+/**
+ * @param {string} id Network id or name.
+ * @returns {object} The docker network object.
+ */
+function dockerGetNetwork(id) {
+  return docker.getNetwork(id);
+}
+
+/**
  * Returns inspect network object.
  *
  * @param {object} netw - Network object
@@ -1048,6 +1063,110 @@ function cpuLimit(nanoCpus) {
 }
 
 /**
+ * The environment and command line a component declares: its environment with
+ * its decrypted secrets added (the declared array is extended in place), and its
+ * commands without `--privileged`.
+ * @param {object} appSpecifications Component specifications.
+ * @returns {Promise<{envParams: string[], adjustedCommands: string[]}>}
+ */
+async function declaredEnvAndCmd(appSpecifications) {
+  const envParams = appSpecifications.environmentParameters || appSpecifications.enviromentParameters;
+  if (appSpecifications.secrets) {
+    const decodedEnvParams = await pgpService.decryptMessage(appSpecifications.secrets);
+    const arraySecrets = JSON.parse(decodedEnvParams);
+    if (Array.isArray(arraySecrets)) {
+      arraySecrets.forEach((parameter) => {
+        if (typeof parameter !== 'string' || parameter.length > 5000000) {
+          throw new Error('Environment parameters from Secrets are invalid - type or length');
+        } else if (parameter !== 'privileged') {
+          envParams.push(parameter);
+        }
+      });
+    } else {
+      throw new Error('Environment parameters from Secrets are invalid - not an array');
+    }
+  }
+  const adjustedCommands = [];
+  appSpecifications.commands.forEach((command) => {
+    if (command !== '--privileged') {
+      adjustedCommands.push(command);
+    }
+  });
+  return { envParams, adjustedCommands };
+}
+
+/**
+ * Completes a container's environment and command line in place: each Flux
+ * Storage link is replaced by the payload it names, and the node's own
+ * variables are added.
+ * @param {string[]} env
+ * @param {string[]} cmd
+ * @param {string} appName
+ * @param {string} identifier The container's component identifier, for the log.
+ * @returns {Promise<void>}
+ */
+async function expandStorageAndNodeEnv(env, cmd, appName, identifier) {
+  if (env.length) {
+    const fluxStorageEnv = env.find((entry) => entry.startsWith(('F_S_ENV=')));
+    if (fluxStorageEnv) {
+      const index = env.indexOf(fluxStorageEnv);
+      if (index > -1) {
+        env.splice(index, 1);
+      }
+      const url = storageLinkOf(fluxStorageEnv);
+      const envVars = await obtainPayloadFromStorage(url, appName);
+      if (Array.isArray(envVars) && envVars.length < 200) {
+        envVars.forEach((parameter) => {
+          if (typeof parameter !== 'string' || parameter.length > 5000000) {
+            throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
+          } else if (parameter !== '--privileged') {
+            env.push(parameter);
+          }
+        });
+      } else {
+        throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
+      }
+    }
+  }
+
+  if (cmd.length) {
+    const fluxStorageCmd = cmd.find((entry) => entry.startsWith(('F_S_CMD=')));
+    if (fluxStorageCmd) {
+      const index = cmd.indexOf(fluxStorageCmd);
+      if (index > -1) {
+        cmd.splice(index, 1);
+      }
+      const url = storageLinkOf(fluxStorageCmd);
+      const cmdVars = await obtainPayloadFromStorage(url, appName);
+      if (Array.isArray(cmdVars) && cmdVars.length < 200) {
+        cmdVars.forEach((parameter) => {
+          if (typeof parameter !== 'string' || parameter.length > 5000000) {
+            throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
+          } else if (parameter !== '--privileged') {
+            cmd.push(parameter);
+          }
+        });
+      } else {
+        throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
+      }
+    }
+  }
+
+  // Inject Flux-provided env vars so apps can reference them directly or
+  // via ${VAR} expansion in their own config files (e.g. Datadog's
+  // DD_HOSTNAME=${FLUX_NODE_HOST_IP}). Appended last so they win over any
+  // identically-named values supplied by the operator.
+  const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+  const nodeHostIp = localSocketAddr ? extractIp(localSocketAddr) : null;
+  if (nodeHostIp) {
+    env.push(`FLUX_NODE_HOST_IP=${nodeHostIp}`);
+  } else {
+    log.warn(`FLUX_NODE_HOST_IP not injected for ${identifier}: node IP not available`);
+  }
+  env.push(`FLUX_APP_NAME=${appName}`);
+}
+
+/**
  * Creates an app container.
  *
  * @param {object} appSpecifications
@@ -1152,28 +1271,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     log.error(`Failed to construct volumes for ${identifier}: ${error.message}`);
     throw error;
   }
-  const envParams = appSpecifications.environmentParameters || appSpecifications.enviromentParameters;
-  if (appSpecifications.secrets) {
-    const decodedEnvParams = await pgpService.decryptMessage(appSpecifications.secrets);
-    const arraySecrets = JSON.parse(decodedEnvParams);
-    if (Array.isArray(arraySecrets)) {
-      arraySecrets.forEach((parameter) => {
-        if (typeof parameter !== 'string' || parameter.length > 5000000) {
-          throw new Error('Environment parameters from Secrets are invalid - type or length');
-        } else if (parameter !== 'privileged') {
-          envParams.push(parameter);
-        }
-      });
-    } else {
-      throw new Error('Environment parameters from Secrets are invalid - not an array');
-    }
-  }
-  const adjustedCommands = [];
-  appSpecifications.commands.forEach((command) => {
-    if (command !== '--privileged') {
-      adjustedCommands.push(command);
-    }
-  });
+  const { envParams, adjustedCommands } = await declaredEnvAndCmd(appSpecifications);
 
   const isSender = envParams?.some((env) => env.startsWith('LOG=SEND'));
   const isCollector = envParams?.some((env) => env.startsWith('LOG=COLLECT'));
@@ -1351,64 +1449,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     }
   }
 
-  if (options.Env.length) {
-    const fluxStorageEnv = options.Env.find((env) => env.startsWith(('F_S_ENV=')));
-    if (fluxStorageEnv) {
-      const index = options.Env.indexOf(fluxStorageEnv);
-      if (index > -1) {
-        options.Env.splice(index, 1);
-      }
-      const url = storageLinkOf(fluxStorageEnv);
-      const envVars = await obtainPayloadFromStorage(url, appName);
-      if (Array.isArray(envVars) && envVars.length < 200) {
-        envVars.forEach((parameter) => {
-          if (typeof parameter !== 'string' || parameter.length > 5000000) {
-            throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
-          } else if (parameter !== '--privileged') {
-            options.Env.push(parameter);
-          }
-        });
-      } else {
-        throw new Error(`Environment parameters from Flux Storage ${fluxStorageEnv} are invalid`);
-      }
-    }
-  }
-
-  if (options.Cmd.length) {
-    const fluxStorageCmd = options.Cmd.find((cmd) => cmd.startsWith(('F_S_CMD=')));
-    if (fluxStorageCmd) {
-      const index = options.Cmd.indexOf(fluxStorageCmd);
-      if (index > -1) {
-        options.Cmd.splice(index, 1);
-      }
-      const url = storageLinkOf(fluxStorageCmd);
-      const cmdVars = await obtainPayloadFromStorage(url, appName);
-      if (Array.isArray(cmdVars) && cmdVars.length < 200) {
-        cmdVars.forEach((parameter) => {
-          if (typeof parameter !== 'string' || parameter.length > 5000000) {
-            throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
-          } else if (parameter !== '--privileged') {
-            options.Cmd.push(parameter);
-          }
-        });
-      } else {
-        throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
-      }
-    }
-  }
-
-  // Inject Flux-provided env vars so apps can reference them directly or
-  // via ${VAR} expansion in their own config files (e.g. Datadog's
-  // DD_HOSTNAME=${FLUX_NODE_HOST_IP}). Appended last so they win over any
-  // identically-named values supplied by the operator.
-  const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
-  const nodeHostIp = localSocketAddr ? extractIp(localSocketAddr) : null;
-  if (nodeHostIp) {
-    options.Env.push(`FLUX_NODE_HOST_IP=${nodeHostIp}`);
-  } else {
-    log.warn(`FLUX_NODE_HOST_IP not injected for ${identifier}: node IP not available`);
-  }
-  options.Env.push(`FLUX_APP_NAME=${appName}`);
+  await expandStorageAndNodeEnv(options.Env, options.Cmd, appName, identifier);
 
   const app = await docker.createContainer(options).catch((error) => {
     log.error(error);
@@ -2107,6 +2148,16 @@ function isFluxNetworkName(name) {
 }
 
 /**
+ * Whether a network summary is one FluxOS creates: by its name, or by the
+ * runonflux.role label a network FluxOS creates for its own purposes carries.
+ * @param {{Name: string, Labels?: Object<string, string>}} network
+ * @returns {boolean}
+ */
+function isFluxNetwork(network) {
+  return isFluxNetworkName(network.Name) || Boolean(network.Labels && network.Labels['runonflux.role']);
+}
+
+/**
  * The bridges the container firewall names, read from Docker's network list.
  * Docker lists networks in no fixed order, so each list is sorted: the chain
  * built from them is the same for the same networks, and one that already
@@ -2118,7 +2169,7 @@ function isFluxNetworkName(name) {
 async function containerFirewallBridges() {
   const networks = (await docker.listNetworks()).filter((network) => network.Driver === 'bridge');
   return {
-    fluxBridges: networks.filter((network) => isFluxNetworkName(network.Name)).map(bridgeInterfaceName).sort(),
+    fluxBridges: networks.filter(isFluxNetwork).map(bridgeInterfaceName).sort(),
     dockerBridges: networks.map(bridgeInterfaceName).sort(),
   };
 }
@@ -2619,6 +2670,8 @@ async function migrateContainerRestartPolicies() {
 
 module.exports = {
   appDockerCreate,
+  declaredEnvAndCmd,
+  expandStorageAndNodeEnv,
   appDockerUpdateCpu,
   appDockerImageRemove,
   imageExists,
@@ -2657,6 +2710,8 @@ module.exports = {
   dockerNetworkInspect,
   dockerPullStream,
   dockerRemoveNetwork,
+  dockerListNetworks,
+  dockerGetNetwork,
   reclaimAppNetworks,
   dockerVersion,
   getAppDockerNameIdentifier,

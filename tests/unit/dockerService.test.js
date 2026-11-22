@@ -481,6 +481,21 @@ describe('dockerService tests', () => {
       expect(listNetworks.firstCall.args, 'the whole list, not a name filter').to.deep.equal([]);
     });
 
+    // A network FluxOS creates for its own purposes, a test run's, carries the
+    // runonflux.role label and no fluxDockerNetwork name.
+    it('names the bridge of a network FluxOS labelled as its own among FluxOS\'s', async () => {
+      listNetworks.resolves([
+        ...NETWORKS,
+        {
+          Name: 'testrun-0a1b2c3d', Id: '555555555555abcdef', Driver: 'bridge', Labels: { 'runonflux.role': 'testrun' },
+        },
+      ]);
+
+      const { fluxBridges } = await dockerService.containerFirewallBridges();
+
+      expect(fluxBridges).to.include('br-555555555555');
+    });
+
     it('lists the same bridges in the same order however Docker orders its networks', async () => {
       const first = await dockerService.containerFirewallBridges();
       listNetworks.resolves([...NETWORKS].reverse());

@@ -17,6 +17,7 @@ const hostStallService = require('./hostStallService');
 const appKill = require('./appLifecycle/appKill');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
+const appTestRun = require('./appLifecycle/appTestRun');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const unregisteredEnterpriseCleanup = require('./appLifecycle/unregisteredEnterpriseCleanup');
 const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
@@ -429,6 +430,11 @@ async function startFluxFunctions() {
         log.error(`Hardware validation service error: ${error.message}`);
       });
     }, bootDelay(50 * 1000)); // Run at 50 seconds - BEFORE boot reconciliation
+
+    // What a test run that did not end left behind; no test run starts until this has run.
+    appTestRun.sweep().catch((error) => {
+      log.error(`Test run sweep did not complete, and runs again before the next test run: ${error.message}`);
+    });
 
     // Migrate existing containers from 'unless-stopped'/'always' to 'no' restart policy.
     // Non-destructive — doesn't stop containers, just prevents Docker from auto-starting

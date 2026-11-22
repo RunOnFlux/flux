@@ -12,6 +12,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
+const appTestRun = require('./appTestRun');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const { storeAppInstallingErrorMessage, storeSignedAppInstallingErrorBroadcast } = require('../appMessaging/messageStore');
@@ -1265,7 +1266,9 @@ async function pendingMessageSigner(tempMessage) {
 }
 
 /**
- * Test application installation - Similar to installAppLocally but for testing with reduced resource requirements
+ * Test an app on this node: its containers run for the test-run window at the resources it
+ * declares, outside the app machinery, and nothing is installed (appTestRun). FluxOS v9's
+ * playground replaces it.
  * @param {object} req - Request object containing appname in params or query
  * @param {object} res - Response object
  * @returns {Promise<void>}
@@ -1379,8 +1382,8 @@ async function testAppInstall(req, res) {
         return;
       }
 
-      // Test installation - similar to regular install but with test flag
-      // Skip all requirement checks for test installations (geolocation, static IP, hardware, nodes)
+      // Placement rules (geolocation, static IP, nodes) do not apply to a test; the
+      // test run refuses on the node's free hardware itself.
       await checkAppRequirements(appSpecifications, true, true, true);
 
       res.setHeader('Content-Type', 'application/json');
@@ -1424,8 +1427,9 @@ async function testAppInstall(req, res) {
         return;
       }
 
-      // Run test installation (registerAppLocally with test=true)
-      await registerAppLocally(appSpecifications, undefined, res, true);
+      await appTestRun.run(appSpecifications, res, {
+        pull: (component) => verifyAndPullImage(component, appSpecifications.name, true, res, appSpecifications),
+      });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
