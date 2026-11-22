@@ -545,7 +545,6 @@ async function recreateMissing(identifier, op) {
   } else {
     await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   }
-  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_RECREATE, identifier);
   try {
     // Created, not started: the pass this enqueues starts it against the desired
     // state as it is then, which a recreate of minutes may have changed.
@@ -1221,6 +1220,8 @@ async function reconcile(rawIdentifier) {
     // The recreate is an operation on the app, taken only while nothing else holds
     // it - a backup or restore included: a recreate that cannot find the volume
     // mounted rebuilds it, under the archive being read or the data being replaced.
+    // The checkpoint stands before the app is taken.
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_RECREATE, identifier);
     await rebuildHolding(identifier, (op) => rebuildMissing(identifier, op));
     return;
   }
