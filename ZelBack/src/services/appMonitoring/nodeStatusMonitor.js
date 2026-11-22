@@ -88,6 +88,8 @@ async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason) 
       log.error(`monitorNodeStatus - Application ${name} was not removed within ${REMOVAL_DEADLINE_MS / 1000}s, moving on`);
     } else if (outcome === STILL_REMOVING) {
       log.warn(`monitorNodeStatus - Application ${name} is still being removed, moving on`);
+    } else if (outcome === RemovalOutcome.PENDING) {
+      log.warn(`monitorNodeStatus - Application ${name} is removed once the operation holding it stops, moving on`);
     } else {
       log.warn(`monitorNodeStatus - Application ${name} locally removed`);
     }

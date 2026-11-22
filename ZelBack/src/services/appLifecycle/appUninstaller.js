@@ -991,9 +991,9 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
   }
 }
 
-// target -> { announced }, for the removal of that target sent to its app's
-// manager and not yet settled, so a removal joining it knows whether the network
-// was told.
+// target -> { announced, announce }, for the removal of that target sent to its
+// app's manager and not yet settled, so a removal joining it knows whether the
+// network was told, and one that stops waiting for it can ask for it to be told.
 const removalsInFlight = new Map();
 
 /**
@@ -1002,6 +1002,10 @@ const removalsInFlight = new Map();
  * next; a removal of the same target already pending or running answers this one
  * with its outcome, and this call then tells the network itself when it was asked
  * to and that removal did not.
+ *
+ * A call with no response stream does not wait behind another operation: while
+ * one other than a removal holds the app, this answers PENDING and the removal
+ * stays sent. A call streaming to a caller waits for the outcome.
  * @param {string} app - Application name, or one component as component_app
  * @param {object} res - Response object for streaming
  * @param {boolean} force - Force removal
@@ -1032,43 +1036,63 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   let inFlight = parent ? null : removalsInFlight.get(app);
   const first = !parent && !inFlight;
   if (first) {
-    inFlight = { announced: false };
+    inFlight = { announced: false, announce: false };
     removalsInFlight.set(app, inFlight);
   }
   let ran = false;
-  try {
-    const outcome = await operationRegistry.submit(appName, 'remove', () => {
-      ran = true;
-      return removeAppHolding(app, res, endResponse, sendMessage, { specifications, force, inFlight });
-    }, {
-      owner: callerLine,
-      target: app,
-      parent,
-      onWait: ({ holder }) => {
-        const message = holder === 'remove'
-          ? `Waiting for the removal of ${appName} in progress before removing ${app}`
-          : `Stopping the ${operationRegistry.OPERATION_NAMES[holder]} of ${appName} for its removal`;
-        log.warn(message);
-        if (res) {
-          res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(message)));
-          if (res.flush) res.flush();
-        }
-        if (holder !== 'remove') fluxEventBus.publish('app:operationPreempted', { appName, operation: holder, by: 'removal' });
-      },
-    });
-    if (!ran) {
-      log.info(`removeAppLocally - ${app} was being removed already: ${outcome}`);
-      if (sendMessage && outcome === RemovalOutcome.REMOVED && !inFlight.announced) await announceRemoval(appName);
+  const removal = operationRegistry.submit(appName, 'remove', () => {
+    ran = true;
+    return removeAppHolding(app, res, endResponse, sendMessage, { specifications, force, inFlight });
+  }, {
+    owner: callerLine,
+    target: app,
+    parent,
+    onWait: ({ holder }) => {
+      const message = holder === 'remove'
+        ? `Waiting for the removal of ${appName} in progress before removing ${app}`
+        : `Stopping the ${operationRegistry.OPERATION_NAMES[holder]} of ${appName} for its removal`;
+      log.warn(message);
       if (res) {
-        res.write(serviceHelper.ensureString(messageHelper.createSuccessMessage(`Flux App ${app} was being removed already. Result: ${outcome}`)));
+        res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(message)));
         if (res.flush) res.flush();
-        if (endResponse) res.end();
       }
-    }
-    return outcome;
-  } finally {
-    if (first && removalsInFlight.get(app) === inFlight) removalsInFlight.delete(app);
+      if (holder !== 'remove') fluxEventBus.publish('app:operationPreempted', { appName, operation: holder, by: 'removal' });
+    },
+  });
+  if (first) {
+    // The entry lasts as long as the removal it describes, whoever stops waiting for it.
+    const forget = () => {
+      if (removalsInFlight.get(app) === inFlight) removalsInFlight.delete(app);
+    };
+    const settled = async (outcome) => {
+      forget();
+      if (outcome === RemovalOutcome.REMOVED && inFlight.announce && !inFlight.announced) {
+        inFlight.announced = true;
+        await announceRemoval(appName);
+      }
+    };
+    removal.then(settled, forget).catch((error) => log.error(`removeAppLocally - ${appName} removed, and not announced: ${error.message}`));
   }
+  // Held by anything but a removal, the app is busy with another operation, which
+  // stops at its next step: the removal runs once it has.
+  const holder = parent ? null : operationRegistry.get(appName)?.type;
+  if (!res && holder && holder !== 'remove') {
+    // told by the removal that ran when it was not asked to tell the network
+    if (sendMessage && !first) inFlight.announce = true;
+    log.info(`removeAppLocally - the removal of ${app} runs once the ${operationRegistry.OPERATION_NAMES[holder]} of ${appName} stops`);
+    return RemovalOutcome.PENDING;
+  }
+  const outcome = await removal;
+  if (!ran) {
+    log.info(`removeAppLocally - ${app} was being removed already: ${outcome}`);
+    if (sendMessage && outcome === RemovalOutcome.REMOVED && !inFlight.announced) await announceRemoval(appName);
+    if (res) {
+      res.write(serviceHelper.ensureString(messageHelper.createSuccessMessage(`Flux App ${app} was being removed already. Result: ${outcome}`)));
+      if (res.flush) res.flush();
+      if (endResponse) res.end();
+    }
+  }
+  return outcome;
 }
 
 /**

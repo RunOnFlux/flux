@@ -987,6 +987,64 @@ describe('appUninstaller tests', () => {
         expect(operationRegistry.isHeld('testapp'), 'the hold outlived the removal').to.equal(false);
       });
 
+      // A caller with no one watching does not wait behind another operation: the
+      // removal stays sent and runs once the app is free.
+      it('answers pending while another operation holds the app, and removes it once the app is free', async () => {
+        const deleteRow = sinon.stub().resolves();
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        const token = operationRegistry.acquire('testapp', 'backup', 'test');
+
+        const outcome = await uninstaller.removeAppLocally('testapp', null, true, false, false);
+
+        expect(outcome).to.equal('pending');
+        sinon.assert.notCalled(deleteRow);
+        operationRegistry.release('testapp', token);
+        await settle(() => deleteRow.calledOnce && !operationRegistry.isHeld('testapp'));
+        sinon.assert.calledOnce(deleteRow);
+      });
+
+      it('joins a second removal sent while the first waits: one removal runs', async () => {
+        const deleteRow = sinon.stub().resolves();
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        const token = operationRegistry.acquire('testapp', 'backup', 'test');
+
+        const first = await uninstaller.removeAppLocally('testapp', null, true, false, false);
+        const second = await uninstaller.removeAppLocally('testapp', null, true, false, false);
+
+        expect([first, second]).to.deep.equal(['pending', 'pending']);
+        operationRegistry.release('testapp', token);
+        await settle(() => deleteRow.calledOnce && !operationRegistry.isHeld('testapp'));
+        sinon.assert.calledOnce(deleteRow);
+      });
+
+      it('tells the network for a removal that stopped waiting, when the removal it joined did not', async () => {
+        const deleteRow = sinon.stub().resolves();
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+        const token = operationRegistry.acquire('testapp', 'backup', 'test');
+
+        await uninstaller.removeAppLocally('testapp', null, true, false, false);
+        await uninstaller.removeAppLocally('testapp', null, true, false, true);
+        operationRegistry.release('testapp', token);
+        await settle(() => broadcastStub.called);
+
+        sinon.assert.calledOnce(deleteRow);
+        sinon.assert.calledOnce(broadcastStub);
+      });
+
+      it('waits for the outcome when the removal streams to a caller', async () => {
+        const deleteRow = sinon.stub().resolves();
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        const token = operationRegistry.acquire('testapp', 'backup', 'test');
+
+        const stream = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+        const removal = uninstaller.removeAppLocally('testapp', stream, true);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        operationRegistry.release('testapp', token);
+
+        expect(await removal).to.equal('removed');
+      });
+
       it('runs one removal for two removals of the app asked at once, and answers both with its outcome', async () => {
         const deleteRow = sinon.stub().resolves();
         const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });

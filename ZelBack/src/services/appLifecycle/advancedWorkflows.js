@@ -568,9 +568,9 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
           const appUninstaller = require('./appUninstaller');
 
           // eslint-disable-next-line no-await-in-loop
-          await appUninstaller.removeAppLocally(installedApp.name, null, true, true, true);
+          const outcome = await appUninstaller.removeAppLocally(installedApp.name, null, true, true, true);
 
-          log.info(`Successfully removed enterprise app ${installedApp.name} and notified peers`);
+          log.info(`Enterprise app ${installedApp.name} on a non-arcaneOS node: removal ${outcome}`);
         }
       } catch (error) {
         log.error(`Error processing app ${installedApp.name} for enterprise check:`, error);
