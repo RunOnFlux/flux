@@ -49,6 +49,15 @@ describe('operationRegistry tests', () => {
 
     expect(operationRegistry.listByType('backup')).to.deep.equal(['app1', 'app3']);
     expect(operationRegistry.listByType('restore')).to.deep.equal(['app2']);
+    expect(operationRegistry.listArriving(), 'a backup or restore brings nothing onto the node').to.deep.equal([]);
+  });
+
+  it('lists the apps an install or a redeploy is bringing onto the node', () => {
+    operationRegistry.acquire('app1', 'install', 'test');
+    operationRegistry.acquire('app2', 'backup', 'test');
+    operationRegistry.acquire('app3', 'redeploy', 'test');
+
+    expect(operationRegistry.listArriving()).to.deep.equal(['app1', 'app3']);
   });
 
   it('stops a holder through its signal, naming what it stops for', () => {

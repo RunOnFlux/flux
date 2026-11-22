@@ -644,11 +644,11 @@ async function runResidentialPolicy(deps) {
 
   if (!installed.length) {
     // The placement hold above stops the spawner taking anything new, but not an
-    // install already running, which holds its app before its database record
-    // exists for listInstalledApps to see. An empty node with an install held is
-    // undecided, not empty: the retry backoff asks again in minutes.
-    if (operationRegistry.listByType('install').length) {
-      log.info('residentialNodeDos - an install is in flight, not treating this node as empty yet');
+    // install or redeploy already running, which holds its app while its database
+    // record may not exist for listInstalledApps to see. An empty node with an app
+    // arriving is undecided, not empty: the retry backoff asks again in minutes.
+    if (operationRegistry.listArriving().length) {
+      log.info('residentialNodeDos - an app is arriving, not treating this node as empty yet');
       return false;
     }
     applyDos();

@@ -751,6 +751,18 @@ describe('residentialNodeDosService tests', () => {
       expect(service.isDosActive()).to.equal(false);
     });
 
+    // A hard redeploy's app has no row between its teardown and its reinstall.
+    it('does not DOS an apparently empty node while a redeploy is in flight', async () => {
+      installedApps = [];
+      const redeploy = operationRegistry.acquire('arrivingapp', 'redeploy', 'test');
+
+      const { decided } = await service.enforceResidentialPolicy(deps);
+      operationRegistry.release('arrivingapp', redeploy);
+
+      expect(decided).to.equal(false);
+      expect(service.isDosActive()).to.equal(false);
+    });
+
     it('DOSes an empty node once no install is in flight', async () => {
       installedApps = [];
       const install = operationRegistry.acquire('arrivingapp', 'install', 'test');

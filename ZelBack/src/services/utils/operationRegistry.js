@@ -134,6 +134,16 @@ function listByType(type) {
 }
 
 /**
+ * @returns {string[]} The apps an operation is bringing onto this node: an
+ *   install, or a redeploy, whose app may have no row while it runs.
+ */
+function listArriving() {
+  return [...leases.entries()]
+    .filter(([, lease]) => lease.type === 'install' || lease.type === 'redeploy')
+    .map(([key]) => key);
+}
+
+/**
  * @returns {string[]} The apps an operation holds.
  */
 function listHeld() {
@@ -331,6 +341,7 @@ module.exports = {
   isHeld,
   isRemoving,
   listByType,
+  listArriving,
   listHeld,
   preempt,
   signalOf,

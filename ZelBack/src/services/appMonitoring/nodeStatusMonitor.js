@@ -61,8 +61,7 @@ async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason) 
   }
   const names = [...new Set([
     ...installedAppsRes.data.map((app) => app.name),
-    ...operationRegistry.listByType('install'),
-    ...operationRegistry.listByType('redeploy'),
+    ...operationRegistry.listArriving(),
   ])];
   let removedOne = false;
   for (const name of names) {
