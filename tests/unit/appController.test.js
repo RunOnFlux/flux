@@ -847,6 +847,20 @@ describe('appController tests', () => {
         sinon.assert.calledOnceWithExactly(appsRuntimeState.requestRestart, 'TestApp');
       });
 
+      it('is refused with global, and restarts nothing', async () => {
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').resolves(false);
+        const res = { json: sinon.fake((param) => param) };
+
+        await appController.appRestart({ params: { appname: 'TestApp', global: 'true' }, query: { unlessstopped: 'true' } }, res);
+
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+        expect(JSON.stringify(res.json.firstCall.args[0])).to.include('cannot be combined with global');
+        sinon.assert.notCalled(appsRuntimeState.requestRestart);
+        sinon.assert.notCalled(appsRuntimeState.operatorStoppedOrThrow);
+      });
+
       it('does not restart a component whose lock cannot be read', async () => {
         verificationHelperStub.resolves(true);
         stubInstalledApp({ name: 'TestApp', version: 3 });

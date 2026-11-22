@@ -689,7 +689,18 @@ async function appRestart(req, res) {
 
     // Another instance's restore asks this one to read the data it replaced: what
     // runs is restarted, and what its owner stopped stays stopped.
-    if (serviceHelper.ensureBoolean(req.query?.unlessstopped || false)) {
+    //
+    // A STOPGAP. This is another node's instruction carried on the owner's restart
+    // route, switched by a query flag, and authorised by the owner's zelidauth that
+    // the restoring node forwards - a bearer credential every receiving node can
+    // replay as the owner for as long as it is valid. It is replaced by an
+    // instruction the owner signs for this one restart, and the flag and this
+    // branch go with it. It restarts this node only, so it is refused with global.
+    const unlessStopped = serviceHelper.ensureBoolean(req.query?.unlessstopped || false);
+    if (unlessStopped && global) {
+      throw new Error('unlessstopped restarts this node only, and cannot be combined with global');
+    }
+    if (unlessStopped) {
       const { restarted, appName: restartedName } = await restartUnlessStopped(appname);
       return res.json(messageHelper.createDataMessage(restarted.length
         ? `Application ${restartedName} will be restarted: ${restarted.join(', ')}`

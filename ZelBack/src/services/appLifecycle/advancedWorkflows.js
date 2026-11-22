@@ -3343,7 +3343,8 @@ async function appendRestoreTask(req, res) {
     // only what runs there: a peer's owner stop and restore record stay. A g:
     // component has no peer container to disturb - the other instances are
     // stopped and adopt the restored data when the role next moves - and an
-    // unsynced component's data never left this node.
+    // unsynced component's data never left this node. The request each peer is sent
+    // is a stopgap: see the unlessstopped branch of appController.appRestart.
     if (targets.some((target) => target.syncMode === 'shared')) {
       await sendChunk(res, 'Restarting other instances...\n');
       // eslint-disable-next-line global-require
