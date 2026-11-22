@@ -29,14 +29,16 @@ const IOUtils = require('../IOUtils');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const mountParser = require('../utils/mountParser');
 const volumeConstructor = require('../utils/volumeConstructor');
-const { fluxDirPath } = require('../utils/appConstants');
+const fluxEventBus = require('../utils/fluxEventBus');
+const { appsFolderPath } = require('../utils/appConstants');
 
 const ROLE_LABEL = 'runonflux.role';
 const ROLE = 'testrun';
 // the run a container or network belongs to
 const RUN_LABEL = 'runonflux.testrun';
 const NAME_PREFIX = 'testrun-';
-const ROOT = path.join(fluxDirPath, 'testruns');
+// beside the apps folder, on the disk app data is on
+const ROOT = path.join(path.dirname(appsFolderPath), 'testruns');
 // the images a run pulled that the node did not hold, written before each pull
 const PULLED_FILE = 'pulled.json';
 
@@ -60,6 +62,24 @@ async function readPulled(runDir) {
     if (error.code === 'ENOENT') return [];
     throw error;
   }
+}
+
+/**
+ * The test-run directory, made as root when it does not exist and given to the
+ * user FluxOS runs as, which writes everything under it. Rejects when it cannot.
+ * @returns {Promise<void>}
+ */
+async function ensureRoot() {
+  try {
+    await fs.access(ROOT, fs.constants.W_OK);
+    return;
+  } catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'EACCES') throw error;
+  }
+  const made = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', ROOT] });
+  if (made.error) throw new Error(`${ROOT} could not be made: ${made.error.message}`);
+  const owned = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${process.getuid()}:${process.getgid()}`, ROOT] });
+  if (owned.error) throw new Error(`${ROOT} could not be given to FluxOS: ${owned.error.message}`);
 }
 
 /**
@@ -128,6 +148,7 @@ async function sweep() {
   await removeRuns(null);
   swept = true;
   log.info('appTestRun - nothing an earlier test run created is left on this node');
+  fluxEventBus.publish('testrun:swept', {});
 }
 
 /**
@@ -233,6 +254,7 @@ async function run(appSpecs, res, { pull }) {
       return component;
     });
 
+    await ensureRoot();
     await fs.mkdir(runDir, { recursive: true });
     const pulled = [];
     // eslint-disable-next-line no-restricted-syntax
@@ -264,6 +286,9 @@ async function run(appSpecs, res, { pull }) {
       tell({ status: `Started ${component.name} at ${component.cpu} CPU and ${component.ram} MB RAM` });
     }
 
+    fluxEventBus.publish('testrun:started', {
+      app: appSpecs.name, runId, containers: containers.map(({ component }) => `${NAME_PREFIX}${runId}-${component.name}`),
+    });
     const watchMs = config.fluxapps.testRunWatchMs;
     tell({ status: `Watching ${appSpecs.name} for ${Math.round(watchMs / 1000)} seconds...` });
     await serviceHelper.delay(watchMs);
@@ -282,6 +307,7 @@ async function run(appSpecs, res, { pull }) {
         tell(messageHelper.createErrorMessage(`${component.name} stopped with exit code ${state.ExitCode}${state.OOMKilled ? ' (out of memory)' : ''}. Last log lines: ${String(logs)}`));
       }
     }
+    fluxEventBus.publish('testrun:ended', { app: appSpecs.name, runId, allRunning });
     tell(allRunning
       ? messageHelper.createSuccessMessage(`${appSpecs.name} ran at the resources it declares. Nothing was installed.`)
       : messageHelper.createErrorMessage(`${appSpecs.name} did not keep running. Nothing was installed.`));

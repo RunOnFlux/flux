@@ -68,7 +68,14 @@ describe('appTestRun tests', () => {
       config: { fluxapps: { testRunWatchMs: 1 }, server: { fluxNodeServiceAddress: '127.0.0.1' } },
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       '../dockerService': dockerService,
-      '../serviceHelper': { ensureString: (message) => JSON.stringify(message), delay: sinon.stub().resolves() },
+      '../serviceHelper': {
+        ensureString: (message) => JSON.stringify(message),
+        delay: sinon.stub().resolves(),
+        runCommand: async (command, { params }) => {
+          if (command === 'mkdir') fs.mkdirSync(params[1], { recursive: true });
+          return {};
+        },
+      },
       '../messageHelper': {
         createSuccessMessage: (message) => ({ status: 'success', data: { message } }),
         createErrorMessage: (message) => ({ status: 'error', data: { message } }),
@@ -77,7 +84,8 @@ describe('appTestRun tests', () => {
       '../IOUtils': { removeDirectory: async (target) => { fs.rmSync(target, { recursive: true, force: true }); return true; } },
       '../appRequirements/hwRequirements': hwRequirements,
       '../utils/volumeConstructor': { validateMountConfiguration: () => true },
-      '../utils/appConstants': { fluxDirPath: root },
+      '../utils/appConstants': { appsFolderPath: path.join(root, 'ZelApps') },
+      '../utils/fluxEventBus': { publish: sinon.stub() },
     });
   });
 

@@ -238,6 +238,11 @@ export function nodeClient(nodeNum) {
         'app:removed',
         'app:rebuilt',
         'app:softRedeployed',
+        // a test run: its containers started, its report, and the boot sweep of
+        // what runs that did not end left behind
+        'testrun:started',
+        'testrun:ended',
+        'testrun:swept',
         'reinstall:passEnded',
         'app:componentRedeployed',
         'app:specStored',
@@ -636,9 +641,10 @@ export function nodeClient(nodeNum) {
       const res = await controlFetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
       return res.text();
     },
-    // Test an app on THIS node: install it, check it starts, tear it down. By
-    // name, or by the hash of a temporary message for an app not yet paid for.
-    // Streams like installapplocally, so drained as text.
+    // Test an app on THIS node in a test run: its containers run outside the app
+    // machinery and are removed, and nothing is installed. By name, or by the hash
+    // of a temporary message for an app not yet paid for. Streams its status, so
+    // drained as text.
     testAppInstall: async (appname, zelidauth) => {
       const res = await controlFetch(`${url}/apps/testappinstall/${appname}`, { headers: { zelidauth } });
       return res.text();
