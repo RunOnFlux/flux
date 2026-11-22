@@ -41,7 +41,6 @@ const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const tempMessageHold = require('./appMessaging/tempMessageHold');
 const messageStore = require('./appMessaging/messageStore');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
-const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
 const networkRecovery = require('./appSystem/networkRecovery');
 const volumeExecutor = require('./appSystem/volumeExecutor');
@@ -682,11 +681,6 @@ async function startFluxFunctions() {
     log.info('crontab and mounts cleanup...');
     await crontabAndMountsCleanup.cleanupCrontabAndMounts().catch((error) => {
       log.error(`Crontab and mounts cleanup service error: ${error.message}`);
-    });
-    // Perform container mount recovery - restart containers that started before their mounts were created
-    log.info('Container mount recovery check...');
-    await containerMountRecovery.performContainerMountRecovery().catch((error) => {
-      log.error(`Container mount recovery service error: ${error.message}`);
     });
     // A file operation's container is detached from the process that started
     // it, so a FluxOS restart leaves one running with nobody waiting for its
