@@ -18,6 +18,7 @@ const verificationHelperUtils = require('./verificationHelperUtils');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const fluxdCredentials = require('./daemonService/fluxdCredentials');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
@@ -1170,6 +1171,26 @@ function getMarketplaceURL(req, res) {
 }
 
 /**
+ * fluxd's debug log: where the running fluxd publishes it, otherwise debug.log in
+ * the network's directory of fluxd's data directory.
+ * @returns {Promise<string>}
+ */
+async function fluxdDebugLog() {
+  const dirs = await fluxdCredentials.readFluxdDirs();
+  return dirs ? dirs.debuglog : path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
+}
+
+/**
+ * The directory holding fluxd's chain: where the running fluxd publishes it,
+ * otherwise the network's directory of fluxd's data directory.
+ * @returns {Promise<string>}
+ */
+async function fluxdChainDir() {
+  const dirs = await fluxdCredentials.readFluxdDirs();
+  return dirs ? dirs.chain : path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir);
+}
+
+/**
  * To download Flux daemon debug logs. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1181,7 +1202,7 @@ async function daemonDebug(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
+  const filepath = await fluxdDebugLog();
 
   return res.download(filepath, 'debug.log');
 }
@@ -1224,7 +1245,7 @@ async function tailDaemonDebug(req, res) {
     return;
   }
 
-  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
+  const filepath = await fluxdDebugLog();
 
   const { stdout, error } = await serviceHelper.runCommand('tail', {
     params: ['-n', '100', filepath],
@@ -2189,7 +2210,7 @@ async function streamChain(req, res) {
 
     log.info(`Stream chain request received from: ${ip}`);
 
-    const base = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir);
+    const base = await fluxdChainDir();
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [

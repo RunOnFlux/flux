@@ -132,4 +132,49 @@ describe('fluxdCredentials tests', () => {
       await expect(fluxdCredentials.readFluxdRpcPort(file())).to.be.rejectedWith('is not JSON');
     });
   });
+
+  describe('readFluxdDirs', () => {
+    const file = () => path.join(dir, 'fluxd.json');
+    const sorted = {
+      layout: 'sorted',
+      data: '/dat/var/lib/fluxd/labnet',
+      chain: '/dat/var/lib/fluxd/chain/labnet',
+      debuglog: '/dat/var/lib/fluxd/log/labnet/debug.log',
+    };
+
+    it('reads the debug log and the chain directory fluxd published', async () => {
+      await fs.writeFile(file(), JSON.stringify({ address: '1.2.3.4', pid: 5, rpcport: 36124, dirs: sorted }));
+      expect(await fluxdCredentials.readFluxdDirs(file())).to.eql({
+        debuglog: '/dat/var/lib/fluxd/log/labnet/debug.log',
+        chain: '/dat/var/lib/fluxd/chain/labnet',
+      });
+    });
+
+    it('is null while fluxd has published nothing', async () => {
+      expect(await fluxdCredentials.readFluxdDirs(file())).to.equal(null);
+    });
+
+    it('is null for a fluxd that publishes no directories', async () => {
+      await fs.writeFile(file(), JSON.stringify({ address: '1.2.3.4', pid: 5, rpcport: 36124 }));
+      expect(await fluxdCredentials.readFluxdDirs(file())).to.equal(null);
+    });
+
+    [
+      ['null', null],
+      ['without a chain', { debuglog: sorted.debuglog }],
+      ['without a debug log', { chain: sorted.chain }],
+      ['a relative chain', { ...sorted, chain: 'chain' }],
+      ['a debug log that is no string', { ...sorted, debuglog: 7 }],
+    ].forEach(([what, dirs]) => {
+      it(`refuses directories that are ${what}`, async () => {
+        await fs.writeFile(file(), JSON.stringify({ rpcport: 36124, dirs }));
+        await expect(fluxdCredentials.readFluxdDirs(file())).to.be.rejectedWith('names no usable dirs');
+      });
+    });
+
+    it('refuses a file that is not JSON', async () => {
+      await fs.writeFile(file(), '{"dirs":');
+      await expect(fluxdCredentials.readFluxdDirs(file())).to.be.rejectedWith('is not JSON');
+    });
+  });
 });

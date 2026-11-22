@@ -39,6 +39,7 @@ const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonSer
 const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
+const fluxdCredentials = require('../../ZelBack/src/services/daemonService/fluxdCredentials');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
@@ -1439,6 +1440,20 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.download, '/home/flux/.flux/labnet/debug.log', 'debug.log');
     });
+
+    it('downloads the debug.log where fluxd publishes it', async () => {
+      verifyPrivilegeStub.returns(true);
+      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/dat/var/lib/fluxd');
+      sinon.stub(fluxdCredentials, 'readFluxdDirs').resolves({
+        debuglog: '/dat/var/lib/fluxd/log/labnet/debug.log',
+        chain: '/dat/var/lib/fluxd/chain/labnet',
+      });
+      const res = generateResponse();
+
+      await labFluxService.daemonDebug(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.download, '/dat/var/lib/fluxd/log/labnet/debug.log', 'debug.log');
+    });
   });
 
   describe('benchmarkDebug tests', () => {
@@ -1560,6 +1575,20 @@ describe('fluxService tests', () => {
       await labFluxService.tailDaemonDebug(undefined, res);
 
       sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', '/dat/var/lib/fluxd/labnet/debug.log'] });
+    });
+
+    it('tails the debug.log where fluxd publishes it', async () => {
+      verifyPrivilegeStub.returns(true);
+      runCmdStub.resolves({ error: null, stdout: 'tail' });
+      sinon.stub(fluxdCredentials, 'readFluxdDirs').resolves({
+        debuglog: '/dat/var/lib/fluxd/log/debug.log',
+        chain: '/dat/var/lib/fluxd/chain',
+      });
+      const res = generateResponse();
+
+      await fluxService.tailDaemonDebug(undefined, res);
+
+      sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', '/dat/var/lib/fluxd/log/debug.log'] });
     });
   });
 
@@ -3210,6 +3239,27 @@ describe('fluxService tests', () => {
       expect(res.statusMessage).to.equal('Unable to compress blockchain in unsafe mode, it will corrupt new db.');
       sinon.assert.calledWithExactly(res.status, 422);
       sinon.assert.calledOnce(res.end);
+    });
+
+    it('streams the chain from the directory fluxd publishes', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '10.20.30.40' }, body: { unsafe: true, compress: true } };
+      sinon.stub(fluxdCredentials, 'readFluxdDirs').resolves({
+        debuglog: '/dat/var/lib/fluxd/log/labnet/debug.log',
+        chain: '/dat/var/lib/fluxd/chain/labnet',
+      });
+      fsPromisesStubs.stat.callsFake(async (dir) => {
+        if (dir.startsWith('/dat/var/lib/fluxd/chain/labnet/')) return { isDirectory: () => true };
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+
+      await labFluxService.streamChain(req, res);
+
+      // Past the chain check: the next refusal is the unsafe-compression one.
+      expect(res.statusMessage).to.equal('Unable to compress blockchain in unsafe mode, it will corrupt new db.');
+      ['determ_zelnodes', 'chainstate', 'blocks'].forEach((folder) => {
+        sinon.assert.calledWith(fsPromisesStubs.stat, `/dat/var/lib/fluxd/chain/labnet/${folder}`);
+      });
     });
 
     it('streams the chain fluxd keeps for the network', async () => {
