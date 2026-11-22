@@ -404,13 +404,15 @@ async function appsResources(options) {
 }
 
 /**
- * To check app requirements of HW for a node
+ * Why this node cannot hold an app's hardware, or null when it can.
+ * Rejects when what the node has or holds cannot be read: an unread answer is
+ * not a shortfall.
  * @param {object} appSpecs App specifications.
  * @param {object} [options]
  * @param {string} [options.replacing] Name of an installed app whose resources are not counted.
- * @returns {boolean} True if all checks passed.
+ * @returns {Promise<string|null>}
  */
-async function checkAppHWRequirements(appSpecs, options = {}) {
+async function hwShortfall(appSpecs, options = {}) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
   const resourcesLocked = await appsResources({ excludeApp: options.replacing });
@@ -423,14 +425,14 @@ async function checkAppHWRequirements(appSpecs, options = {}) {
   const specs = await getNodeSpecs();
   const totalSpaceOnNode = specs.ssdStorage;
   if (totalSpaceOnNode === 0) {
-    throw new Error('Insufficient space on Flux Node to spawn an application');
+    throw new Error('Unable to obtain the storage of this Flux Node from its benchmarks. Aborting.');
   }
   const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appHWrequirements.hdd > availableSpaceForApps) {
-    throw new Error('Insufficient space on Flux Node to spawn an application');
+    return 'Insufficient space on Flux Node to spawn an application';
   }
 
   const totalCpuOnNode = specs.cpuCores * 10;
@@ -439,7 +441,7 @@ async function checkAppHWRequirements(appSpecs, options = {}) {
   const adjustedAppCpu = appHWrequirements.cpu * 10;
   const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
   if (adjustedAppCpu > availableCpuForApps) {
-    throw new Error('Insufficient CPU power on Flux Node to spawn an application');
+    return 'Insufficient CPU power on Flux Node to spawn an application';
   }
 
   const totalRamOnNode = specs.ram;
@@ -447,9 +449,22 @@ async function checkAppHWRequirements(appSpecs, options = {}) {
   const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
   if (appHWrequirements.ram > availableRamForApps) {
-    throw new Error('Insufficient RAM on Flux Node to spawn an application');
+    return 'Insufficient RAM on Flux Node to spawn an application';
   }
 
+  return null;
+}
+
+/**
+ * To check app requirements of HW for a node
+ * @param {object} appSpecs App specifications.
+ * @param {object} [options]
+ * @param {string} [options.replacing] Name of an installed app whose resources are not counted.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppHWRequirements(appSpecs, options = {}) {
+  const shortfall = await hwShortfall(appSpecs, options);
+  if (shortfall) throw new Error(shortfall);
   return true;
 }
 
@@ -523,6 +538,7 @@ module.exports = {
   setNodeSpecs,
   returnNodeSpecs,
   totalAppHWRequirements,
+  hwShortfall,
   checkAppHWRequirements,
   admitApp,
   checkAppCpuBurstHeadroom,

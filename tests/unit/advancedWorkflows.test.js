@@ -8043,7 +8043,7 @@ describe('advancedWorkflows tests', () => {
       it('removes the app and installs it again', async () => {
         await advancedWorkflows.reinstallOldApplications();
 
-        sinon.assert.callOrder(removeAppLocally, checkAppRequirements, registerAppLocally);
+        sinon.assert.callOrder(checkAppRequirements, removeAppLocally, registerAppLocally);
         sinon.assert.notCalled(announceRemoval);
       });
 
@@ -8055,14 +8055,14 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.calledOnceWithExactly(announceRemoval, 'myapp');
       });
 
-      it('tells the network when the new specification\'s requirements are not met after the removal', async () => {
+      it('leaves the app as it was, and tells the network nothing, when its new specification is not admitted', async () => {
         checkAppRequirements.rejects(new Error('Insufficient RAM'));
 
         await advancedWorkflows.reinstallOldApplications();
 
-        sinon.assert.calledOnce(removeAppLocally);
+        sinon.assert.notCalled(removeAppLocally);
         sinon.assert.notCalled(registerAppLocally);
-        sinon.assert.calledOnceWithExactly(announceRemoval, 'myapp');
+        sinon.assert.notCalled(announceRemoval);
       });
     });
 
@@ -9590,6 +9590,103 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     });
   });
 
+  // An update this node cannot hold leaves the way a misplaced app does: in
+  // turn, one holder per refill, and until then it runs here as it is.
+  describe('leaving an app whose registered specification no longer fits this node', () => {
+    const KEYS = HOLDERS.map((holder) => holder.key);
+    const PASS_S = 1320;
+    const SHORTFALL = 'Insufficient RAM on Flux Node to spawn an application';
+    let shortfall;
+
+    const turnOwnedBy = (key) => {
+      let turn = residentialNodeDosService.turnOf(GIVE_UP_PASS.time * 1000);
+      while (handbackTurns.turnOwner(KEYS, turn) !== key) turn += 1;
+      return turn;
+    };
+    const passInto = (turn, offsetS) => {
+      const time = ((turn * residentialNodeDosService.TURN_MS) / 1000) + offsetS;
+      return { ...GIVE_UP_PASS, time, previousTime: time - PASS_S };
+    };
+    const ownTurn = () => passInto(turnOwnedBy(OWN_KEY), 2 * PASS_S);
+
+    beforeEach(() => {
+      dbHelper.findInDatabase.resolves([{ name: 'appone', instances: 3, hash: 'installedhash' }]);
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL));
+      registryManager.getApplicationGlobalSpecifications.resolves({
+        name: 'appone', version: 8, instances: 3, hash: 'registeredhash',
+      });
+      shortfall = sinon.stub(hwRequirements, 'hwShortfall').resolves(SHORTFALL);
+    });
+
+    it('removes the app in a turn it owns', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      expect(appUninstaller.removeAppLocally.firstCall.args[0]).to.equal('appone');
+    });
+
+    it('judges the registered specification without the app\'s own share', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledWithMatch(shortfall, { name: 'appone', hash: 'registeredhash' }, { replacing: 'appone' });
+    });
+
+    it('waits while another holder owns the turn', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(turnOwnedBy('key-b'), 2 * PASS_S));
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('stays while the gap a departure left is unfilled', async () => {
+      registryManager.signedHoldersOf.resolves(HOLDERS.slice(0, 2));
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app the node can hold at its registered specification', async () => {
+      shortfall.resolves(null);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app when what the node has or holds cannot be read', async () => {
+      shortfall.rejects(new Error('Unable to obtain the storage of this Flux Node from its benchmarks. Aborting.'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not judge an app already at its registered specification', async () => {
+      registryManager.getApplicationGlobalSpecifications.resolves({
+        name: 'appone', version: 8, instances: 3, hash: 'installedhash',
+      });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(shortfall);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('names OUTGROWN, and leaves a spare copy to the surplus trim', async () => {
+      const holders = [...HOLDERS, { key: 'key-d', ip: 'key-d:16127', expireAt: new Date(4e12) }];
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'appone', instances: 3 },
+        locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127'),
+        LOCAL,
+        { turn: { ...TURN, holders }, outgrown: SHORTFALL },
+      );
+
+      expect(decision).to.include({ giveUp: false, reason: 'OUTGROWN', code: 'ABOVE_INSTANCE_COUNT' });
+    });
+  });
+
   describe('leaving an app whose geolocation no longer admits this node', () => {
     const TABLE_FAIL = {
       verdict: hwRequirements.GeoVerdict.FAIL, source: hwRequirements.GeoSource.TABLE, reason: 'not matching',
@@ -10011,6 +10108,7 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
     });
 
     it('a canary: hardRedeploy with the gate open reaches the teardown', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
       await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
 
       sinon.assert.called(appUninstaller.removeAppLocally);
@@ -10023,6 +10121,7 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
 
     it('is reserved before the app is taken down', async () => {
       const admit = sinon.stub(hwRequirements, 'admitApp').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
 
       await advancedWorkflows.hardRedeploy(spec(), res);
 
@@ -10030,8 +10129,9 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
       sinon.assert.callOrder(admit, appUninstaller.removeAppLocally);
     });
 
-    it('leaves the redeploy to its own check when the specification does not fit', async () => {
+    it('leaves the redeploy to its own check when no room could be reserved', async () => {
       sinon.stub(hwRequirements, 'admitApp').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
 
       await advancedWorkflows.hardRedeploy(spec(), res);
 

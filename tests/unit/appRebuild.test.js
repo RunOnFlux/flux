@@ -36,7 +36,7 @@ describe('appRebuild tests', () => {
   it('removes the app and installs it again, and tells the network nothing', async () => {
     expect(await appRebuild.rebuildApp(spec)).to.equal(InstallOutcome.INSTALLED);
 
-    sinon.assert.callOrder(uninstaller.removeAppLocally, installer.checkAppRequirements, installer.registerAppLocally);
+    sinon.assert.callOrder(installer.checkAppRequirements, uninstaller.removeAppLocally, installer.registerAppLocally);
     sinon.assert.notCalled(uninstaller.announceRemoval);
   });
 
@@ -54,13 +54,22 @@ describe('appRebuild tests', () => {
     sinon.assert.calledOnceWithExactly(uninstaller.announceRemoval, 'myapp');
   });
 
-  it('tells the network when the app was removed and its requirements are no longer met', async () => {
+  // The app's row and the room reserved for it are its own, and counting them
+  // beside the specification it moves to asks for room for two.
+  it('checks the new specification against the node without the app itself', async () => {
+    await appRebuild.rebuildApp(spec);
+
+    sinon.assert.calledOnceWithExactly(installer.checkAppRequirements, spec, false, false, false, { replacing: 'myapp' });
+  });
+
+  it('leaves the app as it was, and tells the network nothing, when the new specification does not fit', async () => {
     installer.checkAppRequirements.rejects(new Error('Insufficient RAM'));
 
-    expect(await appRebuild.rebuildApp(spec)).to.equal(InstallOutcome.FAILED);
+    expect(await appRebuild.rebuildApp(spec)).to.equal(InstallOutcome.DECLINED);
 
+    sinon.assert.notCalled(uninstaller.removeAppLocally);
     sinon.assert.notCalled(installer.registerAppLocally);
-    sinon.assert.calledOnceWithExactly(uninstaller.announceRemoval, 'myapp');
+    sinon.assert.notCalled(uninstaller.announceRemoval);
   });
 
   it('installs nothing and tells the network nothing when the removal did not finish', async () => {

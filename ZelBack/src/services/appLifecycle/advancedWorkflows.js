@@ -3508,14 +3508,20 @@ async function peerRunning(locations, localSocketAddr, ctx) {
   return null;
 }
 
+// The reasons an app is handed back to the network in turn, one holder per
+// refill, rather than trimmed as a surplus.
+const HANDED_BACK = new Set(['EVACUATION', 'MISPLACED', 'OUTGROWN']);
+
 /**
  * Whether this node should give up an app, and why.
  *
- * Three reasons, one answer. SURPLUS: the app runs on more nodes than it needs
+ * Four reasons, one answer. SURPLUS: the app runs on more nodes than it needs
  * and this node holds the junior instance. EVACUATION: the node is shedding what
  * it holds because it is no longer fit to serve, and this app's turn has come.
  * MISPLACED: the published location table places this node outside the app's
- * geolocation, and this app's turn has come.
+ * geolocation, and this app's turn has come. OUTGROWN: the app's registered
+ * specification asks for more cpu, ram or disk than this node can give it, and
+ * this app's turn has come; until then it runs here at the specification it has.
  *
  * Only the reason is decided here. Whether it is SAFE to act on it is
  * appEvacuationSafety's question, and both must agree - a count has never been
@@ -3535,6 +3541,8 @@ async function peerRunning(locations, localSocketAddr, ctx) {
  * @param {{timeMs: number, previousTimeMs: number}} deps.turn.pass
  * @param {object|null} [deps.misplaced] The app's geolocation verdict when it
  *   is a FAIL on the location table's word, otherwise null.
+ * @param {string|null} [deps.outgrown] Why this node cannot hold the app at its
+ *   registered specification, otherwise null.
  * @returns {Promise<{giveUp: boolean, reason: string, detail: string}>}
  */
 async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, deps = {}) {
@@ -3667,6 +3675,28 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     };
   }
 
+  // An outgrown app leaves the way a misplaced one does: one holder per refill,
+  // and the rest keep it running until nodes with room have taken the gap.
+  if (deps.outgrown) {
+    const verdict = handbackTurns.mayHandBack(
+      deps.turn.holders,
+      deps.turn.ownKey,
+      minInstances,
+      deps.turn.pass,
+      residentialNodeDosService.TURN_MS,
+    );
+    if (verdict.ok) {
+      return {
+        giveUp: true,
+        reason: 'OUTGROWN',
+        detail: `this node cannot hold the app at its registered specification (${deps.outgrown})`,
+      };
+    }
+    return {
+      giveUp: false, reason: 'OUTGROWN', code: verdict.code, detail: verdict.reason,
+    };
+  }
+
   if (surplusDeclined) {
     return {
       giveUp: false, reason: 'SURPLUS', code: surplusDeclined.code, detail: surplusDeclined.detail,
@@ -3779,16 +3809,35 @@ async function checkAndRemoveApplicationInstance({
     // table's word moves an installed app: the node's own ip-api report can be
     // wrong about where it is, and an unproven region is not a wrong one; both
     // still refuse an install. Anything that cannot be read moves nothing.
+    //
+    // The global spec also says whether the app has OUTGROWN this node: a
+    // registered specification this node has not taken because its cpu, ram or
+    // disk does not fit, counted without the app's own share. A node that cannot
+    // read what it has or holds has not outgrown anything.
+    const readOutgrown = async (appName, spec) => {
+      const installed = appsInstalled.find((app) => app.name === appName);
+      if (!installed || installed.hash === spec.hash) return null;
+      try {
+        return await hwRequirements.hwShortfall(await checkAndDecryptAppSpecs(spec), { replacing: appName });
+      } catch (error) {
+        log.warn(`Give-up-an-app pass: whether ${appName} fits at its registered specification could not be read: ${error.message}`);
+        return null;
+      }
+    };
     const readPlacement = async (appName) => {
       try {
         const spec = await registryManager.getApplicationGlobalSpecifications(appName);
-        if (!spec) return { misplaced: null, unread: true };
+        if (!spec) return { misplaced: null, outgrown: null, unread: true };
         const geo = await hwRequirements.appGeolocationVerdict(spec);
         const onTable = geo.verdict === hwRequirements.GeoVerdict.FAIL && geo.source === hwRequirements.GeoSource.TABLE;
-        return { misplaced: onTable ? geo : null, unread: geo.verdict === hwRequirements.GeoVerdict.UNKNOWN };
+        return {
+          misplaced: onTable ? geo : null,
+          outgrown: await readOutgrown(appName, spec),
+          unread: geo.verdict === hwRequirements.GeoVerdict.UNKNOWN,
+        };
       } catch (error) {
         log.warn(`Give-up-an-app pass: geolocation of ${appName} unreadable: ${error.message}`);
-        return { misplaced: null, unread: true };
+        return { misplaced: null, outgrown: null, unread: true };
       }
     };
     // Once per app per pass.
@@ -3809,7 +3858,7 @@ async function checkAndRemoveApplicationInstance({
       const placement = held ? await placementOf(appName) : null;
       // A placement that could not be read says nothing has changed: only an answer ends
       // a leave, and the owned turn below ends it for good.
-      const stillLeaving = held && (evacuating || placement.misplaced !== null || placement.unread);
+      const stillLeaving = held && (evacuating || placement.misplaced !== null || placement.outgrown !== null || placement.unread);
       if (!held) {
         standingDown.delete(identifier);
       } else if (!stillLeaving) {
@@ -3828,8 +3877,8 @@ async function checkAndRemoveApplicationInstance({
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await registryManager.appLocation(installedApp.name);
       // eslint-disable-next-line no-await-in-loop
-      const { misplaced } = await placementOf(installedApp.name);
-      const leaving = evacuating || misplaced !== null;
+      const { misplaced, outgrown } = await placementOf(installedApp.name);
+      const leaving = evacuating || misplaced !== null || outgrown !== null;
       const stoodDownHere = [...standingDown.keys()].some((identifier) => standDownOwner(identifier) === installedApp.name);
       if ((leaving || stoodDownHere) && ownKey === null) {
         // eslint-disable-next-line no-await-in-loop
@@ -3870,6 +3919,7 @@ async function checkAndRemoveApplicationInstance({
         liveness,
         turn: { holders, ownKey, pass },
         misplaced,
+        outgrown,
       });
       // Every pass reports what it decided about every app it holds. Without
       // this the pass is invisible: it logs nothing at all when it has nothing
@@ -3883,7 +3933,7 @@ async function checkAndRemoveApplicationInstance({
         detail: decision.detail,
       });
       if (!decision.giveUp) {
-        if (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED') {
+        if (HANDED_BACK.has(decision.reason)) {
           // A node held below the instance count WANTS to leave and cannot, and
           // it is counted and escalated exactly as a safety refusal is - because
           // until the strength test moved into the pacing gate, that is where
@@ -3954,7 +4004,7 @@ async function checkAndRemoveApplicationInstance({
           : { safe: false, code: attempt.code, reason: attempt.reason };
         reportSafety(safety);
       }
-      if (safety.code === 'STAND_DOWN_REQUIRED' && (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED')) {
+      if (safety.code === 'STAND_DOWN_REQUIRED' && HANDED_BACK.has(decision.reason)) {
         // Every other condition has already passed - a connected peer holds each
         // synced folder in full, and the app is at strength - so the only thing
         // between this node and leaving is that it is the one writing. Stop
@@ -3962,7 +4012,7 @@ async function checkAndRemoveApplicationInstance({
         // and the next pass finds the component not running here, re-proves the
         // peer is complete with nothing left to write, and removes.
         //
-        // EVACUATION and MISPLACED only. SURPLUS picks the JUNIOR instance and
+        // Handed-back reasons only. SURPLUS picks the JUNIOR instance and
         // the primary is the senior one, so a surplus giver-up is never the
         // primary; wiring this there would stop a container for a case that
         // cannot arise.
@@ -4048,7 +4098,7 @@ async function checkAndRemoveApplicationInstance({
       // anything down, and one started within a pass of its decision leaves a
       // whole pass for that to reach every holder first. Later, it is left to a
       // later turn.
-      if (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED') {
+      if (HANDED_BACK.has(decision.reason)) {
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GIVEUP_BEFORE_REMOVAL, installedApp.name);
         const dueHeight = Math.floor(height / period) * period;

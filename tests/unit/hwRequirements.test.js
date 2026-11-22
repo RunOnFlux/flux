@@ -296,7 +296,8 @@ describe('hwRequirements tests', () => {
   });
 
   describe('checkAppHWRequirements tests', () => {
-    it('should throw error if there would be insufficient space on node for the app - 0 on the node', async () => {
+    // A storage of 0 is a benchmark that could not be read, not a full disk.
+    it('should throw error naming unreadable storage when the node reports 0 storage', async () => {
       const hwRequirementsWithResources = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
         '../serviceHelper': serviceHelperStub,
         '../benchmarkService': {
@@ -374,7 +375,7 @@ describe('hwRequirements tests', () => {
         await hwRequirementsWithResources.checkAppHWRequirements(appSpecs);
         expect.fail('Should have thrown error');
       } catch (err) {
-        expect(err.message).to.include('Insufficient');
+        expect(err.message).to.include('Unable to obtain the storage');
       }
     });
 
@@ -510,6 +511,8 @@ describe('hwRequirements tests', () => {
       } catch (err) {
         expect(err.message).to.include('Insufficient');
       }
+      // the same shortfall, answered rather than thrown
+      expect(await hwRequirementsWithLimitedSpace.hwShortfall(appSpecs)).to.include('Insufficient');
     });
 
     it('should throw error if there would be insufficient cpu power on node for the app', async () => {
