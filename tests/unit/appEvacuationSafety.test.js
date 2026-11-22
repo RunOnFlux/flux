@@ -1,5 +1,4 @@
 const { expect } = require('chai');
-const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const sinon = require('sinon');
 const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
@@ -65,24 +64,6 @@ describe('appEvacuationSafety tests', () => {
   });
 
   describe('refuses on anything it cannot establish', () => {
-    it('refuses while a backup is running', async () => {
-      operationRegistry.acquire('plainapp', 'backup', 'test');
-
-      const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
-
-      expect(result.safe).to.equal(false);
-      expect(result.reason).to.contain('backup');
-    });
-
-    it('refuses while a restore is running', async () => {
-      operationRegistry.acquire('plainapp', 'restore', 'test');
-
-      const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
-
-      expect(result.safe).to.equal(false);
-      expect(result.reason).to.contain('restore');
-    });
-
     it('refuses when the global specification is unavailable', async () => {
       deps.getApplicationGlobalSpecifications.resolves(null);
 

@@ -8934,6 +8934,37 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       sinon.assert.notCalled(leavingCopy.giveBack);
     });
 
+    // From its first safety check to its removal the hand-back holds the app, so
+    // nothing runs on the app between the proof and the removal.
+    it('hands back as an operation on the app, with the removal a step of it', async () => {
+      let heldDuringProof = null;
+      let ownerAction = null;
+      leavingCopy.stopAndProve.callsFake(async () => {
+        heldDuringProof = operationRegistry.get('appone');
+        ownerAction = await operationRegistry.submit('appone', 'control', async () => 'ran').catch((error) => error);
+        return proven;
+      });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      expect(heldDuringProof).to.deep.include({ type: 'giveup' });
+      expect(ownerAction).to.be.instanceOf(operationRegistry.OperationRefusedError);
+      const { parent } = appUninstaller.removeAppLocally.firstCall.args[5];
+      expect(parent).to.deep.include({ key: 'appone', type: 'giveup' });
+      expect(operationRegistry.get('appone'), 'the app is free once the hand-back ends').to.equal(null);
+    });
+
+    it('leaves an app another operation holds to a later turn, stopping and removing nothing', async () => {
+      const token = operationRegistry.acquire('appone', 'backup', 'test');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+      operationRegistry.release('appone', token);
+
+      sinon.assert.notCalled(evacuationSafety.canSafelyRemoveApp);
+      sinon.assert.notCalled(leavingCopy.stopAndProve);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
     it('proves a copy by a peer holding it', async () => {
       syncthingFolderStateMachine.findSyncedPeer.resolves({ deviceID: 'PEER' });
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);

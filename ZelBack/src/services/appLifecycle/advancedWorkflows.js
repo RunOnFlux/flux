@@ -86,6 +86,9 @@ const reinstallPassLock = new AsyncLock();
 // run beside it, both deciding against the same installed-app list: two
 // departures, or a second removal refused by the first's lock.
 const giveUpPassLock = new AsyncLock();
+// What one app's hand-back did: an action ends the give-up pass, as the pass acts once.
+const ACTED = 'acted';
+const NOT_ACTED = 'notActed';
 
 // Master/slave app tracking
 const mastersRunningGSyncthingApps = new Map();
@@ -3964,171 +3967,179 @@ async function checkAndRemoveApplicationInstance({
         continue;
       }
 
-      const askSafety = (handedBack) => evacuationSafety.canSafelyRemoveApp(installedApp.name, {
-        appLocation: registryManager.appLocation,
-        getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
-        findSyncedPeer: syncthingFolderStateMachine.findSyncedPeer,
-        folderHoldsNothing: syncthingFolderStateMachine.folderHoldsNothing,
-        isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
-        isComponentRunningLocally,
-        shuttingDownDevices,
-        handedBack,
-      });
-      const reportSafety = (verdict) => fluxEventBus.publish('giveUp:safety', {
-        appName: installedApp.name,
-        reason: decision.reason,
-        safe: verdict.safe,
-        code: verdict.code,
-        detail: verdict.reason,
-      });
-      // eslint-disable-next-line no-await-in-loop
-      let safety = await askSafety();
-      reportSafety(safety);
-      if (safety.code === 'STOP_REQUIRED') {
-        // The attempt, and the gate again on what it leaves: the count, a peer that has
-        // since announced its shutdown and a backup are all a moment old by then.
-        attempted = safety.stop;
-        // eslint-disable-next-line no-await-in-loop
-        const exclude = await shuttingDownDevices();
-        // eslint-disable-next-line no-await-in-loop
-        const attempt = await leavingCopy.stopAndProve(attempted, async ({ folderId, unsyncedSubdirs }) => (
-          Boolean(await syncthingFolderStateMachine.findSyncedPeer(folderId, { exclude }))
-          || syncthingFolderStateMachine.folderHoldsNothing(folderId, unsyncedSubdirs)
-        ));
-        fluxEventBus.publish('giveUp:attempt', {
-          appName: installedApp.name, reason: decision.reason, proven: attempt.proven, code: attempt.code, detail: attempt.reason,
+      // The hand-back is an operation on the app: from its first safety check to
+      // its removal nothing else runs on the app, so the copy it proved is the
+      // copy it removes, at the turn it decided on. Taken now or refused; a busy
+      // app is left to a later turn.
+      // eslint-disable-next-line no-inner-declarations, no-loop-func
+      async function handBack(op) {
+        const askSafety = (handedBack) => evacuationSafety.canSafelyRemoveApp(installedApp.name, {
+          appLocation: registryManager.appLocation,
+          getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
+          findSyncedPeer: syncthingFolderStateMachine.findSyncedPeer,
+          folderHoldsNothing: syncthingFolderStateMachine.folderHoldsNothing,
+          isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
+          isComponentRunningLocally,
+          shuttingDownDevices,
+          handedBack,
         });
-        safety = attempt.proven
-          // eslint-disable-next-line no-await-in-loop
-          ? await askSafety(new Set(attempted.map(({ identifier }) => identifier)))
-          : { safe: false, code: attempt.code, reason: attempt.reason };
-        reportSafety(safety);
-      }
-      if (safety.code === 'STAND_DOWN_REQUIRED' && HANDED_BACK.has(decision.reason)) {
-        // Every other condition has already passed - a connected peer holds each
-        // synced folder in full, and the app is at strength - so the only thing
-        // between this node and leaving is that it is the one writing. Stop
-        // writing. The election hands the role to a peer within a cycle or two,
-        // and the next pass finds the component not running here, re-proves the
-        // peer is complete with nothing left to write, and removes.
-        //
-        // Handed-back reasons only. SURPLUS picks the JUNIOR instance and
-        // the primary is the senior one, so a surplus giver-up is never the
-        // primary; wiring this there would stop a container for a case that
-        // cannot arise.
-        // eslint-disable-next-line no-restricted-syntax
-        for (const identifier of safety.standDown) {
-          // Marked before anything changes, so an election pass that reaches the
-          // component from here on leaves it alone (masterSlaveApps), and unmarked
-          // unless it is confirmed stopped: a component this node still runs is
-          // one it must stay electable for, and the next pass tries again.
-          standingDown.set(identifier, currentTurn);
-          try {
-            // The stop is the reconciler's, the container's only actuator, and
-            // returns once its pass has run. The folder keeps sending until the
-            // syncthing pass finds this node no longer holds the component and
-            // makes it receive scanned first (primaryRole.holdAsStandby), so what
-            // was written here before the stop reaches the peer that takes over.
-            // eslint-disable-next-line no-await-in-loop
-            await appReconciler.setControllerDesiredAndWait(identifier, 'stopped', 'standing down to hand the app back');
-            // eslint-disable-next-line no-await-in-loop
-            const actual = await appReconciler.dockerActual(identifier);
-            if (!actual.reachable || actual.indeterminate || actual.running) {
-              standingDown.delete(identifier);
-              log.error(`${installedApp.name}: could not stand down ${identifier}: it is not confirmed stopped`);
-            } else {
-              log.warn(`${installedApp.name}: standing down as ${identifier}'s primary so the app can be handed back`);
-            }
-          } catch (error) {
-            standingDown.delete(identifier);
-            log.error(`${installedApp.name}: could not stand down ${identifier}: ${error.message}`);
-          }
-        }
-        fluxEventBus.publish('giveUp:standDown', {
+        const reportSafety = (verdict) => fluxEventBus.publish('giveUp:safety', {
           appName: installedApp.name,
-          components: safety.standDown,
+          reason: decision.reason,
+          safe: verdict.safe,
+          code: verdict.code,
+          detail: verdict.reason,
         });
-        // One action per pass, exactly as a removal is.
-        return;
-      }
-      if (!safety.safe) {
-        const refusals = (giveUpRefusals.get(installedApp.name) ?? 0) + 1;
-        giveUpRefusals.set(installedApp.name, refusals);
-        // No removal follows from this, however long it lasts, and that is
-        // deliberate. Every reason the gate refuses is a reason removing would
-        // be wrong: the peers really are incomplete, so this copy is one of the
-        // few that is not; or this node cannot see them, which is not evidence
-        // about them. Deleting after a timeout does not fix a wedged folder, it
-        // just loses the data more slowly. What a node stuck here needs is to
-        // be VISIBLE - the app is over-served, not down, so nothing about it is
-        // urgent, and the node being unable to establish anything is the part
-        // worth acting on.
-        if (refusals % REFUSALS_BEFORE_ESCALATING !== 0) {
-          log.info(`${installedApp.name} would be given up (${decision.reason}) but it is not safe: ${safety.reason}`);
-        } else {
-          log.warn(`${installedApp.name} has been refused ${refusals} passes running (${decision.reason}, ${safety.code}): ${safety.reason}`);
-        }
-        // An attempt is the one action of a pass, and stopped a copy for it.
-        if (attempted) return;
-        // A copy of a g: component no peer can be shown to hold may be holding what the
-        // node running it deleted.
-        if (safety.code === 'NO_SYNCED_PEER' && safety.component?.syncMode === 'g') {
-          const { component } = safety;
-          // eslint-disable-next-line no-await-in-loop
-          const primary = await peerRunning(runningAppList, localSocketAddr, {
-            appIds: [component.folderId], identifier: component.identifier, appName: installedApp.name, liveness,
+        let safety = await askSafety();
+        reportSafety(safety);
+        if (safety.code === 'STOP_REQUIRED') {
+          // The attempt, and the gate again on what it leaves: the count, a peer that has
+          // since announced its shutdown and a backup are all a moment old by then.
+          attempted = safety.stop;
+          const exclude = await shuttingDownDevices();
+          const attempt = await leavingCopy.stopAndProve(attempted, async ({ folderId, unsyncedSubdirs }) => (
+            Boolean(await syncthingFolderStateMachine.findSyncedPeer(folderId, { exclude }))
+            || syncthingFolderStateMachine.folderHoldsNothing(folderId, unsyncedSubdirs)
+          ));
+          fluxEventBus.publish('giveUp:attempt', {
+            appName: installedApp.name, reason: decision.reason, proven: attempt.proven, code: attempt.code, detail: attempt.reason,
           });
-          // eslint-disable-next-line no-await-in-loop
-          const stranded = primary ? await strandedIndex.repairIfStranded(component.folderId, primary, localSocketAddr) : null;
-          if (stranded) {
-            fluxEventBus.publish('giveUp:strandedIndex', {
-              appName: installedApp.name, folderId: component.folderId, code: stranded.code,
-            });
-          }
-          // A folder restart is the one action of this pass.
-          if (stranded?.code === strandedIndex.StrandedCode.REFETCHED) return;
+          safety = attempt.proven
+            ? await askSafety(new Set(attempted.map(({ identifier }) => identifier)))
+            : { safe: false, code: attempt.code, reason: attempt.reason };
+          reportSafety(safety);
         }
+        if (safety.code === 'STAND_DOWN_REQUIRED' && HANDED_BACK.has(decision.reason)) {
+          // Every other condition has already passed - a connected peer holds each
+          // synced folder in full, and the app is at strength - so the only thing
+          // between this node and leaving is that it is the one writing. Stop
+          // writing. The election hands the role to a peer within a cycle or two,
+          // and the next pass finds the component not running here, re-proves the
+          // peer is complete with nothing left to write, and removes.
+          //
+          // Handed-back reasons only. SURPLUS picks the JUNIOR instance and
+          // the primary is the senior one, so a surplus giver-up is never the
+          // primary; wiring this there would stop a container for a case that
+          // cannot arise.
+          // eslint-disable-next-line no-restricted-syntax
+          for (const identifier of safety.standDown) {
+            // Marked before anything changes, so an election pass that reaches the
+            // component from here on leaves it alone (masterSlaveApps), and unmarked
+            // unless it is confirmed stopped: a component this node still runs is
+            // one it must stay electable for, and the next pass tries again.
+            standingDown.set(identifier, currentTurn);
+            try {
+              // The stop is the reconciler's, the container's only actuator, and
+              // returns once its pass has run. The folder keeps sending until the
+              // syncthing pass finds this node no longer holds the component and
+              // makes it receive scanned first (primaryRole.holdAsStandby), so what
+              // was written here before the stop reaches the peer that takes over.
+              // eslint-disable-next-line no-await-in-loop
+              await appReconciler.setControllerDesiredAndWait(identifier, 'stopped', 'standing down to hand the app back');
+              // eslint-disable-next-line no-await-in-loop
+              const actual = await appReconciler.dockerActual(identifier);
+              if (!actual.reachable || actual.indeterminate || actual.running) {
+                standingDown.delete(identifier);
+                log.error(`${installedApp.name}: could not stand down ${identifier}: it is not confirmed stopped`);
+              } else {
+                log.warn(`${installedApp.name}: standing down as ${identifier}'s primary so the app can be handed back`);
+              }
+            } catch (error) {
+              standingDown.delete(identifier);
+              log.error(`${installedApp.name}: could not stand down ${identifier}: ${error.message}`);
+            }
+          }
+          fluxEventBus.publish('giveUp:standDown', {
+            appName: installedApp.name,
+            components: safety.standDown,
+          });
+          // One action per pass, exactly as a removal is.
+          return ACTED;
+        }
+        if (!safety.safe) {
+          const refusals = (giveUpRefusals.get(installedApp.name) ?? 0) + 1;
+          giveUpRefusals.set(installedApp.name, refusals);
+          // No removal follows from this, however long it lasts, and that is
+          // deliberate. Every reason the gate refuses is a reason removing would
+          // be wrong: the peers really are incomplete, so this copy is one of the
+          // few that is not; or this node cannot see them, which is not evidence
+          // about them. Deleting after a timeout does not fix a wedged folder, it
+          // just loses the data more slowly. What a node stuck here needs is to
+          // be VISIBLE - the app is over-served, not down, so nothing about it is
+          // urgent, and the node being unable to establish anything is the part
+          // worth acting on.
+          if (refusals % REFUSALS_BEFORE_ESCALATING !== 0) {
+            log.info(`${installedApp.name} would be given up (${decision.reason}) but it is not safe: ${safety.reason}`);
+          } else {
+            log.warn(`${installedApp.name} has been refused ${refusals} passes running (${decision.reason}, ${safety.code}): ${safety.reason}`);
+          }
+          // An attempt is the one action of a pass, and stopped a copy for it.
+          if (attempted) return ACTED;
+          // A copy of a g: component no peer can be shown to hold may be holding what the
+          // node running it deleted.
+          if (safety.code === 'NO_SYNCED_PEER' && safety.component?.syncMode === 'g') {
+            const { component } = safety;
+            const primary = await peerRunning(runningAppList, localSocketAddr, {
+              appIds: [component.folderId], identifier: component.identifier, appName: installedApp.name, liveness,
+            });
+            const stranded = primary ? await strandedIndex.repairIfStranded(component.folderId, primary, localSocketAddr) : null;
+            if (stranded) {
+              fluxEventBus.publish('giveUp:strandedIndex', {
+                appName: installedApp.name, folderId: component.folderId, code: stranded.code,
+              });
+            }
+            // A folder restart is the one action of this pass.
+            if (stranded?.code === strandedIndex.StrandedCode.REFETCHED) return ACTED;
+          }
+          return NOT_ACTED;
+        }
+        giveUpRefusals.delete(installedApp.name);
+
+        // The next holder to own a turn decides no sooner than two passes after
+        // the one this decided on. A removal tells the network before it tears
+        // anything down, and one started within a pass of its decision leaves a
+        // whole pass for that to reach every holder first. Later, it is left to a
+        // later turn.
+        if (HANDED_BACK.has(decision.reason)) {
+          await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GIVEUP_BEFORE_REMOVAL, installedApp.name);
+          const dueHeight = Math.floor(height / period) * period;
+          const count = await daemonServiceUtils.executeCall('getBlockCount', [], { useCache: false });
+          const tip = count.status === 'success' ? count.data : null;
+          if (tip === null || tip >= dueHeight + period) {
+            log.warn(`${installedApp.name} not handed back: the chain is at ${tip ?? 'an unknown height'} and this pass decided on ${dueHeight}; a later turn asks again`);
+            fluxEventBus.publish('giveUp:decisionStale', { appName: installedApp.name, dueHeight, tip });
+            return ACTED;
+          }
+        }
+        log.warn(`REMOVAL REASON: ${decision.reason} - ${installedApp.name} ${decision.detail}. Safe: ${safety.reason}`);
+        const outcome = await appUninstaller.removeAppLocally(installedApp.name, null, false, true, true, { parent: op });
+        if (outcome !== RemovalOutcome.REMOVED) {
+          log.warn(`Application ${installedApp.name} not removed (${outcome}); the next pass asks again`);
+          return ACTED;
+        }
+        log.warn(`Application ${installedApp.name} locally removed`);
+        if (attempted) {
+          leavingCopy.removed(attempted);
+          attempted = null;
+        }
+        if (decision.reason === 'EVACUATION') {
+          residentialNodeDosService.noteEvacuated(installedApp.name);
+        }
+        // One per pass. Removing a second here would take two instances off the
+        // network before the spawner has replaced either.
+        return ACTED;
+      }
+      let handed;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        handed = await operationRegistry.submit(installedApp.name, 'giveup', handBack, { owner: 'checkAndRemoveApplicationInstance' });
+      } catch (error) {
+        if (!(error instanceof operationRegistry.OperationRefusedError)) throw error;
+        log.info(`${installedApp.name} not handed back this pass: ${error.message}`);
         // eslint-disable-next-line no-continue
         continue;
       }
-      giveUpRefusals.delete(installedApp.name);
-
-      // The next holder to own a turn decides no sooner than two passes after
-      // the one this decided on. A removal tells the network before it tears
-      // anything down, and one started within a pass of its decision leaves a
-      // whole pass for that to reach every holder first. Later, it is left to a
-      // later turn.
-      if (HANDED_BACK.has(decision.reason)) {
-        // eslint-disable-next-line no-await-in-loop
-        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GIVEUP_BEFORE_REMOVAL, installedApp.name);
-        const dueHeight = Math.floor(height / period) * period;
-        // eslint-disable-next-line no-await-in-loop
-        const count = await daemonServiceUtils.executeCall('getBlockCount', [], { useCache: false });
-        const tip = count.status === 'success' ? count.data : null;
-        if (tip === null || tip >= dueHeight + period) {
-          log.warn(`${installedApp.name} not handed back: the chain is at ${tip ?? 'an unknown height'} and this pass decided on ${dueHeight}; a later turn asks again`);
-          fluxEventBus.publish('giveUp:decisionStale', { appName: installedApp.name, dueHeight, tip });
-          return;
-        }
-      }
-      log.warn(`REMOVAL REASON: ${decision.reason} - ${installedApp.name} ${decision.detail}. Safe: ${safety.reason}`);
-      // eslint-disable-next-line no-await-in-loop
-      const outcome = await appUninstaller.removeAppLocally(installedApp.name, null, false, true, true);
-      if (outcome !== RemovalOutcome.REMOVED) {
-        log.warn(`Application ${installedApp.name} not removed (${outcome}); the next pass asks again`);
-        return;
-      }
-      log.warn(`Application ${installedApp.name} locally removed`);
-      if (attempted) {
-        leavingCopy.removed(attempted);
-        attempted = null;
-      }
-      if (decision.reason === 'EVACUATION') {
-        residentialNodeDosService.noteEvacuated(installedApp.name);
-      }
-      // One per pass. Removing a second here would take two instances off the
-      // network before the spawner has replaced either.
-      return;
+      if (handed === ACTED) return;
     }
   } catch (error) {
     log.error(error);
