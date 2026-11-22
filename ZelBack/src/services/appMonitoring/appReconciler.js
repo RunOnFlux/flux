@@ -371,15 +371,15 @@ async function dockerActual(identifier) {
 }
 
 // The operations that build or tear down an app's containers.
-const CONSTRUCTING = new Set(['install', 'remove', 'redeploy']);
+const CONSTRUCTING = new Set(['install', 'remove', 'redeploy', 'rebuild']);
 
 // app -> its component identifiers whose pass waits for the operation holding the
 // app to end
 const awaitingRelease = new Map();
 
 /**
- * Whether the component's app is being built or torn down: an install, removal
- * or redeploy of that app holds it, or a removal of it is pending - the
+ * Whether the component's app is being built or torn down: an install, removal,
+ * redeploy or rebuild of that app holds it, or a removal of it is pending - the
  * operation it stops releases the app to that removal, never to a start.
  * @param {string} identifier
  * @returns {boolean}
@@ -398,6 +398,33 @@ function deferUntilReleased(identifier) {
   const mainAppName = identifier.split('_')[1] || identifier;
   if (!awaitingRelease.has(mainAppName)) awaitingRelease.set(mainAppName, new Set());
   awaitingRelease.get(mainAppName).add(identifier);
+}
+
+/**
+ * Runs a rebuild of the component's container as an operation on its app: taken
+ * now or refused, and while it runs nothing else runs on the app. Refused, the
+ * component is passed again once the app is free; stopped by a removal, it ends
+ * and the removal runs.
+ * @param {string} identifier
+ * @param {function(object): Promise<void>} rebuild Given the operation.
+ * @returns {Promise<void>}
+ */
+async function rebuildHolding(identifier, rebuild) {
+  const mainAppName = identifier.split('_')[1] || identifier;
+  try {
+    await operationRegistry.submit(mainAppName, 'rebuild', rebuild, { owner: `appReconciler ${identifier}` });
+  } catch (error) {
+    if (error instanceof operationRegistry.OperationRefusedError) {
+      fluxEventBus.count('reconciler:deferred', identifier, 'operationHeld');
+      deferUntilReleased(identifier);
+      return;
+    }
+    if (error instanceof operationRegistry.OperationPreemptedError) {
+      log.info(`appReconciler - the rebuild of ${identifier} stopped for ${error.by}`);
+      return;
+    }
+    throw error;
+  }
 }
 
 operationRegistry.onReleased((mainAppName) => {
@@ -493,9 +520,12 @@ async function desiredRunState(rawIdentifier) {
  * Recreates a vanished container (no Docker event fires for absence), recording
  * the tampering signals. When the recreate fails, a component that has run on
  * this node is kept, down, and retried on the restart ladder; the app of one that
- * never ran here is removed.
+ * never ran here is removed, as a step of the rebuild.
+ * @param {string} identifier
+ * @param {object} op The rebuild operation holding the app.
+ * @returns {Promise<void>}
  */
-async function recreateMissing(identifier) {
+async function recreateMissing(identifier, op) {
   const mainAppName = identifier.split('_')[1] || identifier;
 
   // `container_vanished` is the heaviest tampering signal this node emits and it
@@ -519,13 +549,15 @@ async function recreateMissing(identifier) {
   try {
     // Created, not started: the pass this enqueues starts it against the desired
     // state as it is then, which a recreate of minutes may have changed.
-    await containerHealthMonitor.recreateMissingContainers(identifier, { start: false });
+    await containerHealthMonitor.recreateMissingContainers(identifier, { start: false, signal: op.signal });
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
     enqueue(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
+    // stopped for a removal, which runs next
+    if (err instanceof operationRegistry.OperationPreemptedError) throw err;
     // Removal must be justified by the state of the world NOW, not at
     // classification time: a whole recreate attempt (image pull - up to
     // minutes) sits between them, during which a redeploy can legitimately
@@ -574,7 +606,7 @@ async function recreateMissing(identifier) {
       return;
     }
     log.warn(`REMOVAL REASON: Container recreation failure, never ran here - ${mainAppName} (appReconciler)`);
-    await appUninstaller.removeAppLocally(mainAppName, null, false, true, true);
+    await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, { parent: op });
   }
 }
 
@@ -586,20 +618,25 @@ async function recreateMissing(identifier) {
  * paces it on the heal ladder. The container is created, not started: the pass
  * this enqueues starts it against the desired state. The durable heal-removal flag is NOT cleared here: only seeing the
  * container back proves the heal worked.
+ * @param {string} identifier
+ * @param {object} op The rebuild operation holding the app.
+ * @returns {Promise<void>}
  */
-async function recreateForNetworkHeal(identifier) {
+async function recreateForNetworkHeal(identifier, op) {
   const mainAppName = identifier.split('_')[1] || identifier;
   try {
     // softOnly: a hard install would REFORMAT the app's data volume (createAppVolume
     // fallocates + mke2fs). We removed a live container whose data was intact, so a
     // recreate that cannot verify the volume must fail and be retried - never wipe it.
-    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true, start: false });
+    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true, start: false, signal: op.signal });
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated ${identifier} to clear a detached network endpoint`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated', reason: 'networkDetached' });
     enqueue(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
+    // stopped for a removal, which runs next
+    if (err instanceof operationRegistry.OperationPreemptedError) throw err;
     // Same diagnostics the vanished path emits - minus the uninstall escalation.
     // Without these a heal-removed container whose recreate keeps failing (e.g. its
     // network was pruned in the meantime) would loop with no operator-visible signal.
@@ -764,15 +801,25 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
   // the meantime, and force-removing it from under them is exactly what
   // isManagedElsewhere exists to prevent. Re-check at actuation time (the same
   // re-read-before-acting discipline the controller verdict and recreateMissing use).
-  // Nor while any operation holds the app: a backup or restore reads and replaces
-  // the volume this recreate would rebuild the container over.
-  if (isManagedElsewhere(identifier) || operationRegistry.isHeld(mainAppName)) {
+  if (isManagedElsewhere(identifier)) {
     log.info(`appReconciler - ${identifier} was taken over by another operation during the heal confirmation; aborting the recreate`);
-    if (operationRegistry.isHeld(mainAppName)) deferUntilReleased(identifier);
-    else scheduleRetry(identifier, MANAGED_RETRY_MS);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
+  // The remove and the recreate are one rebuild, an operation on the app: a backup
+  // or restore reads and replaces the volume it rebuilds the container over.
+  await rebuildHolding(identifier, (op) => clearStaleEndpoint(identifier, mainAppName, op));
+}
 
+/**
+ * Removes a container left with a stale network endpoint and recreates it, holding
+ * its app.
+ * @param {string} identifier
+ * @param {string} mainAppName
+ * @param {object} op The rebuild operation holding the app.
+ * @returns {Promise<void>}
+ */
+async function clearStaleEndpoint(identifier, mainAppName, op) {
   log.warn(`appReconciler - ${identifier} running but not attached to its docker network; clearing the stale endpoint`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkDetached' });
 
@@ -816,7 +863,53 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
-  await recreateForNetworkHeal(identifier);
+  await recreateForNetworkHeal(identifier, op);
+}
+
+/**
+ * Recreates a component's missing container, holding its app: on the network-heal
+ * ladder when FluxOS removed it to clear a stale endpoint, as a vanished container
+ * otherwise.
+ * @param {string} identifier
+ * @param {object} op The rebuild operation holding the app.
+ * @returns {Promise<void>}
+ */
+async function rebuildMissing(identifier, op) {
+  // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
+  // container to clear a stale endpoint, its absence is not tampering. Keep
+  // recreating it - paced on the heal ladder, never escalating to the vanished
+  // path's uninstall-on-failure. Only a container that vanished by other means
+  // takes that path.
+  let healRemoved;
+  try {
+    healRemoved = await appsRuntimeState.isNetworkHealRemoval(identifier);
+  } catch (err) {
+    // We cannot tell whether we removed this container ourselves. Guessing "no" is
+    // the destructive guess: it records a false tampering event and can uninstall
+    // the whole app on a failed recreate. Defer until the state is readable.
+    log.warn(`appReconciler - cannot read the heal state of the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
+  if (healRemoved) {
+    const wait = await appsRuntimeState.networkHealWaitMs(identifier);
+    if (wait > 0) {
+      log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
+      scheduleRetry(identifier, wait);
+      return;
+    }
+    try {
+      await appsRuntimeState.recordNetworkHealAttempt(identifier);
+    } catch (err) {
+      // unpaced retries would hammer the recreate; defer instead
+      log.error(`appReconciler - cannot pace the heal recreate of ${identifier} (${err.message}); will retry`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
+    await recreateForNetworkHeal(identifier, op);
+    return;
+  }
+  await recreateMissing(identifier, op);
 }
 
 /**
@@ -1125,49 +1218,10 @@ async function reconcile(rawIdentifier) {
   }
 
   if (!actual.exists) {
-    // No recreate while any operation holds the app - a backup or restore included:
-    // a recreate that cannot find the volume mounted rebuilds it, under the archive
-    // being read or the data being replaced.
-    if (operationRegistry.isHeld(mainAppName)) {
-      fluxEventBus.count('reconciler:deferred', identifier, 'operationHeld');
-      deferUntilReleased(identifier);
-      return;
-    }
-    // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
-    // container to clear a stale endpoint, its absence is not tampering. Keep
-    // recreating it - paced on the heal ladder, never escalating to the vanished
-    // path's uninstall-on-failure. Only a container that vanished by other means
-    // takes that path.
-    let healRemoved;
-    try {
-      healRemoved = await appsRuntimeState.isNetworkHealRemoval(identifier);
-    } catch (err) {
-      // We cannot tell whether we removed this container ourselves. Guessing "no" is
-      // the destructive guess: it records a false tampering event and can uninstall
-      // the whole app on a failed recreate. Defer until the state is readable.
-      log.warn(`appReconciler - cannot read the heal state of the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
-      scheduleRetry(identifier, MANAGED_RETRY_MS);
-      return;
-    }
-    if (healRemoved) {
-      const wait = await appsRuntimeState.networkHealWaitMs(identifier);
-      if (wait > 0) {
-        log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
-        scheduleRetry(identifier, wait);
-        return;
-      }
-      try {
-        await appsRuntimeState.recordNetworkHealAttempt(identifier);
-      } catch (err) {
-        // unpaced retries would hammer the recreate; defer instead
-        log.error(`appReconciler - cannot pace the heal recreate of ${identifier} (${err.message}); will retry`);
-        scheduleRetry(identifier, MANAGED_RETRY_MS);
-        return;
-      }
-      await recreateForNetworkHeal(identifier);
-      return;
-    }
-    await recreateMissing(identifier);
+    // The recreate is an operation on the app, taken only while nothing else holds
+    // it - a backup or restore included: a recreate that cannot find the volume
+    // mounted rebuilds it, under the archive being read or the data being replaced.
+    await rebuildHolding(identifier, (op) => rebuildMissing(identifier, op));
     return;
   }
 

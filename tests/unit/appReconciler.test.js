@@ -772,6 +772,43 @@ describe('appReconciler tests', () => {
         stubs.globalState.bootContainerStateSettled = true;
       });
 
+      // The recreate is an operation on the app: nothing else runs on the app while it does.
+      it('holds the app while it recreates the container, refusing an owner action meanwhile', async () => {
+        let heldDuring = null;
+        let ownerAction = null;
+        stubs.containerHealthMonitor.recreateMissingContainers.callsFake(async () => {
+          heldDuring = operationRegistry.get('App');
+          ownerAction = await operationRegistry.submit('App', 'control', async () => 'ran').catch((error) => error);
+        });
+
+        await appReconciler.reconcile('www_App');
+
+        expect(heldDuring).to.deep.include({ type: 'rebuild' });
+        expect(ownerAction).to.be.instanceOf(operationRegistry.OperationRefusedError);
+        expect(operationRegistry.get('App'), 'the app is free once the rebuild ends').to.equal(null);
+      });
+
+      it('removes an app that never ran here as a step of the rebuild', async () => {
+        stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('boom'));
+
+        await appReconciler.reconcile('www_App');
+
+        const { parent } = stubs.appUninstaller.removeAppLocally.firstCall.args[5];
+        expect(parent).to.deep.include({ key: 'App', type: 'rebuild' });
+      });
+
+      it('ends a rebuild a removal stopped, recording no failure and removing nothing itself', async () => {
+        stubs.containerHealthMonitor.recreateMissingContainers.callsFake(async () => {
+          operationRegistry.preempt('App', 'removal');
+          throw new operationRegistry.OperationPreemptedError('App', 'removal');
+        });
+
+        await appReconciler.reconcile('www_App');
+
+        expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.false;
+        sinon.assert.notCalled(stubs.appUninstaller.removeAppLocally);
+      });
+
       it('is not recreated while a backup holds the app, and is once the backup ends', async () => {
         const token = operationRegistry.acquire('App', 'backup', 'test');
         await appReconciler.reconcile('www_App');
@@ -809,7 +846,7 @@ describe('appReconciler tests', () => {
 
       await appReconciler.reconcile('www_App');
 
-      sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'www_App', { start: false });
+      sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'www_App', { start: false, signal: sinon.match.instanceOf(AbortSignal) });
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
@@ -1920,6 +1957,20 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerForceRemove.called, 'a transient detached read must never destroy a healthy container').to.be.false;
     });
 
+    // The remove and the recreate are one rebuild, an operation on the app.
+    it('clears a stale endpoint holding the app, and not while another operation holds it', async () => {
+      let heldAtRemove = null;
+      stubs.dockerService.appDockerForceRemove.callsFake(async () => { heldAtRemove = operationRegistry.get('App'); });
+      const token = operationRegistry.acquire('App', 'backup', 'test');
+
+      await healPasses();
+      expect(stubs.dockerService.appDockerForceRemove.called, 'removed under the backup').to.be.false;
+      operationRegistry.release('App', token);
+      await appReconciler.reconcile('www_App');
+
+      expect(heldAtRemove).to.deep.include({ type: 'rebuild' });
+    });
+
     it('waits for the detach to persist before destroying anything', async () => {
       await appReconciler.reconcile('www_App'); // confirmed detached, but only just now
       expect(stubs.dockerService.appDockerForceRemove.called, 'a detach seen for the first time is not yet actionable').to.be.false;
@@ -1942,7 +1993,7 @@ describe('appReconciler tests', () => {
       expect(stubs.appInspector.stopAppMonitoring.calledWith('www_App', true), 'stops the stats monitor before removing').to.be.true;
       expect(stubs.dockerService.appDockerForceRemove.calledWith('www_App', false), 'force-removes keeping bind-mounted data').to.be.true;
       expect(
-        stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App', { softOnly: true, start: false }),
+        stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App', sinon.match({ softOnly: true, start: false })),
         'the recreate must never be allowed to fall back to a hard install: that reformats the data volume',
       ).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.called, 'the heal must NEVER uninstall the app').to.be.false;

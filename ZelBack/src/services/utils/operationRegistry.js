@@ -1,7 +1,7 @@
 // A manager per app: every operation on an app - an install, a removal, a
 // redeploy, a backup, a restore, an owner's start, stop or restart, the heal
-// of a folder an unfinished restore left, and the hand-back of a copy the node
-// gives up - is sent to
+// of a folder an unfinished restore left, the hand-back of a copy the node
+// gives up, and the reconciler's rebuild of a container - is sent to
 // the app's manager with submit(), which runs them one at a time and releases the
 // app when each ends, on every exit. Nothing is released on a timer. When the app
 // is busy, the arriving operation's rule decides:
@@ -13,8 +13,8 @@
 //     is free; a pending one of the same type takes the newest, and every caller
 //     gets its outcome; refused while a removal is pending or running, and while
 //     the app is busy when its caller asks not to wait;
-//   - a backup, a restore, an owner action, a heal or a hand-back is taken now
-//     or refused.
+//   - a backup, a restore, an owner action, a heal, a hand-back or a rebuild is
+//     taken now or refused.
 // A wait is the app's own: a caller that needs no outcome sends and moves on, so
 // one app's wait never holds another. A step of an operation - a redeploy's
 // removal and install - runs under that operation, passed as `parent`. In memory
@@ -32,6 +32,7 @@ const OPERATION_NAMES = Object.freeze({
   control: 'start, stop or restart',
   heal: 'heal',
   giveup: 'hand-back',
+  rebuild: 'container rebuild',
 });
 
 class OperationPreemptedError extends Error {
@@ -237,7 +238,7 @@ function entryFor(type, fn, owner) {
 /**
  * Sends an operation to the app's manager.
  * @param {string} key The app's name.
- * @param {string} type 'install' | 'remove' | 'redeploy' | 'backup' | 'restore' | 'control' | 'giveup'.
+ * @param {string} type 'install' | 'remove' | 'redeploy' | 'backup' | 'restore' | 'control' | 'giveup' | 'rebuild'.
  * @param {function({key: string, type: string, token: string, signal: AbortSignal}): Promise<*>} fn
  *   The operation. Its `signal` aborts when a removal stops it; it checks
  *   `throwIfPreempted(op.signal)` between its steps.
