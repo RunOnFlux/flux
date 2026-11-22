@@ -25,8 +25,8 @@ import { afterTeardown } from '../framework/teardown-hook.js';
 // namespace-local to the node, so the syncthing stub (a separate container)
 // cannot reach or delete it. The decision IS the contract the fix changes, and
 // the state is reached the way production reaches it: restartFluxos clears the
-// in-memory cache, handleFirstRun preserves the on-disk folder into receiveonly,
-// and handleReceiveOnlyTransition then evaluates against the (injected) empty
+// in-memory cache, the copy with no recorded progress keeps its receive-only folder
+// and starts catching up, and handleReceiveOnlyTransition then evaluates against the (injected) empty
 // global. Issuing db/revert there is the bug; the fix must wait instead.
 //
 //  Leg 1 (empty global, a peer holding the writable copy): the gate must NOT revert,
@@ -83,7 +83,7 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     // premature promote). handleNewApp cleans the fresh folder once; thereafter
     // every cycle is handleReceiveOnlyTransition, which here only waits. The
     // folder config now exists and survives a FluxOS process restart - which is
-    // how the legs reach handleFirstRun's preserve branch.
+    // how the legs reach a receive-only copy with no recorded progress.
     aEmpty = await seedSyncthingApp(env, {
       name: appEmpty, mode: 'r', forceNonLeader: true, index: 0,
     });
@@ -116,8 +116,8 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     const idx = aEmpty.index;
     const ip = subnet.nodeIp(idx + 1);
 
-    // Reboot the process holding the only copy: handleFirstRun preserves the
-    // folder into receiveonly; with peers not reconnected the global is empty
+    // Reboot the process holding the only copy: its folder stays receive-only and
+    // the copy catches up again; with peers not reconnected the global is empty
     // and there is no source.
     await restartFluxos(env.clients[idx].container);
     await setLocalChangesEmptyGlobal({ ip, folder: aEmpty.folder, files: 2 });

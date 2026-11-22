@@ -1063,78 +1063,6 @@ async function findSeedRival(appId, peers, localSocketAddr, liveness, own, { wri
 }
 
 /**
- * Handle first run scenario for an app/component
- * @param {Object} params - Parameters
- * @returns {Promise<Object>} Updated folder config and cache
- */
-async function handleFirstRun(params) {
-  const {
-    appId,
-    containerDataFlags,
-    syncFolder,
-    syncthingFolder,
-  } = params;
-
-  // The container's state decides, whether or not syncthing has the folder yet.
-  log.info(`handleFirstRun - First run, ${syncFolder ? 'sync folder exists' : 'no sync folder'} - checking container status`);
-  let containerRunning = false;
-
-  try {
-    const containerInspect = await dockerService.dockerContainerInspect(appId);
-    containerRunning = containerInspect.State.Running;
-    log.info(`handleFirstRun - ${appId} running status: ${containerRunning}`);
-  } catch (error) {
-    log.warn(`handleFirstRun - Could not inspect ${appId}: ${error.message}`);
-  }
-
-  if (containerRunning) {
-    // App is running - this means FluxOS restart, not computer restart
-    // Skip processing - keep existing state
-    log.info(`handleFirstRun - ${appId} is running, FluxOS restart detected, keeping existing state`);
-    // An r: component running here is ready, and its folder sends.
-    decideType(syncthingFolder, containerDataFlags, 'sendreceive');
-    const cache = { restarted: true };
-    return { syncthingFolder, cache };
-  }
-
-  // Container is stopped - computer was restarted
-  // Set to receiveonly mode to wait for sync before starting
-  log.info(`handleFirstRun - ${appId} is stopped, computer restart detected, setting to receiveonly mode`);
-  decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-  const cache = {
-    restarted: false,
-    numberOfExecutions: 1,
-  };
-
-  return { syncthingFolder, cache };
-}
-
-/**
- * Handle skipped app on second encounter
- * @param {Object} params - Parameters
- * @returns {Promise<Object>} Updated folder config and cache
- */
-async function handleSkippedAppSecondEncounter(params) {
-  const {
-    appId,
-    containerDataFlags,
-    syncthingFolder,
-    receiveOnlySyncthingAppsCache,
-  } = params;
-
-  log.info(`handleSkippedAppSecondEncounter - ${appId} was skipped on first encounter, now processing as new app`);
-  decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-  const cache = { numberOfExecutions: 1 };
-
-  // Set before the stop, so the next pass does not process it as new again
-  receiveOnlySyncthingAppsCache.set(appId, cache);
-
-  appReconciler.setControllerDesired(appId, 'stopped', 'syncthing: receives its data before it runs');
-
-  return { syncthingFolder, cache };
-}
-
-/**
  * Check if any remote peers have this folder in sendreceive mode and fully synced
  * @param {string} folderId - Syncthing folder ID
  * @returns {Promise<boolean>} True if at least one peer has folder in sendreceive and synced
@@ -2126,7 +2054,12 @@ async function handleReceiveOnlyTransition(params) {
 }
 
 /**
- * Handle new app that was never processed
+ * A copy with no recorded progress, or an r: copy whose folder syncthing does not
+ * have. An r: copy has caught up only while its folder sends, so it catches up
+ * before it runs: its folder receives and its container is stopped. Whether a g:
+ * component runs is its election's: running here, it is the primary and its copy
+ * is the source, so it is ready; stopped, it is a standby, ready once it shows it
+ * has caught up.
  * @param {Object} params - Parameters
  * @returns {Promise<Object>} Updated folder config and cache
  */
@@ -2138,8 +2071,19 @@ async function handleNewApp(params) {
     receiveOnlySyncthingAppsCache,
   } = params;
 
-  log.info(`handleNewApp - ${appId} NOT in cache, receiving its data before it runs`);
   decideType(syncthingFolder, containerDataFlags, 'receiveonly');
+  if (containerDataFlags.includes('g')) {
+    const running = await dockerService.dockerContainerInspect(appId)
+      .then((inspect) => inspect?.State?.Running === true)
+      .catch((error) => {
+        log.warn(`handleNewApp - ${appId} could not be inspected, so it is taken as a standby: ${error.message}`);
+        return false;
+      });
+    log.info(`handleNewApp - ${appId} has no recorded progress and ${running ? 'runs here as its primary, so it is ready' : 'is a standby, ready once it has caught up'}`);
+    return { syncthingFolder, cache: running ? { restarted: true } : { restarted: false, numberOfExecutions: 1 } };
+  }
+
+  log.info(`handleNewApp - ${appId} has no recorded progress, receiving its data before it runs`);
   const cache = { numberOfExecutions: 1 };
 
   // Set before the stop, so the next pass does not process it as new again
@@ -2297,28 +2241,29 @@ async function decideFolderSyncState(params) {
     return { syncthingFolder, cache };
   }
 
-  // First run scenario
-  if (syncthingAppsFirstRun) {
-    const result = await handleFirstRun({
+  // With no folder, syncthing holds nothing that kept an r: copy in step, whatever
+  // this process recorded of it.
+  if (!syncFolder && !containerDataFlags.includes('g')) {
+    log.info(`manageFolderSyncState - ${appId} has no syncthing folder`);
+    return handleNewApp({
       appId,
       containerDataFlags,
-      syncFolder,
       syncthingFolder,
+      receiveOnlySyncthingAppsCache,
     });
-    return result;
   }
 
   const cache = receiveOnlySyncthingAppsCache.get(appId);
 
   // Second encounter of a skipped app
   if (cache?.firstEncounterSkipped) {
-    const result = await handleSkippedAppSecondEncounter({
+    log.info(`manageFolderSyncState - ${appId} was skipped on first encounter, now processing as new app`);
+    return handleNewApp({
       appId,
       containerDataFlags,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
-    return result;
   }
 
   // App in cache but not yet restarted - handle transition
@@ -2344,35 +2289,19 @@ async function decideFolderSyncState(params) {
 
   // App not in cache at all
   if (!cache) {
-    // If syncFolder doesn't exist, this is a NEW app installation - process it immediately
-    // regardless of syncthingAppsFirstRun flag to prevent data loss
-    if (!syncFolder) {
-      log.info(`manageFolderSyncState - ${appId} NOT in cache but syncFolder doesn't exist, treating as new app installation`);
-      const result = await handleNewApp({
-        appId,
-        containerDataFlags,
-        syncthingFolder,
-        receiveOnlySyncthingAppsCache,
-      });
-      return result;
-    }
-
-    // syncFolder exists but not in cache and not first run - skip on first encounter
-    // This handles apps that existed before monitoring but weren't tracked in cache
-    if (!syncthingAppsFirstRun) {
+    // A folder that exists with no recorded progress, met after the first pass, is
+    // passed over once before it is processed.
+    if (syncFolder && !syncthingAppsFirstRun) {
       log.info(`manageFolderSyncState - ${appId} NOT in cache and not first run, marking for skip on first encounter`);
       const skipCache = { firstEncounterSkipped: true };
       return { syncthingFolder, cache: skipCache, skipProcessing: true };
     }
-
-    // First run and not in cache - clean install
-    const result = await handleNewApp({
+    return handleNewApp({
       appId,
       containerDataFlags,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
-    return result;
   }
 
   // Default case - ensure container is running

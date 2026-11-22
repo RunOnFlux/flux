@@ -754,7 +754,8 @@ describe('syncthingFolderStateMachine tests', () => {
       mockParams = {
         appId: 'test-app',
         identifier: 'app_test',
-        syncFolder: null,
+        // a copy catching up holds a receive-only folder: its first pass created it
+        syncFolder: { id: 'test-app', type: 'receiveonly' },
         containerDataFlags: 'r',
         syncthingAppsFirstRun: false,
         receiveOnlySyncthingAppsCache: new Map(),
@@ -1202,61 +1203,93 @@ describe('syncthingFolderStateMachine tests', () => {
       });
     });
 
-    // A first run decides from the container whether or not syncthing has the
-    // folder: what is on the volume is kept, and a stopped copy receives first.
-    it('receives first, keeping its data, on a first run with no sync folder and the container stopped', async () => {
-      mockParams.syncthingAppsFirstRun = true;
-      mockParams.syncFolder = null;
-      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+    // An r: copy has caught up only while its folder sends: one whose folder receives
+    // or is missing catches up before it runs, whatever its container is doing and
+    // on every pass, the first included.
+    describe('an r: copy whose folder does not send', () => {
+      const catchesUp = (result) => {
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache).to.deep.equal({ numberOfExecutions: 1 });
+        sinon.assert.calledOnceWithExactly(appReconcilerMock.setControllerDesired, 'test-app', 'stopped', sinon.match.string);
+      };
 
-      const result = await stateMachine.manageFolderSyncState(mockParams);
+      [
+        ['no folder', null],
+        ['a receive-only folder', { type: 'receiveonly' }],
+      ].forEach(([what, syncFolder]) => {
+        it(`stops a running container and receives first on the first pass, with ${what}`, async () => {
+          mockParams.syncthingAppsFirstRun = true;
+          mockParams.syncFolder = syncFolder;
+          dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
 
-      expect(result.syncthingFolder.type).to.equal('receiveonly');
-      expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 1 });
-      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
-    });
+          catchesUp(await stateMachine.manageFolderSyncState(mockParams));
+        });
 
-    it('keeps a running container running on a first run with no sync folder', async () => {
-      mockParams.syncthingAppsFirstRun = true;
-      mockParams.syncFolder = null;
-      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+        it(`receives first on the first pass with its container stopped, with ${what}`, async () => {
+          mockParams.syncthingAppsFirstRun = true;
+          mockParams.syncFolder = syncFolder;
+          dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
 
-      const result = await stateMachine.manageFolderSyncState(mockParams);
-
-      expect(result.syncthingFolder.type).to.equal('sendreceive');
-      expect(result.cache).to.deep.equal({ restarted: true });
-      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
-    });
-
-    it('should handle first run with existing receiveonly folder', async () => {
-      mockParams.syncthingAppsFirstRun = true;
-      mockParams.syncFolder = { type: 'receiveonly' };
-      dockerServiceMock.dockerContainerInspect.resolves({
-        State: { Running: false },
+          catchesUp(await stateMachine.manageFolderSyncState(mockParams));
+        });
       });
 
-      const result = await stateMachine.manageFolderSyncState(mockParams);
+      it('catches up again when its folder is gone after it was ready', async () => {
+        mockParams.syncFolder = null;
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+        dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
 
-      expect(result.cache.restarted).to.be.false;
-      expect(result.cache.numberOfExecutions).to.equal(1);
+        catchesUp(await stateMachine.manageFolderSyncState(mockParams));
+      });
     });
 
-    it('hands back an unverified sendreceive folder for an established app whose folder is gone', async () => {
-      // Documents the cost of losing a folder that should exist. The cache says
-      // this app is established, so none of the receiveonly ladder applies and
-      // no mount is inspected - the caller's sendreceive configuration is simply
-      // handed back to be installed. A folder deleted in error therefore returns
-      // as a writable folder over an unchecked mount.
-      mockParams.syncFolder = null;
-      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
-      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+    // Whether a g: component runs is its election's: the state machine never stops
+    // it, and says only whether its copy is ready to be elected.
+    describe('a g: copy with no recorded progress', () => {
+      beforeEach(() => {
+        mockParams.containerDataFlags = 'g';
+      });
 
-      const result = await stateMachine.manageFolderSyncState(mockParams);
+      [
+        ['on the first pass, with no folder', true, null, undefined],
+        ['on the first pass, with a receive-only folder', true, { type: 'receiveonly' }, undefined],
+        ['met again after it was passed over', false, { type: 'receiveonly' }, { firstEncounterSkipped: true }],
+      ].forEach(([when, firstRun, syncFolder, cached]) => {
+        it(`is ready and not stopped while it runs here as the primary, ${when}`, async () => {
+          mockParams.syncthingAppsFirstRun = firstRun;
+          mockParams.syncFolder = syncFolder;
+          if (cached) mockParams.receiveOnlySyncthingAppsCache.set('test-app', cached);
+          dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
 
-      expect(result.syncthingFolder.type).to.equal('sendreceive');
-      expect(result.cache).to.equal(null);
-      sinon.assert.notCalled(fsMock.promises.stat);
-      sinon.assert.notCalled(volumeServiceMock.isPathMounted);
+          const result = await stateMachine.manageFolderSyncState(mockParams);
+
+          expect(result.cache).to.deep.equal({ restarted: true });
+          sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+        });
+
+        it(`is a standby not yet ready, and nothing is started, while it is stopped, ${when}`, async () => {
+          mockParams.syncthingAppsFirstRun = firstRun;
+          mockParams.syncFolder = syncFolder;
+          if (cached) mockParams.receiveOnlySyncthingAppsCache.set('test-app', cached);
+          dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+
+          const result = await stateMachine.manageFolderSyncState(mockParams);
+
+          expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 1 });
+          sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+        });
+      });
+
+      it('is taken as a standby when its container cannot be inspected', async () => {
+        mockParams.syncthingAppsFirstRun = true;
+        mockParams.syncFolder = null;
+        dockerServiceMock.dockerContainerInspect.rejects(new Error('docker unavailable'));
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.cache).to.deep.equal({ restarted: false, numberOfExecutions: 1 });
+        sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+      });
     });
 
     it('runs no permission sweep on promotion: synced files arrive owned by their writer', async () => {
