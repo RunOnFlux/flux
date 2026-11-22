@@ -255,7 +255,7 @@ async function prepareDatabaseSchema() {
     { key: { type: 1, ip: 1, expireAt: 1 }, name: 'events of a type at addresses, by expiry' },
     // the reports and removals of one app, by its name lowercased
     { key: { appNames: 1, expireAt: 1 }, name: 'reports by the apps they name, lowercased', partialFilterExpression: { type: 'apprunning' } },
-    { key: { appNameLower: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
+    { key: { removedNames: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
   ]);
   await messageStore.lowercaseStoredAppNames(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   log.info('App state events collection prepared');

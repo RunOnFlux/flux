@@ -425,7 +425,10 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         await messageStore.expireLocationsForSigterm(event.data.ip, event.data.broadcastedAt);
       } else if (event.type === 'appremoved') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        await messageStore.removeLocationForAppRemoved(event.data.ip, event.data.appName, event.data.broadcastedAt);
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appName of messageStore.removedAppNames(event.data) ?? []) {
+          await messageStore.removeLocationForAppRemoved(event.data.ip, appName, event.data.broadcastedAt);
+        }
       } else if (event.type === 'evicted') {
         // no node takes an eviction of the address it holds
         if (!socketAddressesMatch(event.ip, fluxNetworkHelper.getKnownLocalSocketAddress())) {
@@ -978,7 +981,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     // an Error for one it refused - only true is a removal worth passing on
     const rebroadcastToPeers = await messageStore.storeAppRemovedMessage(message.data);
     if (rebroadcastToPeers === true) {
-      fluxEventBus.publish('network:appremoved', { ip: message.data.ip, name: message.data.appName });
+      messageStore.removedAppNames(message.data).forEach((name) => fluxEventBus.publish('network:appremoved', { ip: message.data.ip, name }));
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);

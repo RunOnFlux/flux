@@ -640,24 +640,31 @@ async function storeAppInstallingMessage(message) {
 }
 
 /**
+ * The apps a removal names: one (version 1, appName) or several (version 2, apps).
+ * @param {object} message A fluxappremoved message's data.
+ * @returns {string[]|null} The names, or null for a message naming none.
+ */
+function removedAppNames(message) {
+  if (message.version === 2) {
+    const valid = Array.isArray(message.apps) && message.apps.length > 0
+      && message.apps.every((appName) => typeof appName === 'string' && appName.length > 0);
+    return valid ? message.apps : null;
+  }
+  return typeof message.appName === 'string' && message.appName ? [message.appName] : null;
+}
+
+/**
  * Store app removed message
  * @param {object} message - Message to store
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
 async function storeAppRemovedMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param ip string
-  * @param appName string
-  * @param broadcastedAt number
-  */
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.appName !== 'string') {
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
     return new Error('Invalid Flux App Removed message for storing');
   }
 
-  if (message.version !== 1) {
+  if (message.version !== 1 && message.version !== 2) {
     return new Error(`Invalid Flux App Removed message for storing version ${message.version} not supported`);
   }
 
@@ -665,8 +672,9 @@ async function storeAppRemovedMessage(message) {
     return new Error('Invalid Flux App Removed message ip cannot be empty');
   }
 
-  if (!message.appName) {
-    return new Error('Invalid Flux App Removed message appName cannot be empty');
+  const appNames = removedAppNames(message);
+  if (!appNames) {
+    return new Error('Invalid Flux App Removed message: no app named');
   }
 
   log.info('New Flux App Removed message received.');
@@ -678,7 +686,11 @@ async function storeAppRemovedMessage(message) {
     return false;
   }
 
-  await removeLocationForAppRemoved(message.ip, message.appName, message.broadcastedAt);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const appName of appNames) {
+    // eslint-disable-next-line no-await-in-loop
+    await removeLocationForAppRemoved(message.ip, appName, message.broadcastedAt);
+  }
 
   // all stored, rebroadcast
   return true;
@@ -1040,7 +1052,7 @@ function appNamesOf(apps) {
 
 /**
  * Gives every stored report and removal its app names lowercased (appNames,
- * appNameLower), as the stores write them: the field a read for one app matches.
+ * removedNames), as the stores write them: the field a read for one app matches.
  * Each event that lacks it takes it in one update on the server.
  * @param {object} collection The app state events collection.
  * @returns {Promise<void>}
@@ -1054,8 +1066,8 @@ async function lowercaseStoredAppNames(collection) {
     [{ $set: { appNames: { $map: { input: { $filter: { input: '$data.apps', as: 'app', cond: storable } }, as: 'app', in: { $toLower: '$$app.name' } } } } }],
   );
   await collection.updateMany(
-    { type: APP_STATE_EVENT_TYPES.APPREMOVED, appNameLower: { $exists: false }, 'data.appName': { $type: 'string' } },
-    [{ $set: { appNameLower: { $toLower: '$data.appName' } } }],
+    { type: APP_STATE_EVENT_TYPES.APPREMOVED, removedNames: { $exists: false }, 'data.appName': { $type: 'string' } },
+    [{ $set: { removedNames: [{ $toLower: '$data.appName' }] } }, { $unset: 'appNameLower' }],
   );
 }
 
@@ -1113,16 +1125,20 @@ async function handleSigtermEvent({ message, envelope }) {
 }
 
 async function handleAppRemovedStateEvent({ message, envelope }) {
-  if (!message || !message.ip || typeof message.appName !== 'string' || !message.appName || !message.broadcastedAt) return;
+  const appNames = message && message.ip && message.broadcastedAt ? removedAppNames(message) : null;
+  if (!appNames) return;
+  // One event per removal of one app (version 1), or per message naming several
+  // (version 2): a signature covers its whole message, which is kept whole.
+  const dedupKey = message.version === 2 ? `appremoved:v2:${message.broadcastedAt}` : `appremoved:${message.appName}`;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await database.collection(globalAppStateEvents).updateOne(
-    { ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}` },
+    { ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey },
     buildConditionalUpsert(message.broadcastedAt, {
-      ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}`,
+      ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey,
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
-      appNameLower: message.appName.toLowerCase(),
+      removedNames: appNames.map((appName) => appName.toLowerCase()),
       envelope, data: message,
     }, { alwaysSetFields: { receivedAt: new Date() } }),
     { upsert: true },
@@ -1560,6 +1576,7 @@ module.exports = {
   storeSignedAppInstallingBroadcast,
   storeBatchAppInstallingMessages,
   storeAppRemovedMessage,
+  removedAppNames,
   expireLocationsForSigterm,
   removeLocationForAppRemoved,
   applyEviction,

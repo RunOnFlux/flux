@@ -90,7 +90,7 @@ export async function appRemovedEvent({
     dedupKey: `appremoved:${appName}`,
     ip,
     broadcastedAt: new Date(broadcastedAt),
-    appNameLower: appName.toLowerCase(),
+    removedNames: [appName.toLowerCase()],
     envelope: await envelopeFor(nodeNum, data, broadcastedAt, signedBy),
     data,
   };

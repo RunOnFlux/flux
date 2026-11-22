@@ -2,11 +2,13 @@
 // says who sent a broadcast, not that it is well formed, so a node checks this
 // before it acts on one, whether it arrived alone or in a sync answer.
 
+const config = require('config');
 const { appRunningEntries } = require('./appRunningEntries');
 
 // The fields of the fixed-size broadcasts, an address, an app name and a time, come
 // to under 200 bytes.
 const FIXED_SIZE_MAX_BYTES = 1024;
+const MAX_APPS_PER_NODE = config.fluxapps.maxAppsPerNode;
 
 const isText = (value) => typeof value === 'string' && value.length > 0;
 const isAbsentOr = (value, type) => value === undefined || value === null || typeof value === type;
@@ -34,12 +36,23 @@ function fixedSize(check) {
   return (data) => check(data) && JSON.stringify(data).length <= FIXED_SIZE_MAX_BYTES;
 }
 
+// Version 1 names one app; version 2 names every app a node removed together, at
+// most as many as a node may hold.
+function appRemovedShape(data) {
+  if (!isText(data.ip)) return false;
+  if (data.version === 2) {
+    return Array.isArray(data.apps) && data.apps.length > 0 && data.apps.length <= MAX_APPS_PER_NODE
+      && data.apps.every(isText);
+  }
+  return isText(data.appName) && JSON.stringify(data).length <= FIXED_SIZE_MAX_BYTES;
+}
+
 const SHAPES = Object.freeze({
   fluxapprunning: appRunningShape,
   fluxappinstalling: (data) => isText(data.ip) && isText(data.name),
   fluxappinstallingerror: (data) => isText(data.ip) && isText(data.name)
     && typeof data.hash === 'string' && typeof data.error === 'string',
-  fluxappremoved: fixedSize((data) => isText(data.ip) && isText(data.appName)),
+  fluxappremoved: appRemovedShape,
   fluxnodesigterm: fixedSize((data) => isText(data.ip)),
   fluxipchanged: fixedSize((data) => isText(data.oldIP) && isText(data.newIP)),
 });

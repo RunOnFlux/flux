@@ -464,7 +464,9 @@ async function signedHoldersOf(appName, atMs) {
     }, { projection }),
     dbHelper.findInDatabase(database, globalAppStateEvents, {
       $or: [
+        // a removal naming the app: version 1 names one, version 2 a list
         { type: 'appremoved', 'data.appName': appName },
+        { type: 'appremoved', 'data.apps': appName },
         { type: 'sigterm' },
       ],
       expireAt: standing,
@@ -515,7 +517,7 @@ async function appLocationFromEvents(options = {}) {
   const collection = database.collection(globalAppStateEvents);
 
   // App names compare without case: each event carries its app names lowercased
-  // (appNames on a report, appNameLower on a removal), which a read for one app
+  // (appNames on a report, removedNames on a removal), which a read for one app
   // matches exactly.
   const nameMatch = appname ? appname.toLowerCase() : null;
   const now = new Date();
@@ -571,7 +573,7 @@ async function appLocationFromEvents(options = {}) {
     ...(nameMatch
       ? [{ type: 'apprunning', appNames: nameMatch, ...live, ...atScope }, ...(joined.length ? [{ type: 'apprunning', ip: { $in: joined }, ...live }] : [])]
       : [{ type: 'apprunning', ...atScope, ...live }]),
-    nameMatch ? { type: 'appremoved', appNameLower: nameMatch, ...live, ...atScope } : { type: 'appremoved', ...atScope, ...live },
+    nameMatch ? { type: 'appremoved', removedNames: nameMatch, ...live, ...atScope } : { type: 'appremoved', ...atScope, ...live },
     { type: { $in: ['sigterm', 'evicted'] }, ...atScope },
   ];
   const eventAt = { $ifNull: ['$broadcastedAt', '$createdAt'] };
@@ -592,7 +594,8 @@ async function appLocationFromEvents(options = {}) {
         runningSince: '$data.runningSince',
         osUptime: '$data.osUptime',
         staticIp: '$data.staticIp',
-        removed: '$data.appName',
+        // the apps a removal names: version 1 names one, version 2 a list
+        removed: { $ifNull: ['$data.apps', ['$data.appName']] },
       },
     },
     // Every event with `addr`, the address its node holds now: its own, or for one
@@ -627,7 +630,7 @@ async function appLocationFromEvents(options = {}) {
           },
         },
         shutdown: { $max: { $cond: [{ $in: ['$type', ['sigterm', 'evicted']] }, { at: '$_t', type: '$type' }, null] } },
-        removals: { $push: { $cond: [{ $eq: ['$type', 'appremoved'] }, { name: '$removed', at: '$_t' }, '$$REMOVE'] } },
+        removals: { $push: { $cond: [{ $eq: ['$type', 'appremoved'] }, { names: '$removed', at: '$_t' }, '$$REMOVE'] } },
       },
     },
     // a report stands unless a shutdown of the address after it holds
@@ -656,7 +659,7 @@ async function appLocationFromEvents(options = {}) {
           $gt: ['$report.at', {
             $max: {
               $map: {
-                input: { $filter: { input: '$removals', as: 'r', cond: { $eq: ['$$r.name', '$report.apps.name'] } } },
+                input: { $filter: { input: '$removals', as: 'r', cond: { $in: ['$report.apps.name', '$$r.names'] } } },
                 as: 'r',
                 in: '$$r.at',
               },

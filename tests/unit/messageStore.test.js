@@ -1134,7 +1134,16 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppRemovedMessage(message);
 
       expect(result).to.be.instanceOf(Error);
-      expect(result.message).to.include('appName cannot be empty');
+      expect(result.message).to.include('no app named');
+    });
+
+    it('refuses a version 2 message naming no app', async () => {
+      const result = await messageStore.storeAppRemovedMessage({
+        type: 'fluxappremoved', version: 2, apps: [], broadcastedAt: Date.now(), ip: '192.168.1.1',
+      });
+
+      expect(result).to.be.instanceOf(Error);
+      expect(result.message).to.include('no app named');
     });
 
     it('should store valid removed message and delete the location broadcast no later than it', async () => {
@@ -1389,7 +1398,7 @@ describe('messageStore tests', () => {
       expect(filter.type).to.equal('appremoved');
       expect(filter.dedupKey).to.equal('appremoved:myapp');
       const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
-      expect(JSON.stringify(written.appNameLower)).to.include('"myapp"');
+      expect(JSON.stringify(written.removedNames)).to.include('"myapp"');
     });
 
     it('should store evicted event with createdAt', async () => {

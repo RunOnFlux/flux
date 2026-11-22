@@ -18,6 +18,9 @@ describe('broadcastShape', () => {
     removed: {
       type: 'fluxappremoved', version: 1, ip, broadcastedAt, appName: 'a',
     },
+    'removed together': {
+      type: 'fluxappremoved', version: 2, ip, broadcastedAt, apps: ['a', 'b'],
+    },
     sigterm: {
       type: 'fluxnodesigterm', version: 1, ip, broadcastedAt,
     },
@@ -51,6 +54,9 @@ describe('broadcastShape', () => {
     ['apps that are not a list', { ...running, apps: {} }],
     ['an unknown version', { ...running, version: 3 }],
     ['an install error that is not text', { ...shapes['install error'], error: { $add: [1, 2] } }],
+    ['a removal naming no app', { ...shapes['removed together'], apps: [] }],
+    ['a removal naming an app that is not text', { ...shapes['removed together'], apps: ['a', { $ne: '' }] }],
+    ['a removal naming more apps than a node may hold', { ...shapes['removed together'], apps: Array.from({ length: 201 }, (_, i) => `app${i}`) }],
   ].forEach(([name, data]) => {
     it(`refuses ${name}`, () => {
       expect(wellFormed(data)).to.equal(false);

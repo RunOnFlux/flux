@@ -2127,7 +2127,7 @@ describe('registryManager tests', () => {
         dedupKey: `appremoved:${appName}`,
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
-        appNameLower: appName.toLowerCase(),
+        removedNames: [appName.toLowerCase()],
         data: { ip, appName, broadcastedAt },
         envelope: { version: 1, timestamp: broadcastedAt, pubKey: '04abc', signature: 'sig' },
       };
