@@ -64,12 +64,14 @@ async function componentsOnNode(name) {
 
 /**
  * Removes every installed enterprise app this node cannot decrypt and that was never
- * registered. A read that fails ends the pass with nothing more removed.
+ * registered. Each app's removal is sent as the app is found, and the pass ends once
+ * every removal it sent has. A read that fails sends no further removal.
  * @returns {Promise<string[]>} the names removed
  */
 async function removeUnregisteredEnterpriseApps() {
   const removed = [];
   if (isArcane) return removed;
+  const removals = [];
   try {
     const installed = await appQueryService.installedApps();
     if (installed.status !== 'success') throw new Error('the installed apps could not be read');
@@ -84,18 +86,24 @@ async function removeUnregisteredEnterpriseApps() {
       // eslint-disable-next-line no-await-in-loop
       const components = await componentsOnNode(app.name);
       log.warn(`REMOVAL REASON: Unregistered enterprise app - ${app.name} is installed on a node that cannot decrypt it and was never registered`);
-      // eslint-disable-next-line no-await-in-loop
       // By its docker name: removeAppLocally takes one leading flux off the name it is given.
-      const outcome = await appUninstaller.removeAppLocally(`flux${app.name}`, null, true, false, true, {
-        specifications: {
-          ...app, enterprise: '', compose: components.map((component) => ({ ...component, ports: [] })),
-        },
+      removals.push({
+        name: app.name,
+        removal: appUninstaller.removeAppLocally(`flux${app.name}`, null, true, false, true, {
+          specifications: {
+            ...app, enterprise: '', compose: components.map((component) => ({ ...component, ports: [] })),
+          },
+        }),
       });
-      if (outcome === RemovalOutcome.REMOVED) removed.push(app.name);
     }
   } catch (error) {
     log.error(`removeUnregisteredEnterpriseApps - ${error.message}`);
   }
+  const settled = await Promise.allSettled(removals.map(({ removal }) => removal));
+  settled.forEach((result, index) => {
+    if (result.status === 'rejected') log.error(`removeUnregisteredEnterpriseApps - ${removals[index].name}: ${result.reason.message}`);
+    else if (result.value === RemovalOutcome.REMOVED) removed.push(removals[index].name);
+  });
   return removed;
 }
 

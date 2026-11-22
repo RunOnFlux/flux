@@ -421,6 +421,22 @@ describe('advancedWorkflows tests', () => {
   describe('checkAndRemoveEnterpriseAppsOnNonArcane', () => {
     afterEach(() => sinon.restore());
 
+    // Removals of different apps run at once: each app has its own manager.
+    it('sends every removal before any of them ends', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([{ name: 'enta', compose: [{ name: 'web' }] }, { name: 'entb', compose: [{ name: 'web' }] }]);
+      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async (_db, _collection, query) => ({ name: query.name, version: 8, enterprise: 'blob' }));
+      const ends = Promise.withResolvers();
+      const remove = sinon.stub(appUninstaller, 'removeAppLocally').callsFake(() => ends.promise);
+
+      const check = advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
+      await new Promise((resolve) => { setTimeout(resolve, 10); });
+
+      expect(remove.getCalls().map((call) => call.args[0])).to.deep.equal(['enta', 'entb']);
+      ends.resolve('removed');
+      await check;
+    });
+
     it('runs again once the registry it could not read answers, and not after', async () => {
       const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });

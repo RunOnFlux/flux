@@ -138,6 +138,33 @@ describe('appInspector tests', () => {
     });
   });
 
+  describe('monitorSharedDBApps sends together', () => {
+    // Removals of different apps run at once: each app has its own manager.
+    it('sends every removal before any of them ends', async () => {
+      const sharedDbApp = (name) => ({
+        name, version: 4, compose: [{ name: 'operator', repotag: 'runonflux/shared-db:latest', ports: [31000, 31001] }],
+      });
+      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': {
+          decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
+        },
+        '../serviceHelper': {
+          axiosGet: sinon.stub().resolves({ data: { status: 'UNINSTALL' } }),
+          delay: sinon.stub().returns(new Promise(() => {})),
+        },
+      });
+      const ends = Promise.withResolvers();
+      const removeAppLocally = sinon.stub().callsFake(() => ends.promise);
+
+      inspector.monitorSharedDBApps(sinon.stub().resolves({ status: 'success', data: [sharedDbApp('first'), sharedDbApp('second')] }), removeAppLocally);
+      await new Promise((resolve) => { setTimeout(resolve, 10); });
+
+      expect(removeAppLocally.getCalls().map((call) => call.args[0])).to.deep.equal(['first', 'second']);
+      ends.resolve('removed');
+    });
+  });
+
   describe('checkStorageSpaceForApps', () => {
     const LIMIT_BYTES = (1 + 1) * 1000 * 1024 * 1024;
     let inspector;

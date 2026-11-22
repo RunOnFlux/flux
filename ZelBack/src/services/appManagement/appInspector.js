@@ -1186,6 +1186,9 @@ async function monitorSharedDBApps(installedApps, removeAppLocally) {
     // Decrypt enterprise apps (version 8 with encrypted content)
     ({ inPlace: appsInstalled.data } = await decryptEnterpriseApps(appsInstalled.data));
 
+    // Each app's removal is sent as the app is found; the pass ends once every
+    // removal it sent has.
+    const removals = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data.filter((app) => app.version > 3)) {
       const componentUsingSharedDB = installedApp.compose.find((comp) => comp.repotag.includes('runonflux/shared-db'));
@@ -1202,8 +1205,7 @@ async function monitorSharedDBApps(installedApps, removeAppLocally) {
             if (operatorStatus.data.status === 'UNINSTALL') {
               log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is UNINSTALL, going to uninstall the app`);
               log.warn(`REMOVAL REASON: Operator uninstall request - ${installedApp.name} operator status set to UNINSTALL (sharedDB monitoring)`);
-              // eslint-disable-next-line no-await-in-loop
-              await removeAppLocally(installedApp.name, null, true, false, true);
+              removals.push({ name: installedApp.name, removal: removeAppLocally(installedApp.name, null, true, false, true) });
             } else {
               log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is ${operatorStatus.data.status}`);
             }
@@ -1213,6 +1215,10 @@ async function monitorSharedDBApps(installedApps, removeAppLocally) {
         }
       }
     }
+    const settled = await Promise.allSettled(removals.map(({ removal }) => removal));
+    settled.forEach((result, index) => {
+      if (result.status === 'rejected') log.error(`monitorSharedDBApps: ${removals[index].name} removal error: ${result.reason}`);
+    });
   } catch (error) {
     log.error(`monitorSharedDBApps: ${error}`);
   } finally {

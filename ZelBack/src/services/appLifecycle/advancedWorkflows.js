@@ -532,6 +532,9 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
       return;
     }
 
+    // Each app's removal is sent as the app is found; the check ends once every
+    // removal it sent has.
+    const removals = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of installedApps) {
       try {
@@ -567,10 +570,7 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
           // eslint-disable-next-line global-require
           const appUninstaller = require('./appUninstaller');
 
-          // eslint-disable-next-line no-await-in-loop
-          const outcome = await appUninstaller.removeAppLocally(installedApp.name, null, true, true, true);
-
-          log.info(`Enterprise app ${installedApp.name} on a non-arcaneOS node: removal ${outcome}`);
+          removals.push({ name: installedApp.name, removal: appUninstaller.removeAppLocally(installedApp.name, null, true, true, true) });
         }
       } catch (error) {
         log.error(`Error processing app ${installedApp.name} for enterprise check:`, error);
@@ -578,6 +578,16 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
         // Continue with next app even if this one fails
       }
     }
+    const settled = await Promise.allSettled(removals.map(({ removal }) => removal));
+    settled.forEach((result, index) => {
+      const { name } = removals[index];
+      if (result.status === 'fulfilled') {
+        log.info(`Enterprise app ${name} on a non-arcaneOS node: removal ${result.value}`);
+        return;
+      }
+      log.error(`Error removing enterprise app ${name} for enterprise check:`, result.reason);
+      if (dbHelper.isDatabaseError(result.reason)) unread = true;
+    });
 
     log.info('Enterprise app compatibility check completed');
   } catch (error) {

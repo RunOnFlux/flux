@@ -257,14 +257,14 @@ async function cleanupOwnershipViolations() {
 
   const role = enterprise ? 'enterprise-network' : 'non-enterprise-network';
   log.warn(`enterpriseNetwork: ${role} node has ${offenders.length} locally-installed app(s) with disallowed owner, uninstalling`);
-  // eslint-disable-next-line no-restricted-syntax
-  for (const app of offenders) {
+  const settled = await Promise.allSettled(offenders.map((app) => {
     log.warn(`REMOVAL REASON: ${role} node, app ${app.name} owner ${app.owner} disallowed by enterprise network split (enterpriseNetwork)`);
-    // Let exceptions propagate so the scheduler can retry on the next tick;
-    // a half-applied cleanup is fine to resume — subsequent runs re-query the db.
-    // eslint-disable-next-line no-await-in-loop
-    await appUninstaller.removeAppLocally(app.name, null, true, true, true);
-  }
+    return appUninstaller.removeAppLocally(app.name, null, true, true, true);
+  }));
+  // A removal that threw is thrown on, once every removal has ended, so the
+  // scheduler runs the sweep again on its next tick; each run reads the apps again.
+  const failed = settled.find((result) => result.status === 'rejected');
+  if (failed) throw failed.reason;
 }
 
 /**

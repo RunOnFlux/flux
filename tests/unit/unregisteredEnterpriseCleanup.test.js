@@ -151,6 +151,20 @@ describe('unregisteredEnterpriseCleanup', () => {
     expect(removeAppLocally.firstCall.args[0]).to.equal('fluxhelloworld3514967465');
   });
 
+  // Removals of different apps run at once: each app has its own manager.
+  it('sends every removal before any of them ends', async () => {
+    installed = [leftover(), leftover({ name: 'helloworld3514967465' })];
+    const ends = Promise.withResolvers();
+    removeAppLocally.callsFake(() => ends.promise);
+
+    const pass = load().removeUnregisteredEnterpriseApps();
+    await new Promise((resolve) => { setTimeout(resolve, 10); });
+
+    expect(removeAppLocally.getCalls().map((call) => call.args[0])).to.deep.equal(['fluxfluxnode3865700434', 'fluxhelloworld3514967465']);
+    ends.resolve(RemovalOutcome.REMOVED);
+    expect(await pass).to.deep.equal(['fluxnode3865700434', 'helloworld3514967465']);
+  });
+
   it('reports only the apps whose removal completed', async () => {
     installed = [leftover(), leftover({ name: 'helloworld3514967465' })];
     removeAppLocally.withArgs('fluxfluxnode3865700434').resolves(RemovalOutcome.FAILED);
