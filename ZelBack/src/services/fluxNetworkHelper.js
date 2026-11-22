@@ -14,6 +14,7 @@ const util = require('util');
 const log = require('../lib/log');
 const { callerAddress, socketPath } = require('./utils/apiSocket');
 const publicPorts = require('./utils/publicPorts');
+const spawnerControl = require('./utils/spawnerControl');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
@@ -2231,6 +2232,11 @@ async function confirmOwnAddress(record) {
  * finishes a move a failure or a restart left part done and does nothing twice.
  * The move is settled once the chain lists the new address and every app has
  * been handled. Runs only on the own-address queue.
+ *
+ * While the move's apps or its geolocation are still to be handled, the spawner
+ * is stopped: an attempt decided at the old address ends, an install under way is
+ * waited for and then handled with the node's other apps, and the spawner decides
+ * again once the node knows where it now is.
  * @returns {Promise<void>}
  */
 async function reconcileOwnMove() {
@@ -2239,6 +2245,17 @@ async function reconcileOwnMove() {
     await publicPorts.setConfirmedApiPort(extractPort(record.socketAddress));
   }
   if (!record?.movedFrom || !record.movedAt || record.settledAt === record.movedAt) return;
+  const placementDue = record.ipChanged && (record.appsHandledAt !== record.movedAt || record.geolocatedAt !== record.movedAt);
+  if (placementDue) await spawnerControl.duringMove(() => reconcileMoveSteps(record));
+  else await reconcileMoveSteps(record);
+}
+
+/**
+ * The steps of reconcileOwnMove for a move not yet settled.
+ * @param {object} record This node's own address record.
+ * @returns {Promise<void>}
+ */
+async function reconcileMoveSteps(record) {
   const {
     socketAddress: to, movedFrom: from, movedAt, ipChanged, announce,
   } = record;
@@ -2273,7 +2290,7 @@ async function reconcileOwnMove() {
     // Update geolocation service to track IP change and update static IP status
     // eslint-disable-next-line global-require
     const geolocationService = require('./geolocationService');
-    geolocationService.setNodeGeolocation();
+    await geolocationService.setNodeGeolocation();
     await updateOwnAddressRecord({ geolocatedAt: movedAt });
   }
   // Settled only once its apps are handled too: a settled move is not

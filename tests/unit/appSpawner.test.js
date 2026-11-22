@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { SpawnerStopped } = require('../../ZelBack/src/services/utils/spawnerControl');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const { MongoNetworkTimeoutError } = require('mongodb');
@@ -15,6 +16,7 @@ describe('appSpawner tests', () => {
   let globalStateStub;
   let aggregateStub;
   let delayStub;
+  let spawnerControlStub;
   let daemonSyncStub;
   let placementFeasibilityStub;
 
@@ -122,8 +124,17 @@ describe('appSpawner tests', () => {
     // is gone", and the spawner told them apart by matching on error text.
     const installStubRef = opts.installStub ?? sinon.stub().resolves(InstallOutcome.INSTALLED);
 
+    spawnerControlStub = {
+      SpawnerStopped,
+      setRunner: sinon.stub(),
+      setReady: sinon.stub().resolves(),
+      sleep: opts.sleepStub ?? delayStub,
+      holdForInstall: opts.holdForInstall ?? sinon.stub().returns(() => {}),
+    };
+
     appSpawner = proxyquire('../../ZelBack/src/services/appLifecycle/appSpawner', {
       config: configStub,
+      '../utils/spawnerControl': spawnerControlStub,
       '../dbHelper': {
         databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
         aggregateInDatabase: aggregateStub,
@@ -1537,6 +1548,36 @@ describe('appSpawner tests', () => {
       };
     }
 
+    // Readiness lost or a move: what the attempt decided no longer holds.
+    it('withdraws the claim of an attempt the spawner was stopped in, installs nothing, and holds nothing against the app', async () => {
+      const { installStub, withdrawalStub } = await runAttempt({ sleepStub: sinon.stub().rejects(new SpawnerStopped()) });
+
+      expect(installStub.called).to.be.false;
+      expect(withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true)).to.have.lengthOf(1);
+      expect([...globalStateStub.trySpawningGlobalAppCache.keys()], 'the stopped attempt was held against the app').to.deep.equal([]);
+      expect([...globalStateStub.spawnErrorsLongerAppCache.keys()]).to.deep.equal([]);
+    });
+
+    it('installs nothing when the spawner is stopped before its install takes the lock', async () => {
+      const { installStub, withdrawalStub } = await runAttempt({ holdForInstall: sinon.stub().throws(new SpawnerStopped()) });
+
+      expect(installStub.called).to.be.false;
+      expect(withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true)).to.have.lengthOf(1);
+      expect([...globalStateStub.trySpawningGlobalAppCache.keys()]).to.deep.equal([]);
+      expect([...globalStateStub.spawnErrorsLongerAppCache.keys()]).to.deep.equal([]);
+    });
+
+    it('installs under the spawner\'s lock, and lets it go once the install has run', async () => {
+      const letGo = sinon.stub();
+      const holdForInstall = sinon.stub().returns(letGo);
+      const { installStub } = await runAttempt({ holdForInstall });
+
+      sinon.assert.calledOnce(holdForInstall);
+      expect(holdForInstall.calledBefore(installStub)).to.equal(true);
+      sinon.assert.calledOnce(letGo);
+      expect(letGo.calledAfter(installStub)).to.equal(true);
+    });
+
     // An application whose specification this node cannot read contributes
     // nothing to the resource totals the capacity check subtracts from this
     // node's capacity, so the space it believes is free includes space already
@@ -2041,118 +2082,28 @@ describe('appSpawner tests', () => {
       appSyncEvents.removeAllListeners();
     });
 
-    function waitForLoopExits(n, timeoutMs = 2000) {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`Expected ${n} loop exit(s) within ${timeoutMs}ms`)), timeoutMs);
-        const check = () => {
-          const count = logStub.info.getCalls().filter(
-            (c) => c.args[0] === 'Spawn loop exited (paused)',
-          ).length;
-          if (count >= n) { clearTimeout(timer); resolve(); } else { setTimeout(check, 5); }
-        };
-        check();
-      });
-    }
-
-    it('should call trySpawningGlobalApplication repeatedly until paused', async () => {
+    it('runs on the spawner control, started when the node is ready and stopped when readiness is lost', () => {
       buildModule();
-      delayStub.resetBehavior();
-      let iterations = 0;
-      delayStub.callsFake(() => {
-        iterations += 1;
-        if (iterations >= 3) globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
       appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
 
-      expect(aggregateStub.callCount).to.equal(3);
+      sinon.assert.calledOnceWithExactly(spawnerControlStub.setRunner, sinon.match.func);
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      sinon.assert.calledWithExactly(spawnerControlStub.setReady, true);
+      expect(globalStateStub.spawnerPaused).to.equal(false);
+      appSyncEvents.emit(SYNC_EVENTS.READINESS_LOST);
+      sinon.assert.calledWithExactly(spawnerControlStub.setReady, false);
+      expect(globalStateStub.spawnerPaused).to.equal(true);
     });
 
-    it('should exit loop when spawnerPaused set mid-iteration', async () => {
+    it('answers each pass with the ms until the next', async () => {
       buildModule();
-      delayStub.resetBehavior();
-      delayStub.callsFake(() => {
-        globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
       appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
+      const pass = spawnerControlStub.setRunner.firstCall.args[0];
 
-      expect(aggregateStub.callCount).to.equal(1);
-      expect(logStub.info.calledWith('Spawn loop exited (paused)')).to.be.true;
-    });
+      const ms = await pass();
 
-    it('should not start a second loop on duplicate SPAWNER_READY', async () => {
-      buildModule();
-      delayStub.resetBehavior();
-      let iterations = 0;
-      delayStub.callsFake(() => {
-        iterations += 1;
-        if (iterations === 1) {
-          appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-        }
-        if (iterations >= 3) globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
-      appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
-
-      const exitLogs = logStub.info.getCalls().filter(
-        (c) => c.args[0] === 'Spawn loop exited (paused)',
-      );
-      expect(exitLogs).to.have.lengthOf(1);
-      expect(aggregateStub.callCount).to.equal(3);
-    });
-
-    it('should restart loop on SPAWNER_READY after pause', async () => {
-      buildModule();
-      delayStub.resetBehavior();
-      let iterations = 0;
-      delayStub.callsFake(() => {
-        iterations += 1;
-        if (iterations === 2) {
-          appSyncEvents.emit(SYNC_EVENTS.READINESS_LOST);
-        }
-        if (iterations >= 5) globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
-      appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
-
-      expect(aggregateStub.callCount).to.equal(2);
-
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(2);
-
-      expect(aggregateStub.callCount).to.be.gte(4);
-    });
-
-    it('should return delay value from trySpawningGlobalApplication not recurse', async () => {
-      buildModule();
-      delayStub.resetBehavior();
-      const delays = [];
-      delayStub.callsFake((ms) => {
-        delays.push(ms);
-        globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
-      appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
-
-      expect(delays).to.have.lengthOf(1);
-      expect(delays[0]).to.be.a('number');
-      expect(delays[0]).to.be.greaterThan(0);
+      expect(ms).to.be.a('number');
+      expect(ms).to.be.greaterThan(0);
     });
   });
 
