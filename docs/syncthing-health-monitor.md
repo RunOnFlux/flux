@@ -58,41 +58,35 @@ The health monitor runs as part of the main syncthing monitoring cycle:
 ```
 Every 5 minutes (HEALTH_CHECK_INTERVAL_MS):
 │
-├─ 1. Check pre-conditions
-│   ├─ Skip if installation in progress
-│   ├─ Skip if removal in progress
-│   ├─ Skip if soft redeploy in progress
-│   ├─ Skip if hard redeploy in progress
-│   ├─ Skip if backup in progress
-│   └─ Skip if restore in progress
+├─ 1. Get peer sync diagnostics from Syncthing API
 │
-├─ 2. Get peer sync diagnostics from Syncthing API
-│
-├─ 3. For each configured folder:
+├─ 2. For each configured folder:
 │   │
-│   ├─ 3a. Extract app name from folder ID
+│   ├─ 2a. Skip if an operation holds its app
+│   │
+│   ├─ 2b. Extract app name from folder ID
 │   │   └─ fluxmyapp → myapp
 │   │   └─ fluxweb_myapp → myapp (compose app)
 │   │
-│   ├─ 3b. Check if app is ready (restarted === true)
+│   ├─ 2c. Check if app is ready (restarted === true)
 │   │   └─ Skip if not ready
 │   │
-│   ├─ 3c. Get/create health status for folder
+│   ├─ 2d. Get/create health status for folder
 │   │
-│   ├─ 3d. Detect issues:
+│   ├─ 2e. Detect issues:
 │   │   ├─ Global isolation (no peers connected)
 │   │   ├─ Cannot sync (all folder peers disconnected)
 │   │   └─ Peers behind + not syncing OR stalled
 │   │
-│   ├─ 3e. Determine action based on issue duration
+│   ├─ 2f. Determine action based on issue duration
 │   │
-│   ├─ 3f. Execute corrective action if needed
+│   ├─ 2g. Execute corrective action if needed
 │   │
-│   └─ 3g. Auto-restart if issues resolved
+│   └─ 2h. Auto-restart if issues resolved
 │
-├─ 4. Clean up cache for deleted folders
+├─ 3. Clean up cache for deleted folders
 │
-└─ 5. Return results summary
+└─ 4. Return results summary
 ```
 
 ### Execution Flow
@@ -311,31 +305,26 @@ if (!appCache || appCache.restarted !== true) {
 
 ### When Apps Are Marked Ready
 
-Apps are marked ready (`restarted: true`) in `syncthingFolderStateMachine.js` after:
+Apps are marked ready (`restarted: true`) in `syncthingFolderStateMachine.js` when:
 
-1. **First Run Completion** - Initial Syncthing setup complete
-2. **Leader Election** - Node becomes designated leader in sendreceive mode
-3. **Sync Completion** - Folder reaches 100% synchronization
-4. **Timeout Fallback** - Maximum execution count reached
+1. **Seed** - the node wins the leader election and its folder passes the sendreceive safety check
+2. **Empty cluster join** - no peer publishes anything, so what this copy holds is everything the cluster has
+3. **Sync completion** - the folder is fully synced and the disk holds what the index claims
+4. **Already sending** - the folder is found sendreceive
+5. **Running `g:` primary** - a `g:` component found running is the primary, and its copy is the source
+6. **Stall removal** - the app was removed after repeated nudges made no progress
 
-Also set during soft/hard redeploys in `advancedWorkflows.js`.
+A restore also marks each folder it restored as ready (`advancedWorkflows.js`): that copy is the one the other instances take.
 
 ### Skip Conditions (Prevents Race Conditions)
 
-```javascript
-if (state.installationInProgress ||
-    state.removalInProgress ||
-    state.softRedeployInProgress ||
-    state.hardRedeployInProgress) {
-  log.info('Skipping health check, other operations in progress');
-  return { checked: false, actions: [] };
-}
+A folder is skipped while an operation (install, removal, redeploy, backup, restore) holds its app. Every other app's folders are checked:
 
-// Skip if backup or restore in progress
-if ((state.backupInProgress && state.backupInProgress.length > 0) ||
-    (state.restoreInProgress && state.restoreInProgress.length > 0)) {
-  log.info('Skipping health check, backup or restore in progress');
-  return { checked: false, actions: [] };
+```javascript
+const base = dockerService.getBaseAppName(folderId);
+if (state.heldApps.includes(base.includes('_') ? base.split('_')[1] : base)) {
+  log.info(`monitorFolderHealth - Skipping ${folderId}, an operation holds its app`);
+  continue;
 }
 ```
 
@@ -668,14 +657,14 @@ try {
 
 The service has comprehensive unit tests covering:
 
-- **46 test cases** in `tests/unit/syncthingHealthMonitor.test.js`
+- `tests/unit/syncthingHealthMonitor.test.js`
 - Helper functions (extractAppNameFromFolderId, getOrCreateHealthStatus, resetHealthStatus)
 - Query functions (shouldRemoveFolder, getHealthSummary)
 - Issue detection (isolation, cannot sync, peers behind, stalled sync)
 - Escalating actions (warning, stop, restart syncthing, remove)
 - Automatic recovery
 - Edge cases (first check, component names, multiple folders, error handling)
-- Skip conditions (installation, removal, redeploy, backup, restore in progress)
+- Skip conditions (folders of an app an operation holds; apps not yet ready)
 - Backwards compatibility
 
 Run tests:
