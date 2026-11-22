@@ -7787,10 +7787,9 @@ describe('advancedWorkflows tests', () => {
     });
 
     // force=true, which nothing else here drives. The hard path reinstalls through
-    // registerAppLocally, and its failure branch force-uninstalls the app and
-    // reports that removal with a SUCCESS envelope. A caller reading the envelope
-    // the stream closes on - the rule this suite pins elsewhere - would read a
-    // destroyed app as a completed redeploy.
+    // registerAppLocally, and a caller judges the redeploy by the envelope the
+    // stream closes on - the rule this suite pins elsewhere - so it must name the
+    // failure, whatever the installer wrote before it.
     it('does not end a failed hard redeploy on the teardown\'s success message', async () => {
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
       sinon.stub(appInstaller, 'registerAppLocally').callsFake(async (spec, component, response) => {

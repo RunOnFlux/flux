@@ -1717,6 +1717,30 @@ describe('appInstaller tests', () => {
       expect(result).to.equal(InstallOutcome.FAILED);
     });
 
+    it('tears down a whole app whose install fails', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const installer = buildFailingInstaller(removeAppLocallyStub);
+
+      const result = await installer.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(result).to.equal(InstallOutcome.FAILED);
+      sinon.assert.calledOnce(removeAppLocallyStub);
+    });
+
+    // One component of an installed app: the app's row and its other components
+    // stay, and the caller hands the component to the reconciler.
+    it('removes nothing when one component of an installed app fails to install', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const installer = buildFailingInstaller(removeAppLocallyStub, { alreadyInstalled: true });
+      const { version, ...component } = { ...appSpec, name: 'web' };
+
+      const result = await installer.registerAppLocally(appSpec, component, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(version).to.equal(2);
+      expect(result).to.equal(InstallOutcome.FAILED);
+      sinon.assert.notCalled(removeAppLocallyStub);
+    });
+
     it('tells the network the first 1000 characters of an install error', async () => {
       messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
       const signBroadcast = sinon.stub().resolves();

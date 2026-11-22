@@ -689,6 +689,13 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     }
     if (error instanceof operationRegistry.OperationPreemptedError) throw error;
 
+    // One component of an installed app: the app's row and its other components
+    // stay, and the caller hands the component to the reconciler.
+    if (componentSpecs) {
+      log.warn(`Component ${componentSpecs.name} of ${appSpecs.name} was not installed: ${error.message}. The app stays installed.`);
+      return InstallOutcome.FAILED;
+    }
+
     if (!test) {
       const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
       log.info(removeStatus);
@@ -704,9 +711,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
     }
 
-    // The app is gone from this node - the teardown above removed it. A caller
-    // that reads this as "nothing happened" leaves a half-removed app behind;
-    // one that reads BUSY as this destroys a running app for a scheduling
+    // A whole app is gone from this node - the teardown above removed it. A
+    // caller that reads this as "nothing happened" leaves a half-removed app
+    // behind; one that reads BUSY as this destroys a running app for a scheduling
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
@@ -755,6 +762,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
  *
  * A throw is reported under FAILED: the app is in whatever state the teardown reached, which
  * is what FAILED means everywhere else.
+ *
+ * Installing one component of an installed app, FAILED removes nothing: the app's row and
+ * its other components stay, and the component is the caller's to hand to the reconciler.
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications, when one component is being installed.
  * @param {object} res Response stream, when a caller holds one.
