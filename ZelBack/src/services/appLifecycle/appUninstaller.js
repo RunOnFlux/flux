@@ -1290,10 +1290,8 @@ async function removeAppHolding(app, res, endResponse, sendMessage, { specificat
       }
       // The app is gone for good: nothing reconciles an app with no row, so its
       // removal records have no reader left. Only this full-uninstall path clears
-      // them - softRemoveAppLocally deletes the row too, but as one step of a
-      // redeploy whose containers are coming straight back, and its records are
-      // exactly what stops a teardown that fails part way being read as
-      // tampering.
+      // them: a soft redeploy keeps the row, and its records are what stops a
+      // teardown that fails part way being read as tampering.
       dockerService.clearFluxRemovedContainers(appName);
       // Nor is there an app left for boot's location check to decide: an install
       // of the same name from here on is a new app.

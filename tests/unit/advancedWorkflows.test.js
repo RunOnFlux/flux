@@ -5213,7 +5213,6 @@ describe('advancedWorkflows tests', () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
       // Mock other required dependencies for soft redeploy
-      sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
       sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
@@ -5263,7 +5262,6 @@ describe('advancedWorkflows tests', () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
       // Mock other required dependencies
-      sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
       sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
@@ -5307,7 +5305,6 @@ describe('advancedWorkflows tests', () => {
 
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
-      sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
       sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
@@ -7199,10 +7196,7 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  describe('softRedeploy failure handling tests', () => {
-    // A v3 app: softRemoveAppLocally takes the simple, non-composed path, so the
-    // only thing between the spec lookup and the container work is
-    // softUninstallApplication - which is where the production failure landed.
+  describe('a soft redeploy replaces the app in place', () => {
     const v3Spec = {
       version: 3,
       name: 'TestApp',
@@ -7221,125 +7215,151 @@ describe('advancedWorkflows tests', () => {
       tiered: false,
       instances: 3,
     };
+    const newSpec = { ...v3Spec, repotag: 'nginx:1.27', hash: 'newhash' };
 
     let globalState;
     let appUninstaller;
-    let appInstaller;
+    let generalService;
     let serviceHelper;
+    let rowDeleted;
+    let rowWritten;
+    let softUninstall;
+    let installSoft;
+    let removeAppLocally;
+    // the app's row, as the collection holds it
+    let row;
 
     beforeEach(() => {
       /* eslint-disable global-require */
       globalState = require('../../ZelBack/src/services/utils/globalState');
       appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
-      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      generalService = require('../../ZelBack/src/services/generalService');
       serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       /* eslint-enable global-require */
-      // A node past its acquisition window, which is what every redeploy below is
-      // about. mayTearDownToRebuild declines while the gate is shut, and afterEach
-      // closes it again.
+      // A node past its acquisition window: mayTearDownToRebuild declines while
+      // the gate is shut, and afterEach closes it again.
       globalState.policyReady = true;
 
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
       sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      row = v3Spec;
+      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async () => row);
+      rowDeleted = sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(async () => { row = null; });
+      rowWritten = sinon.stub(dbHelper, 'replaceOneInDatabase').callsFake(async (db, collection, query, doc) => {
+        row = doc;
+        return { matchedCount: 1 };
+      });
+      sinon.stub(dbHelper, 'insertOneToDatabase').callsFake(async (db, collection, doc) => {
+        row = doc;
+        return { insertedId: 'row' };
+      });
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appNetworkLinker, 'reconnectLinkedApps').resolves();
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
+      softUninstall = sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      installSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('leaves the app installed when the removal fails part way through', async () => {
-      // The production incident: the reconciler asked to start the component two
-      // seconds earlier, the removal found no container, and the catch answered a
-      // transient race by uninstalling a healthy application - forced, and
-      // broadcast to the network. The removal reached docker and failed there;
-      // nothing about that failure says the app is down.
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
-      const softUninstall = sinon.stub(appUninstaller, 'softUninstallApplication')
-        .rejects(new Error('Container fluxTestApp not found'));
-      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    it('keeps the row, and writes the new specification into it between the old containers and the new', async () => {
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      let rowWhileDown;
+      softUninstall.callsFake(async () => { rowWhileDown = row; });
 
-      await advancedWorkflows.softRedeploy(v3Spec, null);
+      await advancedWorkflows.softRedeploy(newSpec, null);
 
-      expect(softUninstall.calledOnce, 'the removal must have actually reached docker').to.be.true;
-      expect(removeAppLocally.called, 'a failed removal must not uninstall the app').to.be.false;
+      sinon.assert.notCalled(rowDeleted);
+      expect(rowWhileDown, 'the row while the old containers come down').to.equal(v3Spec);
+      expect(row).to.include({ repotag: 'nginx:1.27', hash: 'newhash' });
+      sinon.assert.calledOnceWithMatch(rowWritten, sinon.match.any, sinon.match.any, { name: 'TestApp' }, { repotag: 'nginx:1.27', hash: 'newhash' });
+      sinon.assert.callOrder(softUninstall, rowWritten, installSoft);
+      sinon.assert.calledWith(publish, 'app:softRedeployed', { name: 'TestApp', outcome: InstallOutcome.INSTALLED });
     });
 
-    it('leaves the app installed when the redeploy fails before the removal starts', async () => {
-      // Same gate, earlier failure: the spec lookup throws, so no container was
-      // touched at all.
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
-      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    it('checks the new specification, leaving out the app\'s own share, before anything comes down', async () => {
+      await advancedWorkflows.softRedeploy(newSpec, null);
 
-      await advancedWorkflows.softRedeploy({ name: 'TestApp', version: 7 }, null);
-
-      expect(removeAppLocally.called).to.be.false;
+      sinon.assert.calledWith(appInstaller.checkAppRequirements, newSpec, false, false, false, { replacing: 'TestApp' });
+      sinon.assert.callOrder(appInstaller.checkAppRequirements, softUninstall);
     });
 
-    it('leaves the app down with its data when the step after the removal cannot read the database', async () => {
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
-      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
-      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
-      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    it('takes nothing down when the new specification does not fit, and leaves the app as it was', async () => {
+      appInstaller.checkAppRequirements.rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
 
-      await advancedWorkflows.softRedeploy(v3Spec, null);
+      await advancedWorkflows.softRedeploy(newSpec, null);
 
-      expect(removeAppLocally.called, 'the app was uninstalled because the database did not answer').to.be.false;
+      sinon.assert.notCalled(softUninstall);
+      sinon.assert.notCalled(rowWritten);
+      sinon.assert.notCalled(removeAppLocally);
+    });
+
+    it('removes nothing when the teardown fails part way, and leaves the row', async () => {
+      softUninstall.rejects(new Error('Container fluxTestApp not found'));
+
+      await advancedWorkflows.softRedeploy(newSpec, null);
+
+      sinon.assert.calledOnce(softUninstall);
+      sinon.assert.notCalled(removeAppLocally);
+      sinon.assert.notCalled(rowDeleted);
+    });
+
+    it('removes nothing when the new containers fail, and asks the reconciler to converge each component', async () => {
+      installSoft.rejects(new Error('Not enough space on device'));
+      const enqueue = sinon.stub(appReconciler, 'enqueue');
+      sinon.stub(appReconciler, 'componentIdsOf').resolves(['TestApp']);
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      await advancedWorkflows.softRedeploy(newSpec, null);
+
+      sinon.assert.notCalled(removeAppLocally);
+      sinon.assert.notCalled(rowDeleted);
+      sinon.assert.calledOnce(rowWritten);
+      sinon.assert.calledOnceWithExactly(enqueue, 'TestApp');
+      sinon.assert.calledWith(publish, 'app:softRedeployed', { name: 'TestApp', outcome: InstallOutcome.FAILED });
+    });
+
+    it('removes nothing when the row cannot be written after the teardown', async () => {
+      rowWritten.callsFake(async () => { throw new MongoNetworkTimeoutError('connection timed out'); });
+
+      await advancedWorkflows.softRedeploy(newSpec, null);
+
+      sinon.assert.notCalled(removeAppLocally);
+      sinon.assert.notCalled(installSoft);
+    });
+
+    it('leaves the syncthing ready mark of a synced component as it was', async () => {
+      const synced = { ...newSpec, containerData: 'r:/data' };
+      row = { ...v3Spec, containerData: 'r:/data' };
+      const before = { restarted: false, numberOfExecutions: 2 };
+      globalState.receiveOnlySyncthingAppsCache.set('fluxTestApp', before);
+
+      try {
+        await advancedWorkflows.softRedeploy(synced, null);
+
+        expect(globalState.receiveOnlySyncthingAppsCache.get('fluxTestApp')).to.equal(before);
+      } finally {
+        globalState.receiveOnlySyncthingAppsCache.delete('fluxTestApp');
+      }
     });
 
     // A soft redeploy keeps the app's volume, and with it the node's record of
     // when it took the app, whichever way it ends.
-    it('leaves the placement record alone when the app was removed and the reinstall did not happen', async () => {
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
-      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
-      // a removal of the app is pending by the time the reinstall asks for it,
-      // so the reinstall is refused
-      sinon.stub(appInstaller, 'checkAppRequirements').callsFake(async () => {
-        globalState.departingApps.enter(v3Spec.name);
-        return true;
-      });
+    it('leaves the placement record alone when the new containers fail', async () => {
+      installSoft.rejects(new Error('Not enough space on device'));
+      sinon.stub(appReconciler, 'enqueue');
       const removePlacement = sinon.stub(appPlacements, 'removePlacement').resolves();
       const recordPlacement = sinon.stub(appPlacements, 'recordPlacement').resolves();
-      const publish = sinon.stub(fluxEventBus, 'publish');
 
-      try {
-        await advancedWorkflows.softRedeploy(v3Spec, null);
-      } finally {
-        globalState.departingApps.leave(v3Spec.name);
-      }
-
-      sinon.assert.calledWith(publish, 'app:softRedeployed', { name: v3Spec.name, outcome: InstallOutcome.BUSY });
+      await advancedWorkflows.softRedeploy(newSpec, null);
 
       sinon.assert.notCalled(removePlacement);
       sinon.assert.notCalled(recordPlacement);
-    });
-
-    it('records that a failure after the app is down still force-uninstalls it', async () => {
-      // Pins CURRENT behaviour, not desired behaviour. The gate covers a removal
-      // that never finished; past that point a failure still force-uninstalls
-      // the app and broadcasts the removal. That is the shape that cost a live
-      // app 43 minutes of outage on 2026-08-04 - the removal completed, the
-      // requirements check then failed on RAM, and a healthy app was destroyed.
-      //
-      // Closing that half means not uninstalling here either: release, and leave
-      // down-vs-remove to the reconciler (fluxModels
-      // workstreams/fluxos-core-cutover/SPEC_CHANGE_CONTINUITY.md §1 and §9;
-      // feat/fluxos-v9 already has that shape). This assertion is expected to go
-      // red when that lands, and is here so the change is deliberate.
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
-      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
-      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Not enough space on device'));
-      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-
-      await advancedWorkflows.softRedeploy(v3Spec, null);
-
-      expect(removeAppLocally.calledOnce, 'today the app is force-uninstalled once it is down').to.be.true;
-      // endResponse false - redeployAPI owns the response and closes it; the
-      // teardown closing it made every later write, including the failure that
-      // caused it, land in a response that was already over.
-      expect(removeAppLocally.calledWith('TestApp', null, true, false, true)).to.be.true;
     });
   });
 
@@ -9986,10 +10006,9 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
   });
 
   describe('the callers stop at it', () => {
-    // The soft path tears down through softRemoveAppLocally rather than
-    // removeAppLocally, so what separates a refused redeploy from one that ran is
-    // what reached the caller: a refusal is the only thing written, where a
-    // teardown reports its own progress before anything else can go wrong.
+    // The soft path never calls removeAppLocally, so what separates a refused
+    // redeploy from one that ran is what reached the caller: a refusal is the only
+    // thing written.
     it('softRedeploy takes nothing down while the gate is shut', async () => {
       globalState.policyReady = false;
 
@@ -9999,10 +10018,10 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
       expect(res.write.firstCall.args[0]).to.match(/policy/i);
     });
 
-    it('a canary: softRedeploy with the gate open reaches the teardown', async () => {
+    it('a canary: softRedeploy with the gate open goes past it', async () => {
       await advancedWorkflows.softRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
 
-      expect(res.write.firstCall.args[0], 'the same call must reach softRemoveAppLocally').to.match(/during removal/i);
+      expect(res.write.firstCall.args[0], 'the same call must get past the gate').to.match(/Soft redeploy of plainapp failed/);
     });
 
     it('hardRedeploy takes nothing down while the gate is shut', async () => {
