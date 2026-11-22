@@ -9,6 +9,7 @@ const proxyquire = require('proxyquire').noCallThru();
 const { makePeerIdentityDouble } = require('./peerIdentityTestDouble');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 
 // Create mocks for dependencies
 const syncthingServiceMock = {
@@ -1076,6 +1077,38 @@ describe('syncthingFolderStateMachine tests', () => {
         syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
         expect(await stateMachine.healHeldSharedFolder('test-app'), 'released from a connected peer').to.equal(true);
         sinon.assert.calledOnceWithExactly(appsRuntimeStateMock.setRestoreUnfinished, 'test-app', false);
+      });
+
+      describe('holding the app', () => {
+        afterEach(() => operationRegistry.clear());
+
+        it('holds the app while it decides, so no restore sets a record it then clears', async () => {
+          aPeerHoldsTheData();
+          syncthingServiceMock.getDbStatus.resolves(syncedStatus());
+          let answer;
+          syncthingServiceMock.getDbCompletion.callsFake(() => new Promise((resolve) => { answer = resolve; }));
+
+          const healing = stateMachine.healHeldSharedFolder('test-app');
+          await settle();
+
+          expect(operationRegistry.acquire('test-app', 'restore', 'test'), 'a restore asked for while the heal decides').to.equal(null);
+          syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+          answer({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+          expect(await healing).to.equal(true);
+          expect(operationRegistry.isHeld('test-app'), 'released once the heal ends').to.equal(false);
+        });
+
+        it('does not run while another operation holds the app, and the folder stays held', async () => {
+          aPeerHoldsTheData();
+          syncthingServiceMock.getDbStatus.resolves(syncedStatus({ receiveOnlyChangedDeletes: 3 }));
+          operationRegistry.acquire('test-app', 'restore', 'test');
+
+          expect(await stateMachine.healHeldSharedFolder('test-app')).to.equal(false);
+
+          sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+          sinon.assert.notCalled(appsRuntimeStateMock.setRestoreUnfinished);
+          expect(operationRegistry.get('test-app').type, 'the restore still holds it').to.equal('restore');
+        });
       });
 
       it('reverts nothing when no peer holds the data, and stays held', async () => {

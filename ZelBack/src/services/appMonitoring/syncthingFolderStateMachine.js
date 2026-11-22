@@ -32,6 +32,7 @@ const localChangeCheck = require('./localChangeCheck');
 const syncthingFolderWrites = require('./syncthingFolderWrites');
 const messageHelper = require('../messageHelper');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
+const operationRegistry = require('../utils/operationRegistry');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
 const { componentStateOnOtherHolders, PeerComponent } = require('./peerComponent');
@@ -1361,19 +1362,11 @@ async function statusScannedSinceRestore(appId) {
 }
 
 /**
- * One pass over a folder an unfinished restore holds. Every local change in it is
- * that restore's damage: when a peer holds the data they are reverted to the
- * peers' copy, and once the folder is synced, a peer holds the data and no local
- * change is left, the record is cleared. With no such peer nothing heals it: a
- * restore that finishes, or its owner's start, releases it. Nothing is reverted
- * or cleared on counts syncthing has not scanned since the restore.
- *
- * The peer is one findSyncedPeer shows holds the data, never this node: a folder
- * sending here says nothing about where else its data is.
+ * healHeldFolder's pass, run holding the app.
  * @param {string} appId Folder id.
  * @returns {Promise<boolean>} true once the record is cleared
  */
-async function healHeldFolder(appId) {
+async function healHolding(appId) {
   const syncStatus = await statusScannedSinceRestore(appId);
   if (!syncStatus) {
     fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
@@ -1402,6 +1395,37 @@ async function healHeldFolder(appId) {
   fluxEventBus.count('syncthing:restoreUnfinished', appId, 'healed');
   log.info(`healHeldFolder - ${appId} has synced from a peer that holds the data; the unfinished restore no longer holds it`);
   return true;
+}
+
+/**
+ * One pass over a folder an unfinished restore holds. Every local change in it is
+ * that restore's damage: when a peer holds the data they are reverted to the
+ * peers' copy, and once the folder is synced, a peer holds the data and no local
+ * change is left, the record is cleared. With no such peer nothing heals it: a
+ * restore that finishes, or its owner's start, releases it. Nothing is reverted
+ * or cleared on counts syncthing has not scanned since the restore.
+ *
+ * The peer is one findSyncedPeer shows holds the data, never this node: a folder
+ * sending here says nothing about where else its data is.
+ *
+ * The heal is an operation on the app: it holds the app from its first read to the
+ * clear, so no restore sets a record it then clears. While another operation holds
+ * the app it does not run, and the folder stays held.
+ * @param {string} appId Folder id.
+ * @returns {Promise<boolean>} true once the record is cleared
+ */
+async function healHeldFolder(appId) {
+  const appName = appId.split('_')[1] || appId;
+  const lease = operationRegistry.acquire(appName, 'heal', 'healHeldFolder');
+  if (!lease) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
+    return false;
+  }
+  try {
+    return await healHolding(appId);
+  } finally {
+    operationRegistry.release(appName, lease);
+  }
 }
 
 /**

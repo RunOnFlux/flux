@@ -1,5 +1,6 @@
 // A manager per app: every operation on an app - an install, a removal, a
-// redeploy, a backup, a restore, an owner's start, stop or restart - is sent to
+// redeploy, a backup, a restore, an owner's start, stop or restart, and the heal
+// of a folder an unfinished restore left - is sent to
 // the app's manager with submit(), which runs them one at a time and releases the
 // app when each ends, on every exit. Nothing is released on a timer. When the app
 // is busy, the arriving operation's rule decides:
@@ -11,7 +12,7 @@
 //     is free; a pending one of the same type takes the newest, and every caller
 //     gets its outcome; refused while a removal is pending or running, and while
 //     the app is busy when its caller asks not to wait;
-//   - a backup, a restore or an owner action is taken now or refused.
+//   - a backup, a restore, an owner action or a heal is taken now or refused.
 // A wait is the app's own: a caller that needs no outcome sends and moves on, so
 // one app's wait never holds another. A step of an operation - a redeploy's
 // removal and install - runs under that operation, passed as `parent`. In memory
@@ -27,6 +28,7 @@ const OPERATION_NAMES = Object.freeze({
   backup: 'backup',
   restore: 'restore',
   control: 'start, stop or restart',
+  heal: 'heal',
 });
 
 class OperationPreemptedError extends Error {
@@ -60,7 +62,7 @@ let nextToken = 0;
 /**
  * Takes the app's lease for an operation.
  * @param {string} key The app's name.
- * @param {string} type 'backup' | 'restore' | 'remove' | 'redeploy'.
+ * @param {string} type 'backup' | 'restore' | 'heal' | 'remove' | 'redeploy'.
  * @param {string} owner The taking call site, for diagnostics.
  * @returns {string|null} A release token, or null when another operation holds the app.
  */

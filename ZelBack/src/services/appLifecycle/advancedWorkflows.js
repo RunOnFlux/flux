@@ -2702,10 +2702,6 @@ function refuseHeldApp(appName) {
   if (globalState.unconfirmedApps.has(appName)) throw new Error(`Refused: ${appName} is held until this node confirms it still holds it`);
 }
 
-const OPERATION_NAMES = {
-  backup: 'backup', restore: 'restore', remove: 'removal', redeploy: 'redeploy',
-};
-
 /**
  * Takes the app for a backup or a restore, or refuses while another operation
  * holds it. Synchronous, so two requests for one app cannot both take it.
@@ -2716,7 +2712,7 @@ const OPERATION_NAMES = {
 function takeAppFor(appName, type) {
   const token = operationRegistry.acquire(appName, type, `append ${type} task`);
   if (!token) {
-    throw new Error(`Refused: a ${OPERATION_NAMES[operationRegistry.get(appName).type]} of ${appName} is in progress`);
+    throw new operationRegistry.OperationRefusedError(appName, operationRegistry.get(appName).type);
   }
   return token;
 }
