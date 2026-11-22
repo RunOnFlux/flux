@@ -1067,41 +1067,58 @@ async function createContainersSoft(specificationsToInstall, appName, isComponen
 }
 
 /**
- * To soft register an app locally (with data volume already in existence). Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs soft install. If registration fails, the app is removed locally.
- * @param {object} appSpecs App specifications.
- * @param {object} componentSpecs Component specifications.
+ * Asks the reconciler to converge an app's components after a redeploy or update
+ * that did not bring them back: it recreates each from the app's row, keeps one
+ * that has run here down when it cannot, and removes the app only for one that
+ * never ran here. Nothing is removed here.
+ * @param {object} appSpecs The app's specification, as its row holds it.
+ * @param {string} [componentName] One component, else every component.
+ * @returns {Promise<void>}
+ */
+async function handToReconciler(appSpecs, componentName = null) {
+  const identifiers = componentName
+    ? [`${componentName}_${appSpecs.name}`]
+    : await appReconciler.componentIdsOf([appSpecs]).catch((error) => {
+      log.error(`handToReconciler - the components of ${appSpecs.name} could not be listed: ${error.message}`);
+      return [];
+    });
+  identifiers.forEach((identifier) => appReconciler.enqueue(identifier));
+}
+
+/**
+ * Creates one component's container on the volume it already has, for an app
+ * whose row stays in place. A component that does not come back is the
+ * reconciler's: nothing is removed.
+ * @param {object} appSpecs The app's specification.
+ * @param {object} componentSpecs The component's specification.
  * @param {object} res Response.
  * @param {object} [options]
  * @param {object} [options.parent] The operation this install is a step of.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<string>} One of InstallOutcome.
  */
-async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = null } = {}) {
+async function softInstallComponent(appSpecs, componentSpecs, res, { parent = null } = {}) {
   await fluxosTrial.settled();
-  // cpu, ram, hdd were assigned to correct tiered specs.
-  // get applications specifics from app messages database
-  // check if hash is in blockchain
-  // register and launch according to specifications in message
-  // throw without catching
+  const tell = (message) => {
+    if (res) {
+      res.write(serviceHelper.ensureString(message));
+      if (res.flush) res.flush();
+    }
+  };
+  const fullComponentName = `${componentSpecs.name}_${appSpecs.name}`;
   try {
     // A pending removal of the app removes whatever is installed in its place, so
     // the app takes no install until that removal has finished.
     if (globalState.departingApps.has(appSpecs.name)) {
       const rStatus = messageHelper.createErrorMessage(`Flux App ${appSpecs.name} is being removed`);
       log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
+      tell(rStatus);
       return InstallOutcome.BUSY;
     }
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
       log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
+      tell(rStatus);
       return InstallOutcome.DECLINED;
     }
     // Room on the node for the app, reserved until the operation holding it ends;
@@ -1111,179 +1128,36 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, { parent = 
     } catch (error) {
       const rStatus = messageHelper.createErrorMessage(error.message);
       log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
+      tell(rStatus);
       return InstallOutcome.DECLINED;
     }
-    const appSpecifications = appSpecs;
-    const appComponent = componentSpecs;
-    const appName = appSpecifications.name;
-    let isComponent = !!appComponent;
-    const precheckForInstallation = {
-      status: 'Running initial checks for Flux App...',
-    };
-    log.info(precheckForInstallation);
-    if (res) {
-      res.write(serviceHelper.ensureString(precheckForInstallation));
-      if (res.flush) res.flush();
-    }
-    // connect to mongodb
-    const dbOpenTest = {
-      status: 'Connecting to database...',
-    };
-    log.info(dbOpenTest);
-    if (res) {
-      res.write(serviceHelper.ensureString(dbOpenTest));
-      if (res.flush) res.flush();
-    }
-    const dbopen = dbHelper.databaseConnection();
-
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsQuery = { name: appName };
-    const appsProjection = {
-      projection: {
-        _id: 0,
-        name: 1,
-      },
-    };
-
-    // check if app is already installed
-    const checkDb = {
-      status: 'Checking database...',
-    };
-    log.info(checkDb);
-    if (res) {
-      res.write(serviceHelper.ensureString(checkDb));
-      if (res.flush) res.flush();
-    }
-    const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    if (appResult && !isComponent) {
-      const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
-      return InstallOutcome.ALREADY_INSTALLED;
-    }
-
-    // Verify the apps this app must be networked with (networkWith token in the
-    // description) are installed locally and owned by the same owner before any
-    // side effects.
-    await appNetworkLinker.checkAppNetworkRequirements(appSpecifications);
-
-    if (!isComponent) {
-      // One creator for install and heal: idempotent, collision-safe, and
-      // exhaustion-bounded. Replaces the old random-octet + fixed-21-retry loop
-      // that could pick octet 0 (colliding with the base network) and throw while
-      // subnets were still free, escalating a soft-register to an uninstall.
-      // Dynamic require because appInstaller <-> advancedWorkflows is a circular
-      // dependency (dynamically required throughout this file); to be untangled in v9.
-      const appInstaller = require('./appInstaller');
-      await appInstaller.ensureAppDockerNetwork(appName, res);
-    }
-
-    const appInstallation = {
-      status: isComponent ? `Initiating Flux App component ${appComponent.name} installation...` : `Initiating Flux App ${appName} installation...`,
-    };
+    const appInstallation = { status: `Initiating Flux App component ${componentSpecs.name} installation...` };
     log.info(appInstallation);
-    if (res) {
-      res.write(serviceHelper.ensureString(appInstallation));
-      if (res.flush) res.flush();
-    }
-    if (!isComponent) {
-      // register the app
+    tell(appInstallation);
+    const component = componentSpecs;
+    component.cpu = component[`cpu${tier}`] || component.cpu;
+    component.ram = component[`ram${tier}`] || component.ram;
+    component.hdd = component[`hdd${tier}`] || component.hdd;
+    await createContainersSoft(component, appSpecs.name, true, appSpecs, tier, res, parent?.signal);
 
-      const isEnterprise = Boolean(
-        appSpecifications.version >= 8 && appSpecifications.enterprise,
-      );
-
-      const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
-
-      if (isEnterprise) {
-        dbSpecs.compose = [];
-        dbSpecs.contacts = [];
-      }
-
-      const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
-      if (!insertResult) {
-        throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name} in soft registration. Database insert returned undefined - likely duplicate key error or database failure. Aborting soft registration to prevent orphaned Docker containers.`);
-      }
-      log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation (soft registration)`);
-      folderStates.installed(appSpecifications);
-      const hddTier = `hdd${tier}`;
-      const ramTier = `ram${tier}`;
-      const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-    } else {
-      const hddTier = `hdd${tier}`;
-      const ramTier = `ram${tier}`;
-      const cpuTier = `cpu${tier}`;
-      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-      appComponent.ram = appComponent[ramTier] || appComponent.ram;
-      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
-    }
-
-    const specificationsToInstall = isComponent ? appComponent : appSpecifications;
-    await createContainersSoft(specificationsToInstall, appName, isComponent, appSpecifications, tier, res, parent?.signal);
-
-    // Reconnect any locally installed apps that are networked with this app.
-    if (!appComponent) {
-      await appNetworkLinker.reconnectLinkedApps(appName);
-    }
-
-    // all done message
-    const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
+    const successStatus = messageHelper.createSuccessMessage(`Flux App component ${fullComponentName} successfully installed and launched`);
     log.info(successStatus);
-    if (res) {
-      // Written, not closed. Every caller here is mid-stream on a response its
-      // own endpoint opened, and closing it from inside the installer is what
-      // left that endpoint writing into a finished response.
-      res.write(serviceHelper.ensureString(successStatus));
-      if (res.flush) res.flush();
-    }
+    // Written, not closed: every caller is mid-stream on a response its own
+    // endpoint opened.
+    tell(successStatus);
     return InstallOutcome.INSTALLED;
   } catch (error) {
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
+    const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
     log.error(errorResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
-      if (res.flush) res.flush();
-    }
+    tell(errorResponse);
     // An install a removal stopped is that removal's to take down and tell.
     if (error instanceof operationRegistry.OperationPreemptedError) throw error;
     if (dbHelper.isDatabaseError(error)) {
-      // A soft registration keeps the app's data, and the teardown below would not:
-      // a database that did not answer is no reason to destroy it.
-      log.warn(`Soft registration of ${appSpecs.name} stopped: the database did not answer (${error.message}). Nothing is torn down.`);
+      log.warn(`Soft install of ${fullComponentName} stopped: the database did not answer (${error.message}).`);
       return InstallOutcome.DEFERRED;
     }
-    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
-    log.info(removeStatus);
-    log.warn(`REMOVAL REASON: Soft registration failure - ${appSpecs.name} failed during soft registration: ${error.message} (softRegisterAppLocally)`);
-    if (res) {
-      res.write(serviceHelper.ensureString(removeStatus));
-      if (res.flush) res.flush();
-    }
-    // eslint-disable-next-line global-require
-    const appUninstaller = require('./appUninstaller');
-    // The teardown reports its progress into this response, and the endpoint
-    // closes it the moment this function returns - so it finishes first. A write
-    // arriving after the close is ERR_STREAM_WRITE_AFTER_END on a response still
-    // draining to a browser, which reaches apiServer's uncaughtException handler
-    // and exits the node.
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true, { parent });
-    // The app is gone from this node, and the network told. A caller that reads
-    // this outcome the same as a refusal either announces an installation that is
-    // not there, or destroys a running app over a scheduling collision.
+    log.warn(`Soft install of ${fullComponentName} failed: ${error.message}. The app stays installed, and the reconciler recreates what is missing.`);
+    await handToReconciler(appSpecs, componentSpecs.name);
     return InstallOutcome.FAILED;
   }
 }
@@ -1557,6 +1431,9 @@ async function softRedeployApp(appSpecs, res, op) {
     tell(appRedeployResponse);
 
     await dbHelper.replaceOneInDatabase(appsDatabase, localAppsInformation, appsQuery, withoutEnterpriseSecrets([appSpecs])[0]);
+    // a folder the new specification adds has not been looked at; one it keeps
+    // keeps its state
+    folderStates.installed(appSpecs);
     await appInstaller.ensureAppDockerNetwork(appSpecs.name, res);
     await createContainersSoft(appSpecs, appSpecs.name, false, appSpecs, tier, res, op.signal);
     await appNetworkLinker.reconnectLinkedApps(appSpecs.name);
@@ -1720,16 +1597,11 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
 
       // Register component
       log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
-      const outcome = await softRegisterAppLocally(appSpecifications, componentSpec, res, { parent: op });
+      const outcome = await softInstallComponent(appSpecifications, componentSpec, res, { parent: op });
       if (outcome !== InstallOutcome.INSTALLED) {
-        // Neither outcome reaches the catch below, which would uninstall the
-        // WHOLE app over one component: a scheduling collision is not grounds
-        // for that, and on FAILED the installer's teardown is already running.
-        //
-        // What neither outcome does is put the component back. The soft removal
-        // above has taken it down, so this node is left short a component with
-        // nothing announcing it - the same gap the whole-app path has, and left
-        // to v9's operation registry for the same reason.
+        // The component is down and the app's row describes it: the reconciler
+        // recreates it, and nothing is removed.
+        await handToReconciler(appSpecifications, componentName);
         const notReinstalled = messageHelper.createErrorMessage(
           `Component ${fullComponentName} was not reinstalled (${outcome})`,
         );
@@ -1771,16 +1643,10 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
           + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.');
         throw error;
       }
-      if (dbHelper.isDatabaseError(error)) {
-        // Uninstalling the whole app takes every other component's data with it,
-        // and a database that did not answer says nothing about any of them.
-        log.warn(`Component ${fullComponentName} was not reinstalled: the database did not answer (${error.message}). The app is not uninstalled.`);
-        throw error;
-      }
-      log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
-      // endResponse false: the endpoint opened this response and closes it.
-      await appUninstaller.removeAppLocally(appName, res, true, false, true, { parent: op });
-      log.info(`Cleanup completed for ${appName} after component ${fullComponentName} soft redeploy failure`);
+      // The component is down and the app's row describes it: the reconciler
+      // recreates it, and nothing is removed.
+      log.warn(`Component ${fullComponentName} was not reinstalled: ${error.message}. The app stays installed, and the reconciler recreates what is missing.`);
+      await handToReconciler(appSpecifications, componentName);
       throw error;
     }
   } catch (error) {
@@ -1866,14 +1732,9 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
       const outcome = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res, false, false, { parent: op });
       if (outcome !== InstallOutcome.INSTALLED) {
-        // Neither outcome reaches the catch below, which would uninstall the
-        // WHOLE app over one component: a scheduling collision is not grounds
-        // for that, and on FAILED the installer's teardown is already running.
-        //
-        // What neither outcome does is put the component back. The soft removal
-        // above has taken it down, so this node is left short a component with
-        // nothing announcing it - the same gap the whole-app path has, and left
-        // to v9's operation registry for the same reason.
+        // A component that did not come back is the reconciler's, from the app's
+        // row.
+        await handToReconciler(appSpecifications, componentName);
         const notReinstalled = messageHelper.createErrorMessage(
           `Component ${fullComponentName} was not reinstalled (${outcome})`,
         );
@@ -1906,16 +1767,10 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
           + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.');
         throw error;
       }
-      if (dbHelper.isDatabaseError(error)) {
-        // Uninstalling the whole app takes every other component's data with it,
-        // and a database that did not answer says nothing about any of them.
-        log.warn(`Component ${fullComponentName} was not reinstalled: the database did not answer (${error.message}). The app is not uninstalled.`);
-        throw error;
-      }
-      log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
-      // endResponse false: the endpoint opened this response and closes it.
-      await appUninstaller.removeAppLocally(appName, res, true, false, true, { parent: op });
-      log.info(`Cleanup completed for ${appName} after component ${fullComponentName} hard redeploy failure`);
+      // The component is down and the app's row describes it: the reconciler
+      // recreates it, and nothing is removed.
+      log.warn(`Component ${fullComponentName} was not reinstalled: ${error.message}. The app stays installed, and the reconciler recreates what is missing.`);
+      await handToReconciler(appSpecifications, componentName);
       throw error;
     }
   } catch (error) {
@@ -4389,9 +4244,7 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
     // reader takes the app's current one from it - what this node reports, what
     // the reconciler rebuilds from, and which directories the syncthing monitor
     // keeps off the network. Neither redeploy below writes it: the uninstalls
-    // here are the ones that KEEP the registration, and both installs are
-    // reached directly rather than through softRegisterAppLocally, which is
-    // what writes it on every other path.
+    // here keep the registration, and the installs create containers only.
     //
     // Ahead of the redeploy, like the composed path above: a pass that reads
     // this mid-redeploy is owed the specification the containers are being
@@ -4540,7 +4393,7 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
           log.warn(`Continuing Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
           await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
           // install the app
-          const outcome = await softRegisterAppLocally(appSpecifications, appComponent, undefined, { parent: op }); // component
+          const outcome = await softInstallComponent(appSpecifications, appComponent, undefined, { parent: op }); // component
           if (outcome !== InstallOutcome.INSTALLED) {
             log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
             allComponentsBack = false;
@@ -4560,6 +4413,7 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
           replaced.push({ component: appComponent.name, hard: true });
         }
       }
+      if (!allComponentsBack) await handToReconciler(appSpecifications);
       // Announced and restarted only if it is actually back.
       if (allComponentsBack) {
         log.warn(`Composed application ${appSpecifications.name} updated.`);
@@ -4577,9 +4431,10 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
         log.warn(`Redeployment of ${appSpecifications.name} stopped: the database did not answer (${error.message}). The app is not uninstalled.`);
         return;
       }
-      log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
-      await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true, { parent: op }); // remove entire app
-      log.info(`Cleanup completed for ${appSpecifications.name} after redeployment failure`);
+      // The row holds the new specification: the reconciler recreates from it
+      // what the update did not, and nothing is removed.
+      log.warn(`Redeployment of ${appSpecifications.name} failed: ${error.message}. The app stays installed, and the reconciler recreates what is missing.`);
+      await handToReconciler(appSpecifications);
     }
   }
 }
@@ -5711,7 +5566,7 @@ function startMasterSlaveApps(globalStateParam, installedApps, https) {
 
 module.exports = {
   createAppVolume,
-  softRegisterAppLocally,
+  softInstallComponent,
   hardRedeploy,
   mayTearDownToRebuild,
   softRedeploy,

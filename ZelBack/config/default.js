@@ -235,6 +235,8 @@ module.exports = {
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    // how long a container must stay up to count as having run on this node
+    firstRunProofMs: 60000,
     // Backstop for images whose entrypoint discards the payload's exit status.
     // A clean exit proves nothing, so for those images restart RATE is the only
     // fault evidence left and this is the only thing that ever paces them.

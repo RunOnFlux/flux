@@ -1004,10 +1004,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, { start = true, signal = null } = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
-  // installed locally and owned by the same owner. Enforced here too — not just
-  // in softRegisterAppLocally — so direct callers that bypass it (container
-  // health recovery, legacy v<=3 redeploys) cannot create a container without
-  // its network links satisfied.
+  // installed locally and owned by the same owner, so no caller creates a
+  // container without its network links satisfied.
   await appNetworkLinker.checkAppNetworkRequirements(fullAppSpecs);
 
   // Setup firewall and UPnP ports (fail fast before downloading images)

@@ -9,6 +9,8 @@ const { classifyVolumeFault } = require('../../ZelBack/src/services/appTampering
 // The real test of what counts as a database failure, borrowed for the same reason.
 const { isDatabaseError } = require('../../ZelBack/src/services/dbHelper');
 const { MongoNetworkTimeoutError } = require('mongodb');
+const config = require('config');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 describe('appReconciler tests', () => {
   let appReconciler;
@@ -72,6 +74,7 @@ describe('appReconciler tests', () => {
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
         recordExit: sinon.stub().resolves(),
+        setSuccessfullyStarted: sinon.stub().resolves(),
         // no stop asked of the container by default: an exit is judged as a death
         stopRequestedSince: sinon.stub().resolves(false),
         clearRestartLadder: sinon.stub().resolves(),
@@ -214,6 +217,70 @@ describe('appReconciler tests', () => {
     // container kept running unwatched with no later pass to notice. The
     // reconciler reaches a running container every pass; it is the one place that
     // can put monitoring back.
+    // A component has run here once a run of it lasts the proof window.
+    describe('the proof that a component has run here', () => {
+      const runningSince = (msAgo) => ({
+        State: {
+          Running: true, Status: 'running', ExitCode: 0, StartedAt: new Date(Date.now() - msAgo).toISOString(),
+        },
+      });
+
+      it('is recorded for a container up through the window', async () => {
+        stubs.dockerService.dockerContainerInspect.resolves(runningSince(config.fluxapps.firstRunProofMs + 1000));
+
+        await appReconciler.reconcile('www_App');
+
+        sinon.assert.calledOnceWithExactly(stubs.appsRuntimeState.setSuccessfullyStarted, 'www_App');
+      });
+
+      it('is not recorded for a container up for less', async () => {
+        stubs.dockerService.dockerContainerInspect.resolves(runningSince(1000));
+
+        await appReconciler.reconcile('www_App');
+
+        sinon.assert.notCalled(stubs.appsRuntimeState.setSuccessfullyStarted);
+      });
+
+      it('is not recorded again once it is', async () => {
+        stubs.dockerService.dockerContainerInspect.resolves(runningSince(config.fluxapps.firstRunProofMs + 1000));
+        stubs.appsRuntimeState.getState.resolves({ hasSuccessfullyStarted: true });
+
+        await appReconciler.reconcile('www_App');
+
+        sinon.assert.notCalled(stubs.appsRuntimeState.setSuccessfullyStarted);
+      });
+
+      it('is recorded from docker\'s record of a run that lasted the window and ended', async () => {
+        const started = Date.now() - 10 * config.fluxapps.firstRunProofMs;
+        stubs.dockerService.dockerContainerInspect.resolves({
+          State: {
+            Running: false,
+            Status: 'exited',
+            ExitCode: 1,
+            StartedAt: new Date(started).toISOString(),
+            FinishedAt: new Date(started + config.fluxapps.firstRunProofMs + 1000).toISOString(),
+          },
+        });
+
+        await appReconciler.reconcile('www_App');
+
+        sinon.assert.calledOnceWithExactly(stubs.appsRuntimeState.setSuccessfullyStarted, 'www_App');
+      });
+
+      it('is not recorded from a run that ended sooner', async () => {
+        const started = Date.now() - 10 * config.fluxapps.firstRunProofMs;
+        stubs.dockerService.dockerContainerInspect.resolves({
+          State: {
+            Running: false, Status: 'exited', ExitCode: 1, StartedAt: new Date(started).toISOString(), FinishedAt: new Date(started + 1000).toISOString(),
+          },
+        });
+
+        await appReconciler.reconcile('www_App');
+
+        sinon.assert.notCalled(stubs.appsRuntimeState.setSuccessfullyStarted);
+      });
+    });
+
     it('puts monitoring back for a running container that has none', async () => {
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
 
@@ -772,13 +839,48 @@ describe('appReconciler tests', () => {
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.false;
     });
 
-    it('removes the app locally when recreation fails (docker reachable)', async () => {
+    it('removes the app when the recreate of a component that never ran here fails', async () => {
       stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
       stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
       stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('boom'));
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.calledOnceWith('App', null, false, true, true)).to.be.true;
+    });
+
+    // A recreate that fails over an image that cannot be pulled, or a bad update,
+    // is no reason to delete an app that has run here, with its data.
+    it('keeps a component that has run here, down, when its recreate fails, and paces the retry', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('manifest unknown'));
+      stubs.appsRuntimeState.getState.resolves({ hasSuccessfullyStarted: true });
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      await appReconciler.reconcile('www_App');
+
+      sinon.assert.notCalled(stubs.appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(stubs.appsRuntimeState.recordRestart, 'www_App');
+      expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.true;
+      sinon.assert.calledWithMatch(publish, 'reconciler:actuated', { identifier: 'www_App', action: 'recreateFailedKept' });
+    });
+
+    it('removes nothing when whether the component has run here cannot be read', async () => {
+      let recreateFailed = false;
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      stubs.containerHealthMonitor.recreateMissingContainers.callsFake(async () => {
+        recreateFailed = true;
+        throw new Error('boom');
+      });
+      stubs.appsRuntimeState.getState.callsFake(async () => {
+        if (recreateFailed) throw new Error('connection reset');
+        return {};
+      });
+
+      await appReconciler.reconcile('www_App');
+
+      sinon.assert.notCalled(stubs.appUninstaller.removeAppLocally);
     });
 
     // "Vanished" requires docker to CONFIRM absence: the reachability probe

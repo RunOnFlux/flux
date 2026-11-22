@@ -191,6 +191,8 @@ const NETWORK_PRUNED_RETRY_MS = 5 * 60 * 1000;
 // under a minute, with the sweep as the backstop. (Docker network events cannot
 // cover this: a container born detached never emits a disconnect.)
 const POST_START_VERIFY_MS = 30 * 1000;
+// how long a run must last for the component to count as having run on this node
+const FIRST_RUN_PROOF_MS = config.fluxapps.firstRunProofMs;
 
 // identifiers whose detach/prune was already recorded as a tampering event, so the
 // paced retries record it once per episode rather than once per attempt (the count
@@ -489,8 +491,9 @@ async function desiredRunState(rawIdentifier) {
 
 /**
  * Recreates a vanished container (no Docker event fires for absence), recording
- * the tampering signals and falling back to local removal on failure — the
- * behavior previously in containerHealthMonitor.monitorAndRecoverApps.
+ * the tampering signals. When the recreate fails, a component that has run on
+ * this node is kept, down, and retried on the restart ladder; the app of one that
+ * never ran here is removed.
  */
 async function recreateMissing(identifier) {
   const mainAppName = identifier.split('_')[1] || identifier;
@@ -549,7 +552,28 @@ async function recreateMissing(identifier) {
     if (appTamperingDetectionService.isNetworkMissingError(err.message)) {
       await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${err.message}`);
     }
-    log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} (appReconciler)`);
+    // A component that has run here is kept, down, and its recreate retried on the
+    // ladder: a recreate that fails (an image that cannot be pulled, a bad
+    // update) is no reason to delete an established app and its data. One that
+    // never ran here is a failed install, and the app is removed. A record that
+    // cannot be read decides nothing.
+    let ranState;
+    try {
+      ranState = await appsRuntimeState.getState(identifier);
+    } catch (stateError) {
+      log.warn(`appReconciler - whether ${identifier} has run here could not be read (${stateError.message}); retrying, not removing`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
+    if (ranState && ranState.hasSuccessfullyStarted) {
+      await appsRuntimeState.recordRestart(identifier);
+      const keptWait = Math.max(await appsRuntimeState.restartWaitMs(identifier).catch(() => 0), MANAGED_RETRY_MS);
+      log.warn(`appReconciler - ${identifier} could not be recreated but has run here; kept down, retrying in ${Math.round(keptWait / 1000)}s`);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreateFailedKept', waitMs: keptWait });
+      scheduleRetry(identifier, keptWait);
+      return;
+    }
+    log.warn(`REMOVAL REASON: Container recreation failure, never ran here - ${mainAppName} (appReconciler)`);
     await appUninstaller.removeAppLocally(mainAppName, null, false, true, true);
   }
 }
@@ -1083,6 +1107,17 @@ async function reconcile(rawIdentifier) {
       // it off, and a stop docker never carried out leaves a running container
       // unmonitored with no later pass to notice.
       appInspector.ensureAppMonitoring(identifier);
+      // A component has run here once a run of it lasts the proof window. Until
+      // this one has, it is looked at again when it will have.
+      if (!(restartState && restartState.hasSuccessfullyStarted)) {
+        const ranMs = actual.startedAt ? Date.now() - actual.startedAt : 0;
+        if (ranMs >= FIRST_RUN_PROOF_MS) {
+          await appsRuntimeState.setSuccessfullyStarted(identifier);
+          fluxEventBus.publish('reconciler:actuated', { identifier, action: 'firstRunProven' });
+        } else {
+          scheduleRetry(identifier, FIRST_RUN_PROOF_MS - ranMs);
+        }
+      }
       return; // running and properly attached (heal state was cleared above)
     }
     await healDetachedNetwork(identifier, mainAppName, spec);
@@ -1146,6 +1181,15 @@ async function reconcile(rawIdentifier) {
   // its exit code (a stop that outlasts its timeout ends in SIGKILL, 137). The start
   // after it is a deliberate start and, as an owner's start does, begins with a clear
   // ladder. An OOM kill is a death whoever asked for a stop.
+  // Docker's record of the run that ended proves the component ran here when it
+  // lasted the proof window, whether or not a pass saw it running.
+  if (actual.startedAt && actual.finishedAt && actual.finishedAt - actual.startedAt >= FIRST_RUN_PROOF_MS) {
+    const ranState = await appsRuntimeState.getState(identifier).catch(() => undefined);
+    if (ranState !== undefined && !(ranState && ranState.hasSuccessfullyStarted)) {
+      await appsRuntimeState.setSuccessfullyStarted(identifier);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'firstRunProven' });
+    }
+  }
   const stopRequested = !actual.oomKilled && await appsRuntimeState.stopRequestedSince(identifier, actual.startedAt);
   if (stopRequested) await appsRuntimeState.clearRestartLadder(identifier);
   const crashed = !stopRequested && (!!actual.oomKilled || (actual.exitCode !== null && actual.exitCode !== 0));

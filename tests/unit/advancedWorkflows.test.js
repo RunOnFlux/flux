@@ -76,19 +76,20 @@ describe('advancedWorkflows tests', () => {
     sinon.restore();
   });
 
-  describe('softRegisterAppLocally', () => {
+  describe('softInstallComponent', () => {
     // eslint-disable-next-line global-require
     const globalState = require('../../ZelBack/src/services/utils/globalState');
     // eslint-disable-next-line global-require
     const generalService = require('../../ZelBack/src/services/generalService');
 
-    const appSpec = { name: 'testapp' };
+    const component = () => ({ name: 'web', containerData: '/data', cpu: 0.5, ram: 500, hdd: 5 });
+    const appSpec = () => ({ name: 'testapp', version: 4, compose: [component()] });
     const makeRes = () => ({ write: sinon.stub(), flush: sinon.stub() });
 
     it('declines when the tier lookup answers nothing', async () => {
       sinon.stub(generalService, 'nodeTier').resolves(undefined);
 
-      const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+      const result = await advancedWorkflows.softInstallComponent(appSpec(), component(), makeRes());
 
       expect(result).to.equal(InstallOutcome.DECLINED);
     });
@@ -96,134 +97,80 @@ describe('advancedWorkflows tests', () => {
     it('declines when the tier lookup throws', async () => {
       sinon.stub(generalService, 'nodeTier').rejects(new Error('benchmark unreachable'));
 
-      const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+      const result = await advancedWorkflows.softInstallComponent(appSpec(), component(), makeRes());
 
       expect(result).to.equal(InstallOutcome.DECLINED);
     });
 
-    it('stops without tearing anything down when the database does not answer', async () => {
-      // eslint-disable-next-line global-require
-      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+    it('stops, removing nothing, when the database does not answer', async () => {
       sinon.stub(generalService, 'nodeTier').resolves('cumulus');
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
-      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new MongoNetworkTimeoutError('connection timed out'));
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
 
-      const result = await advancedWorkflows.softRegisterAppLocally({ name: 'testapp', version: 3 }, false, makeRes());
+      const result = await advancedWorkflows.softInstallComponent(appSpec(), component(), makeRes());
 
       expect(result).to.equal(InstallOutcome.DEFERRED);
-      expect(removeAppLocally.called, 'a soft registration destroyed the data it exists to keep').to.be.false;
+      sinon.assert.notCalled(removeAppLocally);
     });
 
-    // A soft registration keeps the app's volumes, so a folder that already has a
-    // state keeps it; one the spec adds has not been looked at.
-    it('records a folder the spec adds as not looked at, and keeps the state of one it already has', async () => {
+    it('leaves the app installed when the component does not come back, and asks the reconciler to recreate it', async () => {
       sinon.stub(generalService, 'nodeTier').resolves('cumulus');
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
-      const insert = sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
-      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
-      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
-      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error pulling image'));
-      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      globalState.folderStates.clear();
-      globalState.folderStates.set('fluxkept_softapp', { state: 'measured', bytes: 10, newestModified: 1 });
-
-      await advancedWorkflows.softRegisterAppLocally({
-        name: 'softapp',
-        version: 4,
-        compose: [
-          { name: 'kept', containerData: 'g:/data', cpu: 0.5, ram: 500, hdd: 5 },
-          { name: 'added', containerData: 'g:/data', cpu: 0.5, ram: 500, hdd: 5 },
-        ],
-      }, false, makeRes());
-
-      sinon.assert.called(insert);
-      expect(globalState.folderStates.get('fluxkept_softapp')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
-      expect(globalState.folderStates.get('fluxadded_softapp')).to.deep.equal({ state: 'notLookedAt' });
-      globalState.folderStates.clear();
-    });
-
-    it('removes the app and tells the network when its install fails', async () => {
-      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
-      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
-      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
-      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
       sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error pulling image'));
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      const res = makeRes();
+      const enqueue = sinon.stub(appReconciler, 'enqueue');
 
-      const result = await advancedWorkflows.softRegisterAppLocally({
-        name: 'failedsoftapp', version: 4, compose: [{ name: 'web', containerData: '/data', cpu: 0.5, ram: 500, hdd: 5 }],
-      }, false, res);
+      const result = await advancedWorkflows.softInstallComponent(appSpec(), component(), makeRes());
 
       expect(result).to.equal(InstallOutcome.FAILED);
-      sinon.assert.calledOnceWithExactly(removeAppLocally, 'failedsoftapp', res, true, false, true, { parent: null });
+      sinon.assert.notCalled(removeAppLocally);
+      sinon.assert.calledOnceWithExactly(enqueue, 'web_testapp');
     });
 
     it('leaves an install a removal stopped to that removal, removing nothing', async () => {
       sinon.stub(generalService, 'nodeTier').resolves('cumulus');
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
-      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
-      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
-      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
-      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new operationRegistry.OperationPreemptedError('stoppedapp', 'removal'));
+      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new operationRegistry.OperationPreemptedError('testapp', 'removal'));
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
 
       let thrown = null;
-      await advancedWorkflows.softRegisterAppLocally({
-        name: 'stoppedapp', version: 4, compose: [{ name: 'web', containerData: '/data', cpu: 0.5, ram: 500, hdd: 5 }],
-      }, false, makeRes()).catch((error) => { thrown = error; });
+      await advancedWorkflows.softInstallComponent(appSpec(), component(), makeRes()).catch((error) => { thrown = error; });
 
       expect(thrown).to.be.instanceOf(operationRegistry.OperationPreemptedError);
       sinon.assert.notCalled(removeAppLocally);
     });
 
-    it('registers beside another app\'s install, and leaves that install holding its app', async () => {
+    it('installs beside another app\'s install, and leaves that install holding its app', async () => {
       const other = operationRegistry.acquire('otherapp', 'install', 'test');
       sinon.stub(generalService, 'nodeTier').resolves('cumulus');
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
-      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
-      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
-      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
       sinon.stub(appInstaller, 'installApplicationSoft').resolves();
-      sinon.stub(appNetworkLinker, 'reconnectLinkedApps').resolves();
-      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
 
-      const result = await advancedWorkflows.softRegisterAppLocally({
-        name: 'besideapp', version: 4, compose: [{ name: 'web', containerData: '/data', cpu: 0.5, ram: 500, hdd: 5 }],
-      }, false, makeRes());
+      const result = await advancedWorkflows.softInstallComponent(appSpec(), component(), makeRes());
 
       expect(result, 'refused for another app\'s install').to.equal(InstallOutcome.INSTALLED);
-      expect(operationRegistry.get('otherapp'), 'this registration released the other install\'s app').to.deep.include({ type: 'install' });
+      expect(operationRegistry.get('otherapp'), 'this install released the other install\'s app').to.deep.include({ type: 'install' });
       operationRegistry.release('otherapp', other);
     });
 
     it('declines, touching nothing, an app the node has no room for', async () => {
       sinon.stub(generalService, 'nodeTier').resolves('cumulus');
       hwRequirements.admitApp.rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
-      const insert = sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
+      const installSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
 
-      const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+      const result = await advancedWorkflows.softInstallComponent(appSpec(), component(), makeRes());
 
       expect(result).to.equal(InstallOutcome.DECLINED);
-      sinon.assert.notCalled(insert);
+      sinon.assert.notCalled(installSoft);
     });
 
     it('refuses an app whose removal is pending', async () => {
       const nodeTier = sinon.stub(generalService, 'nodeTier').resolves('cumulus');
-      globalState.departingApps.enter(appSpec.name);
+      globalState.departingApps.enter('testapp');
       try {
-        const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+        const result = await advancedWorkflows.softInstallComponent(appSpec(), component(), makeRes());
 
         expect(result).to.equal(InstallOutcome.BUSY);
         expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
       } finally {
-        globalState.departingApps.leave(appSpec.name);
+        globalState.departingApps.leave('testapp');
       }
     });
   });
@@ -5213,7 +5160,6 @@ describe('advancedWorkflows tests', () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
       // Mock other required dependencies for soft redeploy
-      sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
       // eslint-disable-next-line global-require
@@ -5262,7 +5208,6 @@ describe('advancedWorkflows tests', () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
       // Mock other required dependencies
-      sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
       // eslint-disable-next-line global-require
@@ -5305,7 +5250,6 @@ describe('advancedWorkflows tests', () => {
 
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
-      sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
       // eslint-disable-next-line global-require
@@ -7348,6 +7292,43 @@ describe('advancedWorkflows tests', () => {
       }
     });
 
+    // A folder that already has a state keeps it; one the specification adds has
+    // not been looked at.
+    it('records a folder the specification adds as not looked at, and keeps the state of one it already has', async () => {
+      const kept = {
+        name: 'kept',
+        description: 'kept component',
+        repotag: 'nginx:latest',
+        ports: [31000],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [80],
+        containerData: 'g:/data',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+        tiered: false,
+      };
+      row = {
+        name: 'softapp', version: 4, description: 'soft app', owner: v3Spec.owner, instances: 3, compose: [kept],
+      };
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.folderStates.clear();
+      globalState.folderStates.set('fluxkept_softapp', { state: 'measured', bytes: 10, newestModified: 1 });
+
+      try {
+        await advancedWorkflows.softRedeploy({
+          ...row, compose: [{ ...kept }, { ...kept, name: 'added', ports: [31001] }],
+        }, null);
+
+        expect(globalState.folderStates.get('fluxkept_softapp')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
+        expect(globalState.folderStates.get('fluxadded_softapp')).to.deep.equal({ state: 'notLookedAt' });
+      } finally {
+        globalState.folderStates.clear();
+      }
+    });
+
     // A soft redeploy keeps the app's volume, and with it the node's record of
     // when it took the app, whichever way it ends.
     it('leaves the placement record alone when the new containers fail', async () => {
@@ -7675,10 +7656,10 @@ describe('advancedWorkflows tests', () => {
       expect(res.ended, 'an unclosed response holds the socket until requestTimeout, two hours').to.be.true;
     });
 
-    // softRegisterAppLocally answers a failed install by force-uninstalling the
-    // app and returning normally. Reporting a redeploy off the absence of a throw
-    // announces a component that is not there - and this is the one event that
-    // says a single component was replaced, so nothing else contradicts it.
+    // A failed component install returns normally. Reporting a redeploy off the
+    // absence of a throw announces a component that is not there - and this is
+    // the one event that says a single component was replaced, so nothing else
+    // contradicts it.
     it('does not report a component redeploy that never reinstalled the component', async () => {
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
       appInstaller.installApplicationSoft.rejects(new Error('Error pulling image'));
@@ -7688,30 +7669,20 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflows.redeployComponentAPI(req, res);
 
       const redeployed = publish.getCalls().filter((call) => call.args[0] === 'app:componentRedeployed');
-      expect(redeployed, 'the install failed and the app was uninstalled - nothing was redeployed').to.be.empty;
+      expect(redeployed, 'the install failed - nothing was redeployed').to.be.empty;
     });
 
-    // The teardown answering a failed install reports its progress into the same
-    // response, and parks on a database read before the first of those writes.
-    // The double carries both, because a double that resolves without suspending
-    // leaves nothing for the assertion to catch whatever the code does.
-    it('does not let the teardown report into a response the endpoint has closed', async () => {
+    it('leaves the app installed when the component does not come back, and asks the reconciler to recreate it', async () => {
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
       appInstaller.installApplicationSoft.rejects(new Error('Error pulling image'));
-      appUninstaller.removeAppLocally.callsFake(async (app, response) => {
-        await new Promise((resolve) => { setImmediate(resolve); });
-        if (response) response.write(JSON.stringify({ status: 'Cleaning up database...' }));
-      });
+      const enqueue = sinon.stub(appReconciler, 'enqueue');
       const res = streamingRes();
 
       await advancedWorkflows.redeployComponentAPI(req, res);
-      // A teardown still in flight reports on the next turn. Asserting before it
-      // passes whatever the code does.
-      await new Promise((resolve) => { setImmediate(resolve); });
 
-      expect(appUninstaller.removeAppLocally.calledOnce, 'the failed install tears the app down').to.be.true;
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledWith(enqueue, 'web_myapp');
       expect(res.writesAfterEnd, 'ERR_STREAM_WRITE_AFTER_END reaches apiServer and exits the process').to.be.empty;
-      expect(res.written.join(''), 'the teardown reports into the response while it is still open').to.include('Cleaning up database');
     });
 
     // The section-2 race: the reconciler starts the same component the removal is
@@ -7782,27 +7753,24 @@ describe('advancedWorkflows tests', () => {
       expect(res.writesAfterEnd).to.be.empty;
     });
 
-    // The gate must not be shut. A teardown that COMPLETED and a failure after it
-    // is the case the forced uninstall exists for, and a suite that proved only
-    // the refusals would pass with the fallback deleted altogether.
-    it('still uninstalls when the component came down and the step after it threw', async () => {
+    // A component that came down and a failure after it: the app stays
+    // installed, and the component is the reconciler's.
+    it('removes nothing when the component came down and the step after it threw, and asks the reconciler', async () => {
       sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+      const enqueue = sinon.stub(appReconciler, 'enqueue');
       const res = streamingRes();
 
       await advancedWorkflows.redeployComponentAPI(req, res);
 
-      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
-      const [appNameArg, , force, , sendMessage] = appUninstaller.removeAppLocally.firstCall.args;
-      expect(appNameArg, 'the whole app comes down once its component is already gone').to.equal('myapp');
-      expect(force, 'the fallback is the forced uninstall').to.be.true;
-      expect(sendMessage, 'and it tells the network').to.be.true;
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledWith(enqueue, 'web_myapp');
     });
 
     // The same failure once the stream has started, which is the shape that went
     // silent: headers are gone, so an answer can only go into the stream, and the
     // path that decided to leave the app alone returned without writing one.
     it('tells the caller after progress has already been streamed', async () => {
-      // The install fails without throwing - softRegisterAppLocally answers
+      // The install fails without throwing - softInstallComponent answers
       // FAILED - so this takes the path that RETURNS rather than the catch. That
       // is the one that went silent, and a test driving a throw instead would
       // pass whether or not it was fixed.
@@ -8209,14 +8177,17 @@ describe('advancedWorkflows tests', () => {
       });
     });
 
-    it('a canary: a redeploy that fails for another reason still uninstalls the app', async () => {
+    it('removes nothing when an update fails for another reason, and asks the reconciler', async () => {
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('Insufficient RAM'));
+      sinon.stub(appReconciler, 'componentIdsOf').resolves(['web_myapp']);
+      const enqueue = sinon.stub(appReconciler, 'enqueue');
 
       await advancedWorkflows.reinstallOldApplications();
 
-      sinon.assert.calledOnce(removeAppLocally);
+      sinon.assert.notCalled(removeAppLocally);
+      sinon.assert.calledWith(enqueue, 'web_myapp');
     });
 
     // TWO PASSES ON ONE APP DESTROY IT: the second's teardown removes the
@@ -8244,9 +8215,8 @@ describe('advancedWorkflows tests', () => {
     });
 
     // THE LOCAL ROW IS WHERE EVERY READER TAKES THE APP'S CURRENT SPECIFICATION FROM,
-    // and a legacy app's redeploy is the one path that reaches the installers directly
-    // rather than through softRegisterAppLocally, which is what writes it everywhere
-    // else. Left unwritten, the containers run the new specification while the row
+    // and a legacy app's redeploy reaches the installers directly, which create
+    // containers only. Left unwritten, the containers run the new specification while the row
     // describes the old one for as long as the app is installed - so the monitor keeps
     // deriving this app's syncthing ignores, and this node keeps reporting it, from a
     // specification that is no longer what it runs.

@@ -688,6 +688,24 @@ async function recordExit(identifier, exitCode) {
 }
 
 /**
+ * Marks that this component has run on this node: the reconciler saw it stay up
+ * through the first-run proof window, or exit cleanly. Docker accepting a start
+ * is not a run: a container that cannot work starts and dies within a second.
+ * Durable, and cleared only by remove(). A component that has run here is kept,
+ * down, when its container cannot be recreated; one that never has is a failed
+ * install.
+ *
+ * @param {string} identifier
+ */
+async function setSuccessfullyStarted(identifier) {
+  try {
+    await setFields(identifier, { hasSuccessfullyStarted: true });
+  } catch (err) {
+    log.error(`appsRuntimeState - failed to record that ${identifier} has run: ${err.message}`);
+  }
+}
+
+/**
  * What survives a component being taken down without its volume.
  *
  * Named as what is KEPT rather than what is cleared, so a controller field
@@ -695,7 +713,7 @@ async function recordExit(identifier, exitCode) {
  * it here. Everything in this list is the node's account of its own storage,
  * which the removal is not touching.
  */
-const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid', 'restoreUnfinished'];
+const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid', 'restoreUnfinished', 'hasSuccessfullyStarted'];
 
 /**
  * Drops the controller state for a component whose volume stays where it is.
@@ -903,6 +921,7 @@ module.exports = {
   networkHealWaitMs,
   clearNetworkHeal,
   recordExit,
+  setSuccessfullyStarted,
   clearRestartLadder,
   recordStopRequested,
   stopRequestedSince,
