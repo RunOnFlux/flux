@@ -458,6 +458,9 @@ module.exports = {
     discoveryMaxIterations: 100,
     nodeMonitorRemovalDelayMs: 5000,
     pullStallMs: 90000,
+    dockerProbeTimeoutMs: 20000,
+    dockerStopSlackMs: 30000,
+    dockerRequestTimeoutMs: 120000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
     syncAnswerBatchBytes: 8 * 1024 * 1024,

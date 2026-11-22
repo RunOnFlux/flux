@@ -37,15 +37,11 @@ describe('appTestRun tests', () => {
     containers = [];
     networks = [];
     created = [];
-    const containerHandle = (id) => ({
-      id,
-      remove: sinon.stub().callsFake(async () => { containers = containers.filter((c) => c.Id !== id); }),
-      start: sinon.stub().resolves(),
-      inspect: sinon.stub().resolves({ State: { Running: true, ExitCode: 0 } }),
-    });
     dockerService = {
       dockerListContainers: sinon.stub().callsFake(async () => [...containers]),
-      getDockerContainer: sinon.stub().callsFake((id) => containerHandle(id)),
+      appDockerForceRemove: sinon.stub().callsFake(async (id) => { containers = containers.filter((c) => c.Id !== id); }),
+      appDockerStart: sinon.stub().resolves(),
+      dockerContainerInspect: sinon.stub().resolves({ State: { Running: true, ExitCode: 0 } }),
       dockerListNetworks: sinon.stub().callsFake(async () => [...networks]),
       dockerGetNetwork: sinon.stub().callsFake((id) => ({ id })),
       dockerRemoveNetwork: sinon.stub().callsFake(async (network) => { networks = networks.filter((n) => n.Id !== network.id); }),
@@ -59,7 +55,7 @@ describe('appTestRun tests', () => {
         containers.push({
           Id: options.name, Names: [`/${options.name}`], Labels: options.Labels, Image: options.Image,
         });
-        return containerHandle(options.name);
+        return { id: options.name };
       }),
       dockerContainerLogs: sinon.stub().resolves('boom'),
     };
@@ -167,14 +163,7 @@ describe('appTestRun tests', () => {
     });
 
     it('reports a container that did not keep running, with its exit code', async () => {
-      dockerService.createContainer.callsFake(async (options) => {
-        containers.push({
-          Id: options.name, Names: [`/${options.name}`], Labels: options.Labels, Image: options.Image,
-        });
-        return {
-          id: options.name, start: sinon.stub().resolves(), inspect: sinon.stub().resolves({ State: { Running: false, ExitCode: 127, OOMKilled: false } }),
-        };
-      });
+      dockerService.dockerContainerInspect.resolves({ State: { Running: false, ExitCode: 127, OOMKilled: false } });
       const response = res();
 
       expect(await appTestRun.run(appSpecs(), response, { pull: sinon.stub().resolves() })).to.equal(false);

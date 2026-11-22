@@ -25,6 +25,84 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const docker = new Docker();
 
+const PROBE_TIMEOUT_MS = config.fluxapps.dockerProbeTimeoutMs;
+const STOP_SLACK_MS = config.fluxapps.dockerStopSlackMs;
+const REQUEST_TIMEOUT_MS = config.fluxapps.dockerRequestTimeoutMs;
+// docker's own stop deadline when a stop names none, and no container sets its own.
+const DEFAULT_STOP_SECONDS = 10;
+
+/**
+ * A deadline for one docker request, as the abort signal docker-modem sets on it.
+ *
+ * Per request, because requests are not alike: a read that cannot answer in seconds
+ * means the daemon is wedged, `docker stop` answers nothing until its container
+ * exits, and a transfer is silent for as long as the image takes. A request past its
+ * deadline is cancelled and rejects as any failed request does, so the operation
+ * holding the app fails and releases it; docker may still complete the request.
+ *
+ * Streams and transfers (pull, exec, events, image export and load), a sized
+ * container listing or inspect, disk usage and the image prune carry none.
+ *
+ * @param {number} ms
+ * @returns {AbortSignal}
+ */
+function deadline(ms) {
+  return AbortSignal.timeout(ms);
+}
+
+/**
+ * The deadline of a stop that asks docker for `seconds` before SIGKILL: docker
+ * answers once the container has exited, so the bound is that wait plus slack.
+ * @param {number} [seconds]
+ * @returns {number} milliseconds
+ */
+function stopBudgetMs(seconds) {
+  return ((seconds ?? DEFAULT_STOP_SECONDS) * 1000) + STOP_SLACK_MS;
+}
+
+/**
+ * Sends one request through docker-modem under a deadline. dockerode's
+ * Network#inspect and Image#inspect do not hand a signal to the request, so the
+ * reads they make go through here.
+ * @param {object} request - docker-modem dial options
+ * @param {number} ms
+ * @returns {Promise<object>}
+ */
+function dialWithin(request, ms) {
+  return new Promise((resolve, reject) => {
+    docker.modem.dial({ ...request, options: {}, abortSignal: deadline(ms) }, (error, data) => {
+      if (error) reject(error);
+      else resolve(data);
+    });
+  });
+}
+
+/**
+ * Inspects a docker network by id or name, under the read deadline.
+ * @param {string} id
+ * @returns {Promise<object>}
+ */
+function inspectNetwork(id) {
+  return dialWithin({
+    path: `/networks/${id}?`,
+    method: 'GET',
+    statusCodes: { 200: true, 404: 'no such network', 500: 'server error' },
+  }, PROBE_TIMEOUT_MS);
+}
+
+/**
+ * Inspects an image by reference or id, under the read deadline.
+ * @param {string} reference
+ * @returns {Promise<object>}
+ */
+function inspectImage(reference) {
+  return dialWithin({
+    path: `/images/${reference}/json`,
+    method: 'GET',
+    statusCodes: { 200: true, 404: 'no such image', 500: 'server error' },
+  }, PROBE_TIMEOUT_MS);
+}
+
 // The code of the error getDockerContainerByIdOrName throws for a container that is not there.
 const CONTAINER_NOT_FOUND = 'CONTAINER_NOT_FOUND';
 
@@ -117,7 +195,7 @@ function getAppDockerNameIdentifier(appName) {
  * @returns {object} Network
  */
 async function dockerCreateNetwork(options) {
-  const network = await docker.createNetwork(options);
+  const network = await docker.createNetwork({ ...options, abortSignal: deadline(REQUEST_TIMEOUT_MS) });
   await applyContainerFirewall();
   return network;
 }
@@ -130,7 +208,7 @@ async function dockerCreateNetwork(options) {
  * @returns {Buffer}
  */
 async function dockerRemoveNetwork(netw) {
-  const network = await netw.remove();
+  const network = await netw.remove({ abortSignal: deadline(REQUEST_TIMEOUT_MS) });
   await applyContainerFirewall();
   return network;
 }
@@ -139,7 +217,7 @@ async function dockerRemoveNetwork(netw) {
  * @returns {Promise<object[]>} Every docker network, as listed.
  */
 async function dockerListNetworks() {
-  return docker.listNetworks();
+  return docker.listNetworks({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
 }
 
 /**
@@ -158,8 +236,7 @@ function dockerGetNetwork(id) {
  * @returns {object} ispect network object
  */
 async function dockerNetworkInspect(netw) {
-  const network = await netw.inspect();
-  return network;
+  return inspectNetwork(netw.id);
 }
 
 /**
@@ -179,6 +256,8 @@ async function dockerListContainers(all, limit, size, filter) {
     size,
     filter,
   };
+  // docker sizes every container's filesystem for a sized listing, which takes as long as the disks do
+  if (!size) options.abortSignal = deadline(PROBE_TIMEOUT_MS);
   const containers = await docker.listContainers(options);
   return containers;
 }
@@ -189,7 +268,7 @@ async function dockerListContainers(all, limit, size, filter) {
  * @returns {array} images list
  */
 async function dockerListImages() {
-  const containers = await docker.listImages();
+  const containers = await docker.listImages({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
   return containers;
 }
 
@@ -231,6 +310,7 @@ async function getDockerContainerByIdOrName(idOrName) {
   let containers = await docker.listContainers({
     all: true,
     filters: JSON.stringify({ name: [getAppIdentifier(idOrName)] }),
+    abortSignal: deadline(PROBE_TIMEOUT_MS),
   });
   let myContainer = containers.find((container) => container.Names[0] === dockerName);
 
@@ -241,6 +321,7 @@ async function getDockerContainerByIdOrName(idOrName) {
     containers = await docker.listContainers({
       all: true,
       filters: JSON.stringify({ id: [idOrName] }),
+      abortSignal: deadline(PROBE_TIMEOUT_MS),
     });
     myContainer = containers.find((container) => container.Id === idOrName);
   }
@@ -278,7 +359,8 @@ function isContainerNotFound(error) {
 async function dockerContainerInspect(idOrName, options = {}) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-  const response = await dockerContainer.inspect(options);
+  // a sized inspect walks the container's filesystem, which takes as long as the disk does
+  const response = await dockerContainer.inspect(options.size ? options : { ...options, abortSignal: deadline(PROBE_TIMEOUT_MS) });
   return response;
 }
 
@@ -294,6 +376,7 @@ async function dockerContainerStats(idOrName) {
 
   const options = {
     stream: false,
+    abortSignal: deadline(PROBE_TIMEOUT_MS),
   };
   const response = await dockerContainer.stats(options); // output hw usage statistics just once
   return response;
@@ -309,7 +392,7 @@ async function dockerContainerChanges(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-  const response = await dockerContainer.changes();
+  const response = await dockerContainer.changes({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
   return response;
 }
 
@@ -489,7 +572,8 @@ async function dockerContainerLogs(idOrName, lines) {
     follow: false,
     stdout: true,
     stderr: true,
-    tail: lines, // TODO FIXME when using tail, some nodes hang on execution, those nodes need to update, upgrade restart docker daemon.
+    tail: lines,
+    abortSignal: deadline(REQUEST_TIMEOUT_MS),
   };
   const logs = await dockerContainer.logs(options);
   return logs;
@@ -587,6 +671,7 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
     stdout: true,
     stderr: true,
     timestamps: true,
+    abortSignal: deadline(REQUEST_TIMEOUT_MS),
   };
 
   // A `since` timestamp is a FILTER; a position is a receipt for lines the reader
@@ -865,7 +950,7 @@ function parseCidrSubnet(cidr) {
  */
 async function getNextAvailableIPForApp(appName) {
   try {
-    const { IPAM, Containers } = await docker.getNetwork(`fluxDockerNetwork_${appName}`).inspect();
+    const { IPAM, Containers } = await inspectNetwork(`fluxDockerNetwork_${appName}`);
     if (!IPAM?.Config?.length) throw new Error('No IPAM configuration found');
 
     const { Subnet, Gateway } = IPAM.Config[0];
@@ -890,7 +975,7 @@ async function getNextAvailableIPForApp(appName) {
     for (const container of filteredContainers) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const containerInfo = await docker.getContainer(container.Id).inspect();
+        const containerInfo = await docker.getContainer(container.Id).inspect({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
         const containerIP = containerInfo.NetworkSettings.Networks[`fluxDockerNetwork_${appName}`]?.IPAMConfig?.IPv4Address;
         if (containerIP && !allocatedIPs.has(containerIP)) {
           allocatedIPs.add(containerIP);
@@ -932,7 +1017,7 @@ async function getNextAvailableIPForApp(appName) {
  */
 const getContainerIP = async (containerName) => {
   try {
-    const container = await docker.getContainer(containerName).inspect();
+    const container = await docker.getContainer(containerName).inspect({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
     const networks = Object.keys(container.NetworkSettings.Networks);
 
     if (!Array.isArray(networks) || networks.length === 0) {
@@ -964,7 +1049,7 @@ const getContainerIP = async (containerName) => {
  * @returns {Promise<object>} dockerode container
  */
 async function createContainer(options) {
-  return docker.createContainer(options);
+  return docker.createContainer({ ...options, abortSignal: deadline(REQUEST_TIMEOUT_MS) });
 }
 
 /**
@@ -1451,7 +1536,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
 
   await expandStorageAndNodeEnv(options.Env, options.Cmd, appName, identifier);
 
-  const app = await docker.createContainer(options).catch((error) => {
+  const app = await docker.createContainer({ ...options, abortSignal: deadline(REQUEST_TIMEOUT_MS) }).catch((error) => {
     log.error(error);
     throw error;
   });
@@ -1480,6 +1565,7 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
     // Update the container's CPU resources
     await dockerContainer.update({
       NanoCpus: limit,
+      abortSignal: deadline(REQUEST_TIMEOUT_MS),
     });
 
     return `Flux App ${idOrName} successfully updated with ${nanoCpus / 1e9} CPUs.`;
@@ -1517,10 +1603,10 @@ async function appDockerStart(idOrName) {
     // container ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-    await requirePlainBindSources(await dockerContainer.inspect());
+    await requirePlainBindSources(await dockerContainer.inspect({ abortSignal: deadline(PROBE_TIMEOUT_MS) }));
 
     globalState.stoppingContainers.delete(getDockerName(idOrName));
-    await dockerContainer.start(); // may throw
+    await dockerContainer.start({ abortSignal: deadline(REQUEST_TIMEOUT_MS) }); // may throw
 
     // Apply CFS burst after start — cgroup paths only exist once the container
     // is running. Eligibility was decided at appDockerCreate time and stamped
@@ -1528,7 +1614,7 @@ async function appDockerStart(idOrName) {
     // is reapplied on every start path (initial install, restart, recovery)
     // without each caller having to know about burst.
     try {
-      const containerInspect = await dockerContainer.inspect();
+      const containerInspect = await dockerContainer.inspect({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
       const dockerLabels = containerInspect.Config?.Labels || {};
       if (dockerLabels['flux.burst.eligible'] === 'true') {
         const cpuCores = parseFloat(dockerLabels['flux.burst.cores']);
@@ -1563,7 +1649,7 @@ async function appDockerStop(idOrName, timeout) {
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   // Check if container is running before attempting to stop
-  const containerInfo = await dockerContainer.inspect();
+  const containerInfo = await dockerContainer.inspect({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
   if (!containerInfo.State.Running) {
     return `Flux App ${idOrName} is already stopped.`;
   }
@@ -1578,6 +1664,7 @@ async function appDockerStop(idOrName, timeout) {
 
   try {
     const opts = timeout !== undefined ? { t: timeout } : {};
+    opts.abortSignal = deadline(stopBudgetMs(timeout));
     await dockerContainer.stop(opts);
   } finally {
     globalState.stoppingContainers.delete(dockerName);
@@ -1598,19 +1685,20 @@ async function appDockerRestart(idOrName) {
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   // Check if container is running
-  const containerInfo = await dockerContainer.inspect();
+  const containerInfo = await dockerContainer.inspect({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
   await requirePlainBindSources(containerInfo);
   if (!containerInfo.State.Running) {
     // If stopped, start it instead of restarting
     globalState.stoppingContainers.delete(getDockerName(idOrName));
-    await dockerContainer.start();
+    await dockerContainer.start({ abortSignal: deadline(REQUEST_TIMEOUT_MS) });
     return `Flux App ${idOrName} was stopped, successfully started.`;
   }
 
   const dockerName = getDockerName(idOrName);
   globalState.stoppingContainers.add(dockerName);
   try {
-    await dockerContainer.restart();
+    // a restart is a stop at docker's own deadline, then a start
+    await dockerContainer.restart({ abortSignal: deadline(stopBudgetMs() + REQUEST_TIMEOUT_MS) });
   } finally {
     globalState.stoppingContainers.delete(dockerName);
   }
@@ -1632,7 +1720,7 @@ async function appDockerKill(idOrName) {
   globalState.stoppingContainers.add(dockerName);
 
   try {
-    await dockerContainer.kill();
+    await dockerContainer.kill({ abortSignal: deadline(REQUEST_TIMEOUT_MS) });
   } finally {
     globalState.stoppingContainers.delete(dockerName);
   }
@@ -1668,7 +1756,7 @@ async function appDockerRemove(idOrName) {
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   globalState.stoppingContainers.delete(getDockerName(idOrName));
-  await dockerContainer.remove();
+  await dockerContainer.remove({ abortSignal: deadline(REQUEST_TIMEOUT_MS) });
   // Recorded only once the container is actually gone - this is a record of what
   // FluxOS removed, and a remove that threw removed nothing.
   if (removalIsWorthRecording(idOrName)) globalState.fluxRemovedContainers.add(getDockerName(idOrName));
@@ -1687,7 +1775,7 @@ async function appDockerForceRemove(idOrName, removeVolumes = true) {
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   globalState.stoppingContainers.delete(getDockerName(idOrName));
-  await dockerContainer.remove({ force: true, v: removeVolumes });
+  await dockerContainer.remove({ force: true, v: removeVolumes, abortSignal: deadline(REQUEST_TIMEOUT_MS) });
   if (removalIsWorthRecording(idOrName)) globalState.fluxRemovedContainers.add(getDockerName(idOrName));
   return `Flux App ${idOrName} successfully force removed.`;
 }
@@ -1730,7 +1818,7 @@ function clearFluxRemovedContainers(appName) {
  */
 async function imageExists(reference) {
   try {
-    await docker.getImage(reference).inspect();
+    await inspectImage(reference);
     return true;
   } catch (error) {
     if (error.statusCode === 404) return false;
@@ -1750,7 +1838,7 @@ async function imageExists(reference) {
  */
 async function getImageId(reference) {
   try {
-    const info = await docker.getImage(reference).inspect();
+    const info = await inspectImage(reference);
     return info.Id;
   } catch (error) {
     if (error.statusCode === 404) return null;
@@ -1982,6 +2070,7 @@ async function tagImage(id, reference) {
   await docker.getImage(id).tag({
     repo: tagged ? reference.slice(0, cut) : reference,
     tag: tagged ? reference.slice(cut + 1) : 'latest',
+    abortSignal: deadline(REQUEST_TIMEOUT_MS),
   });
 }
 
@@ -1994,7 +2083,7 @@ async function tagImage(id, reference) {
 async function appDockerImageRemove(idOrName) {
   // container ID or name
   const dockerImage = docker.getImage(idOrName);
-  await dockerImage.remove();
+  await dockerImage.remove({ abortSignal: deadline(REQUEST_TIMEOUT_MS) });
   return `Flux App ${idOrName} image successfully removed.`;
 }
 
@@ -2069,12 +2158,12 @@ function isContainerDetachedFromNetwork(attachment) {
 async function dockerNetworkState(networkName) {
   if (!networkName) return 'absent';
   try {
-    await docker.getNetwork(networkName).inspect();
+    await inspectNetwork(networkName);
     return 'exists';
   } catch (err) {
     let networks;
     try {
-      networks = await docker.listNetworks();
+      networks = await dockerListNetworks();
     } catch (probeErr) {
       return 'unknown';
     }
@@ -2092,7 +2181,7 @@ async function appDockerTop(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-  const processes = await dockerContainer.top();
+  const processes = await dockerContainer.top({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
   return processes;
 }
 
@@ -2167,7 +2256,7 @@ function isFluxNetwork(network) {
  *   docker bridge network, docker0 included.
  */
 async function containerFirewallBridges() {
-  const networks = (await docker.listNetworks()).filter((network) => network.Driver === 'bridge');
+  const networks = (await dockerListNetworks()).filter((network) => network.Driver === 'bridge');
   return {
     fluxBridges: networks.filter(isFluxNetwork).map(bridgeInterfaceName).sort(),
     dockerBridges: networks.map(bridgeInterfaceName).sort(),
@@ -2208,6 +2297,7 @@ async function getFluxDockerNetworks() {
     filters: JSON.stringify({
       name: ['fluxDockerNetwork'],
     }),
+    abortSignal: deadline(PROBE_TIMEOUT_MS),
   });
 
   return fluxNetworks;
@@ -2240,7 +2330,7 @@ async function getFluxDockerNetworkSubnets() {
  * @returns {Promise<number|null>} lowest free octet in 1..255, or null if none free
  */
 async function getFreeFluxAppNetworkOctet(excludeOctets = new Set()) {
-  const networks = await docker.listNetworks();
+  const networks = await dockerListNetworks();
   const used = new Set(excludeOctets);
   networks.forEach((network) => {
     const configs = (network.IPAM && network.IPAM.Config) || [];
@@ -2400,7 +2490,7 @@ async function forceRemoveFluxAppDockerNetwork(appname) {
       for (const containerId of containerIds) {
         try {
           // eslint-disable-next-line no-await-in-loop
-          await network.disconnect({ Container: containerId, Force: true });
+          await network.disconnect({ Container: containerId, Force: true, abortSignal: deadline(REQUEST_TIMEOUT_MS) });
           log.info(`Disconnected container ${containerId} from network ${fluxAppNetworkName}`);
         } catch (error) {
           log.warn(`Failed to disconnect container ${containerId}: ${error.message}`);
@@ -2437,7 +2527,7 @@ async function forceRemoveFluxAppDockerNetwork(appname) {
  */
 async function appDockerNetworkConnect(containerIdOrName, networkName) {
   try {
-    const containerInfo = await docker.getContainer(containerIdOrName).inspect();
+    const containerInfo = await docker.getContainer(containerIdOrName).inspect({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
     const attached = containerInfo && containerInfo.NetworkSettings && containerInfo.NetworkSettings.Networks;
     if (attached && Object.prototype.hasOwnProperty.call(attached, networkName)) {
       return;
@@ -2449,7 +2539,7 @@ async function appDockerNetworkConnect(containerIdOrName, networkName) {
 
   const network = docker.getNetwork(networkName);
   try {
-    await network.connect({ Container: containerIdOrName });
+    await network.connect({ Container: containerIdOrName, abortSignal: deadline(REQUEST_TIMEOUT_MS) });
   } catch (error) {
     if (/already exists in network|already connected/i.test(error.message || '')) {
       return;
@@ -2531,7 +2621,7 @@ async function pruneImages() {
  * @returns {object}
  */
 async function dockerInfo() {
-  const info = await docker.info();
+  const info = await docker.info({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
   return info;
 }
 
@@ -2541,7 +2631,7 @@ async function dockerInfo() {
  * @returns {object}
  */
 async function dockerVersion() {
-  const version = await docker.version();
+  const version = await docker.version({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
   return version;
 }
 
@@ -2564,7 +2654,7 @@ async function waitForDocker() {
   // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
-      await docker.ping();
+      await docker.ping({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
       log.info('Docker daemon connected');
       return;
     } catch (error) {
@@ -2611,18 +2701,13 @@ async function dockerLogsFix() {
 }
 
 async function getAppNameByContainerIp(ip) {
-  const fluxNetworks = await docker.listNetworks({
-    filters: JSON.stringify({
-      name: ['fluxDockerNetwork'],
-    }),
-  });
+  const fluxNetworks = await getFluxDockerNetworks();
 
   const fluxNetworkNames = fluxNetworks.map((n) => n.Name);
 
   const networkPromises = [];
   fluxNetworkNames.forEach((networkName) => {
-    const dockerNetwork = docker.getNetwork(networkName);
-    networkPromises.push(dockerNetwork.inspect());
+    networkPromises.push(inspectNetwork(networkName));
   });
 
   const fluxNetworkData = await Promise.all(networkPromises);
@@ -2650,10 +2735,10 @@ async function migrateContainerRestartPolicies() {
       try {
         const container = docker.getContainer(c.Id);
         // eslint-disable-next-line no-await-in-loop
-        const info = await container.inspect();
+        const info = await container.inspect({ abortSignal: deadline(PROBE_TIMEOUT_MS) });
         if (info.HostConfig.RestartPolicy.Name !== 'no') {
           // eslint-disable-next-line no-await-in-loop
-          await container.update({ RestartPolicy: { Name: 'no' } });
+          await container.update({ RestartPolicy: { Name: 'no' }, abortSignal: deadline(REQUEST_TIMEOUT_MS) });
           migrated += 1;
         }
       } catch (err) {

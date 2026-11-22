@@ -687,6 +687,15 @@ module.exports = {
     addressMoveWaitMs: 1200000,
     // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted
     pullStallMs: 90000,
+    // A docker read that cannot answer in seconds is a wedged daemon.
+    dockerProbeTimeoutMs: 20000,
+    // `docker stop` answers nothing until its container exits, so a stop's deadline is
+    // its own SIGKILL wait plus this, and is never used alone.
+    dockerStopSlackMs: 30000,
+    // Any other short docker request: create, start, kill, remove, update, a network or
+    // image change, a log read. Past it the request is cancelled and fails; docker may
+    // still complete it.
+    dockerRequestTimeoutMs: 120000,
     // between a node's removals of its own apps when it goes out of service (nodeStatusMonitor)
     nodeMonitorRemovalDelayMs: 5000,
     // events per message of an answer to a peer's state sync

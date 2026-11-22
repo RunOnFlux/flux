@@ -98,7 +98,7 @@ async function removeRuns(runId) {
   // eslint-disable-next-line no-restricted-syntax
   for (const container of containers) {
     // eslint-disable-next-line no-await-in-loop
-    await dockerService.getDockerContainer(container.Id).remove({ force: true, v: true });
+    await dockerService.appDockerForceRemove(container.Id, true);
   }
 
   const networks = (await dockerService.dockerListNetworks())
@@ -282,7 +282,7 @@ async function run(appSpecs, res, { pull }) {
     // eslint-disable-next-line no-restricted-syntax
     for (const { component, container } of containers) {
       // eslint-disable-next-line no-await-in-loop
-      await container.start();
+      await dockerService.appDockerStart(container.id);
       tell({ status: `Started ${component.name} at ${component.cpu} CPU and ${component.ram} MB RAM` });
     }
 
@@ -297,7 +297,7 @@ async function run(appSpecs, res, { pull }) {
     // eslint-disable-next-line no-restricted-syntax
     for (const { component, container } of containers) {
       // eslint-disable-next-line no-await-in-loop
-      const { State: state } = await container.inspect();
+      const { State: state } = await dockerService.dockerContainerInspect(container.id);
       if (state.Running) {
         tell({ status: `${component.name} is running` });
       } else {
