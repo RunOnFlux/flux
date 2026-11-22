@@ -1279,7 +1279,7 @@ describe('appInstaller tests', () => {
 
       const backup = operationRegistry.acquire(appSpec.name, 'backup', 'test');
       try {
-        await appInstaller.registerAppLocally(appSpec, false, res, false, false, { wait: false });
+        await appInstaller.registerAppLocally(appSpec, false, res, false, { wait: false });
       } finally {
         operationRegistry.release(appSpec.name, backup);
       }
@@ -1659,7 +1659,7 @@ describe('appInstaller tests', () => {
         const installer = buildFailingInstaller(removeAppLocallyStub);
         const backup = operationRegistry.acquire('testapp', 'backup', 'test');
 
-        const result = await installer.registerAppLocally(appSpec, false, res(), false, false, { wait: false });
+        const result = await installer.registerAppLocally(appSpec, false, res(), false, { wait: false });
 
         expect(result).to.equal(InstallOutcome.BUSY);
         sinon.assert.notCalled(removeAppLocallyStub);
@@ -1689,7 +1689,7 @@ describe('appInstaller tests', () => {
         controller.abort(new operationRegistry.OperationPreemptedError('testapp', 'removal'));
 
         let thrown = null;
-        await installer.installApplicationHard(appSpec, 'testapp', false, null, appSpec, false, { signal: controller.signal })
+        await installer.installApplicationHard(appSpec, 'testapp', false, null, appSpec, { signal: controller.signal })
           .catch((error) => { thrown = error; });
 
         expect(thrown).to.be.instanceOf(operationRegistry.OperationPreemptedError);
@@ -1778,7 +1778,7 @@ describe('appInstaller tests', () => {
       const removeAppLocallyStub = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
 
-      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, false);
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false);
 
       expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
       expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app the caller is keeping').to.equal(false);
@@ -1790,7 +1790,7 @@ describe('appInstaller tests', () => {
       const removeAppLocallyStub = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
 
-      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
 
       expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
       expect(removeAppLocallyStub.firstCall.args[4], 'tore the app down without telling the network').to.equal(true);
@@ -1802,7 +1802,7 @@ describe('appInstaller tests', () => {
       const removeAppLocallyStub = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub, { failBeforeRow: true });
 
-      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
 
       expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
       expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app this node never had').to.equal(false);
@@ -1829,91 +1829,24 @@ describe('appInstaller tests', () => {
       expect(folderStateMap.has('fluxinst')).to.equal(false);
     });
 
-    // A test install writes the app's row like any other and throws it away, so the
-    // announcement must not read that row as a claim. The mark outlives the teardown
-    // that deletes the row: released before it, a cycle in between claims the app.
-    it('marks an app it is only testing, and holds the mark until the row is gone', async () => {
-      let markedDuringCleanup = null;
-      const removeAppLocallyStub = sinon.stub().callsFake(async () => {
-        markedDuringCleanup = globalStateStub.testInstallingApps.has('testapp');
-      });
-      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
-
-      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
-
-      expect(markedDuringCleanup, 'let the mark go before the row it covers was deleted').to.be.true;
-      expect(
-        globalStateStub.testInstallingApps.has('testapp'),
-        'left the mark behind, silencing the app for good',
-      ).to.be.false;
-    });
-
-    // The mark and the teardown both belong to the call holding the node. A
-    // refused duplicate raised neither, so taking either back strips a running
-    // test install of its cover - and the row it wrote is then a claim the next
-    // announcement broadcasts and peers hold for the location TTL.
-    it('leaves a running test install its mark and its app when it is refused', async () => {
-      const removeAppLocallyStub = sinon.stub().resolves();
-      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
-      globalStateStub.testInstallingApps.add('testapp');
-      // the running test install holds the app in its manager
-      const running = operationRegistry.acquire('testapp', 'install', 'test');
-
-      const result = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true, false, { wait: false });
-      operationRegistry.release('testapp', running);
-
-      // Names the path: an install that ran to the end would clear its own mark,
-      // and this assertion would then be true of a test proving nothing.
-      expect(result, 'never reached the refusal this test is about').to.equal(InstallOutcome.BUSY);
-      expect(
-        globalStateStub.testInstallingApps.has('testapp'),
-        'cleared the mark covering the install it was refused for',
-      ).to.be.true;
-      expect(
-        removeAppLocallyStub.called,
-        'tore down an app on behalf of a call that installed nothing',
-      ).to.be.false;
-    });
-
     // When this node took the app is written with the app's row; a redeploy's
     // reinstall finds the record it kept and leaves it alone.
     describe('the placement record', () => {
       it('is written with the app\'s row', async () => {
         const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
 
-        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
-
-        sinon.assert.calledOnceWithExactly(appPlacementsStub.recordPlacement, 'testapp');
-      });
-
-      it('is not written for a test install', async () => {
-        const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
-
         await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
 
-        sinon.assert.notCalled(appPlacementsStub.recordPlacement);
+        sinon.assert.calledOnceWithExactly(appPlacementsStub.recordPlacement, 'testapp');
       });
 
       it('is not written when the install gave up before the app\'s row', async () => {
         const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), { failBeforeRow: true });
 
-        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
 
         sinon.assert.notCalled(appPlacementsStub.recordPlacement);
       });
-    });
-
-    // A test install refused because the app is already installed here created
-    // nothing, and the installed app is not its to remove.
-    it('leaves an app already installed here alone when a test install of it is refused', async () => {
-      const removeAppLocallyStub = sinon.stub().resolves();
-      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub, { alreadyInstalled: true });
-
-      const outcome = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
-
-      expect(outcome, 'never reached the refusal this test is about').to.equal(InstallOutcome.ALREADY_INSTALLED);
-      expect(removeAppLocallyStub.called, 'a refused test install removed the app installed here').to.equal(false);
-      expect(globalStateStub.testInstallingApps.has('testapp'), 'left the mark behind').to.equal(false);
     });
 
     // An installer every step of whose install succeeds.
@@ -2259,12 +2192,6 @@ describe('appInstaller tests', () => {
       const error = await appInstallerPorts.setupApplicationPorts({ port: 31000 }, 'myapp', false, null).catch((e) => e);
 
       expect(error.message).to.equal(`Error: Port 31000 FAILed to map. ${REFUSED.reason}`);
-    });
-
-    it('opens nothing for a test install', async () => {
-      await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null, true);
-
-      sinon.assert.notCalled(firewallStub.allowAppPorts);
     });
   });
 

@@ -46,7 +46,7 @@ async function rebuildApp(appSpecs, res, { parent = null } = {}) {
   let outcome;
   try {
     // the installer's own teardown says nothing: whether to tell the network is decided below
-    outcome = await appInstaller.registerAppLocally(appSpecs, undefined, res, false, false, { parent });
+    outcome = await appInstaller.registerAppLocally(appSpecs, undefined, res, false, { parent });
   } catch (error) {
     log.error(`appRebuild - ${appSpecs.name} was not reinstalled: ${error.message}`);
     outcome = InstallOutcome.FAILED;

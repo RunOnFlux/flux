@@ -1366,7 +1366,7 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(installStub.calledOnce, 'the install must have been attempted, or the argument below proves nothing').to.be.true;
-      expect(installStub.firstCall.args[4], 'tore the placement down without telling the network').to.equal(true);
+      expect(installStub.firstCall.args[3], 'tore the placement down without telling the network').to.equal(true);
     });
 
     it('sends its install without waiting on another operation holding the app', async () => {
@@ -1378,7 +1378,7 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(installStub.calledOnce, 'the install must have been attempted, or the argument below proves nothing').to.be.true;
-      expect(installStub.firstCall.args[5]).to.deep.equal({ wait: false });
+      expect(installStub.firstCall.args[4]).to.deep.equal({ wait: false });
     });
 
     it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {

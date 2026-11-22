@@ -43,7 +43,7 @@ describe('appRebuild tests', () => {
   it('leaves the installer\'s teardown silent, so the network is told once, here', async () => {
     await appRebuild.rebuildApp(spec);
 
-    expect(installer.registerAppLocally.firstCall.args[4], 'the installer was asked to announce its own teardown').to.equal(false);
+    expect(installer.registerAppLocally.firstCall.args[3], 'the installer was asked to announce its own teardown').to.equal(false);
   });
 
   it('tells the network once when the app was removed and the install did not complete', async () => {

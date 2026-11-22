@@ -1201,7 +1201,7 @@ async function trySpawningGlobalApplication() {
       // A placement this node does not hold yet, so a failed install retracts the
       // claim rather than keeping it. An app another operation holds is refused,
       // never waited for: the spawner goes on to its next app.
-      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, false, true, { wait: false }); // can throw
+      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, true, { wait: false }); // can throw
       registerOk = outcome === InstallOutcome.INSTALLED;
       if (!registerOk) installError = `installer ${outcome}`;
     } catch (error) {

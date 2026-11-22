@@ -7432,7 +7432,6 @@ describe('advancedWorkflows tests', () => {
         sinon.match({ name: 'web' }),
         null,
         false,
-        false,
         { parent: sinon.match({ key: 'myapp', type: 'redeploy' }) },
       );
     });

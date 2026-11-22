@@ -1730,7 +1730,7 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
 
       // Register component
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
-      const outcome = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res, false, false, { parent: op });
+      const outcome = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res, false, { parent: op });
       if (outcome !== InstallOutcome.INSTALLED) {
         // A component that did not come back is the reconciler's, from the app's
         // row.
@@ -4318,7 +4318,7 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
       log.warn(`REMOVAL REASON: Hard redeployment - ${appSpecifications.name} HDD changed from ${installedApp.hdd} to ${appSpecifications.hdd}`);
       // hard redeployment
       await appUninstaller.hardUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
-      await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications, false, { signal: op.signal });
+      await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications, { signal: op.signal });
     }
   } else {
     // composed application
@@ -4454,7 +4454,7 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
           log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
           await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
           // install the app
-          const outcome = await appInstaller.registerAppLocally(appSpecifications, appComponent, undefined, false, false, { parent: op }); // component
+          const outcome = await appInstaller.registerAppLocally(appSpecifications, appComponent, undefined, false, { parent: op }); // component
           if (outcome !== InstallOutcome.INSTALLED) {
             log.error(`Component ${appComponent.name}_${appSpecifications.name} was not reinstalled (${outcome}). ${appSpecifications.name} is part-built; the app row describes every component, so the reconciler recreates what is missing.`);
             allComponentsBack = false;

@@ -17,7 +17,6 @@ describe('peerNotification tests', () => {
   // its own stub, so a mark set here and the one the module resolves are the
   // same object.
   let departingApps;
-  let testInstallingApps;
   let unconfirmedApps;
   let announceCycle;
   let findOneInDatabaseStub;
@@ -123,7 +122,6 @@ describe('peerNotification tests', () => {
     '../networkStateService': { onUpdated: (listener) => { listUpdated = listener; } },
     '../utils/globalState': {
       departingApps,
-      testInstallingApps,
       unconfirmedApps,
       announceCycle,
       runningAppsCache: new Set(),
@@ -166,7 +164,7 @@ describe('peerNotification tests', () => {
     // to every module loaded after it, and globalState is a singleton whose
     // flags decide whether an operation may start at all.
     ({
-      departingApps, testInstallingApps, unconfirmedApps, announceCycle,
+      departingApps, unconfirmedApps, announceCycle,
     } = proxyquire('../../ZelBack/src/services/utils/globalState', {}));
 
     peerNotification = loadPeerNotification();
@@ -373,28 +371,6 @@ describe('peerNotification tests', () => {
         message.broadcastedAt,
         'stamped at the send, so the message claims to be newer than it is',
       ).to.equal(1000);
-    });
-
-    // A test install writes the app's row like any other install and throws it away
-    // at the end, and its teardown tells the network nothing - so naming it here
-    // would hold a placement for an app this node never took on.
-    it('does not announce an app this node is only test installing', async () => {
-      installedAppsStub.resolves({
-        status: 'success',
-        data: [
-          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'trialapp', hash: 'trialapphash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-        ],
-      });
-      testInstallingApps.add('trialapp');
-
-      await peerNotification.checkAndNotifyPeersOfRunningApps();
-
-      const [message] = storeAppRunningMessageStub.firstCall.args;
-      expect(
-        message.apps.map((a) => a.name),
-        'claimed a placement for an app it is only trying out',
-      ).to.deep.equal(['app1']);
     });
 
     describe('when this node took each app', () => {

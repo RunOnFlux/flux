@@ -239,14 +239,11 @@ async function checkAndNotifyPeersOfRunningApps() {
     // its claim, and one unreadable app cannot cost this node its presence.
     // An app whose removal this node has broadcast is excluded: it is still
     // installed until the removal finishes, and naming it here would re-create the
-    // location row the removal just cleared. An app this node is only testing is
-    // excluded too: its row is thrown away at the end of the test, and the teardown
-    // that throws it away tells the network nothing. So is an app boot has not yet
+    // location row the removal just cleared. So is an app boot has not yet
     // confirmed this node still holds: naming it would renew a location record that
     // may have expired, and the boot check would then read it as valid.
     const applicationsToBroadcast = appsInstalled.filter(
       (application) => !globalState.departingApps.has(application.name)
-        && !globalState.testInstallingApps.has(application.name)
         && !globalState.unconfirmedApps.has(application.name),
     );
     // An installed app without a string name and hash is left out and logged: no

@@ -9,7 +9,6 @@ describe('unregisteredEnterpriseCleanup', () => {
   let volumes;
   let globalSpecs;
   let messages;
-  let testInstallingApps;
   let removeAppLocally;
   let findOneInDatabase;
   let log;
@@ -27,7 +26,6 @@ describe('unregisteredEnterpriseCleanup', () => {
         findOneInDatabase,
       },
       '../../lib/log': log,
-      '../utils/globalState': { testInstallingApps },
       '../utils/appConstants': { globalAppsInformation: 'zelappsinformation', globalAppsMessages: 'zelappsmessages', isArcane },
       '../appQuery/appQueryService': {
         installedApps: async () => ({ status: 'success', data: installed }),
@@ -44,7 +42,6 @@ describe('unregisteredEnterpriseCleanup', () => {
     volumes = { appIds: ['fluxweb_fluxnode3865700434'], conclusive: true };
     globalSpecs = [];
     messages = [];
-    testInstallingApps = new Set();
     removeAppLocally = sinon.stub().resolves(RemovalOutcome.REMOVED);
     log = { warn: sinon.stub(), error: sinon.stub(), info: sinon.stub() };
     findOneInDatabase = sinon.stub().callsFake(async (_db, collection, query) => {
@@ -73,7 +70,6 @@ describe('unregisteredEnterpriseCleanup', () => {
     ['an app of a version before 8', () => { installed = [leftover({ version: 7 })]; }],
     ['an app with a height', () => { installed = [leftover({ height: 3033163 })]; }],
     ['an app with a height of zero', () => { installed = [leftover({ height: 0 })]; }],
-    ['an app being test installed', () => { testInstallingApps.add('fluxnode3865700434'); }],
     ['an app with a global specification', () => { globalSpecs = ['fluxnode3865700434']; }],
     ['an app with a global specification under another case', () => { globalSpecs = ['FluxNode3865700434']; }],
     ['an app with a permanent message', () => { messages = ['fluxnode3865700434']; }],
@@ -104,7 +100,6 @@ describe('unregisteredEnterpriseCleanup', () => {
       config: { database: { appsglobal: { database: 'globalzelapps' } } },
       '../dbHelper': { databaseConnection: () => ({ db: () => 'database' }), findOneInDatabase },
       '../../lib/log': log,
-      '../utils/globalState': { testInstallingApps },
       '../utils/appConstants': { globalAppsInformation: 'zelappsinformation', globalAppsMessages: 'zelappsmessages', isArcane: false },
       '../appQuery/appQueryService': {
         installedApps: async () => ({ status: 'success', data: installed }),

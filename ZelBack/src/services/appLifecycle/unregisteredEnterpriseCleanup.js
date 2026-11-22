@@ -1,9 +1,9 @@
 // Removes, on a node that is not Arcane, every installed enterprise app that was
 // never registered: no height, no global specification and no permanent message
-// under its name. Only an unpaid test install leaves such a row. Its stored
-// specification cannot be decrypted here, so it is removed by the components its
-// containers and volume images on this node name, each with no ports: a test
-// install opens none.
+// under its name. Only an unpaid test install by an earlier release leaves such a
+// row. Its stored specification cannot be decrypted here, so it is removed by the
+// components its containers and volume images on this node name, each with no
+// ports: such a test install opened none.
 //
 // Remove this module, and the specifications option of removeAppLocally, once the
 // FluxOS version floor is at or above the release that ships it.
@@ -11,7 +11,6 @@
 const config = require('config');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
-const globalState = require('../utils/globalState');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const {
   globalAppsInformation, globalAppsMessages, isArcane,
@@ -79,7 +78,7 @@ async function removeUnregisteredEnterpriseApps() {
       const enterprise = app.version >= 8 && Boolean(app.enterprise);
       const hasHeight = app.height !== undefined && app.height !== null;
       // eslint-disable-next-line no-continue
-      if (!enterprise || hasHeight || globalState.testInstallingApps.has(app.name)) continue;
+      if (!enterprise || hasHeight) continue;
       // eslint-disable-next-line no-await-in-loop
       if (!await neverRegistered(app.name)) continue; // eslint-disable-line no-continue
       // eslint-disable-next-line no-await-in-loop
