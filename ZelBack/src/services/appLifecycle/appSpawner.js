@@ -1204,12 +1204,13 @@ async function trySpawningGlobalApplication() {
     try {
       // A placement this node does not hold yet, so a failed install retracts the
       // claim rather than keeping it. An app another operation holds is refused,
-      // never waited for: the spawner goes on to its next app. Installed under the
-      // spawner's lock, so a stop waits for the install, and one that came first
-      // installs nothing.
+      // never waited for: the spawner goes on to its next app. Started under the
+      // spawner's lock, held until the node records the app: a stop that came
+      // first installs nothing, and one that comes later finds the app among the
+      // node's apps.
       const letGo = spawnerControl.holdForInstall();
       try {
-        const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, true, { wait: false }); // can throw
+        const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, true, { wait: false, onRecorded: letGo }); // can throw
         registerOk = outcome === InstallOutcome.INSTALLED;
         if (!registerOk) installError = `installer ${outcome}`;
       } finally {

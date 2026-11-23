@@ -96,6 +96,22 @@ describe('spawnerControl', () => {
     expect(passes, 'the ready signal given during the stop was lost').to.equal(2);
   });
 
+  it('lets an install\'s lock go once, however often it is told to', async () => {
+    await control.setReady(true);
+    await settle();
+    const first = control.holdForInstall();
+    first();
+    const second = control.holdForInstall();
+    first();
+    let stopped = false;
+
+    const stopping = control.setReady(false).then(() => { stopped = true; });
+    await settle();
+    expect(stopped, 'letting the first install go again released the second').to.equal(false);
+    second();
+    await stopping;
+  });
+
   it('installs nothing once a stop has begun', async () => {
     await control.setReady(true);
     await settle();

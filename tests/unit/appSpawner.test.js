@@ -1567,15 +1567,25 @@ describe('appSpawner tests', () => {
       expect([...globalStateStub.spawnErrorsLongerAppCache.keys()]).to.deep.equal([]);
     });
 
-    it('installs under the spawner\'s lock, and lets it go once the install has run', async () => {
+    // A stop waits only until the node records the app: whatever the stopper does
+    // next finds it among the node's apps, and a long install holds nothing up.
+    it('starts its install under the spawner\'s lock, and lets it go once the node records the app', async () => {
       const letGo = sinon.stub();
       const holdForInstall = sinon.stub().returns(letGo);
       const { installStub } = await runAttempt({ holdForInstall });
 
       sinon.assert.calledOnce(holdForInstall);
       expect(holdForInstall.calledBefore(installStub)).to.equal(true);
-      sinon.assert.calledOnce(letGo);
-      expect(letGo.calledAfter(installStub)).to.equal(true);
+      sinon.assert.calledOnce(installStub);
+      expect(installStub.firstCall.args[4]?.onRecorded, 'the install was not given the lock to let go').to.equal(letGo);
+    });
+
+    it('lets the spawner\'s lock go when its install ends without recording the app', async () => {
+      const letGo = sinon.stub();
+      const { installStub } = await runAttempt({ holdForInstall: sinon.stub().returns(letGo) });
+
+      sinon.assert.called(letGo);
+      expect(letGo.lastCall.calledAfter(installStub.firstCall)).to.equal(true);
     });
 
     // An application whose specification this node cannot read contributes

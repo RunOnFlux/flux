@@ -2235,7 +2235,8 @@ async function confirmOwnAddress(record) {
  *
  * While the move's apps or its geolocation are still to be handled, the spawner
  * is stopped: an attempt decided at the old address ends, an install under way is
- * waited for and then handled with the node's other apps, and the spawner decides
+ * waited for until the node records its app, which is then handled with the
+ * node's other apps, and the spawner decides
  * again once the node knows where it now is.
  * @returns {Promise<void>}
  */

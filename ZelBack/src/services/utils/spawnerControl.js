@@ -3,7 +3,8 @@
 // The spawner runs on one FluxController while the node is ready (the app-state
 // sync says so) and no move of the node's address is being worked through. Losing
 // readiness, or a move, stops it: the attempt in flight ends at its next wait, or
-// at its install, and an install already holding the spawner's lock is waited for.
+// at its install, and an install already holding the spawner's lock is waited for
+// until the node records the app, so whatever the stopper does next sees it.
 // It starts again, deciding afresh, once both allow it. Stops run one after
 // another, so a start can never land inside an abort that is still unwinding.
 
@@ -65,7 +66,8 @@ async function setReady(value) {
 
 /**
  * Runs `work` with the spawner stopped: the attempt in flight ends, an install
- * holding the spawner's lock is waited for, and the spawner starts again after
+ * holding the spawner's lock is waited for until it lets the lock go, and the
+ * spawner starts again after
  * `work` if it is wanted then.
  * @param {function(): Promise<*>} work
  * @returns {Promise<*>} What `work` returns.
@@ -95,7 +97,7 @@ function sleep(ms) {
 /**
  * Takes the spawner's lock for an install: a stop waits for it to be let go.
  * A stop that began before it was taken wins, and nothing is installed.
- * @returns {function(): void} Lets the lock go.
+ * @returns {function(): void} Lets the lock go; a second call does nothing.
  * @throws {SpawnerStopped} When the spawner is being stopped.
  */
 function holdForInstall() {
@@ -104,7 +106,12 @@ function holdForInstall() {
     controller.lock.disable();
     throw new SpawnerStopped();
   }
-  return () => controller.lock.disable();
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    controller.lock.disable();
+  };
 }
 
 module.exports = {

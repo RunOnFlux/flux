@@ -347,9 +347,11 @@ async function ensureAppDockerNetwork(appName, res) {
  *   expires. False for a rebuild, whose claim the node is keeping.
  * @param {object} [options]
  * @param {object} [options.parent] The operation this install is a step of.
+ * @param {function(): void} [options.onRecorded] Called once the node records the app as
+ *   installed (its row and its placement), before any container is made.
  * @returns {Promise<string>} One of InstallOutcome.
  */
-async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage = false, { parent = null } = {}) {
+async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage = false, { parent = null, onRecorded = null } = {}) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -565,6 +567,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemo
       // install that went on without it would leave any earlier record of the
       // app standing, dated before this volume existed.
       await appPlacements.recordPlacement(appSpecifications.name);
+      onRecorded?.();
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -743,17 +746,20 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemo
  * @param {object} [options.parent] The operation this install is a step of.
  * @param {boolean} [options.wait] False refuses the install, as BUSY, while another
  *   operation holds the app, for a caller whose next round asks again.
+ * @param {function(): void} [options.onRecorded] Called once the node records the app as
+ *   installed, before any container is made; never called for an install that ends
+ *   before that, nor for a component.
  * @returns {Promise<string>} One of InstallOutcome. The install is sent to the
  *   app's manager; refused there, it is BUSY.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage = false, { parent = null, wait = true } = {}) {
+async function registerAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage = false, { parent = null, wait = true, onRecorded = null } = {}) {
   await fluxosTrial.settled();
   // Published for every outcome but INSTALLED, which has app:installed of its own.
   const announce = (outcome) => {
     if (outcome === InstallOutcome.INSTALLED) return;
     fluxEventBus.publish('app:installOutcome', { name: appSpecs?.name, outcome });
   };
-  const attempt = (op) => attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage, { parent: op });
+  const attempt = (op) => attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage, { parent: op, onRecorded });
   let outcome;
   try {
     outcome = appSpecs?.name

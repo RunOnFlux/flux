@@ -1943,6 +1943,29 @@ describe('appInstaller tests', () => {
       });
     };
 
+    describe('the caller told the app is recorded', () => {
+      it('is told once the app\'s row and placement are written, before any container is made', async () => {
+        const dockerService = makeDockerServiceStub();
+        const onRecorded = sinon.stub();
+
+        await buildSucceedingInstaller(dockerService).registerAppLocally(appSpec, false, null, true, { onRecorded });
+
+        sinon.assert.calledOnce(onRecorded);
+        expect(onRecorded.calledAfter(appPlacementsStub.recordPlacement), 'told before the placement was written').to.equal(true);
+        sinon.assert.called(dockerService.appDockerCreate);
+        expect(onRecorded.calledBefore(dockerService.appDockerCreate), 'told only after a container was made').to.equal(true);
+      });
+
+      it('is not told when the install gave up before the app\'s row', async () => {
+        const onRecorded = sinon.stub();
+
+        await buildFailingInstaller(sinon.stub().resolves(), { failBeforeRow: true })
+          .registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true, { onRecorded });
+
+        sinon.assert.notCalled(onRecorded);
+      });
+    });
+
     describe('its claim on the app\'s ports', () => {
       const PORT = appSpec.ports[0];
 
