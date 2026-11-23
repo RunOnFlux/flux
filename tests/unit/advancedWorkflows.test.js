@@ -7630,18 +7630,17 @@ describe('advancedWorkflows tests', () => {
       expect(res.json.called, 'the stream already sent the headers - a res.json here throws').to.be.false;
     });
 
-    // The failure a caller most needs to read is the one that arrives after the
-    // teardown, and that is exactly when the status line is already gone.
-    it('writes a failure that arrives mid-stream into the stream instead of sending headers', async () => {
+    // A specification the node cannot take is answered before anything comes down.
+    it('answers a specification the node cannot take, and takes nothing down', async () => {
       sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
       const res = streamingRes();
 
       await advancedWorkflows.redeployComponentAPI(req, res);
 
-      expect(res.json.called, 'headers are gone once the body has started').to.be.false;
-      expect(res.ended, 'a caller left waiting on a stream nothing will close').to.be.true;
-      const tail = res.written[res.written.length - 1];
-      expect(tail, 'the error envelope goes into the stream where a client parses it out').to.include('Insufficient RAM');
+      sinon.assert.notCalled(appUninstaller.softUninstallComponent);
+      const answered = [...res.written, ...res.json.getCalls().map((call) => JSON.stringify(call.args[0]))].join('\n');
+      expect(answered, 'the caller is told why').to.include('Insufficient RAM');
+      expect(res.ended, 'a caller left waiting on a response nothing will close').to.be.true;
       expect(res.writesAfterEnd, 'a write to a closed response exits the node').to.be.empty;
     });
 
@@ -7772,8 +7771,9 @@ describe('advancedWorkflows tests', () => {
 
     // A component that came down and a failure after it: the app stays
     // installed, and the component is the reconciler's.
-    it('removes nothing when the component came down and the step after it threw, and asks the reconciler', async () => {
-      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+    it('removes nothing when the component came down and did not come back, and asks the reconciler', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      appInstaller.installApplicationSoft.rejects(new Error('Not enough space on device'));
       const enqueue = sinon.stub(appReconciler, 'enqueue');
       const res = streamingRes();
 
@@ -7878,6 +7878,8 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(newSpec);
       sinon.stub(dbHelper, 'updateOneInDatabase').resolves({ acknowledged: true });
+      // The node can take the new specification unless a test says otherwise.
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
       // The redeploy is gated on a 1-in-N draw; this makes it certain.
       sinon.stub(Math, 'random').returns(0);
     });
@@ -8051,7 +8053,7 @@ describe('advancedWorkflows tests', () => {
       beforeEach(() => {
         dbHelper.findInDatabase.resolves([v8Installed]);
         dbHelper.findOneInDatabase.resolves(v8New);
-        checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+        ({ checkAppRequirements } = appInstaller);
         removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves(RemovalOutcome.REMOVED);
         announceRemoval = sinon.stub(appUninstaller, 'announceRemoval').resolves();
         registerAppLocally = sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallOutcome.INSTALLED);
@@ -8085,7 +8087,6 @@ describe('advancedWorkflows tests', () => {
 
     it('does not uninstall an app whose redeploy stops on a database that does not answer', async () => {
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
-      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
 
@@ -8100,7 +8101,6 @@ describe('advancedWorkflows tests', () => {
     it('uninstalls the component as it is installed, not as it will be', async () => {
       const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
       sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('stop here'));
 
       await advancedWorkflows.reinstallOldApplications();
@@ -8112,7 +8112,6 @@ describe('advancedWorkflows tests', () => {
     it('hard-uninstalls the component as it is installed when its disk changes', async () => {
       const hardUninstallComponent = sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
       sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('stop here'));
       dbHelper.findOneInDatabase.resolves({ ...newSpec, compose: [{ ...newSpec.compose[0], hdd: 10 }] });
 
@@ -8127,7 +8126,7 @@ describe('advancedWorkflows tests', () => {
     it('checks the new specification without counting the app it replaces', async () => {
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      const checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      const { checkAppRequirements } = appInstaller;
       sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('stop here'));
 
       await advancedWorkflows.reinstallOldApplications();
@@ -8140,7 +8139,7 @@ describe('advancedWorkflows tests', () => {
       const hardUninstallComponent = sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
       const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient HDD on Flux Node to spawn an application'));
+      appInstaller.checkAppRequirements.rejects(new Error('Insufficient HDD on Flux Node to spawn an application'));
       const replaceRow = sinon.stub(dbHelper, 'replaceOneInDatabase').resolves({ matchedCount: 1 });
       dbHelper.findOneInDatabase.resolves({ ...newSpec, compose: [{ ...newSpec.compose[0], hdd: 10 }] });
 
@@ -8155,7 +8154,6 @@ describe('advancedWorkflows tests', () => {
     it('never deletes the app\'s row: the new specification replaces it in one write', async () => {
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
       const deleteRow = sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({});
       const replaceRow = sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
 
@@ -8195,7 +8193,6 @@ describe('advancedWorkflows tests', () => {
       it('lets the pass go on to the next app when its rebuild does not complete', async () => {
         const rebuildApp = sinon.stub(appRebuild, 'rebuildApp').resolves('failed');
         const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
-        sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
         sinon.stub(dbHelper, 'replaceOneInDatabase').resolves({ acknowledged: true });
         const other = { ...installedApp, name: 'otherapp' };
         dbHelper.findInDatabase.resolves([oldFormat, other]);
@@ -8422,7 +8419,6 @@ describe('advancedWorkflows tests', () => {
         sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
         sinon.stub(appUninstaller, 'removeAppLocally').resolves();
         sinon.stub(dbHelper, 'replaceOneInDatabase').resolves({ acknowledged: true });
-        sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
         installApplicationSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
         sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
         sinon.stub(appNetworkLinker, 'reconnectLinkedApps').resolves();
