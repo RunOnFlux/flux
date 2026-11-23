@@ -357,6 +357,8 @@ export function nodeClient(nodeNum) {
         'spawner:installFailed',
         // an update the node cannot take, left undone with the app as it is
         'app:updateDeclined',
+        // a pass of the image reaper, and what it removed, kept and left
+        'images:reaped',
         // an attempt stopped by lost readiness, a move, or an install of its app from another route
         'spawner:attemptStopped',
         'spawner:networkErrorSkip',

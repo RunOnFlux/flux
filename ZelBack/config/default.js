@@ -532,6 +532,7 @@ module.exports = {
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
+    imageReapPeriod: 720, // every day remove the images nothing wants
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: net.fluxapps.applyMinimumPriceOn3Instances,

@@ -18,6 +18,7 @@ const appKill = require('./appLifecycle/appKill');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appTestRun = require('./appLifecycle/appTestRun');
+const imageReaper = require('./appLifecycle/imageReaper');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const unregisteredEnterpriseCleanup = require('./appLifecycle/unregisteredEnterpriseCleanup');
 const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
@@ -828,6 +829,8 @@ async function startFluxFunctions() {
     // decider self-gates per cycle on its own prerequisites (mounts, syncthing health,
     // own-IP, FDM), so an early start is safe - it skips and retries until ready.
     globalState.waitForBootContainerStateSettled().then(() => {
+      // Detached: images nothing wants, once boot has settled what runs.
+      imageReaper.pruneUnusedImages().catch((error) => log.error(`imageReaper - ${error.message}`));
       // The syncthing decider is declare-only: it writes desired run-state and
       // data-state (via appReconciler) and enqueues; the reconciler is the sole
       // actuator that stops, starts, and wipes - inside its per-key single-flight,

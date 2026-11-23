@@ -2609,13 +2609,6 @@ async function getAppContainerNames(appName) {
 // everything else.
 
 /**
- * Remove all unused Images. Unused Images are those which are not referenced by any containers
- */
-async function pruneImages() {
-  return docker.pruneImages();
-}
-
-/**
  * Return docker system information
  *
  * @returns {object}
@@ -2809,7 +2802,6 @@ module.exports = {
   getFluxDockerNetworkSubnets,
   getFreeFluxAppNetworkOctet,
   migrateContainerRestartPolicies,
-  pruneImages,
   removeFluxAppDockerNetwork,
   forceRemoveFluxAppDockerNetwork,
   appDockerNetworkConnect,

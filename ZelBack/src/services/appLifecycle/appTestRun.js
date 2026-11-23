@@ -7,11 +7,11 @@
 //
 // Everything a run creates is marked so it can be found again and nothing else
 // is: its containers and network by the role label and the `testrun-` name
-// prefix, the directories its mounts bind under one directory used for nothing
-// else, and the images it pulled that the node did not hold, recorded in that
-// directory before each pull. A run removes all of it when it ends, and every
-// FluxOS start removes what a run that did not end left behind. No run starts
-// until that sweep has succeeded.
+// prefix, and the directories its mounts bind under one directory used for
+// nothing else. A run removes all of it when it ends, and every FluxOS start
+// removes what a run that did not end left behind. No run starts until that
+// sweep has succeeded. The images a run pulled are the image reaper's: held while
+// the run runs, and offered to it when the run ends.
 //
 // A container that exited fails the run. A runonflux/orbit (Deploy with Git)
 // container is also asked whether its build passed, on its /api/status. Every
@@ -32,6 +32,7 @@ const IOUtils = require('../IOUtils');
 const mountParser = require('../utils/mountParser');
 const volumeConstructor = require('../utils/volumeConstructor');
 const fluxEventBus = require('../utils/fluxEventBus');
+const imageReaper = require('./imageReaper');
 const { appsFolderPath } = require('../utils/appConstants');
 
 const ROLE_LABEL = 'runonflux.role';
@@ -52,8 +53,6 @@ const ORBIT_POLL_MS = 5000;
 const ORBIT_POLLS = 24;
 // beside the apps folder, on the disk app data is on
 const ROOT = path.join(path.dirname(appsFolderPath), 'testruns');
-// the images a run pulled that the node did not hold, written before each pull
-const PULLED_FILE = 'pulled.json';
 
 let swept = false;
 let running = false;
@@ -65,16 +64,6 @@ function isTestRunContainer(container) {
 
 function isTestRunNetwork(network) {
   return network.Labels?.[ROLE_LABEL] === ROLE && (network.Name || '').startsWith(NAME_PREFIX);
-}
-
-async function readPulled(runDir) {
-  try {
-    const recorded = JSON.parse(await fs.readFile(path.join(runDir, PULLED_FILE), 'utf8'));
-    return Array.isArray(recorded) ? recorded.filter((image) => typeof image === 'string') : [];
-  } catch (error) {
-    if (error.code === 'ENOENT') return [];
-    throw error;
-  }
 }
 
 /**
@@ -96,9 +85,8 @@ async function ensureRoot() {
 }
 
 /**
- * Removes the test-run containers and networks of one run, or of every run, the
- * images those runs pulled that no remaining container uses, and their
- * directories. Rejects when docker or the directory cannot be read, having
+ * Removes the test-run containers and networks of one run, or of every run, and
+ * their directories. Rejects when docker or the directory cannot be read, having
  * removed what it could.
  * @param {string|null} runId One run, or null for every run.
  * @returns {Promise<void>}
@@ -131,20 +119,6 @@ async function removeRuns(runId) {
     if (error.code !== 'ENOENT') throw error;
     runDirs = [];
   }
-  const pulled = new Set((await Promise.all(runDirs.map(readPulled))).flat());
-  if (pulled.size) {
-    const inUse = new Set((await dockerService.dockerListContainers(true)).map((container) => container.Image));
-    // eslint-disable-next-line no-restricted-syntax
-    for (const image of pulled) {
-      if (!inUse.has(image)) {
-        // eslint-disable-next-line no-await-in-loop
-        await dockerService.appDockerImageRemove(image).catch((error) => {
-          if (error.statusCode !== 404) throw error;
-        });
-      }
-    }
-  }
-
   // eslint-disable-next-line no-restricted-syntax
   for (const runDir of runDirs) {
     // eslint-disable-next-line no-await-in-loop
@@ -298,6 +272,7 @@ async function run(appSpecs, res, { pull }) {
   };
   if (running) throw new Error('A test run is already in progress on this node; try again once it has finished');
   running = true;
+  const letImagesGo = imageReaper.holdImages();
   const runId = crypto.randomBytes(4).toString('hex');
   const runDir = path.join(ROOT, runId);
   const networkName = `${NAME_PREFIX}${runId}`;
@@ -307,15 +282,8 @@ async function run(appSpecs, res, { pull }) {
 
     await ensureRoot();
     await fs.mkdir(runDir, { recursive: true });
-    const pulled = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const component of components) {
-      // eslint-disable-next-line no-await-in-loop
-      if (!await dockerService.imageExists(component.repotag)) {
-        pulled.push(component.repotag);
-        // eslint-disable-next-line no-await-in-loop
-        await fs.writeFile(path.join(runDir, PULLED_FILE), JSON.stringify(pulled));
-      }
       tell({ status: `Pulling ${component.repotag}...` });
       // eslint-disable-next-line no-await-in-loop
       await pull(component);
@@ -370,6 +338,8 @@ async function run(appSpecs, res, { pull }) {
       log.error(`appTestRun - what test run ${runId} created was not all removed, and is removed before the next run: ${error.message}`);
     });
     running = false;
+    letImagesGo();
+    imageReaper.pruneUnusedImages().catch((error) => log.error(`appTestRun - ${error.message}`));
   }
 }
 

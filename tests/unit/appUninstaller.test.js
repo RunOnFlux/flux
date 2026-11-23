@@ -31,6 +31,7 @@ describe('appUninstaller tests', () => {
       upnpStub = { isUPNP: sinon.stub().returns(true) };
       reconcilerStub = { release: sinon.stub().resolves(true) };
       appUninstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageReaper': { reclaimImages: sinon.stub().resolves({ removed: 0, kept: 0, deferred: 0 }) },
         '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
@@ -73,6 +74,7 @@ describe('appUninstaller tests', () => {
   let namesSeveralAppsStub;
   let runCommandStub;
   let dockerServiceStub;
+  let imageReaperStub;
 
   beforeEach(() => {
     configStub = {
@@ -133,6 +135,7 @@ describe('appUninstaller tests', () => {
 
     runCommandStub = sinon.stub().resolves({ error: null, stdout: '', stderr: '' });
 
+    imageReaperStub = { reclaimImages: sinon.stub().resolves({ removed: 1, kept: 0, deferred: 0 }) };
     dockerServiceStub = {
       appDockerStop: sinon.stub().resolves(),
       appDockerRemove: sinon.stub().resolves(),
@@ -143,6 +146,7 @@ describe('appUninstaller tests', () => {
     };
 
     appUninstaller = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+      './imageReaper': imageReaperStub,
       '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../verificationHelper': verificationHelperStub,
@@ -455,7 +459,7 @@ describe('appUninstaller tests', () => {
 
       await appUninstaller.softUninstallComponent('testapp', 'fluxweb_testapp', component, null);
 
-      sinon.assert.calledOnceWithExactly(dockerServiceStub.appDockerImageRemove, 'repo/web:v1');
+      sinon.assert.calledOnceWithExactly(imageReaperStub.reclaimImages, ['repo/web:v1'], sinon.match.object);
     });
 
     it('takes an app with no container as removed and removes its image', async () => {
@@ -463,7 +467,7 @@ describe('appUninstaller tests', () => {
 
       await appUninstaller.softUninstallApplication('testapp', 'fluxtestapp', { name: 'testapp', repotag: 'repo/app:v1' }, null);
 
-      sinon.assert.calledOnceWithExactly(dockerServiceStub.appDockerImageRemove, 'repo/app:v1');
+      sinon.assert.calledOnceWithExactly(imageReaperStub.reclaimImages, ['repo/app:v1'], sinon.match.object);
     });
 
     const failure = (promise) => promise.then(() => null, (error) => error);
@@ -474,7 +478,7 @@ describe('appUninstaller tests', () => {
       const error = await failure(appUninstaller.softUninstallComponent('testapp', 'fluxweb_testapp', component, null));
 
       expect(error?.message).to.include('already in progress');
-      sinon.assert.notCalled(dockerServiceStub.appDockerImageRemove);
+      sinon.assert.notCalled(imageReaperStub.reclaimImages);
     });
 
     it('fails an app uninstall whose remove fails for another reason', async () => {
@@ -483,7 +487,7 @@ describe('appUninstaller tests', () => {
       const error = await failure(appUninstaller.softUninstallApplication('testapp', 'fluxtestapp', { name: 'testapp', repotag: 'repo/app:v1' }, null));
 
       expect(error?.message).to.include('already in progress');
-      sinon.assert.notCalled(dockerServiceStub.appDockerImageRemove);
+      sinon.assert.notCalled(imageReaperStub.reclaimImages);
     });
   });
 
@@ -502,6 +506,7 @@ describe('appUninstaller tests', () => {
 
     it('should handle app not found case', async () => {
       const appUninstallerWithDb = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageReaper': { reclaimImages: sinon.stub().resolves({ removed: 0, kept: 0, deferred: 0 }) },
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -577,6 +582,7 @@ describe('appUninstaller tests', () => {
 
     it('stops a backup of the app and waits for its release before removing it', async () => {
       const appUninstallerWithDb = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageReaper': { reclaimImages: sinon.stub().resolves({ removed: 0, kept: 0, deferred: 0 }) },
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -661,6 +667,7 @@ describe('appUninstaller tests', () => {
 
     it('should remove app locally if app name is specified and app in DB', async () => {
       const appUninstallerWithDbApp = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageReaper': { reclaimImages: sinon.stub().resolves({ removed: 0, kept: 0, deferred: 0 }) },
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -783,6 +790,7 @@ describe('appUninstaller tests', () => {
         seedMarks: new Map(),
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageReaper': { reclaimImages: sinon.stub().resolves({ removed: 0, kept: 0, deferred: 0 }) },
         '../appManagement/appPlacements': appPlacementsStub,
         '../utils/globalState': globalStateStub,
         // runs the step again after a moment until it succeeds, as the real one does after its wait

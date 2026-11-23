@@ -4,6 +4,7 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
+const imageReaper = require('./imageReaper');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const fluxosTrial = require('../utils/fluxosTrial');
@@ -293,6 +294,21 @@ async function stopSyncthingAndCleanup(monitoredName, appId, res) {
   } catch (error) {
     log.error(`Error stopping Syncthing app: ${error.message}`);
   }
+}
+
+/**
+ * Writes each line of progress to the log, and to the caller's stream when there is one.
+ * @param {object} res
+ * @returns {function(string): void}
+ */
+function reportTo(res) {
+  return (status) => {
+    log.info(status);
+    if (res) {
+      res.write(serviceHelper.ensureString({ status }));
+      if (res.flush) res.flush();
+    }
+  };
 }
 
 /**
@@ -633,14 +649,7 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
       if (res.flush) res.flush();
     }
 
-    await dockerService.appDockerImageRemove(componentSpecifications.repotag).catch((error) => {
-      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
-      log.error(errorResponse);
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-        if (res.flush) res.flush();
-      }
-    });
+    await imageReaper.reclaimImages([componentSpecifications.repotag], { report: reportTo(res) });
 
     log.info(`Flux App component ${componentName} image operations done`);
     if (res) {
@@ -784,14 +793,7 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
       if (res.flush) res.flush();
     }
 
-    await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
-      log.error(errorResponse);
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-        if (res.flush) res.flush();
-      }
-    });
+    await imageReaper.reclaimImages([appSpecifications.repotag], { report: reportTo(res) });
 
     log.info(`Flux App ${appName} image operations done`);
     if (res) {
@@ -936,14 +938,7 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
     if (res.flush) res.flush();
   }
 
-  await dockerService.appDockerImageRemove(componentSpecifications.repotag).catch((error) => {
-    const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
-    log.error(errorResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
-      if (res.flush) res.flush();
-    }
-  });
+  await imageReaper.reclaimImages([componentSpecifications.repotag], { report: reportTo(res) });
 
   log.info(`Flux App component ${componentName} image operations done`);
   if (res) {
@@ -1022,14 +1017,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
     if (res.flush) res.flush();
   }
 
-  await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-    const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
-    log.error(errorResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
-      if (res.flush) res.flush();
-    }
-  });
+  await imageReaper.reclaimImages([appSpecifications.repotag], { report: reportTo(res) });
 
   log.info(`Flux App ${appName} image operations done`);
   if (res) {

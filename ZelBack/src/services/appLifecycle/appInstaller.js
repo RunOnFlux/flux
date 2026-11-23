@@ -65,39 +65,6 @@ const legacyPinnedOctets = appsThatMightBeUsingOldGatewayIpAssignment.map((name)
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
-/**
- * Reclaim disk before an install by removing unreferenced docker images.
- *
- * Only images. Containers, networks and volumes were pruned here too, keyed on
- * docker's notion of "unused" - nothing attached right now - which is equally
- * true of a healthy app whose container is momentarily down, of a container
- * FluxOS is running for its own purposes, and of anything the node operator
- * left stopped. The guard in front of this only ever knew about installed app
- * components, so those other three were never covered. An image, by contrast,
- * is unreferenced or it is not, and re-pulling one is a download rather than a
- * loss.
- *
- * @param {object} res - Response object for streaming
- * @returns {Promise<void>}
- */
-async function performDockerCleanup(res) {
-  const dockerImages = {
-    status: 'Clearing up unused docker images...',
-  };
-  log.info(dockerImages);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerImages));
-    if (res.flush) res.flush();
-  }
-  await dockerService.pruneImages();
-  const dockerImages2 = {
-    status: 'Docker images cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerImages2));
-    if (res.flush) res.flush();
-  }
-}
 
 /**
  * Setup firewall and UPnP ports for application/component
@@ -473,47 +440,6 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemo
       return InstallOutcome.DECLINED;
     }
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_AFTER_ADMISSION, appSpecs.name);
-
-    // Lazy-load appQueryService to avoid circular dependency issues
-    // eslint-disable-next-line global-require
-    const appQueryService = require('../appQuery/appQueryService');
-    const installedAppsRes = await appQueryService.installedApps();
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('Failed to get installed Apps');
-    }
-    const runningAppsRes = await appQueryService.listRunningApps();
-    if (runningAppsRes.status !== 'success') {
-      throw new Error('Unable to check running Apps');
-    }
-    const appsInstalled = installedAppsRes.data;
-    const { readable: decryptedAppsInstalled, unreadable } = await appQueryService.decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
-    if (unreadable.length) {
-      log.warn(`Component names unavailable for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
-    }
-    const runningApps = runningAppsRes.data;
-    const installedAppComponentNames = [];
-    decryptedAppsInstalled.forEach((app) => {
-      if (app.version >= 4) {
-        app.compose.forEach((appAux) => {
-          installedAppComponentNames.push(`${appAux.name}_${app.name}`);
-        });
-      } else {
-        installedAppComponentNames.push(app.name);
-      }
-    });
-    // kadena and folding is old naming scheme having /zel.  all global application start with /flux
-    const runningAppsNames = runningApps.map((app) => {
-      if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].slice(4);
-      }
-      return app.Names[0].slice(5);
-    });
-    // installed always is bigger array than running
-    const runningSet = new Set(runningAppsNames);
-    const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
-    if (stoppedApps.length === 0 && !globalState.masterSlaveAppsRunning) {
-      await performDockerCleanup(res);
-    }
 
     // Verify the apps this app must be networked with (networkWith token in the
     // description) are installed locally and owned by the same owner before any

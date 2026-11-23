@@ -10,6 +10,8 @@ describe('appTestRun tests', () => {
   let dockerService;
   let axiosGet;
   let checkpoint;
+  let imageReaper;
+  let letImagesGo;
   let appTestRun;
   let containers;
   let networks;
@@ -66,6 +68,8 @@ describe('appTestRun tests', () => {
     };
     axiosGet = sinon.stub().resolves({ data: { initialTestStatus: true, failed: false } });
     checkpoint = sinon.stub().resolves();
+    letImagesGo = sinon.stub();
+    imageReaper = { holdImages: sinon.stub().returns(letImagesGo), pruneUnusedImages: sinon.stub().resolves({}) };
     appTestRun = proxyquire('../../ZelBack/src/services/appLifecycle/appTestRun', {
       config: { server: { fluxNodeServiceAddress: '127.0.0.1' } },
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
@@ -86,6 +90,7 @@ describe('appTestRun tests', () => {
       '../IOUtils': { removeDirectory: async (target) => { fs.rmSync(target, { recursive: true, force: true }); return true; } },
       '../utils/volumeConstructor': { validateMountConfiguration: () => true },
       '../utils/appConstants': { appsFolderPath: path.join(root, 'ZelApps') },
+      './imageReaper': imageReaper,
       '../utils/fluxEventBus': { publish: sinon.stub(), checkpoint, Checkpoint: { TESTRUN_BEFORE_REMOVAL: 'testrun:beforeRemoval' } },
     });
   });
@@ -96,29 +101,26 @@ describe('appTestRun tests', () => {
   });
 
   describe('the sweep', () => {
-    it('removes what earlier runs left: their containers, networks, directories, and the images they pulled', async () => {
+    it('removes what earlier runs left: their containers, networks and directories, and no image', async () => {
       containers.push(testRunContainer('aaaa', 'web'));
       networks.push({ Id: 'net-aaaa', Name: 'testrun-aaaa', Labels: { 'runonflux.role': 'testrun', 'runonflux.testrun': 'aaaa' } });
       fs.mkdirSync(path.join(appTestRun.ROOT, 'aaaa', 'web', 'appdata'), { recursive: true });
-      fs.writeFileSync(path.join(appTestRun.ROOT, 'aaaa', 'pulled.json'), JSON.stringify(['org/web:1']));
 
       await appTestRun.sweep();
 
       expect(containers).to.deep.equal([]);
       expect(networks).to.deep.equal([]);
-      sinon.assert.calledOnceWithExactly(dockerService.appDockerImageRemove, 'org/web:1');
+      sinon.assert.notCalled(dockerService.appDockerImageRemove);
       expect(fs.readdirSync(appTestRun.ROOT)).to.deep.equal([]);
     });
 
-    it('leaves app containers, and an image an app container uses', async () => {
+    it('leaves app containers', async () => {
       containers.push(testRunContainer('aaaa', 'web'), appContainer('web_realapp', 'org/web:1'));
       fs.mkdirSync(path.join(appTestRun.ROOT, 'aaaa'), { recursive: true });
-      fs.writeFileSync(path.join(appTestRun.ROOT, 'aaaa', 'pulled.json'), JSON.stringify(['org/web:1']));
 
       await appTestRun.sweep();
 
       expect(containers.map((c) => c.Id)).to.deep.equal(['id-web_realapp']);
-      sinon.assert.notCalled(dockerService.appDockerImageRemove);
     });
 
     it('leaves a container that carries only one of the two marks', async () => {
@@ -156,19 +158,32 @@ describe('appTestRun tests', () => {
       expect(options.HostConfig.Mounts[0].Target).to.equal('/data');
       expect(containers, 'the containers are gone').to.deep.equal([]);
       expect(networks, 'the network is gone').to.deep.equal([]);
-      sinon.assert.calledOnceWithExactly(dockerService.appDockerImageRemove, 'org/web:1');
+      sinon.assert.notCalled(dockerService.appDockerImageRemove);
       expect(fs.readdirSync(appTestRun.ROOT), 'the directories are gone').to.deep.equal([]);
       expect(written(response)).to.include('Flux App trialapp successfully installed and launched');
       sinon.assert.notCalled(axiosGet);
       sinon.assert.calledOnceWithExactly(checkpoint, 'testrun:beforeRemoval', 'trialapp');
     });
 
-    it('keeps an image the node already held', async () => {
-      dockerService.imageExists.resolves(true);
+    it('holds the node\'s images while it runs, and offers them to the reaper once its containers are gone', async () => {
+      const pull = sinon.stub().resolves();
 
-      await appTestRun.run(appSpecs(), res(), { pull: sinon.stub().resolves() });
+      await appTestRun.run(appSpecs(), res(), { pull });
 
-      sinon.assert.notCalled(dockerService.appDockerImageRemove);
+      sinon.assert.calledOnce(imageReaper.holdImages);
+      expect(imageReaper.holdImages.calledBefore(pull)).to.equal(true);
+      sinon.assert.calledOnce(letImagesGo);
+      expect(letImagesGo.calledAfter(dockerService.appDockerForceRemove)).to.equal(true);
+      sinon.assert.calledOnce(imageReaper.pruneUnusedImages);
+      expect(imageReaper.pruneUnusedImages.calledAfter(letImagesGo)).to.equal(true);
+    });
+
+    it('lets the images go when it fails part way', async () => {
+      dockerService.createContainer.rejects(new Error('no such image'));
+
+      await appTestRun.run(appSpecs(), res(), { pull: sinon.stub().resolves() }).catch(() => {});
+
+      sinon.assert.calledOnce(letImagesGo);
     });
 
     it('reports a container that exited, with its exit code', async () => {

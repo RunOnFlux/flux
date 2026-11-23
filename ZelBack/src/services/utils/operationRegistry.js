@@ -155,6 +155,14 @@ function listHeld() {
 }
 
 /**
+ * @param {...string} types
+ * @returns {boolean} Whether an operation of any of these types holds an app.
+ */
+function anyHeldOfType(...types) {
+  return [...leases.values()].some((lease) => types.includes(lease.type));
+}
+
+/**
  * Asks the operation holding the app to stop: its signal aborts, with an
  * OperationPreemptedError naming `by` as the reason.
  * @param {string} key
@@ -347,6 +355,7 @@ module.exports = {
   listByType,
   listArriving,
   listHeld,
+  anyHeldOfType,
   preempt,
   signalOf,
   throwIfPreempted,

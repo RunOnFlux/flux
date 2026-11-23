@@ -1079,12 +1079,9 @@ function stopImagePrefetch() {
  * dockerd is replaced; the check is one inspect when it is present, so paying
  * it every time costs nothing and removes a whole class of "worked yesterday".
  *
- * `performDockerCleanup` is NOT one of the things that removes it, despite
- * running before every app install: `pruneImages` filters on dangling, and a
- * tagged image is not dangling. That holds for BOTH routes only because the
- * peer route names what it took - an archive addressed by id carries no names,
- * so an untagged arrival would be dangling and this would be false for exactly
- * the nodes that cannot reach the registry.
+ * The image reaper is NOT one of the things that removes it: it keeps FluxOS's
+ * own image by its configured reference and pinned ids, whether or not a file
+ * operation is running.
  *
  * A caller waits a short while and is then told to come back. It does not wait
  * for the fetch's own patience - a peer has two minutes to hand over thirteen

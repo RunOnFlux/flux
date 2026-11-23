@@ -505,14 +505,10 @@ describe('volumeExecutor tests', () => {
       });
     });
 
-    it('names the image it took from a peer, so a prune does not take it back', async () => {
+    it('names the image it took from a peer by the reference it runs as', async () => {
       // A peer serves the archive by id, and the daemon writes no names for a
-      // reference that has none - so what arrives is nameless, and a nameless
-      // image is a DANGLING one. performDockerCleanup prunes dangling images
-      // before every app install, so without a name the node loses the image
-      // it just fetched and asks a peer again after every install: the nodes
-      // on the peer path are the ones that cannot reach the registry, so they
-      // are exactly the ones that would pay it forever.
+      // reference that has none - so what arrives is nameless until it is
+      // tagged with the configured reference.
       pulled = false;
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
       dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });

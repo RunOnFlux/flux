@@ -15,6 +15,7 @@ const registryCredentialHelper = require('./utils/registryCredentialHelper');
 const { ImageVerifier } = require('./utils/imageVerifier');
 const serviceHelper = require('./serviceHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
+const imageReaper = require('./appLifecycle/imageReaper');
 
 const CHECK_INTERVAL = config.fluxapps.imageUpdateCheckIntervalMs || 6 * 60 * 60 * 1000;
 const DELAY_BETWEEN_APPS = config.fluxapps.imageUpdateDelayBetweenAppsMs || 5000;
@@ -383,6 +384,8 @@ async function checkForImageUpdates() {
     }
 
     log.info(`Image update check cycle complete: checked ${appsChecked} apps, triggered ${updatesTriggered} updates`);
+    // what the updates replaced
+    if (updatesTriggered) await imageReaper.pruneUnusedImages();
     fluxEventBus.publish('imageUpdate:checked', { appsChecked, updatesTriggered });
   } catch (error) {
     log.error(`Error in image update check cycle: ${error.message}`);

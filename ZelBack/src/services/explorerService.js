@@ -15,6 +15,7 @@ const messageVerifier = require('./appMessaging/messageVerifier');
 const registryManager = require('./appDatabase/registryManager');
 const { appPaymentPositions } = require('./appPaymentPositions');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
+const imageReaper = require('./appLifecycle/imageReaper');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
@@ -599,6 +600,9 @@ async function processBlock(blockHeight) {
       const benchPeriod = config.fluxapps.benchUpnpPeriod * speedMultiplier;
       if (blockWorkDue('benchUpnp', blockDataVerbose.height, benchPeriod)) {
         await scheduleUpnpBench(blockDataVerbose, benchPeriod);
+      }
+      if (blockWorkDue('imageReap', blockDataVerbose.height, config.fluxapps.imageReapPeriod * speedMultiplier)) {
+        imageReaper.pruneUnusedImages().catch((error) => log.error(`imageReaper - ${error.message}`));
       }
       if (paymentsToRequest.length) {
         setTimeout(requestAppHashes, 1, paymentsToRequest);
