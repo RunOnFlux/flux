@@ -134,8 +134,13 @@ describe('a removal meets a restore mid-transfer, and admission', function () {
       + `&& tar -czf ${localArchiveOf(appName)} -C /tmp/big . && rm -rf /tmp/big`);
     expect(built.exitCode, `building the archive failed: ${built.output}`).to.equal(0);
 
-    // the bracket keeps the pattern from matching the shell that runs pgrep or pkill
+    // The bracket keeps a pattern from matching the shell that runs pgrep or pkill.
+    // UNTAR matches the unpack's sudo and its tar: the unpack has ended once neither
+    // is left. A sudo stops itself while its command is stopped, and one that
+    // resumes before its command stops itself again, so tar is resumed first.
     const UNTAR = '"[t]ar -xzf"';
+    const TAR = '"^[t]ar -xzf"';
+    const SUDO = '"^[s]udo tar -xzf"';
     const unpacking = async () => (await execInContainer(client().container, `pgrep -f ${UNTAR}`)).exitCode === 0;
     const restoring = restoreLocal(client(), appName, [appName], await ownerAuth());
     restoring.catch(() => {});
@@ -152,7 +157,8 @@ describe('a removal meets a restore mid-transfer, and admission', function () {
       expect(await restoring, 'the restore').to.include(`${appName}: stopped for its removal`);
     } finally {
       // a stop sent to a frozen process is delivered when it resumes
-      await execInContainer(client().container, `pkill -CONT -f ${UNTAR}`);
+      await execInContainer(client().container, `pkill -CONT -f ${TAR}`);
+      await execInContainer(client().container, `pkill -CONT -f ${SUDO}`);
     }
     await waitFor(async () => !(await unpacking()), { timeout: 120000, interval: 500, label: 'the unpack is ended' });
     await removing;
