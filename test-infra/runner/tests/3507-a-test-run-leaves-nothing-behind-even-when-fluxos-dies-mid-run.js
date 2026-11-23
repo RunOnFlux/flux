@@ -105,6 +105,18 @@ describe('a test run leaves nothing behind', function () {
     const running = await testRunContainers();
     expect(running.map((line) => line.split(' ')[0]), 'the run\'s containers are not on the node').to.deep.equal(started.containers);
     expect(await dbClient(NODE + 1).localApp(appName), 'the app was installed for its test').to.equal(null);
+    // what docker gave each container, whatever the app declares
+    // eslint-disable-next-line no-restricted-syntax
+    for (const name of started.containers) {
+      // eslint-disable-next-line no-await-in-loop
+      const [limits] = await listed(`docker inspect -f '{{.HostConfig.NanoCpus}} {{.HostConfig.Memory}} {{.State.Pid}}' ${name}`);
+      const [nanoCpus, memory, pid] = limits.split(' ');
+      expect(Number(nanoCpus), `${name}'s CPU`).to.equal(0.2 * 1e9);
+      expect(Number(memory), `${name}'s memory`).to.equal(300 * 1024 * 1024);
+      // eslint-disable-next-line no-await-in-loop
+      const cgroup = (await listed(`cat /proc/${pid}/cgroup`)).join('\n');
+      expect(cgroup, `${name} runs outside flux.slice`).to.include('flux.slice');
+    }
 
     await client().releaseCheckpoint(BEFORE_REMOVAL, appName);
     const body = await testing;
