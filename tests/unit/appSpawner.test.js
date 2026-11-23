@@ -1566,11 +1566,12 @@ describe('appSpawner tests', () => {
 
     // The install of the app from another route stops the attempt by its app.
     it('names its app to the attempt before it claims the app, and ends the attempt', async () => {
-      const { withdrawalStub } = await runAttempt();
+      const claimStub = sinon.stub().resolves();
+      await runAttempt({ claimStub });
 
       sinon.assert.calledWithExactly(attemptStub.forApp, spawnableApp.name);
-      sinon.assert.called(withdrawalStub);
-      expect(attemptStub.forApp.calledBefore(withdrawalStub.firstCall), 'the app was named after its claim').to.equal(true);
+      sinon.assert.called(claimStub);
+      expect(attemptStub.forApp.calledBefore(claimStub.firstCall), 'the app was named after its claim').to.equal(true);
       sinon.assert.calledOnce(attemptStub.end);
     });
 
