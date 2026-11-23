@@ -45,8 +45,12 @@ describe('a node removes the images nothing wants', function () {
     const pulled = await inNode(`docker pull -q ${reference}`);
     expect(pulled.exitCode, `fixture: ${reference} could not be pulled: ${pulled.output}`).to.equal(0);
   };
-  // the first pass that starts after `mark`
-  const nextPass = async (mark) => (await subject().waitForEvent('images:reaped', () => true, PASS_MS, { afterId: mark })).data;
+  // A pass that starts after `mark`: the first to report after it may have listed
+  // the images before it, so the second is the first that cannot have.
+  const nextPass = async (mark) => {
+    const first = await subject().waitForEvent('images:reaped', () => true, PASS_MS, { afterId: mark });
+    return (await subject().waitForEvent('images:reaped', () => true, PASS_MS, { afterId: first.id })).data;
+  };
 
   before(async function () {
     this.timeout(600000);
