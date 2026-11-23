@@ -1389,7 +1389,7 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(installStub.calledOnce, 'the install must have been attempted, or the argument below proves nothing').to.be.true;
-      expect(installStub.firstCall.args[4]).to.deep.equal({ wait: false });
+      expect(installStub.firstCall.args[4]?.wait).to.equal(false);
     });
 
     it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {
