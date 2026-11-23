@@ -759,7 +759,7 @@ describe('appUninstaller tests', () => {
     let appSliceStub;
 
     function buildUninstaller(spec, constantOverrides = {}, dbOverrides = {}) {
-      runtimeStateStub = { remove: sinon.stub().resolves(), removeControllerState: sinon.stub().resolves() };
+      runtimeStateStub = { remove: sinon.stub().resolves() };
       appSliceStub = { release: sinon.stub().resolves() };
       // The REAL departing tracker, taken fresh per test rather than
       // reimplemented here: a fake that counts differently from the module

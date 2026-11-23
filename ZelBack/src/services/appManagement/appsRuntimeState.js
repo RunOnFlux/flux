@@ -706,51 +706,6 @@ async function setSuccessfullyStarted(identifier) {
 }
 
 /**
- * What survives a component being taken down without its volume.
- *
- * Named as what is KEPT rather than what is cleared, so a controller field
- * added later is dropped by a soft removal without anyone remembering to name
- * it here. Everything in this list is the node's account of its own storage,
- * which the removal is not touching.
- */
-const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid', 'restoreUnfinished', 'hasSuccessfullyStarted'];
-
-/**
- * Drops the controller state for a component whose volume stays where it is.
- *
- * A soft removal leaves the image on disk and the volume mounted, so the
- * record of which image that is describes something that still exists. Losing
- * it sends the next boot back to searching the disks by filename, and stamps
- * whatever that search turns up as this node's own.
- *
- * THROWS rather than reporting a clear it did not make.
- *
- * @param {string} identifier
- * @throws When the state cannot be read or replaced.
- */
-async function removeControllerState(rawIdentifier) {
-  const identifier = canonical(rawIdentifier);
-  const database = collection();
-  // Read without the swallow: a document that could not be READ is not a
-  // document that is absent, and the difference is the operator stop lock.
-  // Answering "nothing here" for a database that would not speak leaves the
-  // lock in place and reports the redeploy done, so the component the operator
-  // asked to run stays down and nothing says why.
-  const state = await dbHelper.findOneInDatabase(
-    database,
-    appsRuntimeState,
-    { identifier },
-    { projection: { _id: 0 } },
-  );
-  if (!state) return;
-  const kept = { identifier, updatedAt: Date.now() };
-  SURVIVES_SOFT_REMOVAL.forEach((field) => {
-    if (state[field] !== undefined) kept[field] = state[field];
-  });
-  await dbHelper.replaceOneInDatabase(database, appsRuntimeState, { identifier }, kept);
-}
-
-/**
  * Drops all runtime state for a component (on uninstall). Rejects when the
  * delete fails: a stop lock left behind holds a later reinstall stopped.
  *
@@ -847,6 +802,11 @@ async function prepareCollection() {
       // for good: the refusal returns before the line that would replace it.
       const withImage = oldestFirst.filter((t) => t.volumeImagePath);
       const image = withImage.length ? withImage[withImage.length - 1] : null;
+      // The record of an unfinished restore is one claim too: held, since when,
+      // and whether a scan has run since. Its time and scan state come from the
+      // twin that holds it, or a held record could lose the time a heal needs.
+      const withRestore = oldestFirst.filter((t) => t.restoreUnfinished === true);
+      const restore = withRestore.length ? withRestore[withRestore.length - 1] : null;
       const merged = {
         ...Object.assign({}, ...oldestFirst),
         ...(image ? { volumeImagePath: image.volumeImagePath, volumeFsUuid: image.volumeFsUuid || null } : {}),
@@ -858,7 +818,11 @@ async function prepareCollection() {
         operatorStopForce: twins.some((t) => t.operatorStopForce === true),
         // an unfinished restore anywhere holds the component: starting it on a
         // half-replaced folder is the harm, and the owner can start it
-        restoreUnfinished: twins.some((t) => t.restoreUnfinished === true),
+        ...(restore ? {
+          restoreUnfinished: true,
+          restoreUnfinishedAt: restore.restoreUnfinishedAt ?? null,
+          restoreScanned: restore.restoreScanned === true,
+        } : { restoreUnfinished: false }),
         // a start waits on the election only if no locked twin withholds it: a
         // stop without one is the operator's later word
         operatorStartRequested: twins.some((t) => t.operatorStopped === true)
@@ -927,7 +891,6 @@ module.exports = {
   stopRequestedSince,
   setVolumeImage,
   getVolumeImage,
-  removeControllerState,
   remove,
   BACKOFF_DELAYS_MS,
   STABLE_RUN_MS,
