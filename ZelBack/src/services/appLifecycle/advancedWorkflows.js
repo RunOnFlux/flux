@@ -1570,6 +1570,9 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
     const fullComponentName = `${componentName}_${appName}`;
     const componentAppId = dockerService.getAppIdentifier(fullComponentName);
 
+    // Checked before the component comes down: one this node cannot take keeps running.
+    await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name });
+
     // Whether softUninstallComponent ran to completion. False means the removal
     // did not FINISH, which is not the same as "it never started" - and it is the
     // only thing the forced, network-broadcast uninstall below is decided on.
@@ -1604,9 +1607,6 @@ async function softRedeployOneComponent(appName, componentName, res, op) {
       }
 
       await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
-
-      // Verify requirements
-      await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name });
 
       // Register component
       log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
@@ -1717,6 +1717,10 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
 
     const fullComponentName = `${componentName}_${appName}`;
 
+    // Checked before the component and its data come down: one this node cannot
+    // take keeps running on its data.
+    await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name });
+
     // Same decision as the soft path: whether hardUninstallComponent finished is
     // the only thing the forced, network-broadcast uninstall below is decided on.
     let componentRemoved = false;
@@ -1737,9 +1741,6 @@ async function hardRedeployOneComponent(appName, componentName, res, op) {
       }
 
       await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
-
-      // Verify requirements
-      await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name });
 
       // Register component
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
@@ -4379,19 +4380,30 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
       return;
     }
 
+    // Each tiered component takes this node's tier's figures: the check below and
+    // the components built further down are both made from them.
+    appSpecifications.compose.forEach((component) => {
+      if (!component.tiered) return;
+      Object.assign(component, {
+        cpu: component[`cpu${tier}`] || component.cpu,
+        ram: component[`ram${tier}`] || component.ram,
+        hdd: component[`hdd${tier}`] || component.hdd,
+      });
+    });
+
+    // Checked before anything is torn down: an update this node cannot take
+    // leaves the app running as it is.
+    try {
+      await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name }); // entire app
+    } catch (error) {
+      log.warn(`Application ${appSpecifications.name} was not updated: ${error.message}. It keeps running as it is.`);
+      return;
+    }
+
     try {
       const reversedCompose = [...appSpecifications.compose].reverse();
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of reversedCompose) {
-        if (appComponent.tiered) {
-          const hddTier = `hdd${tier}`;
-          const ramTier = `ram${tier}`;
-          const cpuTier = `cpu${tier}`;
-          appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-          appComponent.ram = appComponent[ramTier] || appComponent.ram;
-          appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
-        }
-
         const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
 
         if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
@@ -4423,7 +4435,6 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
       const appsDatabase = dbopen.db(config.database.appslocal.database);
       const appsQuery = { name: appSpecifications.name };
       log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
-      await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name }); // entire app
 
       // The app's row becomes the new specification in one write, before any
       // container is created: until it lands the row still holds the old one,
@@ -4447,15 +4458,6 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
       // Now install components - containers will be created but app is already in DB
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
-        if (appComponent.tiered) {
-          const hddTier = `hdd${tier}`;
-          const ramTier = `ram${tier}`;
-          const cpuTier = `cpu${tier}`;
-          appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-          appComponent.ram = appComponent[ramTier] || appComponent.ram;
-          appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
-        }
-
         const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
 
         if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
@@ -4502,8 +4504,9 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
         log.warn(`Redeployment of ${appSpecifications.name} stopped: the database did not answer (${error.message}). The app is not uninstalled.`);
         return;
       }
-      // The row holds the new specification: the reconciler recreates from it
-      // what the update did not, and nothing is removed.
+      // The row describes the app, by its old specification or by the new one
+      // once written: the reconciler recreates from it what the update did not,
+      // and nothing is removed.
       log.warn(`Redeployment of ${appSpecifications.name} failed: ${error.message}. The app stays installed, and the reconciler recreates what is missing.`);
       await handToReconciler(appSpecifications);
     }

@@ -591,7 +591,7 @@ describe('advancedWorkflows tests', () => {
         version: 4,
         compose: [{ name: 'frontend', repotag: 'myapp/frontend:1.0' }],
       });
-      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       sinon.stub(serviceHelper, 'delay').resolves();
       const checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('stop here'));
@@ -601,6 +601,7 @@ describe('advancedWorkflows tests', () => {
       expect(error.message).to.equal('stop here');
       sinon.assert.calledOnce(checkAppRequirements);
       expect(checkAppRequirements.firstCall.args[4]).to.deep.equal({ replacing: 'myapp' });
+      sinon.assert.notCalled(softUninstallComponent);
     });
   });
 
@@ -691,7 +692,7 @@ describe('advancedWorkflows tests', () => {
         version: 4,
         compose: [{ name: 'frontend', repotag: 'myapp/frontend:1.0' }],
       });
-      sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      const hardUninstallComponent = sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       sinon.stub(serviceHelper, 'delay').resolves();
       const checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('stop here'));
@@ -701,6 +702,7 @@ describe('advancedWorkflows tests', () => {
       expect(error.message).to.equal('stop here');
       sinon.assert.calledOnce(checkAppRequirements);
       expect(checkAppRequirements.firstCall.args[4]).to.deep.equal({ replacing: 'myapp' });
+      sinon.assert.notCalled(hardUninstallComponent);
     });
   });
 
@@ -8132,6 +8134,22 @@ describe('advancedWorkflows tests', () => {
 
       sinon.assert.calledOnce(checkAppRequirements);
       expect(checkAppRequirements.firstCall.args[4]).to.deep.equal({ replacing: 'myapp' });
+    });
+
+    it('tears nothing down and writes nothing when the new specification does not fit', async () => {
+      const hardUninstallComponent = sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Insufficient HDD on Flux Node to spawn an application'));
+      const replaceRow = sinon.stub(dbHelper, 'replaceOneInDatabase').resolves({ matchedCount: 1 });
+      dbHelper.findOneInDatabase.resolves({ ...newSpec, compose: [{ ...newSpec.compose[0], hdd: 10 }] });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.notCalled(hardUninstallComponent);
+      sinon.assert.notCalled(softUninstallComponent);
+      sinon.assert.notCalled(replaceRow);
+      sinon.assert.notCalled(removeAppLocally);
     });
 
     it('never deletes the app\'s row: the new specification replaces it in one write', async () => {
