@@ -4397,6 +4397,7 @@ async function reinstallOldApplication(installedApp, appSpecifications, rewritte
       await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name }); // entire app
     } catch (error) {
       log.warn(`Application ${appSpecifications.name} was not updated: ${error.message}. It keeps running as it is.`);
+      fluxEventBus.publish('app:updateDeclined', { name: appSpecifications.name, hash: appSpecifications.hash, reason: error.message });
       return;
     }
 

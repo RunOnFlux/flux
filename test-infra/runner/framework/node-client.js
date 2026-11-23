@@ -355,6 +355,8 @@ export function nodeClient(nodeNum) {
         'spawner:deferred',
         'spawner:deferralMatured',
         'spawner:installFailed',
+        // an update the node cannot take, left undone with the app as it is
+        'app:updateDeclined',
         // an attempt stopped by lost readiness, a move, or an install of its app from another route
         'spawner:attemptStopped',
         'spawner:networkErrorSkip',
