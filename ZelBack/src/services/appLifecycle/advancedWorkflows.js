@@ -3115,10 +3115,10 @@ async function appendRestoreTask(req, res) {
       // eslint-disable-next-line no-await-in-loop
       await setSyncthingFolderPaused(folderId, false);
     }
-    // One line, so a caller that alerts on `Error:` shows what is held and how it
-    // is released.
+    // One line, so a caller that alerts on `Error:` shows the owner what is held
+    // and what to do.
     const held = swapInFlight
-      ? `. ${swapInFlight.name.toLowerCase()} is kept stopped: restore it again, or start it to keep its data as it is${swapInFlight.syncMode === 'none' ? '' : ' and send it to the other instances'}.`
+      ? `. The restore of ${swapInFlight.name.toLowerCase()} did not finish, so it is stopped to protect your data. Run the restore again.`
       : '';
     await sendChunk(res, `${error?.message}${held}\n`);
     // The hold is lifted before the response ends, so a caller that sees it end
