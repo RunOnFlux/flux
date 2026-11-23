@@ -81,7 +81,7 @@ describe('imageReaper tests', () => {
 
     // eslint-disable-next-line no-restricted-syntax
     for (const type of ['install', 'redeploy', 'rebuild']) {
-      it(`removes nothing while an ${type} holds an app, and removes it once the ${type} has ended`, async () => {
+      it(`removes nothing while ${type === 'install' ? 'an' : 'a'} ${type} holds an app, and removes it once the ${type} has ended`, async () => {
         images = [{ Id: 'sha256:a', RepoTags: ['org/a:1'] }];
         const token = operationRegistry.acquire('someapp', type, 'test');
 
