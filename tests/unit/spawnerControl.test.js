@@ -9,11 +9,14 @@ describe('spawnerControl', () => {
   // A runner that counts its passes and reports how the spawner's stop reached it.
   async function runner() {
     passes += 1;
+    const attempt = control.beginAttempt();
     try {
-      await control.sleep(60000);
+      await attempt.sleep(60000);
     } catch (error) {
       if (error instanceof control.SpawnerStopped) stopsHeard += 1;
       return 0;
+    } finally {
+      attempt.end();
     }
     return 60000;
   }
@@ -82,7 +85,8 @@ describe('spawnerControl', () => {
   it('waits for an install under way, and starts once it has let go when the node became ready meanwhile', async () => {
     await control.setReady(true);
     await settle();
-    const letGo = control.holdForInstall();
+    const attempt = control.beginAttempt();
+    const letGo = attempt.holdForInstall();
     let stopped = false;
 
     const stopping = control.setReady(false).then(() => { stopped = true; });
@@ -92,6 +96,7 @@ describe('spawnerControl', () => {
     letGo();
     await stopping;
     await settle();
+    attempt.end();
 
     expect(passes, 'the ready signal given during the stop was lost').to.equal(2);
   });
@@ -99,9 +104,9 @@ describe('spawnerControl', () => {
   it('lets an install\'s lock go once, however often it is told to', async () => {
     await control.setReady(true);
     await settle();
-    const first = control.holdForInstall();
+    const first = control.beginAttempt().holdForInstall();
     first();
-    const second = control.holdForInstall();
+    const second = control.beginAttempt().holdForInstall();
     first();
     let stopped = false;
 
@@ -115,12 +120,68 @@ describe('spawnerControl', () => {
   it('installs nothing once a stop has begun', async () => {
     await control.setReady(true);
     await settle();
-    const holding = control.holdForInstall();
+    const installing = control.beginAttempt();
+    const deciding = control.beginAttempt();
+    const holding = installing.holdForInstall();
     const stopping = control.setReady(false);
     await settle();
 
-    expect(() => control.holdForInstall()).to.throw(control.SpawnerStopped);
+    expect(() => deciding.holdForInstall()).to.throw(control.SpawnerStopped);
     holding();
     await stopping;
+  });
+
+  // An attempt busy elsewhere (a port test, a registry read) when it is stopped
+  // reaches its install and its waits only after the stop has finished.
+  it('installs nothing and waits for nothing in an attempt stopped while it was busy, after the stop has finished', async () => {
+    await control.setReady(true);
+    await settle();
+    const busy = control.beginAttempt();
+
+    await control.setReady(false);
+    await control.setReady(true);
+    await settle();
+
+    expect(() => busy.holdForInstall(), 'the stopped attempt installed').to.throw(control.SpawnerStopped);
+    let slept = null;
+    await busy.sleep(1).then(() => { slept = true; }, (error) => { slept = error; });
+    expect(slept, 'the stopped attempt waited on').to.be.instanceOf(control.SpawnerStopped);
+    busy.end();
+  });
+
+  it('ends an attempt deciding on an app when that app is installed by another route, and starts again', async () => {
+    await control.setReady(true);
+    await settle();
+    const deciding = control.beginAttempt();
+    deciding.forApp('SomeApp');
+
+    await control.stopAttemptFor('someapp');
+    await settle();
+
+    expect(() => deciding.holdForInstall(), 'the attempt installed an app the node was installing').to.throw(control.SpawnerStopped);
+    expect(stopsHeard, 'the waiting attempt was not ended').to.equal(1);
+    expect(passes, 'the spawner did not decide afresh').to.equal(2);
+    deciding.end();
+  });
+
+  it('leaves an attempt for another app, and one already installing its app, to carry on', async () => {
+    await control.setReady(true);
+    await settle();
+    const other = control.beginAttempt();
+    other.forApp('otherapp');
+    const installing = control.beginAttempt();
+    installing.forApp('someapp');
+    const letGo = installing.holdForInstall();
+
+    await control.stopAttemptFor('someapp');
+    await settle();
+
+    expect(stopsHeard, 'the spawner was stopped').to.equal(0);
+    expect(passes).to.equal(1);
+    const otherLetGo = other.holdForInstall();
+    otherLetGo();
+    letGo();
+    other.end();
+    installing.end();
   });
 });

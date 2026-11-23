@@ -85,6 +85,9 @@ const Checkpoint = Object.freeze({
   // The spawn loop is between passes: the last pass, and any install it started,
   // has finished, and the next has read nothing.
   SPAWNER_BEFORE_PASS: 'spawner:beforePass',
+  // A spawner attempt has chosen its app and made its claim, and has not yet
+  // taken the spawner's lock for its install. Keyed by the app name.
+  SPAWNER_BEFORE_INSTALL: 'spawner:beforeInstall',
   // A give-up pass has decided to hand an app back and has not yet checked the
   // chain height or started the removal. Keyed by the app name.
   GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',

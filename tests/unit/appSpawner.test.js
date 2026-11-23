@@ -17,6 +17,7 @@ describe('appSpawner tests', () => {
   let aggregateStub;
   let delayStub;
   let spawnerControlStub;
+  let attemptStub;
   let daemonSyncStub;
   let placementFeasibilityStub;
 
@@ -124,12 +125,17 @@ describe('appSpawner tests', () => {
     // is gone", and the spawner told them apart by matching on error text.
     const installStubRef = opts.installStub ?? sinon.stub().resolves(InstallOutcome.INSTALLED);
 
+    attemptStub = {
+      forApp: sinon.stub(),
+      sleep: opts.sleepStub ?? delayStub,
+      holdForInstall: opts.holdForInstall ?? sinon.stub().returns(() => {}),
+      end: sinon.stub(),
+    };
     spawnerControlStub = {
       SpawnerStopped,
       setRunner: sinon.stub(),
       setReady: sinon.stub().resolves(),
-      sleep: opts.sleepStub ?? delayStub,
-      holdForInstall: opts.holdForInstall ?? sinon.stub().returns(() => {}),
+      beginAttempt: sinon.stub().returns(attemptStub),
     };
 
     appSpawner = proxyquire('../../ZelBack/src/services/appLifecycle/appSpawner', {
@@ -1556,6 +1562,26 @@ describe('appSpawner tests', () => {
       expect(withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true)).to.have.lengthOf(1);
       expect([...globalStateStub.trySpawningGlobalAppCache.keys()], 'the stopped attempt was held against the app').to.deep.equal([]);
       expect([...globalStateStub.spawnErrorsLongerAppCache.keys()]).to.deep.equal([]);
+    });
+
+    // The install of the app from another route stops the attempt by its app.
+    it('names its app to the attempt before it claims the app, and ends the attempt', async () => {
+      const { withdrawalStub } = await runAttempt();
+
+      sinon.assert.calledWithExactly(attemptStub.forApp, spawnableApp.name);
+      sinon.assert.called(withdrawalStub);
+      expect(attemptStub.forApp.calledBefore(withdrawalStub.firstCall), 'the app was named after its claim').to.equal(true);
+      sinon.assert.calledOnce(attemptStub.end);
+    });
+
+    it('keeps the mark of an app it installed when it is stopped after the install', async () => {
+      const sleepStub = sinon.stub();
+      sleepStub.onFirstCall().resolves();
+      sleepStub.rejects(new SpawnerStopped());
+      const { installStub } = await runAttempt({ sleepStub });
+
+      sinon.assert.calledOnce(installStub);
+      expect([...globalStateStub.trySpawningGlobalAppCache.keys()], 'the installed app lost its mark').to.have.lengthOf(1);
     });
 
     it('installs nothing when the spawner is stopped before its install takes the lock', async () => {

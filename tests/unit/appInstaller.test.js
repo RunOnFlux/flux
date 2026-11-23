@@ -8,6 +8,7 @@ const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutc
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
 const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
+const spawnerControl = require('../../ZelBack/src/services/utils/spawnerControl');
 const { GeoVerdict, GeoSource } = require('../../ZelBack/src/services/appRequirements/hwRequirements');
 
 // what portReconciler.want answers for a port mapped, and for one the router refused
@@ -1963,6 +1964,33 @@ describe('appInstaller tests', () => {
           .registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true, { onRecorded });
 
         sinon.assert.notCalled(onRecorded);
+      });
+    });
+
+    describe('a spawner attempt deciding on the app', () => {
+      it('ends when the app is installed by another route, so it installs nothing', async () => {
+        const deciding = spawnerControl.beginAttempt();
+        deciding.forApp('TestApp');
+        try {
+          await buildSucceedingInstaller().registerAppLocally(appSpec, false, null, true);
+
+          expect(() => deciding.holdForInstall(), 'the attempt went on to install an app the node was installing').to.throw(spawnerControl.SpawnerStopped);
+        } finally {
+          deciding.end();
+        }
+      });
+
+      it('carries on when another app is installed', async () => {
+        const deciding = spawnerControl.beginAttempt();
+        deciding.forApp('otherapp');
+        try {
+          await buildSucceedingInstaller().registerAppLocally(appSpec, false, null, true);
+
+          const letGo = deciding.holdForInstall();
+          letGo();
+        } finally {
+          deciding.end();
+        }
       });
     });
 

@@ -49,6 +49,7 @@ const config = require('config');
 const fluxEventBus = require('../utils/fluxEventBus');
 const volumeService = require('../utils/volumeService');
 const operationRegistry = require('../utils/operationRegistry');
+const spawnerControl = require('../utils/spawnerControl');
 const { Privilege, authOf } = require('../utils/privileges');
 
 // Legacy apps that use old gateway IP assignment method
@@ -363,6 +364,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemo
   // This install's claim on the host ports it starts containers on, held until
   // the install ends.
   let portClaim = null;
+  // The node installing the app is what any spawner attempt deciding on it was
+  // deciding: that attempt ends, and the spawner decides afresh.
+  if (!componentSpecs) spawnerControl.stopAttemptFor(appSpecs.name).catch((error) => log.error(error));
   try {
     // A pending removal of the app removes whatever is installed in its place, so
     // the app takes no install until that removal has finished.
