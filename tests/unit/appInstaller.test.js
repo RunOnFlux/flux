@@ -1494,8 +1494,8 @@ describe('appInstaller tests', () => {
     // uninstaller's, so what these tests own is which answer it is given.
     // Reaches the app's row and then fails, which is the shape a failed placement
     // has: the row is written before the image is fetched, so the claim exists by
-    // the time the install gives up. `failBeforeRow` moves the failure ahead of
-    // the row instead.
+    // the time the install gives up. `failBeforeRow` fails it at its linked-app
+    // check, ahead of the row, instead.
     function buildFailingInstaller(removeAppLocallyStub, {
       failBeforeRow = false, alreadyInstalled = false, signBroadcast = sinon.stub().resolves(), sendToAll = sinon.stub().resolves(), storeSignedAppInstallingErrorBroadcast = sinon.stub().resolves(), volumeError = new Error('volume creation failed'),
       dockerService = makeDockerServiceStub(),
@@ -1550,7 +1550,7 @@ describe('appInstaller tests', () => {
         },
         './appNetworkLinker': {
           reconnectLinkedApps: sinon.stub().resolves(),
-          checkAppNetworkRequirements: sinon.stub().resolves(),
+          checkAppNetworkRequirements: failBeforeRow ? sinon.stub().rejects(new Error('a linked app is not installed')) : sinon.stub().resolves(),
           connectComponentToLinkedApps: sinon.stub().resolves(),
         },
         './advancedWorkflows': {
@@ -1608,9 +1608,7 @@ describe('appInstaller tests', () => {
         },
         '../appRequirements/hwRequirements': hwRequirementsStub,
         '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves(
-            failBeforeRow ? { status: 'error', data: [] } : { status: 'success', data: [] },
-          ),
+          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
           listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
           decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve({ readable: apps, unreadable: [], inPlace: apps })),
         },
