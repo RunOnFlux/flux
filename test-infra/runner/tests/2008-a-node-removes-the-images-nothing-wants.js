@@ -61,8 +61,9 @@ describe('a node removes the images nothing wants', function () {
     });
     await mirrorExecutorImage();
     await bootAndPeer(env);
-    await pushImage(`e2ecold${stamp}`, 'v1');
-    await pushImage(`e2ekept${stamp}`, 'v1');
+    // content of their own, so neither is the same image as any app's
+    await pushImage(`e2ecold${stamp}`, 'v1', `cold-${stamp}`);
+    await pushImage(`e2ekept${stamp}`, 'v1', `kept-${stamp}`);
   });
 
   afterTeardown(async function () {
