@@ -8,7 +8,8 @@ const proxyquire = require('proxyquire').noCallThru();
 describe('appTestRun tests', () => {
   let root;
   let dockerService;
-  let hwRequirements;
+  let axiosGet;
+  let checkpoint;
   let appTestRun;
   let containers;
   let networks;
@@ -24,13 +25,14 @@ describe('appTestRun tests', () => {
     Id: `id-${name}`, Names: [`/flux${name}`], Labels: { 'runonflux.role': 'app' }, Image: image,
   });
   const res = () => ({ write: sinon.stub(), flush: sinon.stub() });
-  const appSpecs = () => ({
+  const appSpecs = (component = {}) => ({
     name: 'trialapp',
     version: 4,
     compose: [{
-      name: 'web', repotag: 'org/web:1', cpu: 0.5, ram: 500, hdd: 5, containerData: '/data', environmentParameters: [], commands: [],
+      name: 'web', repotag: 'org/web:1', cpu: 0.5, ram: 500, hdd: 5, containerData: '/data', environmentParameters: [], commands: [], containerPorts: [9001], ...component,
     }],
   });
+  const written = (response) => response.write.args.flat().join('');
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'testrun-'));
@@ -41,7 +43,10 @@ describe('appTestRun tests', () => {
       dockerListContainers: sinon.stub().callsFake(async () => [...containers]),
       appDockerForceRemove: sinon.stub().callsFake(async (id) => { containers = containers.filter((c) => c.Id !== id); }),
       appDockerStart: sinon.stub().resolves(),
-      dockerContainerInspect: sinon.stub().resolves({ State: { Running: true, ExitCode: 0 } }),
+      dockerContainerInspect: sinon.stub().callsFake(async (id) => ({
+        State: { Running: true, ExitCode: 0 },
+        NetworkSettings: { Networks: { [id.replace(/-web$/, '')]: { IPAddress: '172.30.0.2' } } },
+      })),
       dockerListNetworks: sinon.stub().callsFake(async () => [...networks]),
       dockerGetNetwork: sinon.stub().callsFake((id) => ({ id })),
       dockerRemoveNetwork: sinon.stub().callsFake(async (network) => { networks = networks.filter((n) => n.Id !== network.id); }),
@@ -59,14 +64,16 @@ describe('appTestRun tests', () => {
       }),
       dockerContainerLogs: sinon.stub().resolves('boom'),
     };
-    hwRequirements = { hwShortfall: sinon.stub().resolves(null) };
+    axiosGet = sinon.stub().resolves({ data: { initialTestStatus: true, failed: false } });
+    checkpoint = sinon.stub().resolves();
     appTestRun = proxyquire('../../ZelBack/src/services/appLifecycle/appTestRun', {
-      config: { fluxapps: { testRunWatchMs: 1 }, server: { fluxNodeServiceAddress: '127.0.0.1' } },
+      config: { server: { fluxNodeServiceAddress: '127.0.0.1' } },
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       '../dockerService': dockerService,
       '../serviceHelper': {
         ensureString: (message) => JSON.stringify(message),
         delay: sinon.stub().resolves(),
+        axiosGet,
         runCommand: async (command, { params }) => {
           if (command === 'mkdir') fs.mkdirSync(params[1], { recursive: true });
           return {};
@@ -76,12 +83,10 @@ describe('appTestRun tests', () => {
         createSuccessMessage: (message) => ({ status: 'success', data: { message } }),
         createErrorMessage: (message) => ({ status: 'error', data: { message } }),
       },
-      '../generalService': { nodeTier: sinon.stub().resolves('cumulus') },
       '../IOUtils': { removeDirectory: async (target) => { fs.rmSync(target, { recursive: true, force: true }); return true; } },
-      '../appRequirements/hwRequirements': hwRequirements,
       '../utils/volumeConstructor': { validateMountConfiguration: () => true },
       '../utils/appConstants': { appsFolderPath: path.join(root, 'ZelApps') },
-      '../utils/fluxEventBus': { publish: sinon.stub() },
+      '../utils/fluxEventBus': { publish: sinon.stub(), checkpoint, Checkpoint: { TESTRUN_BEFORE_REMOVAL: 'testrun:beforeRemoval' } },
     });
   });
 
@@ -132,10 +137,10 @@ describe('appTestRun tests', () => {
       await appTestRun.sweep();
     });
 
-    it('runs the containers outside the app machinery, at the resources declared, and removes them after', async () => {
+    it('runs the containers outside the app machinery, at 0.2 CPU and 300 MB in flux.slice, and removes them after', async () => {
       const response = res();
 
-      expect(await appTestRun.run(appSpecs(), response, { pull: sinon.stub().resolves() })).to.equal(true);
+      expect(await appTestRun.run(appSpecs({ cpu: 3, ram: 6000 }), response, { pull: sinon.stub().resolves() })).to.equal(true);
 
       const [options] = created;
       expect(options.name).to.match(/^testrun-[0-9a-f]{8}-web$/);
@@ -143,8 +148,9 @@ describe('appTestRun tests', () => {
       expect(options.Labels).to.not.have.property('runonflux.app');
       expect(options.HostConfig).to.not.have.property('PortBindings');
       expect(options.HostConfig.NetworkMode).to.match(/^testrun-[0-9a-f]{8}$/);
-      expect(options.HostConfig.NanoCPUs).to.equal(0.5 * 1e9);
-      expect(options.HostConfig.Memory).to.equal(500 * 1024 * 1024);
+      expect(options.HostConfig.NanoCPUs).to.equal(0.2 * 1e9);
+      expect(options.HostConfig.Memory).to.equal(300 * 1024 * 1024);
+      expect(options.HostConfig.CgroupParent).to.equal('flux.slice');
       expect(options.HostConfig.RestartPolicy).to.deep.equal({ Name: 'no' });
       expect(options.HostConfig.Mounts[0].Source.startsWith(appTestRun.ROOT)).to.equal(true);
       expect(options.HostConfig.Mounts[0].Target).to.equal('/data');
@@ -152,6 +158,9 @@ describe('appTestRun tests', () => {
       expect(networks, 'the network is gone').to.deep.equal([]);
       sinon.assert.calledOnceWithExactly(dockerService.appDockerImageRemove, 'org/web:1');
       expect(fs.readdirSync(appTestRun.ROOT), 'the directories are gone').to.deep.equal([]);
+      expect(written(response)).to.include('Flux App trialapp successfully installed and launched');
+      sinon.assert.notCalled(axiosGet);
+      sinon.assert.calledOnceWithExactly(checkpoint, 'testrun:beforeRemoval', 'trialapp');
     });
 
     it('keeps an image the node already held', async () => {
@@ -162,24 +171,47 @@ describe('appTestRun tests', () => {
       sinon.assert.notCalled(dockerService.appDockerImageRemove);
     });
 
-    it('reports a container that did not keep running, with its exit code', async () => {
+    it('reports a container that exited, with its exit code', async () => {
       dockerService.dockerContainerInspect.resolves({ State: { Running: false, ExitCode: 127, OOMKilled: false } });
       const response = res();
 
       expect(await appTestRun.run(appSpecs(), response, { pull: sinon.stub().resolves() })).to.equal(false);
 
-      expect(response.write.args.flat().join('')).to.include('exit code 127');
+      expect(written(response)).to.include('exit code 127');
+      expect(written(response)).to.not.include('successfully installed');
       expect(containers).to.deep.equal([]);
     });
 
-    it('refuses an app the node cannot run at the resources it declares, creating nothing', async () => {
-      hwRequirements.hwShortfall.resolves('Insufficient RAM on Flux Node to spawn an application');
+    it('passes a Deploy with Git container once its build reports it passed, asked at its address on the run\'s network', async () => {
+      const response = res();
 
-      let thrown;
-      await appTestRun.run(appSpecs(), res(), { pull: sinon.stub().resolves() }).catch((error) => { thrown = error; });
+      expect(await appTestRun.run(appSpecs({ repotag: 'runonflux/orbit:latest' }), response, { pull: sinon.stub().resolves() })).to.equal(true);
 
-      expect(thrown.message).to.include('Insufficient RAM');
-      sinon.assert.notCalled(dockerService.createContainer);
+      sinon.assert.calledOnce(axiosGet);
+      expect(axiosGet.firstCall.args[0]).to.equal('http://172.30.0.2:9001/api/status');
+      expect(written(response)).to.include('Orbit initial test passed for web_trialapp');
+      expect(written(response)).to.include('successfully installed and launched');
+    });
+
+    it('fails a Deploy with Git container whose build failed, with its reason, and removes it', async () => {
+      axiosGet.resolves({ data: { initialTestStatus: true, failed: true, failure_reason: 'npm run build exited 1' } });
+      const response = res();
+
+      expect(await appTestRun.run(appSpecs({ repotag: 'runonflux/orbit:latest' }), response, { pull: sinon.stub().resolves() })).to.equal(false);
+
+      expect(written(response)).to.include('Orbit deployment failed: npm run build exited 1');
+      expect(written(response)).to.not.include('successfully installed');
+      expect(containers).to.deep.equal([]);
+    });
+
+    it('fails a Deploy with Git container whose build never reports, after two minutes of polls', async () => {
+      axiosGet.resolves({ data: { initialTestStatus: false } });
+      const response = res();
+
+      expect(await appTestRun.run(appSpecs({ repotag: 'runonflux/orbit:latest' }), response, { pull: sinon.stub().resolves() })).to.equal(false);
+
+      sinon.assert.callCount(axiosGet, 24);
+      expect(written(response)).to.include('did not complete within 2 minutes');
     });
 
     it('refuses a second run while one is in progress', async () => {

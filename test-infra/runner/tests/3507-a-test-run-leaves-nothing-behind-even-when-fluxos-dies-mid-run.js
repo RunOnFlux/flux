@@ -7,8 +7,9 @@
  * and its owner tests it with testappinstall. The run's containers run on the
  * node's own dockerd, so what it leaves is read there: containers and networks
  * carrying runonflux.role=testrun, and the run directory beside the apps folder.
- * The watch window is long enough that FluxOS can be killed while the run's
- * containers are up, which is the state a sweep at the next start must clear.
+ * The run is held at its checkpoint before removal while its containers are up:
+ * read there, and killed there, which is the state a sweep at the next start
+ * must clear.
  *
  * The app is never installed: no row is written, at any point.
  */
@@ -29,8 +30,7 @@ import { afterTeardown } from '../framework/teardown-hook.js';
 
 const REAL_NODES = 3;
 const NODE = 1;
-// long enough to kill FluxOS while the run's containers are up
-const WATCH_MS = 45000;
+const BEFORE_REMOVAL = 'testrun:beforeRemoval';
 // beside the harness apps folder, /mnt/appdata/flux-apps
 const RUN_ROOT = '/mnt/appdata/testruns';
 
@@ -64,7 +64,7 @@ describe('a test run leaves nothing behind', function () {
       hookCtx: this,
       nodes: REAL_NODES,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, testRunWatchMs: WATCH_MS } },
+      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await Promise.all(env.clients.map((c) => waitForBootSettled(c, 240000)));
@@ -83,32 +83,41 @@ describe('a test run leaves nothing behind', function () {
   });
 
   afterTeardown(async function () {
+    if (env && appName) await client().releaseCheckpoint(BEFORE_REMOVAL, appName).catch(() => {});
     await env?.teardown();
   });
+
+  // Holds the run before it removes anything, starts it, and answers once its
+  // containers are judged and up. Returned wrapped, so the caller does not wait
+  // on the held run.
+  async function heldRun(mark) {
+    await client().holdCheckpoint(BEFORE_REMOVAL, appName);
+    const testing = client().testAppInstall(messageHash, await ownerAuth()).catch((error) => error);
+    const { data: started } = await client().waitForEvent('testrun:started', (d) => d.app === appName, 180000, { afterId: mark });
+    await client().waitForEvent('checkpoint:held', (d) => d.name === BEFORE_REMOVAL && d.key === appName, 60000, { afterId: mark });
+    return { testing, started };
+  }
 
   it('runs the app outside the app machinery and removes everything when it ends', async function () {
     this.timeout(300000);
     const mark = client().getLastEventId();
-    const testing = client().testAppInstall(messageHash, await ownerAuth());
-
-    const { data: started } = await client().waitForEvent('testrun:started', (d) => d.app === appName, 180000, { afterId: mark });
+    const { testing, started } = await heldRun(mark);
     const running = await testRunContainers();
     expect(running.map((line) => line.split(' ')[0]), 'the run\'s containers are not on the node').to.deep.equal(started.containers);
     expect(await dbClient(NODE + 1).localApp(appName), 'the app was installed for its test').to.equal(null);
 
+    await client().releaseCheckpoint(BEFORE_REMOVAL, appName);
     const body = await testing;
     const { data: ended } = await client().waitForEvent('testrun:ended', (d) => d.runId === started.runId, 60000, { afterId: mark });
-    expect(ended.allRunning, `the app did not keep running: ${body}`).to.equal(true);
-    expect(body).to.match(/Nothing was installed/);
+    expect(ended.allStarted, `the app did not start: ${body}`).to.equal(true);
+    expect(String(body)).to.match(/successfully installed and launched/);
     await assertNothingLeft();
   });
 
   it('leaves nothing once FluxOS has started again after dying mid-run', async function () {
     this.timeout(420000);
     const mark = client().getLastEventId();
-    const testing = client().testAppInstall(messageHash, await ownerAuth()).catch((error) => error);
-
-    const { data: started } = await client().waitForEvent('testrun:started', (d) => d.app === appName, 180000, { afterId: mark });
+    const { testing, started } = await heldRun(mark);
     // canary: the state the sweep must clear is on the node
     expect((await testRunContainers()).length, 'fixture: the run\'s containers are not up').to.equal(started.containers.length);
     expect(await testRunNetworks(), 'fixture: the run\'s network is not up').to.have.lengthOf(1);

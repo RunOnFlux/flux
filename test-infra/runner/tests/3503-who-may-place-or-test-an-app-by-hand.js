@@ -104,7 +104,7 @@ describe('who may place or test an app by hand', function () {
     this.timeout(300000);
     const body = await client().testAppInstall(messageHash, await authAs(appOwnerKey()));
 
-    expect(body, 'the owner\'s test did not run the app').to.match(new RegExp(`${appName} ran at the resources it declares`));
+    expect(body, 'the owner\'s test did not run the app').to.match(new RegExp(`Flux App ${appName} successfully installed and launched`));
     await assertTornDown();
   });
 
@@ -112,7 +112,7 @@ describe('who may place or test an app by hand', function () {
     this.timeout(300000);
     const body = await client().testAppInstall(messageHash, await authAs(fluxTeamKey()));
 
-    expect(body, 'the flux team\'s test did not run the app').to.match(new RegExp(`${appName} ran at the resources it declares`));
+    expect(body, 'the flux team\'s test did not run the app').to.match(new RegExp(`Flux App ${appName} successfully installed and launched`));
     await assertTornDown();
   });
 });

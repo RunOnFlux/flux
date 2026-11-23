@@ -103,6 +103,9 @@ const Checkpoint = Object.freeze({
   // An install holds its app and has the app's record, and has not created any
   // of its containers. Keyed by the app name.
   INSTALL_BEFORE_CONTAINERS: 'install:beforeContainers',
+  // A test run has judged its containers and not yet removed anything. Keyed by
+  // the app name.
+  TESTRUN_BEFORE_REMOVAL: 'testrun:beforeRemoval',
   // An install has its room on the node reserved and has not yet written its
   // app's record. Keyed by the app name.
   INSTALL_AFTER_ADMISSION: 'install:afterAdmission',
