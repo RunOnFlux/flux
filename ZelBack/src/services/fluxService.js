@@ -112,6 +112,13 @@ let prepLock = false;
 let daemonStartRequired = false;
 
 /**
+ * The chain directory fluxd published when a preparation stopped it. A stopped fluxd
+ * publishes none, so the stream the preparation was for reads the chain from here.
+ * Set and cleared with daemonStartRequired.
+ */
+let preparedChainDir = null;
+
+/**
  * Only disabled if a stream fails to meet minimum
  * throughput criteria. I.e. 200Mbps.
  */
@@ -2058,6 +2065,9 @@ async function streamChainPreparation(req, res) {
       return;
     }
 
+    // read while fluxd still runs: once stopped it publishes no directories
+    const chainDir = await fluxdChainDir();
+
     // on non Arcane, we check if the stop commands return successfully, as there is no guarantee that the
     // node is running using zelcash or pm2 etc
 
@@ -2085,6 +2095,7 @@ async function streamChainPreparation(req, res) {
       log.info('zelcash service has been stopped');
     }
 
+    preparedChainDir = chainDir;
     daemonStartRequired = true;
     const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
     res.json(response);
@@ -2093,6 +2104,7 @@ async function streamChainPreparation(req, res) {
     setTimeout(() => {
       if (!lock && daemonStartRequired) {
         daemonStartRequired = false;
+        preparedChainDir = null;
         log.info('Stream chain prep timeout hit: restarting services');
         if (isArcane) {
           serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
@@ -2210,7 +2222,7 @@ async function streamChain(req, res) {
 
     log.info(`Stream chain request received from: ${ip}`);
 
-    const base = await fluxdChainDir();
+    const base = preparedChainDir || await fluxdChainDir();
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
@@ -2345,6 +2357,7 @@ async function streamChain(req, res) {
     // start services
     if (daemonStartRequired) {
       daemonStartRequired = false;
+      preparedChainDir = null;
 
       if (isArcane) {
         await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });

@@ -4142,6 +4142,41 @@ describe('fluxService tests', () => {
       expect(fluxServiceOnArcane.getStreamLock()).to.equal(false);
     });
 
+    it('a safe stream reads the chain where fluxd published it before the preparation stopped it', async () => {
+      delete process.env.FLUXOS_API_SOCKET;
+      const readFluxdDirs = sinon.stub(fluxdCredentials, 'readFluxdDirs');
+      // running: fluxd publishes its directories; stopped: it has removed fluxd.json
+      readFluxdDirs.resolves({ debuglog: '/home/flux/.flux/log/debug.log', chain: '/home/flux/.flux/chain' });
+      await fluxService.streamChainPreparation(preparationRequest(), generateResponse());
+      readFluxdDirs.resolves(null);
+      daemonServiceUtils.buildFluxdClient.rejects(
+        Object.assign(new Error('no RPC port'), { code: daemonServiceUtils.FLUXD_RPC_PORT_UNPUBLISHED }),
+      );
+      sinon.stub(serviceHelper, 'dirInfo').resolves({ count: 0, size: 0 });
+      fsPromisesStubs.stat = sinon.stub().callsFake(async (dir) => {
+        if (dir.startsWith('/home/flux/.flux/chain/')) return { isDirectory: () => true };
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+      const tarCreate = sinon.stub(tar, 'create').throws(new Error('stop here'));
+
+      await fluxService.streamChain({ socket: { remoteAddress: '10.20.30.40' }, body: {} }, generateResponse());
+
+      sinon.assert.calledOnceWithMatch(tarCreate, { cwd: '/home/flux/.flux/chain' });
+    });
+
+    it('a stream with no preparation reads the chain where the running fluxd publishes it', async () => {
+      sinon.stub(fluxdCredentials, 'readFluxdDirs').resolves({ debuglog: '/home/flux/.flux/log/debug.log', chain: '/home/flux/.flux/chain' });
+      fsPromisesStubs.stat = sinon.stub().callsFake(async (dir) => {
+        if (dir.startsWith('/home/flux/.flux/chain/')) return { isDirectory: () => true };
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+      const res = generateResponse();
+
+      await fluxService.streamChain({ socket: { remoteAddress: '10.20.30.40' }, body: { unsafe: true, compress: true } }, res);
+
+      expect(res.statusMessage).to.equal('Unable to compress blockchain in unsafe mode, it will corrupt new db.');
+    });
+
     it('off ArcaneOS the preparation stops the pm2 watchdog and zelcash', async () => {
       const res = generateResponse();
       await fluxService.streamChainPreparation(preparationRequest(), res);
