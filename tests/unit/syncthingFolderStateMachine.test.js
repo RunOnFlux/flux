@@ -49,6 +49,7 @@ const dockerServiceMock = {
   dockerContainerInspect: sinon.stub(),
   appDockerStart: sinon.stub(),
   getAppIdentifier: sinon.stub(),
+  getBaseAppName: (id) => id.replace(/^(flux|zel)/, ''),
 };
 
 const serviceHelperMock = {
@@ -1097,6 +1098,19 @@ describe('syncthingFolderStateMachine tests', () => {
           answer({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
           expect(await healing).to.equal(true);
           expect(operationRegistry.isHeld('test-app'), 'released once the heal ends').to.equal(false);
+        });
+
+        it('holds a v1-3 app under the app\'s name, as a restore does', async () => {
+          let answer;
+          appsRuntimeStateMock.unfinishedRestore.withArgs('fluxlegacyapp').callsFake(() => new Promise((resolve) => { answer = resolve; }));
+
+          const healing = stateMachine.healHeldSharedFolder('fluxlegacyapp');
+          await settle();
+
+          expect(operationRegistry.acquire('legacyapp', 'restore', 'test'), 'a restore asked for while the heal decides').to.equal(null);
+          answer(null);
+          expect(await healing).to.equal(false);
+          expect(operationRegistry.isHeld('legacyapp'), 'released once the heal ends').to.equal(false);
         });
 
         it('does not run while another operation holds the app, and the folder stays held', async () => {

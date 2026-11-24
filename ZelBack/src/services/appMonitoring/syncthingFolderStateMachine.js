@@ -1338,12 +1338,14 @@ async function healHolding(appId) {
  *
  * The heal is an operation on the app: it holds the app from its first read to the
  * clear, so no restore sets a record it then clears. While another operation holds
- * the app it does not run, and the folder stays held.
+ * the app it does not run, and the folder stays held. It holds the app under the
+ * app's name, as a backup or restore does: a v1-3 app's folder id is the app's
+ * docker name.
  * @param {string} appId Folder id.
  * @returns {Promise<boolean>} true once the record is cleared
  */
 async function healHeldFolder(appId) {
-  const appName = appId.split('_')[1] || appId;
+  const appName = appId.includes('_') ? appId.split('_')[1] : dockerService.getBaseAppName(appId);
   const lease = operationRegistry.acquire(appName, 'heal', 'healHeldFolder');
   if (!lease) {
     fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
