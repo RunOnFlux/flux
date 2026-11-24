@@ -155,12 +155,14 @@ describe('the store takes only well-formed reports and removals', () => {
         stored('apprunning', message([app('web'), without(app('probe'), 'hash')], now + 3)),
         stored('appremoved', removal({ apps: 'x', broadcastedAt: now + 4 })),
         stored('appremoved', removal({ appName: { $ne: '' }, broadcastedAt: now + 5 })),
+        stored('apprunning', without(message([app('web')], now + 6), 'type')),
+        stored('appremoved', message([app('web')], now + 7)),
       ];
       await events.insertMany([...good, ...bad]);
 
       const dropped = await messageStore.dropMalformedStoredEvents(events);
 
-      expect(dropped).to.equal(3);
+      expect(dropped).to.equal(5);
       const left = await events.find({ ip }).sort({ broadcastedAt: 1 }).toArray();
       expect(left.map((event) => event.dedupKey)).to.deep.equal(good.map((event) => event.dedupKey));
     });

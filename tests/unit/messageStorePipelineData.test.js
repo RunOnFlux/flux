@@ -51,7 +51,7 @@ describe('what a message carries reaches an update pipeline as data', () => {
 
   it('stores a live apprunning message as it was signed', async () => {
     const data = {
-      type: 'fluxapprunning', version: 2, ip, broadcastedAt: Date.now(), apps: [{ name: 'app', hash: 'hash' }], ...expressions,
+      type: 'fluxapprunning', version: 2, ip, broadcastedAt: Date.now(), osUptime: 1, staticIp: false, apps: [{ name: '$ip', hash: '$name', runningSince: '$broadcastedAt' }],
     };
 
     await messageStore.storeAppStateEvent('apprunning', {
@@ -65,7 +65,7 @@ describe('what a message carries reaches an update pipeline as data', () => {
 
   it('writes a location from app fields that read as expressions', async () => {
     const data = {
-      type: 'fluxapprunning', version: 2, ip, broadcastedAt: Date.now(), osUptime: 1, staticIp: false, apps: [{ name: '$ip', hash: '$name' }],
+      type: 'fluxapprunning', version: 2, ip, broadcastedAt: Date.now(), osUptime: 1, staticIp: false, apps: [{ name: '$ip', hash: '$name', runningSince: '2026-11-01T00:00:00.000Z' }],
     };
 
     await messageStore.storeBatchAppRunningMessages([{

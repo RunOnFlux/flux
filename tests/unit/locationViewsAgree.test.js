@@ -190,7 +190,9 @@ describe('the location table and the event-derived view agree', () => {
       await events.insertMany([
         {
           ip, type: 'apprunning', dedupKey: 'v2', broadcastedAt: new Date(now - 120000), expireAt: new Date(now + 3600000),
-          data: { type: 'fluxapprunning', version: 2, ip, broadcastedAt: now - 120000, apps: [{ name: 'OldApp', hash: 'h' }, { name: 'nohash' }] },
+          data: {
+            type: 'fluxapprunning', version: 2, ip, broadcastedAt: now - 120000, osUptime: 1, staticIp: false, apps: [{ name: 'OldApp', hash: 'h', runningSince: new Date(now - 120000).toISOString() }],
+          },
         },
         {
           ip, type: 'appremoved', dedupKey: 'appremoved:Gone', broadcastedAt: new Date(now - 60000), expireAt: new Date(now + 3600000),

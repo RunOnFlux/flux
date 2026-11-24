@@ -800,22 +800,24 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.be.instanceOf(Error);
-      expect(result.message).to.include('version 99 not supported');
+      expect(result.message).to.include('Invalid Flux App Running message');
     });
 
     it('should return false for expired message', async () => {
       const message = {
         type: 'fluxapprunning',
         version: 2,
-        apps: [{ name: 'testapp', hash: 'hash123' }],
+        apps: [{ name: 'testapp', hash: 'hash123', runningSince: '2026-11-01T00:00:00.000Z' }],
         broadcastedAt: Date.now() - (200 * 60 * 1000), // 200 minutes ago
         ip: '192.168.1.1',
+        osUptime: 1000,
+        staticIp: true,
       };
 
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.deep.equal({
-        stored: false, rebroadcast: false, written: [], refused: [], cleared: false,
+        stored: false, rebroadcast: false, written: [], cleared: false,
       });
       expect(logStub.warn.called).to.be.true;
     });
@@ -833,7 +835,7 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.be.instanceOf(Error);
-      expect(result.message).to.include('version 1 not supported');
+      expect(result.message).to.include('Invalid Flux App Running message');
       sinon.assert.notCalled(dbHelperStub.updateOneInDatabase);
     });
 
@@ -842,11 +844,13 @@ describe('messageStore tests', () => {
         type: 'fluxapprunning',
         version: 2,
         apps: [
-          { name: 'app1', hash: 'hash1' },
-          { name: 'app2', hash: 'hash2' },
+          { name: 'app1', hash: 'hash1', runningSince: '2026-11-01T00:00:00.000Z' },
+          { name: 'app2', hash: 'hash2', runningSince: '2026-11-01T00:00:00.000Z' },
         ],
         broadcastedAt: Date.now(),
         ip: '192.168.1.1',
+        osUptime: 1000,
+        staticIp: true,
       };
 
       const bulkWrite = sinon.stub().resolves();
@@ -858,7 +862,7 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.deep.equal({
-        stored: true, rebroadcast: true, written: message.apps, refused: [], cleared: false,
+        stored: true, rebroadcast: true, written: message.apps, cleared: false,
       });
       expect(dbHelperStub.updateOneInDatabase.callCount).to.equal(2);
       // Should clean up installing records for each app (location + broadcast per app)
@@ -876,6 +880,8 @@ describe('messageStore tests', () => {
         apps: [],
         broadcastedAt: Date.now(),
         ip: '192.168.1.1',
+        osUptime: 1000,
+        staticIp: true,
       };
 
       const mockDb = { db: sinon.stub().returns('database') };
@@ -886,7 +892,7 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.deep.equal({
-        stored: true, rebroadcast: true, written: [], refused: [], cleared: true,
+        stored: true, rebroadcast: true, written: [], cleared: true,
       });
       // Called three times: locations, installing locations, installing broadcasts
       expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(3);
@@ -1349,7 +1355,13 @@ describe('messageStore tests', () => {
         signedBroadcast: {
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
           data: {
-            ip: '1.2.3.4', version: 2, broadcastedAt: Date.now(), apps: [{ name: 'A', hash: 'h' }, { name: 'nohash' }],
+            type: 'fluxapprunning',
+            ip: '1.2.3.4',
+            version: 2,
+            broadcastedAt: Date.now(),
+            osUptime: 1000,
+            staticIp: false,
+            apps: [{ name: 'A', hash: 'h', runningSince: '2026-11-01T00:00:00.000Z' }, { name: 'B', hash: 'h2', runningSince: '2026-11-01T00:00:00.000Z' }],
           },
         },
       };
@@ -1359,9 +1371,25 @@ describe('messageStore tests', () => {
       expect(filter.ip).to.equal('1.2.3.4');
       expect(filter.type).to.equal('apprunning');
       expect(filter.dedupKey).to.equal('v2');
-      // its storable apps' names, lowercased, which a read for one app matches
+      // its apps' names, lowercased, which a read for one app matches
       const [{ $set: written }] = collectionStub.updateOne.firstCall.args[1];
-      expect(JSON.stringify(written.appNames)).to.include('["a"]');
+      expect(JSON.stringify(written.appNames)).to.include('["a","b"]');
+    });
+
+    it('stores no apprunning event that is not exactly a running message', async () => {
+      const payload = {
+        signedBroadcast: {
+          version: 1,
+          timestamp: Date.now(),
+          pubKey: 'pk',
+          signature: 'sig',
+          data: {
+            ip: '1.2.3.4', version: 2, broadcastedAt: Date.now(), osUptime: 1000, staticIp: false, apps: [],
+          },
+        },
+      };
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
+      sinon.assert.notCalled(collectionStub.updateOne);
     });
 
     it('stores no version 1 apprunning event', async () => {

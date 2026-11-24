@@ -982,11 +982,17 @@ function appNamesOf(apps) {
  * @returns {Promise<number>} How many were deleted.
  */
 async function dropMalformedStoredEvents(collection) {
+  const messageTypeOf = {
+    [APP_STATE_EVENT_TYPES.APPRUNNING]: 'fluxapprunning',
+    [APP_STATE_EVENT_TYPES.APPREMOVED]: 'fluxappremoved',
+  };
   const events = await collection.find(
-    { type: { $in: [APP_STATE_EVENT_TYPES.APPRUNNING, APP_STATE_EVENT_TYPES.APPREMOVED] } },
-    { projection: { _id: 1, data: 1 } },
+    { type: { $in: Object.keys(messageTypeOf) } },
+    { projection: { _id: 1, type: 1, data: 1 } },
   ).toArray();
-  const malformed = events.filter((event) => !event.data || !wellFormed(event.data)).map((event) => event._id);
+  const malformed = events
+    .filter((event) => event.data?.type !== messageTypeOf[event.type] || !wellFormed(event.data))
+    .map((event) => event._id);
   if (!malformed.length) return 0;
   await collection.deleteMany({ _id: { $in: malformed } });
   log.warn(`dropMalformedStoredEvents - ${malformed.length} stored reports and removals were not well formed and are deleted`);
@@ -1015,7 +1021,7 @@ async function handleAppRunningEvent({ signedBroadcast }) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.broadcastedAt) return;
   if (data.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) return;
-  if (!wellFormed(data)) return;
+  if (data?.type !== 'fluxapprunning' || !wellFormed(data)) return;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);

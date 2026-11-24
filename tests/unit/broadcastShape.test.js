@@ -83,12 +83,15 @@ describe('broadcastShape', () => {
     expect(isAppRunningEntry(['a', 'h', 't'])).to.equal(false);
   });
 
-  ['sigterm', 'removed', 'ip changed'].forEach((name) => {
+  // grown by a field of its own where the message may carry one, and by its app's
+  // name where it carries exactly its fields
+  [['sigterm', 'padding'], ['removed', 'appName'], ['ip changed', 'padding']].forEach(([name, field]) => {
     it(`refuses a ${name} message over the fixed size, and takes one at it`, () => {
       const data = shapes[name];
-      const room = FIXED_SIZE_MAX_BYTES - JSON.stringify({ ...data, padding: '' }).length;
-      expect(wellFormed({ ...data, padding: 'x'.repeat(room) })).to.equal(true);
-      expect(wellFormed({ ...data, padding: 'x'.repeat(room + 1) })).to.equal(false);
+      const grown = (extra) => ({ ...data, [field]: `${data[field] ?? ''}${extra}` });
+      const room = FIXED_SIZE_MAX_BYTES - JSON.stringify(grown('')).length;
+      expect(wellFormed(grown('x'.repeat(room)))).to.equal(true);
+      expect(wellFormed(grown('x'.repeat(room + 1)))).to.equal(false);
     });
   });
 

@@ -86,12 +86,13 @@ describe('serviceManager prepareDatabaseSchema, temp messages and install errors
     sinon.stub(appPlacements, 'prepareCollection').resolves();
     sinon.stub(upnpMappingRecord, 'writeWaiting').resolves();
     sinon.stub(explorerService, 'prepareCollections').resolves();
+    const dropped = sinon.stub(messageStore, 'dropMalformedStoredEvents').resolves(0);
     const lowercased = sinon.stub(messageStore, 'lowercaseStoredAppNames').resolves();
     const blanked = sinon.stub(enterpriseRows, 'blankStoredEnterpriseSecrets').resolves(0);
     sinon.stub(dbHelper, 'repairNanInAppsMessagesDb').rejects(new Error('stop here'));
     await expect(prepareDatabaseSchema()).to.be.rejectedWith('stop here');
     return {
-      deletes, indexes, lowercased, blanked,
+      deletes, indexes, dropped, lowercased, blanked,
     };
   }
 
@@ -123,6 +124,12 @@ describe('serviceManager prepareDatabaseSchema, temp messages and install errors
     sinon.assert.calledOnceWithMatch(lowercased, { collectionName: 'appstateevents' });
     const eventIndexes = indexes.getCalls().find((c) => c.args[0].collectionName === 'appstateevents');
     expect(eventIndexes.calledBefore(lowercased.firstCall), 'the names were lowercased before their indexes were in place').to.equal(true);
+  });
+
+  it('deletes the stored events that are not well formed before it lowercases their names', async () => {
+    const { dropped, lowercased } = await prepared();
+    sinon.assert.calledOnceWithMatch(dropped, { collectionName: 'appstateevents' });
+    expect(dropped.calledBefore(lowercased), 'names were given to events about to be deleted').to.equal(true);
   });
 
   it('blanks the installed enterprise apps\' components and contacts', async () => {
