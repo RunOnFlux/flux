@@ -269,8 +269,14 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
     }
-    if (runningApps.data.length >= config.fluxapps.maxAppsPerNode) {
-      log.info(`trySpawningGlobalApplication - Node at max apps capacity (${runningApps.data.length}/${config.fluxapps.maxAppsPerNode})`);
+    // Counted by what is installed, running or not: a node's report names every app
+    // it holds, and no node takes a report naming more than maxAppsPerNode.
+    const appsHeld = await appQueryService.installedApps();
+    if (appsHeld.status !== 'success') {
+      throw new Error('trySpawningGlobalApplication - Unable to check installed apps on this Flux');
+    }
+    if (appsHeld.data.length >= config.fluxapps.maxAppsPerNode) {
+      log.info(`trySpawningGlobalApplication - Node at max apps capacity (${appsHeld.data.length}/${config.fluxapps.maxAppsPerNode})`);
       return delayTime;
     }
 

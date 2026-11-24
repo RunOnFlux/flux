@@ -3,11 +3,13 @@ const { wellFormed, isAppRunningEntry, FIXED_SIZE_MAX_BYTES } = require('../../Z
 
 const without = (data, field) => Object.fromEntries(Object.entries(data).filter(([key]) => key !== field));
 
+const HASH = 'a'.repeat(64);
+
 describe('broadcastShape', () => {
   const broadcastedAt = 1793960000000;
   const ip = '1.2.3.4:16127';
   const running = {
-    type: 'fluxapprunning', version: 2, ip, broadcastedAt, osUptime: 10, staticIp: true, apps: [{ name: 'a', hash: 'h', runningSince: '2026-11-01T00:00:00.000Z' }],
+    type: 'fluxapprunning', version: 2, ip, broadcastedAt, osUptime: 10, staticIp: true, apps: [{ name: 'a', hash: HASH, runningSince: '2026-11-01T00:00:00.000Z' }],
   };
   const shapes = {
     running,
@@ -54,7 +56,7 @@ describe('broadcastShape', () => {
     ['a running message with a field no running message carries', { ...running, runningSince: '2026-11-01T00:00:00.000Z' }],
     ['a running message without its uptime', without(running, 'osUptime')],
     ['a running message without its static flag', without(running, 'staticIp')],
-    ['an app whose running time is not text', { ...running, apps: [{ name: 'a', hash: 'h', runningSince: 5 }] }],
+    ['an app whose running time is not text', { ...running, apps: [{ name: 'a', hash: HASH, runningSince: 5 }] }],
     ['an app without a hash', { ...running, apps: [...running.apps, { name: 'b', runningSince: '2026-11-01T00:00:00.000Z' }] }],
     ['an app with an empty hash', { ...running, apps: [{ ...running.apps[0], hash: '' }] }],
     ['an app with a field no app carries', { ...running, apps: [{ ...running.apps[0], extra: 1 }] }],
@@ -64,6 +66,14 @@ describe('broadcastShape', () => {
     ['a version 1 removal naming its app as a list', { ...shapes.removed, apps: ['a'] }],
     ['a version 2 removal with a field no removal carries', { ...shapes['removed together'], appName: 'a' }],
     ['a removal of an unknown version', { ...shapes.removed, version: 3 }],
+    ['an app whose name is not an app\'s name', { ...running, apps: [{ ...running.apps[0], name: 'bad name' }] }],
+    ['an app whose name is longer than an app\'s may be', { ...running, apps: [{ ...running.apps[0], name: 'a'.repeat(64) }] }],
+    ['an app whose hash is not a specification\'s hash', { ...running, apps: [{ ...running.apps[0], hash: 'h' }] }],
+    ['an app whose running time is not as toISOString writes it', { ...running, apps: [{ ...running.apps[0], runningSince: '2026-11-01' }] }],
+    ['a running message from an address that is not a node\'s', { ...running, ip: 'x'.repeat(2000) }],
+    ['a removal naming an app by a name no app may have', { ...shapes.removed, appName: '-a' }],
+    ['a removal together naming an app by a name no app may have', { ...shapes['removed together'], apps: ['a', 'a'.repeat(64)] }],
+    ['a removal from an address that is not a node\'s', { ...shapes['removed together'], ip: 'not an address' }],
     ['apps that are not a list', { ...running, apps: {} }],
     ['an unknown version', { ...running, version: 3 }],
     ['an install error that is not text', { ...shapes['install error'], error: { $add: [1, 2] } }],
@@ -76,22 +86,24 @@ describe('broadcastShape', () => {
     });
   });
 
+  it('takes an app\'s name of the longest an app\'s may be', () => {
+    expect(wellFormed({ ...running, apps: [{ ...running.apps[0], name: 'a'.repeat(63) }] })).to.equal(true);
+    expect(wellFormed({ ...shapes['removed together'], apps: ['a'.repeat(63), 'b-c'] })).to.equal(true);
+  });
+
   it('takes an app entry that is exactly a name, a hash and a running time, and no other', () => {
     expect(isAppRunningEntry(running.apps[0])).to.equal(true);
-    expect(isAppRunningEntry({ name: 'a', hash: 'h' })).to.equal(false);
+    expect(isAppRunningEntry({ name: 'a', hash: HASH })).to.equal(false);
     expect(isAppRunningEntry(null)).to.equal(false);
     expect(isAppRunningEntry(['a', 'h', 't'])).to.equal(false);
   });
 
-  // grown by a field of its own where the message may carry one, and by its app's
-  // name where it carries exactly its fields
-  [['sigterm', 'padding'], ['removed', 'appName'], ['ip changed', 'padding']].forEach(([name, field]) => {
+  ['sigterm', 'ip changed'].forEach((name) => {
     it(`refuses a ${name} message over the fixed size, and takes one at it`, () => {
       const data = shapes[name];
-      const grown = (extra) => ({ ...data, [field]: `${data[field] ?? ''}${extra}` });
-      const room = FIXED_SIZE_MAX_BYTES - JSON.stringify(grown('')).length;
-      expect(wellFormed(grown('x'.repeat(room)))).to.equal(true);
-      expect(wellFormed(grown('x'.repeat(room + 1)))).to.equal(false);
+      const room = FIXED_SIZE_MAX_BYTES - JSON.stringify({ ...data, padding: '' }).length;
+      expect(wellFormed({ ...data, padding: 'x'.repeat(room) })).to.equal(true);
+      expect(wellFormed({ ...data, padding: 'x'.repeat(room + 1) })).to.equal(false);
     });
   });
 

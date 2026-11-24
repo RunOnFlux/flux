@@ -3,6 +3,8 @@
 // before it acts on one, whether it arrived alone or in a sync answer.
 
 const config = require('config');
+const { APP_NAME_REGEX, MAX_APP_NAME_LENGTH } = require('./appConstants');
+const { parseSocketAddress } = require('./socketAddressUtils');
 
 // The fields of the fixed-size broadcasts, an address, an app name and a time, come
 // to under 200 bytes.
@@ -10,6 +12,14 @@ const FIXED_SIZE_MAX_BYTES = 1024;
 const MAX_APPS_PER_NODE = config.fluxapps.maxAppsPerNode;
 
 const isText = (value) => typeof value === 'string' && value.length > 0;
+// An app's name, as its specification may give one (appValidator).
+const isAppName = (value) => typeof value === 'string' && value.length <= MAX_APP_NAME_LENGTH && APP_NAME_REGEX.test(value);
+// An app specification's hash: SHA-256, in hex.
+const isSpecHash = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+// A node's address: an IPv4 address, with its API port or without.
+const isNodeAddress = (value) => parseSocketAddress(value) !== null;
+// A time as Date#toISOString writes it.
+const isIsoTime = (value) => typeof value === 'string' && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value;
 
 // Whether an object carries exactly these fields and no other.
 function hasExactly(data, fields) {
@@ -29,14 +39,14 @@ const APP_RUNNING_ENTRY_FIELDS = ['name', 'hash', 'runningSince'];
 function isAppRunningEntry(entry) {
   return entry !== null && typeof entry === 'object' && !Array.isArray(entry)
     && hasExactly(entry, APP_RUNNING_ENTRY_FIELDS)
-    && isText(entry.name) && isText(entry.hash) && isText(entry.runningSince);
+    && isAppName(entry.name) && isSpecHash(entry.hash) && isIsoTime(entry.runningSince);
 }
 
 // Version 2 names every app its node runs; no release on the network sends
 // version 1, which named one.
 function appRunningShape(data) {
   return data.version === 2 && hasExactly(data, APP_RUNNING_FIELDS)
-    && isText(data.ip) && typeof data.osUptime === 'number' && typeof data.staticIp === 'boolean'
+    && isNodeAddress(data.ip) && typeof data.osUptime === 'number' && typeof data.staticIp === 'boolean'
     && Array.isArray(data.apps) && data.apps.length <= MAX_APPS_PER_NODE && data.apps.every(isAppRunningEntry);
 }
 
@@ -63,12 +73,12 @@ const APP_REMOVED_FIELDS = {
 // most as many as a node may hold.
 function appRemovedShape(data) {
   const fields = Object.hasOwn(APP_REMOVED_FIELDS, data.version) ? APP_REMOVED_FIELDS[data.version] : null;
-  if (!fields || !hasExactly(data, fields) || !isText(data.ip)) return false;
+  if (!fields || !hasExactly(data, fields) || !isNodeAddress(data.ip)) return false;
   if (data.version === 2) {
     return Array.isArray(data.apps) && data.apps.length > 0 && data.apps.length <= MAX_APPS_PER_NODE
-      && data.apps.every(isText);
+      && data.apps.every(isAppName);
   }
-  return isText(data.appName) && JSON.stringify(data).length <= FIXED_SIZE_MAX_BYTES;
+  return isAppName(data.appName);
 }
 
 const SHAPES = Object.freeze({

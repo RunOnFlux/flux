@@ -1564,6 +1564,42 @@ describe('appUninstaller tests', () => {
           expect(updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals')).to.have.length(0);
           sinon.assert.notCalled(broadcastStub);
         });
+
+        // the node at ADDRESS, peers accepting its messages, and the send failing
+        it('is kept when its send fails, to be announced on a later cycle', async () => {
+          const expireAt = new Date(Date.now() + 600000);
+          const uninstaller = buildUninstaller(v2Spec, {}, { findInDatabase: rowsHere([{ expireAt }]), updateOneInDatabase: updateOneStub });
+          getLocalSocketAddressStub.resolves(ADDRESS);
+          broadcastStub.rejects(new Error('no peers'));
+
+          await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          sinon.assert.called(broadcastStub);
+          const keeps = updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals');
+          expect(keeps.map((call) => call.args[2])).to.deep.equal([{ appName: 'testapp' }]);
+        });
+
+        it('is kept when this node cannot sign its removal', async () => {
+          const expireAt = new Date(Date.now() + 600000);
+          const uninstaller = buildUninstaller(v2Spec, {}, { findInDatabase: rowsHere([{ expireAt }]), updateOneInDatabase: updateOneStub });
+          getLocalSocketAddressStub.resolves(ADDRESS);
+          broadcastStub.resolves(null);
+
+          await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          const keeps = updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals');
+          expect(keeps.map((call) => call.args[2])).to.deep.equal([{ appName: 'testapp' }]);
+        });
+
+        it('is not kept when its send succeeds', async () => {
+          const uninstaller = buildUninstaller(v2Spec, {}, { findInDatabase: rowsHere([{ expireAt: new Date(Date.now() + 600000) }]), updateOneInDatabase: updateOneStub });
+          getLocalSocketAddressStub.resolves(ADDRESS);
+
+          await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          sinon.assert.called(broadcastStub);
+          expect(updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals')).to.have.length(0);
+        });
       });
 
       describe('announcing the removals kept', () => {
@@ -1604,17 +1640,32 @@ describe('appUninstaller tests', () => {
           sinon.assert.notCalled(removeStub);
         });
 
-        it('keeps the rest when one cannot be sent', async () => {
+        it('sends the rest when one cannot be sent, and keeps that one for a later cycle', async () => {
           const future = new Date(Date.now() + 600000);
           const uninstaller = buildUninstaller(v2Spec, {}, {
             findInDatabase: kept([{ appName: 'first', expireAt: future }, { appName: 'second', expireAt: future }]),
             removeDocumentsFromCollection: removeStub,
           });
+          broadcastStub.onFirstCall().rejects(new Error('no peers'));
+
+          await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
+
+          sinon.assert.calledTwice(broadcastStub);
+          sinon.assert.calledWithMatch(broadcastStub.secondCall, { type: 'fluxappremoved', appName: 'second' });
+          expect(removeStub.getCalls().map((call) => call.args[2].appName)).to.deep.equal(['second']);
+        });
+
+        it('keeps every one a message naming them all could not send', async () => {
+          const future = new Date(Date.now() + 600000);
+          const uninstaller = buildUninstaller(v2Spec, {}, {
+            findInDatabase: kept([{ appName: 'first', expireAt: future }, { appName: 'second', expireAt: future }]),
+            removeDocumentsFromCollection: removeStub,
+          });
+          namesSeveralAppsStub.returns(true);
           broadcastStub.rejects(new Error('no peers'));
 
-          const outcome = await uninstaller.announceKeptRemovals(new Set(), ADDRESS).then(() => null, (error) => error);
+          await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
 
-          expect(outcome?.message).to.equal('no peers');
           sinon.assert.notCalled(removeStub);
         });
 

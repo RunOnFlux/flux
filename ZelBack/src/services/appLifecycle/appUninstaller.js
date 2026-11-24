@@ -105,28 +105,47 @@ function unannouncedRemovals() {
 }
 
 /**
+ * Sends one fluxappremoved.
+ * @param {object} message
+ * @returns {Promise<boolean>} Whether it was sent: not when this node cannot sign
+ *   as itself, or the send failed.
+ */
+async function sendRemoval(message) {
+  try {
+    return await fluxCommunicationMessagesSender.broadcastMessageToAll(message) !== null;
+  } catch (error) {
+    log.error(`The removal of ${message.appName ?? message.apps.join(', ')} was not sent: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * Sends this node's fluxappremoved for these apps, from `ip`: one message naming
  * them all once the network reads that (appRemovedMessage), one each until then.
+ * A node holds at most maxAppsPerNode apps, so one message names them all.
  * @param {string[]} appNames
  * @param {string} ip This node's socket address now.
- * @returns {Promise<void>}
+ * @returns {Promise<string[]>} The apps whose removal was not sent.
  */
 async function sendRemovals(appNames, ip) {
   if (appRemovedMessage.namesSeveralApps()) {
     log.info(`Broadcasting appremoved message for ${appNames.join(', ')} to the network`);
-    await fluxCommunicationMessagesSender.broadcastMessageToAll({
+    const sent = await sendRemoval({
       type: 'fluxappremoved', version: 2, apps: appNames, ip, broadcastedAt: Date.now(),
     });
-    return;
+    return sent ? [] : [...appNames];
   }
+  const unsent = [];
   // eslint-disable-next-line no-restricted-syntax
   for (const appName of appNames) {
     log.info(`Broadcasting appremoved message for ${appName} to the network`);
     // eslint-disable-next-line no-await-in-loop
-    await fluxCommunicationMessagesSender.broadcastMessageToAll({
+    const sent = await sendRemoval({
       type: 'fluxappremoved', version: 1, appName, ip, broadcastedAt: Date.now(),
     });
+    if (!sent) unsent.push(appName);
   }
+  return unsent;
 }
 
 /**
@@ -148,12 +167,12 @@ async function keepRemoval(appName, ip) {
       : [];
     const expireAt = (rows || []).reduce((latest, row) => (row.expireAt && (!latest || row.expireAt > latest) ? row.expireAt : latest), null);
     if (!expireAt || expireAt <= new Date()) {
-      log.warn(`${appName} removed without announcing it - peers do not accept this node's messages, and no location row of it on this node is left for an announcement to cancel`);
+      log.warn(`${appName} removed without announcing it - its removal was not sent, and no location row of it on this node is left for an announcement to cancel`);
       return;
     }
     const kept = unannouncedRemovals();
     await dbHelper.updateOneInDatabase(kept.database, kept.collection, { appName }, { $set: { appName }, $max: { expireAt } }, { upsert: true });
-    log.warn(`${appName} removed while peers do not accept this node's messages; its removal is announced once they do`);
+    log.warn(`${appName} removed and its removal not sent; it is announced on a later cycle`);
   } catch (error) {
     log.error(`${appName} removed without announcing it, and its removal could not be kept: ${error.message}`);
   }
@@ -174,9 +193,10 @@ async function announceKeptRemovals(installedNames, ip) {
   const kept = await dbHelper.findInDatabase(database, collection, {}, { projection: { _id: 0, appName: 1, expireAt: 1 } });
   const now = new Date();
   const owed = kept.filter(({ appName, expireAt }) => expireAt > now && !installedNames.has(appName)).map(({ appName }) => appName);
-  if (owed.length) await sendRemovals(owed, ip);
+  // a removal not sent stays kept, for the next cycle
+  const unsent = new Set(owed.length ? await sendRemovals(owed, ip) : []);
   // eslint-disable-next-line no-restricted-syntax
-  for (const { appName } of kept) {
+  for (const { appName } of kept.filter((removal) => !unsent.has(removal.appName))) {
     // eslint-disable-next-line no-await-in-loop
     await dbHelper.removeDocumentsFromCollection(database, collection, { appName });
   }
@@ -208,7 +228,13 @@ async function announceNow(appNames) {
   // Read as the message would go out: whether this node can be heard changes
   // while a removal waits its turn.
   if (ip && nodeConfirmationService.canSendMessages()) {
-    await sendRemovals(appNames, ip);
+    // a removal not sent is kept and announced on a later cycle
+    const unsent = await sendRemovals(appNames, ip);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of unsent) {
+      // eslint-disable-next-line no-await-in-loop
+      await keepRemoval(appName, ip);
+    }
   } else {
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appNames) {

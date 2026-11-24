@@ -43,6 +43,7 @@ describe('appSpawner tests', () => {
         blocksLasting: 22000,
         newMinBlocksAllowance: 100,
         spawnDeferrals: { domainShareMs: { enterprise: 1920000, standard: 1920000 } },
+        maxAppsPerNode: 200,
         ...overrides,
       },
     };
@@ -181,7 +182,8 @@ describe('appSpawner tests', () => {
       },
       '../../lib/log': logStub,
       '../appQuery/appQueryService': {
-        listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+        listRunningApps: sinon.stub().resolves({ status: 'success', data: opts.runningApps ?? [] }),
+        installedApps: sinon.stub().resolves({ status: 'success', data: opts.installedApps ?? [] }),
       },
       '../appDatabase/registryManager': {
         // The post-install self-check re-reads the running list after this
@@ -432,6 +434,28 @@ describe('appSpawner tests', () => {
       // The other half of the pair: unheld, the pass reaches the install path,
       // so the assertion above is about the hold and not about the pass being
       // stopped by something else entirely.
+      expect(aggregateStub.called).to.equal(true);
+    });
+  });
+
+  // A node's report names every app it holds, and no node takes one naming more
+  // than maxAppsPerNode: an app installed and stopped counts as one held.
+  describe('the most apps a node holds', () => {
+    const held = (count) => Array.from({ length: count }, (_, i) => ({ name: `held${i}` }));
+
+    it('takes no app once it holds maxAppsPerNode, though none of them runs', async () => {
+      buildModule({ installedApps: held(200), runningApps: [], aggregateResult: [{ name: 'someapp', hash: 'h1', height: 100 }] });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(aggregateStub.called, 'the pass went on to choose an app').to.equal(false);
+    });
+
+    it('goes on to choose an app while it holds fewer', async () => {
+      buildModule({ installedApps: held(199), runningApps: [] });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
       expect(aggregateStub.called).to.equal(true);
     });
   });
