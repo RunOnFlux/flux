@@ -57,6 +57,7 @@ describe('a message whose first copy is forged arrives from a peer that holds it
     ip: nodeIp(origin),
     broadcastedAt: Date.now(),
     osUptime: 86400,
+    staticIp: false,
   });
 
   /**
