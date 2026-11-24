@@ -2,6 +2,7 @@ const os = require('os');
 const config = require('config');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
+const networkClassifier = require('../utils/networkClassifier');
 const ipLocationStore = require('../appPlacement/ipLocationStore');
 const geolocationRule = require('../appPlacement/geolocationRule');
 const benchmarkService = require('../benchmarkService');
@@ -404,6 +405,28 @@ async function appsResources(options) {
 }
 
 /**
+ * Why this node is not the kind of node an app's specification asks for, or null
+ * when it is or cannot tell: a static IP where the node sees it is behind NAT, or
+ * a data centre where the published table classes the node as residential. An
+ * unknown or conflicting answer is not a shortfall.
+ * @param {object} appSpecs App specifications, decrypted.
+ * @returns {Promise<string|null>}
+ */
+async function nodeKindShortfall(appSpecs) {
+  if (appSpecs.version >= 7 && appSpecs.staticip
+    && geolocationService.getStaticIpState() === geolocationService.STATIC_IP_STATE.DYNAMIC) {
+    return 'it requires a static IP address and this node is behind NAT';
+  }
+  if (appSpecs.version >= 8 && appSpecs.datacenter === true) {
+    const network = await geolocationService.getNetworkClassification();
+    if (network?.classification === networkClassifier.CLASSIFICATION.RESIDENTIAL) {
+      return 'it requires a data center node and this node is residential';
+    }
+  }
+  return null;
+}
+
+/**
  * Why this node cannot hold an app's hardware, or null when it can.
  * Rejects when what the node has or holds cannot be read: an unread answer is
  * not a shortfall.
@@ -539,6 +562,7 @@ module.exports = {
   returnNodeSpecs,
   totalAppHWRequirements,
   hwShortfall,
+  nodeKindShortfall,
   checkAppHWRequirements,
   admitApp,
   checkAppCpuBurstHeadroom,

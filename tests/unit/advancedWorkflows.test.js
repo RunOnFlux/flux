@@ -9747,6 +9747,94 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     });
   });
 
+  // An update asking for a kind of node this one is not leaves the same way.
+  describe('leaving an app whose registered specification asks for another kind of node', () => {
+    const KEYS = HOLDERS.map((holder) => holder.key);
+    const PASS_S = 1320;
+    const UNSUITED = 'it requires a static IP address and this node is behind NAT';
+    let unsuited;
+
+    const turnOwnedBy = (key) => {
+      let turn = residentialNodeDosService.turnOf(GIVE_UP_PASS.time * 1000);
+      while (handbackTurns.turnOwner(KEYS, turn) !== key) turn += 1;
+      return turn;
+    };
+    const passInto = (turn, offsetS) => {
+      const time = ((turn * residentialNodeDosService.TURN_MS) / 1000) + offsetS;
+      return { ...GIVE_UP_PASS, time, previousTime: time - PASS_S };
+    };
+    const ownTurn = () => passInto(turnOwnedBy(OWN_KEY), 2 * PASS_S);
+
+    beforeEach(() => {
+      dbHelper.findInDatabase.resolves([{ name: 'appone', instances: 3, hash: 'installedhash' }]);
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL));
+      registryManager.getApplicationGlobalSpecifications.resolves({
+        name: 'appone', version: 8, instances: 3, hash: 'registeredhash', staticip: true,
+      });
+      sinon.stub(hwRequirements, 'hwShortfall').resolves(null);
+      unsuited = sinon.stub(hwRequirements, 'nodeKindShortfall').resolves(UNSUITED);
+    });
+
+    it('removes the app in a turn it owns', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      expect(appUninstaller.removeAppLocally.firstCall.args[0]).to.equal('appone');
+    });
+
+    it('judges the registered specification', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.calledWithMatch(unsuited, { name: 'appone', hash: 'registeredhash' });
+    });
+
+    it('waits while another holder owns the turn', async () => {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(passInto(turnOwnedBy('key-b'), 2 * PASS_S));
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app whose registered specification this kind of node runs', async () => {
+      unsuited.resolves(null);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app when what kind of node this is cannot be read', async () => {
+      unsuited.rejects(new Error('table unavailable'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not judge an app already at its registered specification', async () => {
+      registryManager.getApplicationGlobalSpecifications.resolves({
+        name: 'appone', version: 8, instances: 3, hash: 'installedhash', staticip: true,
+      });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+      sinon.assert.notCalled(unsuited);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('names UNSUITED, and leaves a spare copy to the surplus trim', async () => {
+      const holders = [...HOLDERS, { key: 'key-d', ip: 'key-d:16127', expireAt: new Date(4e12) }];
+
+      const decision = await advancedWorkflows.reasonToGiveUpApp(
+        { name: 'appone', instances: 3 },
+        locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127'),
+        LOCAL,
+        { turn: { ...TURN, holders }, unsuited: UNSUITED },
+      );
+
+      expect(decision).to.include({ giveUp: false, reason: advancedWorkflows.GiveUpReason.UNSUITED, code: 'ABOVE_INSTANCE_COUNT' });
+    });
+  });
+
   describe('leaving an app whose geolocation no longer admits this node', () => {
     const TABLE_FAIL = {
       verdict: hwRequirements.GeoVerdict.FAIL, source: hwRequirements.GeoSource.TABLE, reason: 'not matching',

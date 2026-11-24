@@ -201,6 +201,47 @@ describe('hwRequirements tests', () => {
     });
   });
 
+  describe('nodeKindShortfall', () => {
+    const withNode = ({ staticIpState = 'STATIC', classification = null } = {}) => proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+      '../geolocationService': {
+        STATIC_IP_STATE: { STATIC: 'STATIC', DYNAMIC: 'DYNAMIC', UNKNOWN: 'UNKNOWN' },
+        getStaticIpState: sinon.stub().returns(staticIpState),
+        getNetworkClassification: sinon.stub().resolves(classification ? { classification } : null),
+      },
+      '../../lib/log': logStub,
+    });
+    const staticIpApp = { name: 'testapp', version: 7, staticip: true };
+    const dataCenterApp = { name: 'testapp', version: 8, datacenter: true };
+
+    it('names a static IP the node is behind NAT for', async () => {
+      expect(await withNode({ staticIpState: 'DYNAMIC' }).nodeKindShortfall(staticIpApp)).to.be.a('string');
+    });
+
+    it('names nothing for a static IP the node has, or cannot tell it has', async () => {
+      expect(await withNode({ staticIpState: 'STATIC' }).nodeKindShortfall(staticIpApp)).to.equal(null);
+      expect(await withNode({ staticIpState: 'UNKNOWN' }).nodeKindShortfall(staticIpApp)).to.equal(null);
+    });
+
+    it('names nothing for a static IP below version 7, where it is not read', async () => {
+      expect(await withNode({ staticIpState: 'DYNAMIC' }).nodeKindShortfall({ ...staticIpApp, version: 6 })).to.equal(null);
+    });
+
+    it('names a data centre the published table classes the node out of', async () => {
+      expect(await withNode({ classification: 'RESIDENTIAL' }).nodeKindShortfall(dataCenterApp)).to.be.a('string');
+    });
+
+    it('names nothing for a data centre the table places the node in, is torn on, or has no verdict for', async () => {
+      expect(await withNode({ classification: 'DATACENTER' }).nodeKindShortfall(dataCenterApp)).to.equal(null);
+      expect(await withNode({ classification: 'CONFLICTED' }).nodeKindShortfall(dataCenterApp)).to.equal(null);
+      expect(await withNode({ classification: 'UNKNOWN' }).nodeKindShortfall(dataCenterApp)).to.equal(null);
+      expect(await withNode().nodeKindShortfall(dataCenterApp)).to.equal(null);
+    });
+
+    it('names nothing for a data centre below version 8, where it is not read', async () => {
+      expect(await withNode({ classification: 'RESIDENTIAL' }).nodeKindShortfall({ ...dataCenterApp, version: 7 })).to.equal(null);
+    });
+  });
+
   describe('appGeolocationVerdict, for a node the table cannot place', () => {
     // The node's own report places it: the table has no row for it.
     const placedBySelfReport = (nodeGeo) => proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {

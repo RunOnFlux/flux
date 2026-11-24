@@ -3532,22 +3532,28 @@ const GiveUpReason = Object.freeze({
   EVACUATION: 'EVACUATION',
   MISPLACED: 'MISPLACED',
   OUTGROWN: 'OUTGROWN',
+  UNSUITED: 'UNSUITED',
 });
 
 // The reasons an app is handed back to the network in turn, one holder per
 // refill, rather than trimmed as a surplus.
-const HANDED_BACK = new Set([GiveUpReason.EVACUATION, GiveUpReason.MISPLACED, GiveUpReason.OUTGROWN]);
+const HANDED_BACK = new Set([
+  GiveUpReason.EVACUATION, GiveUpReason.MISPLACED, GiveUpReason.OUTGROWN, GiveUpReason.UNSUITED,
+]);
 
 /**
  * Whether this node should give up an app, and why.
  *
- * Four reasons, one answer. SURPLUS: the app runs on more nodes than it needs
+ * Five reasons, one answer. SURPLUS: the app runs on more nodes than it needs
  * and this node holds the junior instance. EVACUATION: the node is shedding what
  * it holds because it is no longer fit to serve, and this app's turn has come.
  * MISPLACED: the published location table places this node outside the app's
  * geolocation, and this app's turn has come. OUTGROWN: the app's registered
  * specification asks for more cpu, ram or disk than this node can give it, and
  * this app's turn has come; until then it runs here at the specification it has.
+ * UNSUITED: the app's registered specification asks for a kind of node this one
+ * is not - a static IP or a data centre - and this app's turn has come; until
+ * then it runs here at the specification it has.
  *
  * Only the reason is decided here. Whether it is SAFE to act on it is
  * appEvacuationSafety's question, and both must agree - a count has never been
@@ -3569,6 +3575,8 @@ const HANDED_BACK = new Set([GiveUpReason.EVACUATION, GiveUpReason.MISPLACED, Gi
  *   is a FAIL on the location table's word, otherwise null.
  * @param {string|null} [deps.outgrown] Why this node cannot hold the app at its
  *   registered specification, otherwise null.
+ * @param {string|null} [deps.unsuited] Why this node is not the kind of node the
+ *   app's registered specification asks for, otherwise null.
  * @returns {Promise<{giveUp: boolean, reason: string, detail: string}>}
  */
 async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, deps = {}) {
@@ -3723,6 +3731,27 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     };
   }
 
+  // An unsuited app leaves the same way.
+  if (deps.unsuited) {
+    const verdict = handbackTurns.mayHandBack(
+      deps.turn.holders,
+      deps.turn.ownKey,
+      minInstances,
+      deps.turn.pass,
+      residentialNodeDosService.TURN_MS,
+    );
+    if (verdict.ok) {
+      return {
+        giveUp: true,
+        reason: GiveUpReason.UNSUITED,
+        detail: `this node cannot run the app at its registered specification (${deps.unsuited})`,
+      };
+    }
+    return {
+      giveUp: false, reason: GiveUpReason.UNSUITED, code: verdict.code, detail: verdict.reason,
+    };
+  }
+
   if (surplusDeclined) {
     return {
       giveUp: false, reason: GiveUpReason.SURPLUS, code: surplusDeclined.code, detail: surplusDeclined.detail,
@@ -3836,34 +3865,49 @@ async function checkAndRemoveApplicationInstance({
     // wrong about where it is, and an unproven region is not a wrong one; both
     // still refuse an install. Anything that cannot be read moves nothing.
     //
-    // The global spec also says whether the app has OUTGROWN this node: a
+    // The global spec also says whether this node can take it. OUTGROWN: a
     // registered specification this node has not taken because its cpu, ram or
-    // disk does not fit, counted without the app's own share. A node that cannot
-    // read what it has or holds has not outgrown anything.
-    const readOutgrown = async (appName, spec) => {
+    // disk does not fit, counted without the app's own share. UNSUITED: one that
+    // asks for a kind of node this one is not. A node that cannot read what it
+    // has, holds or is, or the specification, is neither.
+    const readUnfit = async (appName, spec) => {
       const installed = appsInstalled.find((app) => app.name === appName);
-      if (!installed || installed.hash === spec.hash) return null;
+      if (!installed || installed.hash === spec.hash) return { outgrown: null, unsuited: null };
+      let registered;
       try {
-        return await hwRequirements.hwShortfall(await checkAndDecryptAppSpecs(spec), { replacing: appName });
+        registered = await checkAndDecryptAppSpecs(spec);
       } catch (error) {
+        log.warn(`Give-up-an-app pass: the registered specification of ${appName} could not be read: ${error.message}`);
+        return { outgrown: null, unsuited: null };
+      }
+      const outgrown = await hwRequirements.hwShortfall(registered, { replacing: appName }).catch((error) => {
         log.warn(`Give-up-an-app pass: whether ${appName} fits at its registered specification could not be read: ${error.message}`);
         return null;
-      }
+      });
+      const unsuited = await hwRequirements.nodeKindShortfall(registered).catch((error) => {
+        log.warn(`Give-up-an-app pass: whether this node is the kind of node ${appName} asks for could not be read: ${error.message}`);
+        return null;
+      });
+      return { outgrown, unsuited };
     };
     const readPlacement = async (appName) => {
       try {
         const spec = await registryManager.getApplicationGlobalSpecifications(appName);
-        if (!spec) return { misplaced: null, outgrown: null, unread: true };
+        if (!spec) return {
+          misplaced: null, outgrown: null, unsuited: null, unread: true,
+        };
         const geo = await hwRequirements.appGeolocationVerdict(spec);
         const onTable = geo.verdict === hwRequirements.GeoVerdict.FAIL && geo.source === hwRequirements.GeoSource.TABLE;
         return {
           misplaced: onTable ? geo : null,
-          outgrown: await readOutgrown(appName, spec),
+          ...await readUnfit(appName, spec),
           unread: geo.verdict === hwRequirements.GeoVerdict.UNKNOWN,
         };
       } catch (error) {
         log.warn(`Give-up-an-app pass: geolocation of ${appName} unreadable: ${error.message}`);
-        return { misplaced: null, outgrown: null, unread: true };
+        return {
+          misplaced: null, outgrown: null, unsuited: null, unread: true,
+        };
       }
     };
     // Once per app per pass.
@@ -3884,7 +3928,8 @@ async function checkAndRemoveApplicationInstance({
       const placement = held ? await placementOf(appName) : null;
       // A placement that could not be read says nothing has changed: only an answer ends
       // a leave, and the owned turn below ends it for good.
-      const stillLeaving = held && (evacuating || placement.misplaced !== null || placement.outgrown !== null || placement.unread);
+      const stillLeaving = held && (evacuating || placement.misplaced !== null || placement.outgrown !== null
+        || placement.unsuited !== null || placement.unread);
       if (!held) {
         standingDown.delete(identifier);
       } else if (!stillLeaving) {
@@ -3903,8 +3948,8 @@ async function checkAndRemoveApplicationInstance({
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await registryManager.appLocation(installedApp.name);
       // eslint-disable-next-line no-await-in-loop
-      const { misplaced, outgrown } = await placementOf(installedApp.name);
-      const leaving = evacuating || misplaced !== null || outgrown !== null;
+      const { misplaced, outgrown, unsuited } = await placementOf(installedApp.name);
+      const leaving = evacuating || misplaced !== null || outgrown !== null || unsuited !== null;
       const stoodDownHere = [...standingDown.keys()].some((identifier) => standDownOwner(identifier) === installedApp.name);
       if ((leaving || stoodDownHere) && ownKey === null) {
         // eslint-disable-next-line no-await-in-loop
@@ -3946,6 +3991,7 @@ async function checkAndRemoveApplicationInstance({
         turn: { holders, ownKey, pass },
         misplaced,
         outgrown,
+        unsuited,
       });
       // Every pass reports what it decided about every app it holds. Without
       // this the pass is invisible: it logs nothing at all when it has nothing
