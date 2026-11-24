@@ -1106,6 +1106,17 @@ describe('FluxPeerManager tests', () => {
       withCapabilities(manager, '10.0.0.1', ['appStateSync']);
       expect(manager.getPolicyCapablePeers()).to.deep.equal([]);
     });
+
+    it('offers, for another capability, only the peers that advertise that one', () => {
+      withCapabilities(manager, '10.0.0.1', ['policyBundle']);
+      withCapabilities(manager, '10.0.0.2', ['policyBundle', 'hashList']);
+      withCapabilities(manager, '10.0.0.3', ['hashList']);
+
+      expect(manager.getCapablePeers('hashList').map((p) => p.key))
+        .to.deep.equal(['10.0.0.2:16127', '10.0.0.3:16127']);
+      expect(manager.getPolicyCapablePeers().map((p) => p.key))
+        .to.deep.equal(['10.0.0.1:16127', '10.0.0.2:16127']);
+    });
   });
 
   describe('getEligibleSyncPeers', () => {

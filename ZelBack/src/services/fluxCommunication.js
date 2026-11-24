@@ -13,6 +13,8 @@ const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const policyStore = require('./policyStore');
+const hashListStore = require('./hashListStore');
+const { HASH_LIST } = require('./utils/signedDocumentMessages');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const arcaneLink = require('./arcaneLink');
@@ -1510,6 +1512,16 @@ register('fluxpolicyseq', (msg, peer) => policyStore.notePeerSeq(
 // dangerous than one this node asked for - and peers announce what they adopt.
 register('fluxpolicy', (msg, peer) => policyStore.offerBundle(
   msg.data.bundle, peer.key, msg.data.correlationId,
+), ROUTE.GOSSIP, INTENT.ANSWER);
+// The FluxOS code hash list, on the same three-message protocol as policy.
+register(HASH_LIST.request, (msg, peer) => fluxCommunicationMessagesSender.respondWithSignedDocument(
+  msg, peer, hashListStore.exchange, HASH_LIST,
+), ROUTE.GOSSIP, INTENT.ASK);
+register(HASH_LIST.seq, (msg, peer) => hashListStore.notePeerSeq(
+  msg.data.seq, peer.key, msg.data.correlationId,
+), ROUTE.GOSSIP, INTENT.VARIES);
+register(HASH_LIST.document, (msg, peer) => hashListStore.offerList(
+  msg.data[HASH_LIST.field], peer.key, msg.data.correlationId,
 ), ROUTE.GOSSIP, INTENT.ANSWER);
 
 // The Arcane link handshake: point to point, both directions, never relayed.

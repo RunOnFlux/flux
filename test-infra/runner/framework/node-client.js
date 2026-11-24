@@ -293,6 +293,11 @@ export function nodeClient(nodeNum) {
         // bundle change and leaves the held sequence where it was.
         'policy:backstopAsked',
         'policy:backstopAnswered',
+        // The same three for the FluxOS code hash list: the list this node holds changed, and
+        // it asked the published source because its peers could not settle what it holds.
+        'hashList:documentChanged',
+        'hashList:backstopAsked',
+        'hashList:backstopAnswered',
         // And the other half of that pair: a verified table actually installed.
         'ipLocation:tableInstalled',
         // The node looked and had nothing to look for - the bundle it holds names no

@@ -9,6 +9,7 @@ const { PassThrough } = require('stream');
 const hash = require('object-hash');
 const cacheManager = require('../../ZelBack/src/services/utils/cacheManager').default;
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
+const signedDocumentMessages = require('../../ZelBack/src/services/utils/signedDocumentMessages');
 // Registers the message types, whose intents decide what a broadcast keeps.
 require('../../ZelBack/src/services/fluxCommunication');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -572,6 +573,48 @@ describe('fluxCommunicationMessagesSender tests', () => {
         const peer = makePeer();
         await fluxCommunicationMessagesSender.respondWithPolicy({}, peer);
         expect(peer.send.called).to.equal(false);
+      });
+    });
+
+    describe('respondWithSignedDocument, for the hash list', () => {
+      const { HASH_LIST } = signedDocumentMessages;
+      const holding = (seq, raw) => ({ getSeq: () => seq, getRaw: () => raw });
+
+      it('sends the list under its own type and field when this node holds something newer', async () => {
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithSignedDocument(
+          { data: { type: HASH_LIST.request, version: 1, seq: 4, correlationId: 'c1' } }, peer, holding(9, '{"l":1}'), HASH_LIST,
+        );
+
+        expect(sentTypes(peer)).to.deep.equal(['fluxhashlist']);
+        const sent = JSON.parse(peer.send.firstCall.args[0]).data;
+        expect(sent.list).to.equal('{"l":1}');
+        expect(sent.correlationId).to.equal('c1');
+      });
+
+      it('answers with its own sequence type when it holds no more than the asker', async () => {
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithSignedDocument(
+          { data: { type: HASH_LIST.request, version: 1, seq: 9 } }, peer, holding(9, '{"l":1}'), HASH_LIST,
+        );
+
+        const sent = JSON.parse(peer.send.firstCall.args[0]).data;
+        expect(sent.type).to.equal('fluxhashlistseq');
+        expect(sent.seq).to.equal(9);
+      });
+
+      it('says it holds nothing, rather than nothing at all', async () => {
+        const peer = makePeer();
+
+        await fluxCommunicationMessagesSender.respondWithSignedDocument(
+          { data: { type: HASH_LIST.request, version: 1, seq: 0 } }, peer, holding(0, null), HASH_LIST,
+        );
+
+        const sent = JSON.parse(peer.send.firstCall.args[0]).data;
+        expect(sent.type).to.equal('fluxhashlistseq');
+        expect(sent.seq).to.equal(null);
       });
     });
 

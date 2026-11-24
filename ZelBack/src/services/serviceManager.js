@@ -51,6 +51,8 @@ const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
 const ufwHelper = require('./utils/ufwHelper');
 const policyStore = require('./policyStore');
+const hashListStore = require('./hashListStore');
+const { HASH_LIST } = require('./utils/signedDocumentMessages');
 const containerRuntimeService = require('./containerRuntimeService');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
@@ -590,6 +592,25 @@ async function startFluxFunctions() {
     // that stops exactly at the threshold has nothing left to re-trigger the decision.
     peerManager.on('peerThresholdReached', () => policyStore.noteThresholdReached());
     policyStore.start().catch((err) => log.error(`policyStore start error: ${err.message}`));
+    // The FluxOS code hash list, on the same transport and for the same reasons as policy: a
+    // peer per join, both edges of the peer set, and the threshold. A network that names no
+    // hash list keeps none, and answers a peer that asks that it holds nothing.
+    if (hashListStore.isEnabled()) {
+      hashListStore.setPeerTransport({
+        capableKeys: () => peerManager.getCapablePeers(HASH_LIST.capability).map((peer) => peer.key),
+        requestFrom: (key, seq, correlationId) => {
+          const peer = peerManager.get(key);
+          if (!peer) return Promise.resolve();
+          return fluxCommunicationMessagesSender.requestSignedDocumentFromPeer(peer, seq, correlationId, HASH_LIST);
+        },
+        announce: (seq) => fluxCommunicationMessagesSender.announceSignedDocumentSeq(seq, HASH_LIST),
+        aboveThreshold: () => peerManager.isAboveThreshold(),
+      });
+      peerManager.on('peerConnected', (key) => hashListStore.notePeerAvailable(key));
+      peerManager.on('peerDisconnected', (key) => hashListStore.notePeerGone(key));
+      peerManager.on('peerThresholdReached', () => hashListStore.noteThresholdReached());
+    }
+    hashListStore.start().catch((err) => log.error(`hashListStore start error: ${err.message}`));
     nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
     peerNotification.initialize();
     appSpawner.initialize();

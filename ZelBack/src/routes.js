@@ -291,6 +291,11 @@ module.exports = (app) => {
   app.get('/flux/version', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxService.getFluxVersion(req, res);
   }));
+  // Not cached: the bytes are this node's current list, and a cached copy could serve one it
+  // has replaced.
+  app.get('/flux/hashlist', asyncRoute((req, res) => {
+    return fluxService.getHashList(req, res);
+  }));
   app.get('/flux/nodejsversions', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxService.getNodeJsVersions(req, res);
   }));

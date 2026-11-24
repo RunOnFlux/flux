@@ -16,4 +16,12 @@ const POLICY = Object.freeze({
   capability: 'policyBundle',
 });
 
-module.exports = { POLICY };
+const HASH_LIST = Object.freeze({
+  seq: 'fluxhashlistseq',
+  request: 'fluxhashlistrequest',
+  document: 'fluxhashlist',
+  field: 'list',
+  capability: 'hashList',
+});
+
+module.exports = { POLICY, HASH_LIST };
