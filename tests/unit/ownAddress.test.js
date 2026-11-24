@@ -17,6 +17,7 @@ const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutc
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const nodeDosState = require('../../ZelBack/src/services/nodeDosState');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+const spawnerControl = require('../../ZelBack/src/services/utils/spawnerControl');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const log = require('../../ZelBack/src/lib/log');
 const { Collection } = require('mongodb');
@@ -50,6 +51,12 @@ describe('fluxNetworkHelper own address tests', () => {
     sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').resolves({ status: 'success' });
     sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'error' });
     sinon.stub(geolocationService, 'setNodeGeolocation');
+    // the lookup found where the node now is, unless a case says
+    sinon.stub(geolocationService, 'getNodeGeolocation').callsFake(async () => {
+      const own = await records.findOne({ _id: 'own' });
+      return own?.socketAddress ? { ip: own.socketAddress.split(':')[0] } : null;
+    });
+    sinon.spy(spawnerControl, 'setMoveDue');
     sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [] });
     sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('unreachable'));
     // the peers asked whether a Flux node is at an address: none finds one unless a case says
@@ -69,6 +76,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
   afterEach(async () => {
     sinon.restore();
+    await spawnerControl.setMoveDue(false);
     fluxNetworkHelper.setOnOwnAddressMoved(null);
     fluxNetworkHelper.setOnAddressChanged(null);
     fluxNetworkHelper.setInstalledAppsListedAt(null);
@@ -580,6 +588,41 @@ describe('fluxNetworkHelper own address tests', () => {
       sinon.assert.calledOnceWithExactly(moved, '198.51.100.51:16127', '198.51.100.52:16127', sinon.match.number);
       sinon.assert.calledWithMatch(fs.writeFile, sinon.match.string, sinon.match(/ipaddress: '198.51.100.52',/));
       expect((await fullRecord()).ipChangeHeights).to.have.lengthOf(1);
+    });
+
+    // The geolocation lookup reports no failure of its own: a node still holding
+    // its old address's geolocation is not located at the new one.
+    it('does not take the move as located while the geolocation is not yet of the new address, and holds the spawner until it is', async () => {
+      configure('198.51.100.57');
+      await adopt('198.51.100.57:16127');
+      daemonServiceFluxnodeRpcs.getFluxNodeStatus.resolves({ status: 'success', data: { ip: '198.51.100.58' } });
+      geolocationService.getNodeGeolocation.resolves({ ip: '198.51.100.57' });
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.58:16127');
+
+      let own = await fullRecord();
+      expect(own.geolocatedAt, 'located at an address the geolocation is not of').to.equal(null);
+      expect(own.settledAt, 'settled while not located').to.not.equal(own.movedAt);
+      expect(spawnerControl.setMoveDue.lastCall.args, 'the spawner was let go while the move was not located').to.deep.equal([true]);
+
+      geolocationService.getNodeGeolocation.resolves({ ip: '198.51.100.58' });
+      await pass('198.51.100.58:16127');
+
+      own = await fullRecord();
+      expect(own.geolocatedAt).to.equal(own.movedAt);
+      expect(own.settledAt).to.equal(own.movedAt);
+      expect(spawnerControl.setMoveDue.lastCall.args).to.deep.equal([false]);
+    });
+
+    it('does not take the move as located when the geolocation cannot be read', async () => {
+      configure('198.51.100.59');
+      await adopt('198.51.100.59:16127');
+      geolocationService.getNodeGeolocation.rejects(new Error('no database connection'));
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.60:16127');
+
+      expect((await fullRecord()).geolocatedAt).to.equal(null);
+      expect(spawnerControl.setMoveDue.lastCall.args).to.deep.equal([true]);
     });
 
     it('announces a move once when a pass stopped after announcing it, and asks the restart again under the same key', async () => {

@@ -28,11 +28,12 @@ const controller = new FluxController();
 const attempts = new Set();
 let runner = null;
 let ready = false;
-let moves = 0;
+// a move of this node's address whose apps or geolocation are still to be handled
+let moveDue = false;
 let stops = Promise.resolve();
 
 function wanted() {
-  return Boolean(runner) && ready && moves === 0;
+  return Boolean(runner) && ready && !moveDue;
 }
 
 function startIfWanted() {
@@ -165,29 +166,28 @@ async function setReady(value) {
 }
 
 /**
- * Runs `work` with the spawner stopped: the attempt in flight ends, an install
- * holding the spawner's lock is waited for until it lets the lock go, and the
- * spawner starts again after
- * `work` if it is wanted then.
- * @param {function(): Promise<*>} work
- * @returns {Promise<*>} What `work` returns.
+ * Whether a move of this node's address still has apps or a geolocation to
+ * handle. While it has, the spawner is stopped: the attempt in flight ends, an
+ * install holding the spawner's lock is waited for until it lets the lock go, and
+ * no attempt starts, during the move's passes and between them, since a decision
+ * taken then would be taken at the place the node left.
+ * @param {boolean} due
+ * @returns {Promise<void>} Settles once the stop it caused has let go; at once when not due.
  */
-async function duringMove(work) {
-  moves += 1;
-  try {
+async function setMoveDue(due) {
+  moveDue = due;
+  if (due) {
     await stop();
-    return await work();
-  } finally {
-    moves -= 1;
-    startIfWanted();
+    return;
   }
+  startIfWanted();
 }
 
 module.exports = {
   SpawnerStopped,
   setRunner,
   setReady,
-  duringMove,
+  setMoveDue,
   beginAttempt,
   stopAttemptFor,
 };

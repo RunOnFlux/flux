@@ -46,35 +46,35 @@ describe('spawnerControl', () => {
     expect(passes).to.equal(1);
   });
 
-  it('stops for a move, and starts again after it while the node is ready', async () => {
+  it('stops for a move that is due, stays stopped while it is, and starts again once it is not', async () => {
     await control.setReady(true);
     await settle();
-    let passesDuringMove = null;
 
-    await control.duringMove(async () => {
-      await settle();
-      passesDuringMove = passes;
-    });
+    await control.setMoveDue(true);
     await settle();
+    expect(stopsHeard, 'the attempt in flight was not stopped').to.equal(1);
+    expect(passes, 'a pass ran while the move was due').to.equal(1);
 
-    expect(stopsHeard).to.equal(1);
-    expect(passesDuringMove, 'a pass ran during the move').to.equal(1);
-    expect(passes, 'the spawner did not start again after the move').to.equal(2);
+    await control.setMoveDue(false);
+    await settle();
+    expect(passes, 'the spawner did not start again once the move was handled').to.equal(2);
   });
 
   it('does not start after a move while the node is not ready', async () => {
-    await control.duringMove(async () => {});
+    await control.setMoveDue(true);
+    await control.setMoveDue(false);
     await settle();
 
     expect(passes).to.equal(0);
   });
 
-  it('does not start when the node becomes ready during a move, and starts once the move ends', async () => {
-    await control.duringMove(async () => {
-      await control.setReady(true);
-      await settle();
-      expect(passes, 'the spawner ran during the move').to.equal(0);
-    });
+  it('does not start when the node becomes ready while a move is due, and starts once it is not', async () => {
+    await control.setMoveDue(true);
+    await control.setReady(true);
+    await settle();
+    expect(passes, 'the spawner ran while the move was due').to.equal(0);
+
+    await control.setMoveDue(false);
     await settle();
 
     expect(passes).to.equal(1);
