@@ -15,10 +15,12 @@
  * after its container is removed and before the new one is created, and FluxOS is
  * restarted there.
  *
- * Late removal: the node's docker data root is frozen (framework/host-stall.js), so
- * docker's stop and removal of the container are held in the kernel. FluxOS waits
- * dockerRequestTimeoutMs for each, gives up, and the soft redeploy of the app fails
- * with the container still there. Thawed, docker finishes the removal.
+ * Late removal: an owner's soft redeploy of the app is held at
+ * container:beforeRemove, with its container stopped and the removal recorded, and
+ * the node's docker data root is frozen (framework/host-stall.js) before it goes on,
+ * so docker's removal is held in the kernel. FluxOS waits dockerRequestTimeoutMs,
+ * gives up, and the redeploy fails with the container still there; the reconciler
+ * finds docker removing it. Thawed, docker finishes the removal.
  */
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
@@ -38,6 +40,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
 
 const BEFORE_PULL = 'install:beforePull';
+const BEFORE_REMOVE = 'container:beforeRemove';
 const HOLDER = 0;
 // how long FluxOS waits for one docker request before it gives up on it
 const DOCKER_REQUEST_MS = 15000;
@@ -104,6 +107,7 @@ describe('a container FluxOS took down is not tampering', function () {
 
   afterTeardown(async function () {
     if (env) await thawEveryNode(env.clients);
+    if (env) await holder.releaseCheckpoint(BEFORE_REMOVE, containerName).catch(() => {});
     await env?.teardown();
   });
 
@@ -149,9 +153,12 @@ describe('a container FluxOS took down is not tampering', function () {
     const before = await getAppContainerId(holder.container, appName, component);
 
     const mark = holder.getLastEventId();
-    await freezeDocker(holder.container);
+    await holder.holdCheckpoint(BEFORE_REMOVE, containerName);
     holder.redeployApp(appName, auth.zelidauth).catch(() => {});
-    await holder.waitForEvent('app:softRedeployed', (d) => d.name === appName && d.outcome === 'failed', 4 * DOCKER_REQUEST_MS + 60000, { afterId: mark });
+    await holder.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_REMOVE && d.key === containerName, 240000, { afterId: mark });
+    await freezeDocker(holder.container);
+    await holder.releaseCheckpoint(BEFORE_REMOVE, containerName);
+    await holder.waitForEvent('app:softRedeployed', (d) => d.name === appName && d.outcome === 'failed', 2 * DOCKER_REQUEST_MS + 60000, { afterId: mark });
     // read from docker's memory, which the freeze does not hold
     const listed = await execInContainer(holder.container, `timeout 20 docker ps -a --format '{{.Names}}' --filter name=^${containerName}$`);
     expect(listed.stdout.trim(), `canary: docker had finished the removal before FluxOS gave up: ${listed.output}`).to.equal(containerName);
