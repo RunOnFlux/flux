@@ -3,6 +3,10 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const { resetGlobalState } = require('./fixtures/globalState');
 
+// A test run is its own unit (appTestRun.test.js); no installer test runs one, which
+// would run its commands on the machine the tests run on.
+const testRunStub = () => ({ run: sinon.stub().resolves(true) });
+
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
@@ -153,6 +157,7 @@ describe('appInstaller tests', () => {
 
     // Proxy require
     baseStubs = {
+      './appTestRun': testRunStub(),
       '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../verificationHelper': verificationHelperStub,
@@ -1004,6 +1009,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1119,6 +1125,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1330,6 +1337,7 @@ describe('appInstaller tests', () => {
 
     it('should return false if node tier does not return anything', async () => {
       const appInstallerWithNodeTier = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1441,6 +1449,7 @@ describe('appInstaller tests', () => {
     // present for that reason, and appQueryService - the first call PAST the guard - rejects,
     // so a guard that stops matching lands on FAILED rather than running on into the install.
     const installerReachingTheAlreadyInstalledGuard = () => proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+      './appTestRun': testRunStub(),
       '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../messageHelper': messageHelperStub,
@@ -1530,6 +1539,7 @@ describe('appInstaller tests', () => {
       };
 
       return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1878,6 +1888,7 @@ describe('appInstaller tests', () => {
       };
 
       return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -2117,6 +2128,7 @@ describe('appInstaller tests', () => {
       reconcilerStub = { want: sinon.stub().resolves(MAPPED) };
       logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
       appInstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
@@ -2182,6 +2194,7 @@ describe('appInstaller tests', () => {
       dockerServiceStub = makeDockerServiceStub({ getFreeFluxAppNetworkOctet: sinon.stub().resolves(7) });
       egressRulesStub = sinon.stub().resolves(true);
       appInstallerNet = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
         '../dockerService': dockerServiceStub,
