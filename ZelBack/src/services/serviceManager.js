@@ -257,6 +257,7 @@ async function prepareDatabaseSchema() {
     { key: { appNames: 1, expireAt: 1 }, name: 'reports by the apps they name, lowercased', partialFilterExpression: { type: 'apprunning' } },
     { key: { removedNames: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
   ]);
+  await messageStore.dropMalformedStoredEvents(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   await messageStore.lowercaseStoredAppNames(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   log.info('App state events collection prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [

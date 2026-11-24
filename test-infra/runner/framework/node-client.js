@@ -370,7 +370,6 @@ export function nodeClient(nodeNum) {
         'hostStall:appsStopped',
         'network:apprunning',
         // entries of an apprunning message this node refused, by gossip or sync
-        'network:apprunningRefused',
         'network:appinstalling',
         'network:appinstallingerror',
         'network:appinstallingerrorRefused',

@@ -15,7 +15,7 @@ const appUninstaller = require('../appLifecycle/appUninstaller');
 
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
-const { appRunningEntries } = require('../utils/appRunningEntries');
+const { isAppRunningEntry } = require('../utils/broadcastShape');
 const appPlacements = require('../appManagement/appPlacements');
 const { ANNOUNCE_INTERVAL_MS } = require('../utils/appConstants');
 
@@ -246,13 +246,10 @@ async function checkAndNotifyPeersOfRunningApps() {
       (application) => !globalState.departingApps.has(application.name)
         && !globalState.unconfirmedApps.has(application.name),
     );
-    // An installed app without a string name and hash is left out and logged: no
-    // node stores such an entry, and a node that has not upgraded refuses the
-    // whole message for it, which would cost this node every other app it holds.
-    const { stored: announceable, refused } = appRunningEntries(applicationsToBroadcast);
-    if (refused.length) {
-      log.warn(`checkAndNotifyPeersOfRunningApps - installed apps without a name and hash are not announced: ${refused.map((application) => application?.name).join(', ')}`);
-    }
+    // An installed app whose entry is not well formed (broadcastShape) is left out
+    // and logged: every node refuses a message naming one, which would cost this
+    // node every other app it holds.
+    const refused = [];
     const apps = [];
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -261,10 +258,10 @@ async function checkAndNotifyPeersOfRunningApps() {
       // the network's copy of its location rows: those lapse in normal running
       // while the app goes on running here. An app with no record is announced
       // from its row, and from now without one.
-      const placements = await appPlacements.placementsOf(announceable.map((application) => application.name));
+      const placements = await appPlacements.placementsOf(applicationsToBroadcast.map((application) => application.name));
       const unrecorded = [];
       // eslint-disable-next-line no-restricted-syntax
-      for (const application of announceable) {
+      for (const application of applicationsToBroadcast) {
         let runningOnMyNodeSince = placements.get(application.name);
         if (!runningOnMyNodeSince) {
           unrecorded.push(application.name);
@@ -274,11 +271,16 @@ async function checkAndNotifyPeersOfRunningApps() {
           const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
           runningOnMyNodeSince = result?.runningSince ?? new Date();
         }
-        apps.push({
+        const entry = {
           name: application.name,
           hash: application.hash,
           runningSince: new Date(runningOnMyNodeSince).toISOString(),
-        });
+        };
+        if (isAppRunningEntry(entry)) apps.push(entry);
+        else refused.push(application);
+      }
+      if (refused.length) {
+        log.warn(`checkAndNotifyPeersOfRunningApps - installed apps without a name and hash are not announced: ${refused.map((application) => application?.name).join(', ')}`);
       }
       if (unrecorded.length) {
         log.warn(`checkAndNotifyPeersOfRunningApps - no placement record for ${unrecorded.join(', ')}; announced from the location table`);

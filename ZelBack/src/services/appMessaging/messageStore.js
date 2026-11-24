@@ -15,7 +15,7 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const globalState = require('../utils/globalState');
-const { appRunningEntries } = require('../utils/appRunningEntries');
+const { wellFormed } = require('../utils/broadcastShape');
 const { envelopeOf } = require('../utils/fluxBroadcastHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
 const fluxnodeAddressRecord = require('../fluxnodeAddressRecord');
@@ -376,78 +376,25 @@ function runningSinceOf(isNewer, runningSince, moved) {
 }
 
 /**
- * Log, in one line, the apprunning entries a store refused.
- * @param {string} caller The function that refused them.
- * @param {Array<{ip: string, broadcastedAt: number, refused: Array<*>}>} refusals One per message with refused entries.
- */
-function logRefusedEntries(caller, refusals) {
-  if (!refusals.length) return;
-  const entries = refusals.reduce((total, { refused }) => total + refused.length, 0);
-  const shown = refusals.slice(0, 3).map(({ ip, broadcastedAt, refused }) => (
-    `${ip} at ${broadcastedAt}: ${refused.slice(0, 3).map((app) => JSON.stringify(app)?.slice(0, 200)).join(', ')}`
-  )).join('; ');
-  log.warn(`${caller} - ${entries} app entries in ${refusals.length} messages have no string name and hash and are not stored. ${shown}`);
-}
-
-/**
  * Store app running message.
  *
- * A version 2 message is stored entry by entry: the entries with a name and a
- * hash are written and the rest are refused, logged, and leave the others alone.
- * A message whose every entry is refused stores nothing and is not relayed. It
- * is never read as an empty snapshot, which deletes the sender's rows: only a
- * message that names no apps at all says that.
+ * A message that is not exactly a version 2 running message (broadcastShape) is
+ * refused whole. One that names no apps at all clears the sender's rows.
  * @param {object} message - Message to store
- * @returns {Promise<{stored: boolean, rebroadcast: boolean, written: Array<object>, refused: Array<*>, cleared: boolean}|Error>}
- *   Whether anything was stored and the message is to be relayed, the entries written, the names
- *   refused, and whether the sender's rows were cleared; or Error when the message itself is malformed
+ * @returns {Promise<{stored: boolean, rebroadcast: boolean, written: Array<object>, cleared: boolean}|Error>}
+ *   Whether anything was stored and the message is to be relayed, the entries written, and whether
+ *   the sender's rows were cleared; or Error when the message is malformed
  */
 async function storeAppRunningMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number, 2
-  * @param broadcastedAt number
-  * @param ip string
-  * @param osUptime number (optional)
-  * @param staticIp string (optional)
-  * @param runningSince number (optional)
-  * @param apps array
-  */
-  const appsMessages = [];
-  // What this message did here, for the caller to report: the entries written,
-  // the names refused, and whether the sender's rows were cleared.
-  let refusedNames = [];
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
+  if (!message || typeof message !== 'object' || message.type !== 'fluxapprunning' || !wellFormed(message)) {
     return new Error('Invalid Flux App Running message for storing');
   }
-
-  if (message.version !== 2) {
-    return new Error(`Invalid Flux App Running message for storing version ${message.version} not supported`);
-  }
-
-  if (!message.apps || !Array.isArray(message.apps)) {
-    return new Error('Invalid Flux App Running message for storing');
-  }
-  if (message.apps.length > config.fluxapps.maxAppsPerNode) {
-    return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
-  }
-  const { stored, refused } = appRunningEntries(message.apps);
-  refusedNames = refused.map((app) => app?.name ?? null);
-  if (refused.length) {
-    logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
-  }
-  if (message.apps.length && !stored.length) {
-    return {
-      stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
-    };
-  }
-  appsMessages.push(...stored);
+  const appsMessages = message.apps;
 
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
     return {
-      stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
+      stored: false, rebroadcast: false, written: [], cleared: false,
     };
   }
 
@@ -463,7 +410,7 @@ async function storeAppRunningMessage(message) {
 
   for (let i = 0; i < appsMessages.length; i += 1) {
     const app = appsMessages[i];
-    const runningSince = new Date(message.runningSince ?? app.runningSince ?? message.broadcastedAt);
+    const runningSince = new Date(app.runningSince);
     const incoming = {
       name: app.name,
       hash: app.hash,
@@ -511,7 +458,7 @@ async function storeAppRunningMessage(message) {
       anyStored = true;
     } else {
       return {
-        stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
+        stored: false, rebroadcast: false, written: [], cleared: false,
       };
     }
   }
@@ -528,7 +475,6 @@ async function storeAppRunningMessage(message) {
     stored: anyStored,
     rebroadcast: anyStored,
     written,
-    refused: refusedNames,
     cleared: appsMessages.length === 0 && anyStored,
   };
 }
@@ -928,18 +874,13 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     verifiedBroadcasts.map(({ data }) => ({ ip: data.ip, at: data.broadcastedAt })),
   );
 
-  // one log line per call: a sync response is stored a slice at a time, and a
-  // slice holds thousands of broadcasts
-  const refusals = [];
   for (const [index, broadcast] of verifiedBroadcasts.entries()) {
     const { data } = broadcast;
     const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
     const ip = addresses[index];
 
-    if (data.version !== 2 || !Array.isArray(data.apps)) continue;
-    const { stored: apps, refused } = appRunningEntries(data.apps);
-    if (refused.length) refusals.push({ ip: data.ip, broadcastedAt: data.broadcastedAt, refused });
+    const { apps } = data;
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
@@ -951,12 +892,9 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
         expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
         osUptime: newerOrHeld(isNewer, 'osUptime', data.osUptime),
-        staticIp: newerOrHeld(isNewer, 'staticIp', data.staticIp ?? null),
+        staticIp: newerOrHeld(isNewer, 'staticIp', data.staticIp),
+        runningSince: runningSinceOf(isNewer, new Date(app.runningSince), ip !== data.ip),
       };
-      const runningSince = data.runningSince ? new Date(data.runningSince) : (app.runningSince ? new Date(app.runningSince) : null);
-      if (runningSince) {
-        setFields.runningSince = runningSinceOf(isNewer, runningSince, ip !== data.ip);
-      }
       locationOps.push({
         updateOne: {
           filter: { name: app.name, ip },
@@ -973,13 +911,6 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
   }
 
   await flushLocationOps();
-  logRefusedEntries('storeBatchAppRunningMessages', refusals);
-  if (refusals.length) {
-    fluxEventBus.publish('network:apprunningRefused', {
-      path: 'sync',
-      refusals: refusals.map(({ ip, refused }) => ({ ip, names: refused.map((app) => app?.name ?? null) })),
-    });
-  }
 
   // Upserts only. Removing the rows a node no longer reports belongs to
   // pruneAppRunningLocations, which is driven from the newest broadcast per node
@@ -1034,20 +965,32 @@ async function pruneAppRunningLocations(newestByIp) {
 // --- Event Log Functions ---
 
 /**
- * Whether an apprunning message names apps and none of them can be stored. Such a
- * message says nothing this node can act on, and is kept out of the event log so
- * it never takes the place of the sender's last announcement there.
- * @param {object} data The message's data.
- * @returns {boolean}
- */
-/**
- * The names a report's storable entries give, lowercased: what a read for one app
- * matches, since app names compare without case.
- * @param {Array<*>} apps A version 2 report's apps.
+ * The names a report gives, lowercased: what a read for one app matches, since app
+ * names compare without case.
+ * @param {Array<object>} apps A well-formed version 2 report's apps.
  * @returns {string[]}
  */
 function appNamesOf(apps) {
-  return appRunningEntries(apps).stored.map((app) => app.name.toLowerCase());
+  return apps.map((app) => app.name.toLowerCase());
+}
+
+/**
+ * Deletes every stored report and removal that is not exactly the message its
+ * type and version describe (broadcastShape): a node takes no other, so the
+ * views built from these events read only messages it would take now.
+ * @param {object} collection The app state events collection.
+ * @returns {Promise<number>} How many were deleted.
+ */
+async function dropMalformedStoredEvents(collection) {
+  const events = await collection.find(
+    { type: { $in: [APP_STATE_EVENT_TYPES.APPRUNNING, APP_STATE_EVENT_TYPES.APPREMOVED] } },
+    { projection: { _id: 1, data: 1 } },
+  ).toArray();
+  const malformed = events.filter((event) => !event.data || !wellFormed(event.data)).map((event) => event._id);
+  if (!malformed.length) return 0;
+  await collection.deleteMany({ _id: { $in: malformed } });
+  log.warn(`dropMalformedStoredEvents - ${malformed.length} stored reports and removals were not well formed and are deleted`);
+  return malformed.length;
 }
 
 /**
@@ -1058,12 +1001,9 @@ function appNamesOf(apps) {
  * @returns {Promise<void>}
  */
 async function lowercaseStoredAppNames(collection) {
-  const storable = {
-    $and: [{ $eq: [{ $type: '$$app.name' }, 'string'] }, { $eq: [{ $type: '$$app.hash' }, 'string'] }],
-  };
   await collection.updateMany(
     { type: APP_STATE_EVENT_TYPES.APPRUNNING, appNames: { $exists: false }, 'data.apps': { $type: 'array' } },
-    [{ $set: { appNames: { $map: { input: { $filter: { input: '$data.apps', as: 'app', cond: storable } }, as: 'app', in: { $toLower: '$$app.name' } } } } }],
+    [{ $set: { appNames: { $map: { input: '$data.apps', as: 'app', in: { $toLower: '$$app.name' } } } } }],
   );
   await collection.updateMany(
     { type: APP_STATE_EVENT_TYPES.APPREMOVED, removedNames: { $exists: false }, 'data.appName': { $type: 'string' } },
@@ -1071,16 +1011,11 @@ async function lowercaseStoredAppNames(collection) {
   );
 }
 
-function namesOnlyRefusedApps(data) {
-  return data.version === 2 && Array.isArray(data.apps) && data.apps.length > 0
-    && appRunningEntries(data.apps).stored.length === 0;
-}
-
 async function handleAppRunningEvent({ signedBroadcast }) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.broadcastedAt) return;
   if (data.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) return;
-  if (namesOnlyRefusedApps(data)) return;
+  if (!wellFormed(data)) return;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -1303,7 +1238,6 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
     if (!data || !data.ip || !data.broadcastedAt) continue;
     const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
-    if (namesOnlyRefusedApps(data)) continue;
     if (data.version !== 2 || !Array.isArray(data.apps)) continue;
 
     const dedupKey = 'v2';
@@ -1566,6 +1500,7 @@ module.exports = {
   storeAppPermanentMessage,
   storeAppRunningMessage,
   lowercaseStoredAppNames,
+  dropMalformedStoredEvents,
   storeBatchAppRunningMessages,
   pruneAppRunningLocations,
   storeAppStateEvent,
