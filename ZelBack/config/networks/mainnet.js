@@ -261,7 +261,7 @@ module.exports = {
     // it. The backstop: a list reaches most nodes from their peers.
     sourceUrl: 'https://hashes.runonflux.io/hashlist',
     // The keys fluxbench pins: key 1 signs day to day (CI), key 2 is the cold key that can take
-    // over. Kept in step with SIGNING.md in fluxhashes and PINNED_HASHLIST_PUBKEYS in fluxbench.
+    // over. Kept in step with SIGNING.md in fluxhashes.
     publicKeys: [
       '14837066068b258bfbd0749702056f7065361af44aed48761834744391cbbaaa',
       'fee7b0ccf2323954af68a249eaa61f957239eb222329e08a5b6a50ced649bae8',

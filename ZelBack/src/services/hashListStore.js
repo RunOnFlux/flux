@@ -15,7 +15,7 @@ const { SignedDocumentExchange, collateralPhaseIdentity } = require('./utils/sig
 // A network whose profile names no hash list keys runs no store: it answers peers that it holds
 // nothing, and /flux/hashlist has nothing to serve.
 
-// An MD5 of a FluxOS tree, as fluxbench computes it.
+// A tree hash as the list carries it: 32 lower-case hex characters.
 const TREE_HASH = /^[0-9a-f]{32}$/;
 
 /**
