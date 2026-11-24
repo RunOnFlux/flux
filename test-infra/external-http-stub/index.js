@@ -1013,8 +1013,13 @@ app.get('/api/v3/simple/price', (req, res) => {
 });
 
 // Geolocation: ip-api.com format (primary)
+// An address staged `unavailable` is one neither service can locate: both answer 503.
 app.get('/json/:ip', (req, res) => {
   const custom = state.geolocation[req.params.ip];
+  if (custom?.unavailable) {
+    res.status(503).json({ status: 'fail', message: 'unavailable' });
+    return;
+  }
   res.json({ ...defaultGeoResponse(req.params.ip), ...custom });
 });
 
@@ -1032,6 +1037,10 @@ app.get('/json/:ip', (req, res) => {
 app.get('/fluxlocation/:ip', (req, res) => {
   const { ip } = req.params;
   const custom = state.geolocation[ip];
+  if (custom?.unavailable) {
+    res.status(503).json({ status: 'error', data: { message: 'unavailable' } });
+    return;
+  }
   const geo = { ...defaultGeoResponse(ip), ...custom };
   res.json({
     status: 'success',

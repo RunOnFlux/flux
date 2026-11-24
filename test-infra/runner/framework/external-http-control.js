@@ -18,6 +18,24 @@ async function post(path, body) {
 }
 
 /**
+ * Has neither geolocation service (ip-api, and the stats fallback) locate `ip`:
+ * both answer 503 until clearGeolocation.
+ * @param {string} ip A bare IP.
+ */
+export async function setGeolocationUnavailable(ip) {
+  return post(`/geolocation/${ip}`, { unavailable: true });
+}
+
+/**
+ * Has both geolocation services answer for `ip` as they do by default.
+ * @param {string} ip A bare IP.
+ */
+export async function clearGeolocation(ip) {
+  const res = await fetch(`${CONTROL}/geolocation/${ip}`, { method: 'DELETE' });
+  return res.json();
+}
+
+/**
  * Stage bytes to be served at artifactUrl(name).
  *
  * `declaredLength` overrides the content-length header without changing what is
