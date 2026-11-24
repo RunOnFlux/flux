@@ -8563,7 +8563,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       );
 
       expect(decision.giveUp).to.equal(true);
-      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.SURPLUS);
     });
 
     it('does not name SURPLUS when this node holds a senior instance', async () => {
@@ -8584,7 +8584,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       );
 
       expect(decision.giveUp).to.equal(false);
-      expect(decision.reason).to.equal('NONE');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.NONE);
     });
 
     it('names EVACUATION when the node is evacuating and this app\'s turn has come', async () => {
@@ -8598,7 +8598,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       );
 
       expect(decision.giveUp).to.equal(true);
-      expect(decision.reason).to.equal('EVACUATION');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.EVACUATION);
     });
 
     it('defers to the pacing when the app\'s turn has not come', async () => {
@@ -8641,7 +8641,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       );
 
       expect(decision.giveUp).to.equal(false);
-      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.SURPLUS);
       expect(decision.detail).to.contain('w_a');
     });
 
@@ -8662,7 +8662,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {}, turn: TURN },
       );
 
-      expect(decision.reason).to.equal('EVACUATION');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.EVACUATION);
       expect(decision.giveUp).to.equal(true);
     });
 
@@ -8675,7 +8675,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       );
 
       expect(decision.giveUp).to.equal(true);
-      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.SURPLUS);
     });
 
     // An app with more than one g: component is written by the node that runs
@@ -8695,7 +8695,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         );
 
         expect(decision.giveUp).to.equal(false);
-        expect(decision.reason).to.equal('SURPLUS');
+        expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.SURPLUS);
       });
 
       // Canary for the test above: the same newest copy running none of them trims.
@@ -8736,7 +8736,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       );
 
       expect(decision.giveUp).to.equal(true);
-      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.SURPLUS);
       expect(decision.detail).to.contain('w_a');
     });
 
@@ -8759,7 +8759,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // NONE - the same thing the pass reports for an app with no surplus at
       // all. The one observation that would catch this rule failing open then
       // read identically to a quiet pass over a healthy app.
-      expect(decision.reason).to.equal('SURPLUS');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.SURPLUS);
       expect(decision.code).to.equal('WRITER_UNCONFIRMED');
     });
 
@@ -8777,7 +8777,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       );
 
       expect(decision.giveUp).to.equal(false);
-      expect(decision.reason).to.equal('NONE');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.NONE);
       expect(decision.code).to.equal(undefined);
       sinon.assert.notCalled(probe);
     });
@@ -8825,7 +8825,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
       );
 
-      expect(decision.reason).to.equal('NONE');
+      expect(decision.reason).to.equal(advancedWorkflows.GiveUpReason.NONE);
       sinon.assert.notCalled(probe);
     });
   });
@@ -9743,7 +9743,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         { turn: { ...TURN, holders }, outgrown: SHORTFALL },
       );
 
-      expect(decision).to.include({ giveUp: false, reason: 'OUTGROWN', code: 'ABOVE_INSTANCE_COUNT' });
+      expect(decision).to.include({ giveUp: false, reason: advancedWorkflows.GiveUpReason.OUTGROWN, code: 'ABOVE_INSTANCE_COUNT' });
     });
   });
 
@@ -9860,7 +9860,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         { turn: { ...TURN, holders }, misplaced: TABLE_FAIL },
       );
 
-      expect(decision).to.include({ giveUp: false, reason: 'MISPLACED', code: 'ABOVE_INSTANCE_COUNT' });
+      expect(decision).to.include({ giveUp: false, reason: advancedWorkflows.GiveUpReason.MISPLACED, code: 'ABOVE_INSTANCE_COUNT' });
     });
 
     it('does not remove once the chain has reached the next pass', async () => {

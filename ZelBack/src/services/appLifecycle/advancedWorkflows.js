@@ -3522,9 +3522,21 @@ async function peerRunning(locations, localSocketAddr, ctx) {
   return null;
 }
 
+/**
+ * Why this node gives up an app; reasonToGiveUpApp names one. The values are
+ * published and logged as they are.
+ */
+const GiveUpReason = Object.freeze({
+  NONE: 'NONE',
+  SURPLUS: 'SURPLUS',
+  EVACUATION: 'EVACUATION',
+  MISPLACED: 'MISPLACED',
+  OUTGROWN: 'OUTGROWN',
+});
+
 // The reasons an app is handed back to the network in turn, one holder per
 // refill, rather than trimmed as a surplus.
-const HANDED_BACK = new Set(['EVACUATION', 'MISPLACED', 'OUTGROWN']);
+const HANDED_BACK = new Set([GiveUpReason.EVACUATION, GiveUpReason.MISPLACED, GiveUpReason.OUTGROWN]);
 
 /**
  * Whether this node should give up an app, and why.
@@ -3596,7 +3608,7 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     if (index === 0) {
       const runsWriter = Boolean(deps.isComponentRunningLocally)
         && (await Promise.all(writers.map((each) => deps.isComponentRunningLocally(each)))).includes(true);
-      if (!runsWriter) return { giveUp: true, reason: 'SURPLUS', detail };
+      if (!runsWriter) return { giveUp: true, reason: GiveUpReason.SURPLUS, detail };
       // Carried out to the evacuation gate rather than returned past it, for the
       // reason the second-newest branch below is: a node that is also draining
       // must still be asked whether it should hand this app back. Returned here,
@@ -3631,7 +3643,7 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
       if (newestState === PeerComponent.RUNNING) {
         return {
           giveUp: true,
-          reason: 'SURPLUS',
+          reason: GiveUpReason.SURPLUS,
           detail: `${detail.replace('this node is the newest', `the newest copy holds ${writer}, so this node trims`)}`,
         };
       }
@@ -3654,12 +3666,12 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     if (verdict.ok) {
       return {
         giveUp: true,
-        reason: 'EVACUATION',
+        reason: GiveUpReason.EVACUATION,
         detail: 'node is not fit to serve and is handing its apps back',
       };
     }
     return {
-      giveUp: false, reason: 'EVACUATION', code: verdict.code, detail: verdict.reason,
+      giveUp: false, reason: GiveUpReason.EVACUATION, code: verdict.code, detail: verdict.reason,
     };
   }
 
@@ -3680,12 +3692,12 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     if (verdict.ok) {
       return {
         giveUp: true,
-        reason: 'MISPLACED',
+        reason: GiveUpReason.MISPLACED,
         detail: `the location table places this node outside the app's geolocation (${deps.misplaced.reason})`,
       };
     }
     return {
-      giveUp: false, reason: 'MISPLACED', code: verdict.code, detail: verdict.reason,
+      giveUp: false, reason: GiveUpReason.MISPLACED, code: verdict.code, detail: verdict.reason,
     };
   }
 
@@ -3702,21 +3714,21 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     if (verdict.ok) {
       return {
         giveUp: true,
-        reason: 'OUTGROWN',
+        reason: GiveUpReason.OUTGROWN,
         detail: `this node cannot hold the app at its registered specification (${deps.outgrown})`,
       };
     }
     return {
-      giveUp: false, reason: 'OUTGROWN', code: verdict.code, detail: verdict.reason,
+      giveUp: false, reason: GiveUpReason.OUTGROWN, code: verdict.code, detail: verdict.reason,
     };
   }
 
   if (surplusDeclined) {
     return {
-      giveUp: false, reason: 'SURPLUS', code: surplusDeclined.code, detail: surplusDeclined.detail,
+      giveUp: false, reason: GiveUpReason.SURPLUS, code: surplusDeclined.code, detail: surplusDeclined.detail,
     };
   }
-  return { giveUp: false, reason: 'NONE', detail: '' };
+  return { giveUp: false, reason: GiveUpReason.NONE, detail: '' };
 }
 
 /**
@@ -4133,7 +4145,7 @@ async function checkAndRemoveApplicationInstance({
           leavingCopy.removed(attempted);
           attempted = null;
         }
-        if (decision.reason === 'EVACUATION') {
+        if (decision.reason === GiveUpReason.EVACUATION) {
           residentialNodeDosService.noteEvacuated(installedApp.name);
         }
         // One per pass. Removing a second here would take two instances off the
@@ -5658,6 +5670,7 @@ module.exports = {
   validateApplicationUpdateCompatibility,
   checkAndRemoveApplicationInstance,
   reasonToGiveUpApp,
+  GiveUpReason,
   isElectedPrimaryHere,
   reinstallOldApplications,
   checkAndRemoveEnterpriseAppsOnNonArcane,
