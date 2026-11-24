@@ -121,50 +121,53 @@ async function writeArtifactBytes(name, bytes) {
   return true;
 }
 
-// The signed bundle is a few tens of kilobytes, so it sits inline in an ordinary document
-// rather than in the bucket. GridFS exists here for the 4.6 MB location table; using it for
-// the bundle would mean a file, a chunk, a record and an orphan sweep for something that fits
-// in a single row with room to spare.
+// A signed document - the policy bundle, the hash list - is a few tens of kilobytes, so it sits
+// inline in an ordinary row rather than in the bucket. GridFS exists here for the 4.6 MB location
+// table; using it for a document would mean a file, a chunk, a record and an orphan sweep for
+// something that fits in a single row with room to spare. One row per document, by its id.
 const BUNDLE_ID = 'networkPolicy';
+const HASH_LIST_ID = 'fluxHashList';
 // MongoDB's duplicate key error
 const DUPLICATE_KEY = 11000;
 
 /**
- * The signed bundle this node last verified, or null when it has never had one.
+ * The signed document stored under `id`, or null when this node has never had one.
  *
- * The distinction is what the whole store exists for: a node that has never verified a
- * bundle must not act, and one that has must keep acting on it however long the sources
- * stay unreachable.
+ * The distinction is what a store exists for: a node that has never verified a document must
+ * not act on it, and one that has must keep acting on it however long the sources stay
+ * unreachable.
+ * @param {string} id The document's row.
  * @returns {Promise<{raw: string, seq: number, verifiedAt: number}|null>}
  */
-async function readBundle() {
+async function readSignedDocument(id) {
   const database = db();
   if (!database) return null;
-  const doc = await dbHelper.findOneInDatabase(database, policyDocumentsCollection, { _id: BUNDLE_ID });
+  const doc = await dbHelper.findOneInDatabase(database, policyDocumentsCollection, { _id: id });
   if (!doc || typeof doc.raw !== 'string') return null;
   return { raw: doc.raw, seq: doc.seq ?? 0, verifiedAt: doc.verifiedAt ?? null };
 }
 
 /**
- * Record a bundle this node has verified. Stored as the bytes that were verified, not as the
- * parsed payload: re-serialising and re-parsing would leave a document whose signature no
+ * Record a signed document this node has verified. Stored as the bytes that were verified, not
+ * as the parsed payload: re-serialising and re-parsing would leave a document whose signature no
  * longer checks, and the point of keeping it is to be able to check it again at boot.
  *
- * The stored bundle only moves forward: one is written only over a lower sequence, by the
- * database in the one operation, so of two writes the higher sequence is what stays,
- * whichever finishes last.
- * @param {string} raw The bundle exactly as received.
+ * A stored document only moves forward: one is written only over a lower sequence, by the
+ * database in the one operation, so of two writes the higher sequence is what stays, whichever
+ * finishes last.
+ * @param {string} id The document's row.
+ * @param {string} raw The document exactly as received.
  * @param {number} seq Its sequence, already verified.
  * @returns {Promise<boolean>} true when recorded; false when no database is connected or a
- *   bundle of this sequence or a higher one is stored.
+ *   document of this sequence or a higher one is stored.
  */
-async function writeBundle(raw, seq) {
+async function writeSignedDocument(id, raw, seq) {
   const database = db();
   if (!database) return false;
   const write = () => dbHelper.findOneAndUpdateInDatabase(
     database,
     policyDocumentsCollection,
-    { _id: BUNDLE_ID, $or: [{ seq: { $lt: seq } }, { seq: { $exists: false } }] },
+    { _id: id, $or: [{ seq: { $lt: seq } }, { seq: { $exists: false } }] },
     { $set: { raw, seq, verifiedAt: Date.now() } },
     { upsert: true },
   );
@@ -174,9 +177,9 @@ async function writeBundle(raw, seq) {
   } catch (error) {
     if (error.code !== DUPLICATE_KEY) throw error;
   }
-  // The insert met the bundle's own id: either it is stored at this sequence or higher, or
-  // another write inserted it first, when none was stored. Asked once more, the document
-  // exists, so the sequence alone decides.
+  // The insert met the document's own id: either it is stored at this sequence or higher, or
+  // another write inserted it first, when none was stored. Asked once more, the row exists, so
+  // the sequence alone decides.
   try {
     await write();
     return true;
@@ -184,6 +187,24 @@ async function writeBundle(raw, seq) {
     if (error.code === DUPLICATE_KEY) return false;
     throw error;
   }
+}
+
+/**
+ * The policy bundle this node last verified, or null.
+ * @returns {Promise<{raw: string, seq: number, verifiedAt: number}|null>}
+ */
+function readBundle() {
+  return readSignedDocument(BUNDLE_ID);
+}
+
+/**
+ * Record a policy bundle this node has verified.
+ * @param {string} raw The bundle exactly as received.
+ * @param {number} seq Its sequence, already verified.
+ * @returns {Promise<boolean>}
+ */
+function writeBundle(raw, seq) {
+  return writeSignedDocument(BUNDLE_ID, raw, seq);
 }
 
 /**
@@ -219,8 +240,11 @@ async function sweepOrphanedArtifacts(name) {
 
 module.exports = {
   BUNDLE_ID,
+  HASH_LIST_ID,
   readBundle,
+  readSignedDocument,
   writeBundle,
+  writeSignedDocument,
   getArtifactRecord,
   readArtifactBytes,
   writeArtifactBytes,

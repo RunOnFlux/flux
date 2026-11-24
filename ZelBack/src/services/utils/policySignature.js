@@ -36,27 +36,34 @@ function publicKeyFromHex(hex) {
 }
 
 /**
- * Verify a signed policy bundle.
+ * Verify a signed document's envelope and sequence, and return its payload.
+ *
+ * What every document in this envelope shares: the size cap, `{ payload_b64, sig_b64 }`, the
+ * signature over the transmitted payload bytes by any one pinned key, and a positive integer
+ * `seq` not below `minSeq`. What the payload must hold beyond that is its caller's to check.
  *
  * Returns the parsed payload, or null. Null is the only failure signal on purpose: a caller
- * that cannot tell "forged" from "malformed" from "too old" treats all three the same way --
- * this is not a policy I can use -- and the ways of being wrong are not worth a caller
- * branching on. What went wrong goes to the log, not the return value.
+ * that cannot tell "forged" from "malformed" from "too old" treats all three the same way, and
+ * the ways of being wrong are not worth a caller branching on. What went wrong goes to the log,
+ * not the return value.
  *
- * @param {Buffer|string} raw The bundle as served.
+ * @param {Buffer|string} raw The document as served.
  * @param {object} options
- * @param {string[]} options.publicKeys Pinned raw ed25519 public keys, hex. A bundle signed by
+ * @param {string[]} options.publicKeys Pinned raw ed25519 public keys, hex. A document signed by
  *   any one of them is accepted, so a key can be replaced without every node updating first.
- * @param {number} [options.minSeq] Refuse a bundle BELOW this sequence, and accept one level
+ * @param {number} [options.minSeq] Refuse a document BELOW this sequence, and accept one level
  *   with it. A source asked for something newer that answers with something OLDER has not
  *   answered, and accepting that is indistinguishable from there being nothing newer -- which
  *   is the whole of a freeze. One that answers with the sequence already held has answered,
  *   and its caller tells that apart from a rejection rather than from silence.
  * @param {Function} [options.onReject] Called with a reason string when verification fails.
- * @returns {object|null} The payload `{ seq, issued_at, documents, artifacts }`, or null.
+ * @param {string} [options.noun] What the document is called in a reason.
+ * @returns {object|null} The payload, or null.
  */
-function verifyBundle(raw, options = {}) {
-  const { publicKeys = [], minSeq = 0, onReject = () => {} } = options;
+function verifySignedDocument(raw, options = {}) {
+  const {
+    publicKeys = [], minSeq = 0, onReject = () => {}, noun = 'bundle',
+  } = options;
   // Wrapped so the reason is reported and null is returned, always. Returning onReject's own
   // value would leak whatever the caller's logger happens to answer with.
   const reject = (reason) => { onReject(reason); };
@@ -66,11 +73,11 @@ function verifyBundle(raw, options = {}) {
   // rather than answering - so it is refused as a bundle here, which is what it
   // is, instead of leaving as a fault of this node.
   if (typeof raw !== 'string' && !Buffer.isBuffer(raw)) {
-    reject(`bundle is ${typeof raw}, not text`);
+    reject(`${noun} is ${typeof raw}, not text`);
     return null;
   }
   if (!raw.length) {
-    reject('empty bundle');
+    reject(`empty ${noun}`);
     return null;
   }
   // BYTES, WHICH IS NOT WHAT A STRING'S LENGTH COUNTS. `raw` arrives as text on both paths -
@@ -83,7 +90,7 @@ function verifyBundle(raw, options = {}) {
   // this.
   const bytes = Buffer.isBuffer(raw) ? raw.length : Buffer.byteLength(raw, 'utf8');
   if (bytes > MAX_BUNDLE_BYTES) {
-    reject(`bundle is ${bytes} bytes, over the ${MAX_BUNDLE_BYTES} cap`);
+    reject(`${noun} is ${bytes} bytes, over the ${MAX_BUNDLE_BYTES} cap`);
     return null;
   }
 
@@ -97,11 +104,11 @@ function verifyBundle(raw, options = {}) {
   try {
     envelope = JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : raw);
   } catch (error) {
-    reject(`bundle is not JSON: ${error.message}`);
+    reject(`${noun} is not JSON: ${error.message}`);
     return null;
   }
   if (!envelope || typeof envelope.payload_b64 !== 'string' || typeof envelope.sig_b64 !== 'string') {
-    reject('bundle is not { payload_b64, sig_b64 }');
+    reject(`${noun} is not { payload_b64, sig_b64 }`);
     return null;
   }
 
@@ -122,7 +129,7 @@ function verifyBundle(raw, options = {}) {
     return null;
   }
   if (!verified) {
-    reject('no pinned key verifies this bundle');
+    reject(`no pinned key verifies this ${noun}`);
     return null;
   }
 
@@ -142,15 +149,28 @@ function verifyBundle(raw, options = {}) {
     reject(`seq ${inner.seq} is below the floor of ${minSeq}`);
     return null;
   }
+  return inner;
+}
+
+/**
+ * Verify a signed policy bundle: a signed document whose payload carries `documents`.
+ *
+ * @param {Buffer|string} raw The bundle as served.
+ * @param {object} options As verifySignedDocument.
+ * @returns {object|null} The payload `{ seq, issued_at, documents, artifacts }`, or null.
+ */
+function verifyBundle(raw, options = {}) {
+  const inner = verifySignedDocument(raw, { ...options, noun: 'bundle' });
+  if (!inner) return null;
   if (!inner.documents || typeof inner.documents !== 'object' || Array.isArray(inner.documents)) {
-    reject('documents is missing or not an object');
+    if (options.onReject) options.onReject('documents is missing or not an object');
     return null;
   }
-
   return inner;
 }
 
 module.exports = {
   verifyBundle,
+  verifySignedDocument,
   MAX_BUNDLE_BYTES,
 };

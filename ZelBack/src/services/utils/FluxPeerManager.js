@@ -897,26 +897,35 @@ class FluxPeerManager extends EventEmitter {
   }
 
   /**
-   * The peers that speak the policy bundle protocol.
+   * The peers that advertise `capability`: those that speak a protocol this node is about to use.
    *
-   * A peer without the capability is not silent, it is not listening: it has no handler
-   * for fluxpolicyrequest, so an ask to it can only end on its deadline, and an adoption
-   * announcement reaches it as an unrecognised type. Both are answered by not asking.
+   * A peer without the capability is not silent, it is not listening: it has no handler for the
+   * protocol's ask, so an ask to it can only end on its deadline, and an announcement reaches it
+   * as an unrecognised type. Both are answered by not asking.
    *
    * THE EMPTY ANSWER IS MEANINGFUL AND IS NOT "the network holds nothing". It is this node
-   * having nobody to ask, which during a rollout is the ordinary state of the first node
-   * to upgrade - see policyStore.considerBackstopFetch, which treats the two differently.
+   * having nobody to ask, which during a rollout is the ordinary state of the first node to
+   * upgrade - see SignedDocumentExchange.considerBackstopFetch, which treats the two differently.
+   * @param {string} capability A FLUX_CAPABILITIES name.
    * @returns {Array} peers.
    */
-  getPolicyCapablePeers() {
+  getCapablePeers(capability) {
     const capable = [];
     const ownKey = this.#ownSocketAddress;
     for (const peer of this.#peers.values()) {
       if (ownKey && peer.key === ownKey) continue;
-      if (!peer.remoteCapabilities.has('policyBundle')) continue;
+      if (!peer.remoteCapabilities.has(capability)) continue;
       capable.push(peer);
     }
     return capable;
+  }
+
+  /**
+   * The peers that speak the policy bundle protocol.
+   * @returns {Array} peers.
+   */
+  getPolicyCapablePeers() {
+    return this.getCapablePeers('policyBundle');
   }
 
   /**
