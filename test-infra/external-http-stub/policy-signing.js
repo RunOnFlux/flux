@@ -33,6 +33,9 @@ const PKCS8_ED25519_PREFIX = Buffer.from('302e020100300506032b657004220420', 'he
 const PINNED_SEED = 'flux-harness-policy-pinned-key01';
 const SECONDARY_SEED = 'flux-harness-policy-second-key01';
 const ROGUE_SEED = 'flux-harness-policy-rogue-key001';
+// The FluxOS code hash list's key: a document of its own, signed by a key of its own, as
+// fluxhashes signs it apart from policy. A suite that turns the hash list on pins this one.
+const HASH_LIST_SEED = 'flux-harness-hashlist-key-000001';
 
 function privateKeyFromSeed(seedAscii) {
   const seed = Buffer.from(seedAscii, 'ascii');
@@ -54,14 +57,17 @@ function publicHex(privateKey) {
 const PINNED_KEY = privateKeyFromSeed(PINNED_SEED);
 const SECONDARY_KEY = privateKeyFromSeed(SECONDARY_SEED);
 const ROGUE_KEY = privateKeyFromSeed(ROGUE_SEED);
+const HASH_LIST_KEY = privateKeyFromSeed(HASH_LIST_SEED);
 
-const SIGNERS = { pinned: PINNED_KEY, secondary: SECONDARY_KEY, rogue: ROGUE_KEY };
+const SIGNERS = {
+  pinned: PINNED_KEY, secondary: SECONDARY_KEY, rogue: ROGUE_KEY, hashList: HASH_LIST_KEY,
+};
 
 /**
  * Build a signed bundle the way fluxos-network-policy does: the payload is signed and carried
  * as the exact bytes, so a consumer never has to agree with the signer about JSON key order.
  * @param {object} payload `{ seq, issued_at, documents, artifacts }`.
- * @param {'pinned'|'secondary'|'rogue'} [signer] Which key signs it.
+ * @param {'pinned'|'secondary'|'rogue'|'hashList'} [signer] Which key signs it.
  * @returns {string} The bundle as it would be served.
  */
 function signBundle(payload, signer = 'pinned') {
@@ -78,5 +84,6 @@ module.exports = {
   PINNED_PUBLIC_HEX: publicHex(PINNED_KEY),
   SECONDARY_PUBLIC_HEX: publicHex(SECONDARY_KEY),
   ROGUE_PUBLIC_HEX: publicHex(ROGUE_KEY),
+  HASH_LIST_PUBLIC_HEX: publicHex(HASH_LIST_KEY),
   signBundle,
 };

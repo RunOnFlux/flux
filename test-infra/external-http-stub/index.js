@@ -383,6 +383,12 @@ const IPLOCATION_BINARY_ROUTE = '/iplocation.bin.gz';
 const IPLOCATION_BINARY_FILE = 'iplocation.bin.gz';
 // The signed bundle, at the root of what config.policy.signedBaseUrl names.
 const POLICY_SIGNED_ROUTE = '/policy-signed.json';
+// The signed FluxOS code hash list, as config.hashList.sourceUrl names it when a suite turns
+// the hash list on.
+const HASH_LIST_ROUTE = '/hashlist';
+// Two tree hashes, as fluxbench computes them. What they are does not matter to FluxOS, which
+// carries the list and does not judge by it; that they are tree hashes does.
+const HASH_LIST_DEFAULT_HASHES = ['2600dba7343b64fadaa210eb97ccf5e0', 'dd3dfecedbcc10c2caa6ca1d21944884'];
 
 function sha256Hex(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
@@ -498,6 +504,19 @@ const state = {
   // its policy from a PEER has to show the backstop was not asked, and the only side of that
   // it controls is this one.
   policyFetches: { total: 0, ok: 0, unavailable: 0 },
+  // The FluxOS code hash list: its sequence, its hashes, its signer ('hashList', the key a
+  // suite pins, or 'rogue'), whether the source answers (false serves 503), the signed bytes,
+  // and who asked for them. Nothing reads it unless a suite turns the hash list on.
+  hashListSeq: 1,
+  hashListHashes: HASH_LIST_DEFAULT_HASHES,
+  hashListSigner: 'hashList',
+  hashListAvailable: true,
+  // Fleet addresses the source refuses (503) while it answers every other node: a node that can
+  // then get the list only from its peers.
+  hashListRefused: [],
+  hashListDocument: null,
+  // Since the list was last signed, overall and by the address that asked.
+  hashListFetches: { total: 0, ok: 0, unavailable: 0, byClient: {} },
 };
 
 /**
@@ -601,6 +620,21 @@ function resignPolicy({ bumpSeq = true } = {}) {
 }
 
 resignPolicy({ bumpSeq: false });
+resignHashList();
+
+/**
+ * Re-sign the hash list from the sequence, hashes and signer the stub holds.
+ * @returns {number} The sequence served.
+ */
+function resignHashList() {
+  state.hashListDocument = signBundle({
+    seq: state.hashListSeq,
+    issued_at: new Date().toISOString(),
+    hashes: state.hashListHashes,
+  }, state.hashListSigner);
+  state.hashListFetches = { total: 0, ok: 0, unavailable: 0, byClient: {} };
+  return state.hashListSeq;
+}
 
 function defaultGeoResponse(ip) {
   return {
@@ -668,6 +702,24 @@ app.get(POLICY_SIGNED_ROUTE, (req, res) => {
   }
   state.policyFetches.ok += 1;
   res.type('application/json').send(state.policyBodyOverride ?? state.policyBundle);
+});
+
+// The signed hash list, served as the bytes signed, as fluxhashes serves it.
+app.get(HASH_LIST_ROUTE, (req, res) => {
+  const client = clientAddress(req);
+  const forClient = state.hashListFetches.byClient[client] ?? { total: 0, ok: 0, unavailable: 0 };
+  state.hashListFetches.byClient[client] = forClient;
+  state.hashListFetches.total += 1;
+  forClient.total += 1;
+  if (!state.hashListAvailable || state.hashListRefused.includes(client)) {
+    state.hashListFetches.unavailable += 1;
+    forClient.unavailable += 1;
+    res.status(503).json({ error: 'hash list source unavailable' });
+    return;
+  }
+  state.hashListFetches.ok += 1;
+  forClient.ok += 1;
+  res.type('application/json').send(state.hashListDocument);
 });
 
 // The IP location artifact. Served with a strong etag so the conditional
@@ -1507,6 +1559,46 @@ control.post('/policy', (req, res) => {
   });
 });
 
+/**
+ * Change what the hash list source serves.
+ *
+ *   { available: false }   503 to every fetch, until { available: true }.
+ *   { refuse: [ip, ...] }  503 to these fleet addresses only; [] answers every node again.
+ *   { signer: 'rogue' }    signed by a key no node pins; 'hashList' restores the pinned key.
+ *   { hashes: [...] }      the hashes the next list carries.
+ *   { publish: true }      sign a new list at the next sequence.
+ *
+ * Every call re-signs, at a new sequence when `publish` is set and at the current one otherwise,
+ * and resets the fetch counters, so a suite reads them as what the fleet did about this list.
+ */
+control.post('/hashlist', (req, res) => {
+  const body = req.body || {};
+  if (body.signer !== undefined) {
+    if (!['hashList', 'rogue'].includes(body.signer)) {
+      return res.status(400).json({ error: "signer must be 'hashList' or 'rogue'" });
+    }
+    state.hashListSigner = body.signer;
+  }
+  if (body.hashes !== undefined) {
+    if (!Array.isArray(body.hashes)) return res.status(400).json({ error: 'hashes must be a list' });
+    state.hashListHashes = body.hashes;
+  }
+  if (body.available !== undefined) state.hashListAvailable = body.available !== false;
+  if (body.refuse !== undefined) {
+    if (!Array.isArray(body.refuse)) return res.status(400).json({ error: 'refuse must be a list' });
+    state.hashListRefused = body.refuse;
+  }
+  if (body.publish) state.hashListSeq += 1;
+  resignHashList();
+  return res.json({
+    ok: true,
+    seq: state.hashListSeq,
+    signer: state.hashListSigner,
+    available: state.hashListAvailable,
+    refused: state.hashListRefused,
+  });
+});
+
 control.post('/artifact', (req, res) => {
   const { name, base64, declaredLength = null } = req.body || {};
   if (!name || typeof base64 !== 'string') {
@@ -1538,6 +1630,12 @@ control.post('/reset', (req, res) => {
   state.policySigner = 'pinned';
   state.policyAvailable = true;
   state.policyBodyOverride = null;
+  // The hash list back to a list the pinned key signs, served. Its sequence is kept, as the
+  // policy's is: a node refuses anything at or below what it holds.
+  state.hashListSigner = 'hashList';
+  state.hashListAvailable = true;
+  state.hashListRefused = [];
+  resignHashList();
   resignPolicy();
   res.json({ ok: true, seq: state.policySeq });
 });

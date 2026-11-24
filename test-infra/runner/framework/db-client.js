@@ -704,5 +704,12 @@ export function dbClient(nodeNum) {
       const localDb = await db('local');
       await localDb.collection('policydocuments').deleteOne({ _id: 'networkPolicy' });
     },
+
+    // The FluxOS code hash list this node last stored, `{ raw, seq, verifiedAt }`, or null. As
+    // policyBundle, it is written just after adoption: poll it.
+    async hashList() {
+      const localDb = await db('local');
+      return localDb.collection('policydocuments').findOne({ _id: 'fluxHashList' });
+    },
   };
 }
