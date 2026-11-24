@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const { specHash } = require('./fixtures/specHash');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -154,7 +155,7 @@ describe('peerNotification tests', () => {
     nodeSignerStub = sinon.stub().resolves({ pubKey: '04', sign: () => 'sig' });
     installedAppsStub = sinon.stub().resolves({
       status: 'success',
-      data: [{ name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
+      data: [{ name: 'app1', hash: specHash('app1hash'), version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
     });
     // The REAL departing tracker, taken fresh per test rather than
     // reimplemented here: a fake that counts differently from the module would
@@ -233,8 +234,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: specHash('app1hash'), version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: specHash('app2hash'), version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       // only app1's container is running
@@ -251,8 +252,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: specHash('app1hash'), version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: specHash('app2hash'), version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       departingApps.enter('app2');
@@ -287,8 +288,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: specHash('app1hash'), version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: specHash('app2hash'), version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       unconfirmedApps.set('app2', Symbol('app2'));
@@ -340,8 +341,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'sealed', version: 8, enterprise: 'encrypted-blob', compose: [], hash: 'h2' },
+          { name: 'app1', hash: specHash('app1hash'), version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'sealed', version: 8, enterprise: 'encrypted-blob', compose: [], hash: specHash('h2') },
         ],
       });
 
@@ -381,7 +382,7 @@ describe('peerNotification tests', () => {
         await peerNotification.checkAndNotifyPeersOfRunningApps();
 
         const [message] = storeAppRunningMessageStub.firstCall.args;
-        expect(message.apps).to.deep.equal([{ name: 'app1', hash: 'app1hash', runningSince: '2026-06-01T12:00:00.000Z' }]);
+        expect(message.apps).to.deep.equal([{ name: 'app1', hash: specHash('app1hash'), runningSince: '2026-06-01T12:00:00.000Z' }]);
         expect(findOneInDatabaseStub.called, 'the location row is not read for a recorded app').to.equal(false);
       });
 
@@ -425,9 +426,9 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app1', hash: specHash('app1hash'), version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
           { name: 'probe', version: 8, compose: [{ name: 'web', containerData: '/data' }] },
-          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app2', hash: specHash('app2hash'), version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
 
@@ -575,9 +576,9 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'gapp', hash: 'gapphash', version: 4, compose: [{ name: 'gc', containerData: 'g:/data' }] },
-          { name: 'rapp', hash: 'rapphash', version: 4, compose: [{ name: 'rc', containerData: 'r:/data' }] },
+          { name: 'app1', hash: specHash('app1hash'), version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'gapp', hash: specHash('gapphash'), version: 4, compose: [{ name: 'gc', containerData: 'g:/data' }] },
+          { name: 'rapp', hash: specHash('rapphash'), version: 4, compose: [{ name: 'rc', containerData: 'r:/data' }] },
         ],
       });
       // neither gapp's nor rapp's containers are running
@@ -613,7 +614,7 @@ describe('peerNotification tests', () => {
         if (opts.cycleMs && cycles <= (opts.slowCycles ?? 1)) clock.tick(opts.cycleMs);
         return {
           status: 'success',
-          data: [{ name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
+          data: [{ name: 'app1', hash: specHash('app1hash'), version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
         };
       });
       const mod = loadPeerNotification({ ...opts, installedApps });

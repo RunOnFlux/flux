@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const { specHash } = require('./fixtures/specHash');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
@@ -24,7 +25,7 @@ describe('the location table and the event-derived view agree', () => {
     const data = {
       type: 'fluxapprunning',
       version: 2,
-      apps: [{ name: appName, hash: `hash-${appName}`, runningSince: new Date(broadcastedAt).toISOString() }],
+      apps: [{ name: appName, hash: specHash(appName), runningSince: new Date(broadcastedAt).toISOString() }],
       ip,
       broadcastedAt,
       osUptime: 1000,
@@ -118,7 +119,7 @@ describe('the location table and the event-derived view agree', () => {
       const data = {
         type: 'fluxapprunning',
         version: 2,
-        apps: apps.map((name) => ({ name, hash: `hash-${name}`, runningSince: new Date(at).toISOString() })),
+        apps: apps.map((name) => ({ name, hash: specHash(name), runningSince: new Date(at).toISOString() })),
         ip,
         broadcastedAt: at,
         osUptime: 1000,
@@ -191,7 +192,7 @@ describe('the location table and the event-derived view agree', () => {
         {
           ip, type: 'apprunning', dedupKey: 'v2', broadcastedAt: new Date(now - 120000), expireAt: new Date(now + 3600000),
           data: {
-            type: 'fluxapprunning', version: 2, ip, broadcastedAt: now - 120000, osUptime: 1, staticIp: false, apps: [{ name: 'OldApp', hash: 'h', runningSince: new Date(now - 120000).toISOString() }],
+            type: 'fluxapprunning', version: 2, ip, broadcastedAt: now - 120000, osUptime: 1, staticIp: false, apps: [{ name: 'OldApp', hash: specHash('h'), runningSince: new Date(now - 120000).toISOString() }],
           },
         },
         {
@@ -219,7 +220,7 @@ describe('the location table and the event-derived view agree', () => {
       const data = {
         type: 'fluxapprunning',
         version: 2,
-        apps: [{ name, hash: `hash-${name}`, runningSince: new Date(broadcastedAt).toISOString() }],
+        apps: [{ name, hash: specHash(name), runningSince: new Date(broadcastedAt).toISOString() }],
         ip,
         broadcastedAt,
         osUptime: 1000,
@@ -408,7 +409,7 @@ describe('the location table and the event-derived view agree', () => {
         ...envelope,
         data: {
           type: 'fluxapprunning', version: 2, ip: A, broadcastedAt, osUptime: 1, staticIp: false,
-          apps: apps.map((name) => ({ name, hash: `hash-${name}`, runningSince: new Date(now - 300000).toISOString() })),
+          apps: apps.map((name) => ({ name, hash: specHash(name), runningSince: new Date(now - 300000).toISOString() })),
         },
       });
       await messageStore.storeBatchAppRunningMessages([report([appName, `${appName}gone`], now - 280000)]);
@@ -429,7 +430,7 @@ describe('the location table and the event-derived view agree', () => {
       async function gossip(ip, apps, broadcastedAt) {
         const data = {
           type: 'fluxapprunning', version: 2, ip, broadcastedAt, osUptime: 1, staticIp: false,
-          apps: apps.map((name) => ({ name, hash: `hash-${name}`, runningSince: new Date(now - 300000).toISOString() })),
+          apps: apps.map((name) => ({ name, hash: specHash(name), runningSince: new Date(now - 300000).toISOString() })),
         };
         await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: { ...envelope, data } });
         await messageStore.storeAppRunningMessage(data);

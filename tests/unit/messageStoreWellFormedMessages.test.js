@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const { specHash } = require('./fixtures/specHash');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
@@ -19,11 +20,11 @@ describe('the store takes only well-formed reports and removals', () => {
   let events;
 
   const without = (data, field) => Object.fromEntries(Object.entries(data).filter(([key]) => key !== field));
-  const app = (name) => ({ name, hash: `${name}hash`, runningSince: weeksAgo.toISOString() });
+  const app = (name) => ({ name, hash: specHash(`${name}hash`), runningSince: weeksAgo.toISOString() });
   const row = (name, rowIp, broadcastedAt) => ({
     name,
     ip: rowIp,
-    hash: `${name}hash`,
+    hash: specHash(`${name}hash`),
     broadcastedAt: new Date(broadcastedAt),
     expireAt: new Date(broadcastedAt + RUNNING_EXPIRY_MS),
     runningSince: weeksAgo,
@@ -106,7 +107,7 @@ describe('the store takes only well-formed reports and removals', () => {
 
     it('refuses a version 1 report', async () => {
       const result = await messageStore.storeAppRunningMessage({
-        type: 'fluxapprunning', version: 1, name: 'probe', hash: 'probehash', ip, broadcastedAt: Date.now(),
+        type: 'fluxapprunning', version: 1, name: 'probe', hash: specHash('probehash'), ip, broadcastedAt: Date.now(),
       });
 
       expect(result).to.be.instanceOf(Error);

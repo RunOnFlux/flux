@@ -49,7 +49,8 @@ describe('what a message carries reaches an update pipeline as data', () => {
     });
   });
 
-  it('stores a live apprunning message as it was signed', async () => {
+  // An app's name, hash and running time have formats no expression fits.
+  it('keeps out of the log an apprunning message whose app fields read as expressions', async () => {
     const data = {
       type: 'fluxapprunning', version: 2, ip, broadcastedAt: Date.now(), osUptime: 1, staticIp: false, apps: [{ name: '$ip', hash: '$name', runningSince: '$broadcastedAt' }],
     };
@@ -60,7 +61,7 @@ describe('what a message carries reaches an update pipeline as data', () => {
       },
     });
 
-    expect((await rowOf('appStateEvents', { type: 'apprunning' })).data).to.deep.equal(data);
+    expect(await rowOf('appStateEvents', { type: 'apprunning' })).to.equal(null);
   });
 
   it('writes a location from app fields that read as expressions', async () => {

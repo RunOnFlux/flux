@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const { specHash } = require('./fixtures/specHash');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const fluxService = require('../../ZelBack/src/services/fluxService');
@@ -148,12 +149,12 @@ describe('messageStore tests', () => {
         type: 'fluxappregister',
         version: 1,
         appSpecifications: { name: 'test' },
-        hash: 'hash123',
+        hash: specHash('hash123'),
         timestamp: Date.now(),
         signature: 'sig123',
       };
 
-      messageVerifierStub.checkAppMessageExistence.resolves({ hash: 'hash123' });
+      messageVerifierStub.checkAppMessageExistence.resolves({ hash: specHash('hash123') });
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
@@ -169,13 +170,13 @@ describe('messageStore tests', () => {
         type: 'fluxappregister',
         version: 1,
         appSpecifications: { name: 'test' },
-        hash: 'hash123',
+        hash: specHash('hash123'),
         timestamp: Date.now(),
         signature: 'sig123',
       };
 
       messageVerifierStub.checkAppMessageExistence.resolves(null);
-      messageVerifierStub.checkAppTemporaryMessageExistence.resolves({ hash: 'hash123' });
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves({ hash: specHash('hash123') });
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
@@ -191,7 +192,7 @@ describe('messageStore tests', () => {
         type: 'fluxappregister',
         version: 1,
         appSpecifications: { name: 'test' },
-        hash: 'hash123',
+        hash: specHash('hash123'),
         timestamp: Date.now(),
         signature: 'sig123',
       };
@@ -212,7 +213,7 @@ describe('messageStore tests', () => {
     describe('how long a temp message is kept', () => {
       const HOUR = 60 * 60 * 1000;
       const fixture = (timestamp) => ({
-        type: 'fluxappregister', version: 1, appSpecifications: { name: 'test' }, hash: 'hash123', timestamp, signature: 'sig123',
+        type: 'fluxappregister', version: 1, appSpecifications: { name: 'test' }, hash: specHash('hash123'), timestamp, signature: 'sig123',
       });
       const storedExpiry = () => dbHelperStub.insertOneToDatabase.firstCall.args[2].expireAt.getTime();
 
@@ -261,7 +262,7 @@ describe('messageStore tests', () => {
         type: 'fluxappregister',
         version: 1,
         appSpecifications: { name: 'test' },
-        hash: 'hash123',
+        hash: specHash('hash123'),
         timestamp: Date.now(),
         signature: 'sig123',
       };
@@ -288,7 +289,7 @@ describe('messageStore tests', () => {
         type: 'fluxappregister',
         version: 1,
         appSpecifications: { name: 'test' },
-        hash: 'hash123',
+        hash: specHash('hash123'),
         timestamp: Date.now(),
         signature: 'sig123',
       };
@@ -329,7 +330,7 @@ describe('messageStore tests', () => {
           sinon.assert.notCalled(unpaidAdmissionStub.admitUnpaid);
           sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
           sinon.assert.calledOnceWithExactly(onRefusal, 'it did not arrive over an authenticated Arcane link');
-          expect(event()).to.include({ hash: 'hash123', taken: false, reason: 'it did not arrive over an authenticated Arcane link' });
+          expect(event()).to.include({ hash: specHash('hash123'), taken: false, reason: 'it did not arrive over an authenticated Arcane link' });
         });
 
         it('leaves an untagged unpaid message from any link to the allowances, which the version floor decides', async () => {
@@ -530,7 +531,7 @@ describe('messageStore tests', () => {
         appSpecifications: {
           name: 'entapp', version: 8, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', enterprise: 'blob', ...change,
         },
-        hash: 'hash123',
+        hash: specHash('hash123'),
         timestamp: Date.now(),
         signature: 'sig123',
       });
@@ -611,7 +612,7 @@ describe('messageStore tests', () => {
         type: 'fluxappupdate',
         version: 1,
         appSpecifications: { name: 'test', version: 6 },
-        hash: 'hash123',
+        hash: specHash('hash123'),
         timestamp: Date.now(),
         signature: 'sig123',
       };
@@ -681,7 +682,7 @@ describe('messageStore tests', () => {
           type: 'fluxappupdate',
           version: 1,
           appSpecifications: { name: 'test', version: 6 },
-          hash: 'hash123',
+          hash: specHash('hash123'),
           timestamp: Date.now(),
           signature: 'sig123',
         };
@@ -760,7 +761,7 @@ describe('messageStore tests', () => {
         type: 'fluxappregister',
         version: 1,
         appSpecifications: { name: 'test' },
-        hash: 'hash123',
+        hash: specHash('hash123'),
         timestamp: Date.now(),
         signature: 'sig123',
         txid: 'txid123',
@@ -807,7 +808,7 @@ describe('messageStore tests', () => {
       const message = {
         type: 'fluxapprunning',
         version: 2,
-        apps: [{ name: 'testapp', hash: 'hash123', runningSince: '2026-11-01T00:00:00.000Z' }],
+        apps: [{ name: 'testapp', hash: specHash('hash123'), runningSince: '2026-11-01T00:00:00.000Z' }],
         broadcastedAt: Date.now() - (200 * 60 * 1000), // 200 minutes ago
         ip: '192.168.1.1',
         osUptime: 1000,
@@ -827,7 +828,7 @@ describe('messageStore tests', () => {
         type: 'fluxapprunning',
         version: 1,
         name: 'testapp',
-        hash: 'hash123',
+        hash: specHash('hash123'),
         broadcastedAt: Date.now(),
         ip: '192.168.1.1',
       };
@@ -844,8 +845,8 @@ describe('messageStore tests', () => {
         type: 'fluxapprunning',
         version: 2,
         apps: [
-          { name: 'app1', hash: 'hash1', runningSince: '2026-11-01T00:00:00.000Z' },
-          { name: 'app2', hash: 'hash2', runningSince: '2026-11-01T00:00:00.000Z' },
+          { name: 'app1', hash: specHash('hash1'), runningSince: '2026-11-01T00:00:00.000Z' },
+          { name: 'app2', hash: specHash('hash2'), runningSince: '2026-11-01T00:00:00.000Z' },
         ],
         broadcastedAt: Date.now(),
         ip: '192.168.1.1',
@@ -1190,7 +1191,7 @@ describe('messageStore tests', () => {
         type: 'fluxappinstallingerror',
         version: 1,
         name: 'testapp',
-        hash: 'hash123',
+        hash: specHash('hash123'),
         ip: '192.168.1.1',
         error: 'Installation failed',
         broadcastedAt: Date.now(),
@@ -1221,7 +1222,7 @@ describe('messageStore tests', () => {
         type: 'fluxappinstallingerror',
         version: 1,
         name: 'testapp',
-        hash: 'hash123',
+        hash: specHash('hash123'),
         ip: '192.168.1.1',
         error: 'Installation failed',
         broadcastedAt: Date.now(),
@@ -1253,7 +1254,7 @@ describe('messageStore tests', () => {
         dbHelperStub.countInDatabase.resolves(1);
 
         const result = await messageStore.storeAppInstallingErrorMessage({
-          type: 'fluxappinstallingerror', version: 1, name: 'testapp', hash: 'hash123', ip: '192.168.1.1', error: 'e'.repeat(length), broadcastedAt: Date.now(),
+          type: 'fluxappinstallingerror', version: 1, name: 'testapp', hash: specHash('hash123'), ip: '192.168.1.1', error: 'e'.repeat(length), broadcastedAt: Date.now(),
         });
 
         expect(result === true).to.equal(stored);
@@ -1361,7 +1362,7 @@ describe('messageStore tests', () => {
             broadcastedAt: Date.now(),
             osUptime: 1000,
             staticIp: false,
-            apps: [{ name: 'A', hash: 'h', runningSince: '2026-11-01T00:00:00.000Z' }, { name: 'B', hash: 'h2', runningSince: '2026-11-01T00:00:00.000Z' }],
+            apps: [{ name: 'A', hash: specHash('h'), runningSince: '2026-11-01T00:00:00.000Z' }, { name: 'B', hash: specHash('h2'), runningSince: '2026-11-01T00:00:00.000Z' }],
           },
         },
       };
@@ -1397,7 +1398,7 @@ describe('messageStore tests', () => {
         signedBroadcast: {
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
           data: {
-            ip: '1.2.3.4', version: 1, broadcastedAt: Date.now(), name: 'myapp', hash: 'h',
+            ip: '1.2.3.4', version: 1, broadcastedAt: Date.now(), name: 'myapp', hash: specHash('h'),
           },
         },
       };
@@ -1443,7 +1444,7 @@ describe('messageStore tests', () => {
       const payload = {
         signedBroadcast: {
           version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
-          data: { ip: '1.2.3.4', broadcastedAt: Date.now() - (130 * 60 * 1000), apps: [{ name: 'a', hash: 'h' }] },
+          data: { ip: '1.2.3.4', broadcastedAt: Date.now() - (130 * 60 * 1000), apps: [{ name: 'a', hash: specHash('h') }] },
         },
       };
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
@@ -1536,7 +1537,7 @@ describe('messageStore tests', () => {
         pubKey: 'pk',
         signature: 'sig',
         data: {
-          ip: '1.2.3.4:16127', name: 'someapp', hash: 'h', broadcastedAt: Date.now() - ageMs,
+          ip: '1.2.3.4:16127', name: 'someapp', hash: specHash('h'), broadcastedAt: Date.now() - ageMs,
         },
       };
     }
@@ -1591,7 +1592,7 @@ describe('messageStore tests', () => {
         pubKey: 'pk',
         signature: 'sig',
         data: {
-          ip: '1.2.3.4:16127', name: 'someapp', hash: 'h', broadcastedAt,
+          ip: '1.2.3.4:16127', name: 'someapp', hash: specHash('h'), broadcastedAt,
         },
       });
 
@@ -1618,7 +1619,7 @@ describe('messageStore tests', () => {
       ['apprunning', {
         signedBroadcast: {
           data: {
-            type: 'fluxapprunning', ip: '1.2.3.4:16127', broadcastedAt: now(), version: 2, osUptime: 1, staticIp: false, apps: [{ name: 'a', hash: 'h', runningSince: '2026-11-01T00:00:00.000Z' }],
+            type: 'fluxapprunning', ip: '1.2.3.4:16127', broadcastedAt: now(), version: 2, osUptime: 1, staticIp: false, apps: [{ name: 'a', hash: specHash('h'), runningSince: '2026-11-01T00:00:00.000Z' }],
           },
         },
       }],
@@ -1659,7 +1660,7 @@ describe('messageStore tests', () => {
         const broadcast = {
           version: 1, timestamp: now(), pubKey: 'k', signature: 's',
           data: {
-            ip: '1.2.3.4:16127', name: 'a', hash: 'h', error: 'e'.repeat(length), broadcastedAt: now(),
+            ip: '1.2.3.4:16127', name: 'a', hash: specHash('h'), error: 'e'.repeat(length), broadcastedAt: now(),
           },
         };
 
@@ -1674,7 +1675,7 @@ describe('messageStore tests', () => {
       const broadcast = {
         version: 1, timestamp: now(), pubKey: 'k', signature: 's',
         data: {
-          ip: '1.2.3.4:16127', name: 'a', hash: 'h', broadcastedAt: now(),
+          ip: '1.2.3.4:16127', name: 'a', hash: specHash('h'), broadcastedAt: now(),
         },
       };
 

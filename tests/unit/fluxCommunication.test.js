@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const EventEmitter = require('node:events');
+const { specHash } = require('./fixtures/specHash');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 const config = require('config');
@@ -458,7 +459,7 @@ describe('fluxCommunication tests', () => {
 
     it('should ignore a proposal that is not an app message', async () => {
       await propose({ ...envelope, data: { ...envelope.data, type: 'fluxapprunning' } });
-      await propose({ ...envelope, data: { ...envelope.data, hash: 'short' } });
+      await propose({ ...envelope, data: { ...envelope.data, hash: specHash('short') } });
 
       expect(peer.sent).to.have.length(0);
     });
@@ -485,7 +486,7 @@ describe('fluxCommunication tests', () => {
 
     it('holds a message for checking, with what relays it afterwards', async () => {
       const store = sinon.stub(messageStore, 'storeAppTemporaryMessage');
-      const message = { data: { type: 'fluxappregister', hash: 'h1' } };
+      const message = { data: { type: 'fluxappregister', hash: specHash('h1') } };
 
       await fluxCommunication.handleAppMessages(message, '127.0.0.5', '16127');
 
@@ -496,7 +497,7 @@ describe('fluxCommunication tests', () => {
     it('stores a message the chain has paid for straight away, as a hash sync waits on it', async () => {
       tempMessageHold.isPaidAndMissing.resolves(true);
       const store = sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(false);
-      const message = { data: { type: 'fluxappregister', hash: 'h1' } };
+      const message = { data: { type: 'fluxappregister', hash: specHash('h1') } };
 
       await fluxCommunication.handleAppMessages(message, '127.0.0.5', '16127');
 
@@ -506,7 +507,7 @@ describe('fluxCommunication tests', () => {
 
     it('releases the filter for a message it could not keep', async () => {
       tempMessageHold.hold.rejects(new Error('database gone'));
-      const message = { data: { type: 'fluxappregister', hash: 'h2' } };
+      const message = { data: { type: 'fluxappregister', hash: specHash('h2') } };
       cacheManager.announcementSeen.set(objectHash(message.data), true);
 
       await fluxCommunication.handleAppMessages(message, '127.0.0.5', '16127');
@@ -515,21 +516,21 @@ describe('fluxCommunication tests', () => {
     });
 
     it('relays nothing the store did not take as new', () => {
-      fluxCommunication.settleHeldAppMessage({ message: { timestamp: Date.now(), data: { hash: 'h4' } }, from: 'p' }, false);
+      fluxCommunication.settleHeldAppMessage({ message: { timestamp: Date.now(), data: { hash: specHash('h4') } }, from: 'p' }, false);
       sinon.assert.notCalled(broadcastHashSpy);
     });
 
     it('reports a held message that was refused', () => {
       const publish = sinon.stub(fluxEventBus, 'publish');
-      fluxCommunication.settleHeldAppMessage({ message: { data: { hash: 'h5' } }, from: 'p' }, new Error('no'));
+      fluxCommunication.settleHeldAppMessage({ message: { data: { hash: specHash('h5') } }, from: 'p' }, new Error('no'));
       sinon.assert.calledOnceWithExactly(publish, 'network:appmessageRefused', {
-        hash: 'h5', type: undefined, name: undefined, reason: 'no',
+        hash: specHash('h5'), type: undefined, name: undefined, reason: 'no',
       });
       sinon.assert.notCalled(broadcastHashSpy);
     });
 
     it('does not relay a broadcast too old for peers to take', () => {
-      const message = { timestamp: Date.now() - 10 * 60 * 1000, data: { type: 'fluxappregister', hash: 'h3' } };
+      const message = { timestamp: Date.now() - 10 * 60 * 1000, data: { type: 'fluxappregister', hash: specHash('h3') } };
 
       fluxCommunication.settleHeldAppMessage({ message, from: '127.0.0.5:16127' }, true);
 
@@ -620,7 +621,7 @@ describe('fluxCommunication tests', () => {
 
     it('keeps for its peers only what a broadcast is', async () => {
       const hop = [5, `${'a'.repeat(87)}=`];
-      const data = { type: 'fluxappregister', hash: 'a'.repeat(64) };
+      const data = { type: 'fluxappregister', hash: specHash('a').repeat(64) };
       const frame = {
         version: 1, timestamp: 1, pubKey: 'key', signature: 's', data, networkPath: [hop], padding: 'x'.repeat(100),
       };
@@ -932,7 +933,7 @@ describe('fluxCommunication tests', () => {
     });
 
     const data = {
-      type: 'fluxappregister', version: 1, appSpecifications: { name: 'someapp' }, hash: 'a'.repeat(64), timestamp: 1, signature: 's',
+      type: 'fluxappregister', version: 1, appSpecifications: { name: 'someapp' }, hash: specHash('a').repeat(64), timestamp: 1, signature: 's',
     };
     const copy = ({ signed = false } = {}) => {
       const frame = {
@@ -1452,7 +1453,7 @@ describe('fluxCommunication tests', () => {
 
     it('should broadcast the app message if a proper data is given', async () => {
       sinon.stub(messageStore, 'storeAppRunningMessage').resolves({
-        stored: true, rebroadcast: true, written: [{ name: 'myApp', hash: 'myapphash' }], refused: [], cleared: false,
+        stored: true, rebroadcast: true, written: [{ name: 'myApp', hash: specHash('myapphash') }], refused: [], cleared: false,
       });
       sinon.stub(messageStore, 'storeAppStateEvent');
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 0 } });
@@ -1535,7 +1536,7 @@ describe('fluxCommunication tests', () => {
       data: {
         type: 'fluxapprunning',
         version: 2,
-        apps: [{ name: 'myApp', hash: 'myapphash', runningSince: '2026-11-01T00:00:00.000Z' }],
+        apps: [{ name: 'myApp', hash: specHash('myapphash'), runningSince: '2026-11-01T00:00:00.000Z' }],
         broadcastedAt: Date.now(),
         ip: '203.0.113.31:16127',
         osUptime: 1,
@@ -2652,7 +2653,7 @@ describe('fluxCommunication tests', () => {
           signature: 'blabla',
           version: 1,
           data: {
-            type: `${command}`, version: 1, appSpecifications: { name: 'app' }, hash: 'a'.repeat(64), timestamp: Date.now(), signature: 'ownersig',
+            type: `${command}`, version: 1, appSpecifications: { name: 'app' }, hash: specHash('a').repeat(64), timestamp: Date.now(), signature: 'ownersig',
           },
         });
         const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
@@ -3366,7 +3367,7 @@ describe('fluxCommunication tests', () => {
         },
       });
 
-      const web = { name: 'web', hash: 'h1', runningSince: '2026-11-01T00:00:00.000Z' };
+      const web = { name: 'web', hash: specHash('h1'), runningSince: '2026-11-01T00:00:00.000Z' };
 
       beforeEach(() => {
         sinon.stub(messageStore, 'storeBatchAppRunningMessages').resolves({ stored: 1, writeFailed: false });
@@ -3614,7 +3615,7 @@ describe('fluxCommunication tests', () => {
         const event = {
           type: 'apprunning',
           envelope: { version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' },
-          data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: 'h', runningSince: '2026-11-01T00:00:00.000Z' }], osUptime: 1, staticIp: false },
+          data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: specHash('h'), runningSince: '2026-11-01T00:00:00.000Z' }], osUptime: 1, staticIp: false },
         };
 
         await fluxCommunication.handleAppRunningSyncResponse({ data: { type: 'fluxapprunningsync', messages: [event], done: true } }, PEER_SOCKET);
@@ -3639,7 +3640,7 @@ describe('fluxCommunication tests', () => {
         const running = () => ({
           type: 'apprunning',
           envelope: { version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' },
-          data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: 'h', runningSince: '2026-11-01T00:00:00.000Z' }], osUptime: 1, staticIp: false },
+          data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: specHash('h'), runningSince: '2026-11-01T00:00:00.000Z' }], osUptime: 1, staticIp: false },
         });
 
         beforeEach(() => {
@@ -3687,7 +3688,7 @@ describe('fluxCommunication tests', () => {
       const envelope = () => ({ version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' });
       const broadcast = () => ({ ...envelope(), data: { ip: '1.2.3.4:16127', name: 'a', broadcastedAt: Date.now() } });
       const running = () => ({
-        type: 'apprunning', envelope: envelope(), data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: 'h', runningSince: '2026-11-01T00:00:00.000Z' }], osUptime: 1, staticIp: false },
+        type: 'apprunning', envelope: envelope(), data: { type: 'fluxapprunning', version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: specHash('h'), runningSince: '2026-11-01T00:00:00.000Z' }], osUptime: 1, staticIp: false },
       });
       const sigterm = () => ({ type: 'sigterm', envelope: envelope(), data: { type: 'fluxnodesigterm', ip: '1.2.3.4:16127', broadcastedAt: Date.now() } });
       const respond = (handler, type, messages, done) => fluxCommunication[handler]({ data: { type, messages, done } }, PEER_SOCKET);
@@ -3769,7 +3770,7 @@ describe('fluxCommunication tests', () => {
 
       describe('a pending registration', () => {
         const temp = () => ({
-          type: 'fluxappregister', version: 1, signature: 'sig', timestamp: Date.now(), hash: 'h1', appSpecifications: { name: 'a' },
+          type: 'fluxappregister', version: 1, signature: 'sig', timestamp: Date.now(), hash: specHash('h1'), appSpecifications: { name: 'a' },
         });
 
         it('that this node could not keep ends the apptemp request', async () => {
@@ -3795,7 +3796,7 @@ describe('fluxCommunication tests', () => {
 
         it('is not stored when it is over the per-message limit, and the rest of the answer is', async () => {
           const hold = sinon.stub(tempMessageHold, 'hold').resolves(1);
-          const oversized = { ...temp(), hash: 'h2', appSpecifications: { name: 'a', description: 'x'.repeat(config.fluxapps.gossipMessageMaxBytes) } };
+          const oversized = { ...temp(), hash: specHash('h2'), appSpecifications: { name: 'a', description: 'x'.repeat(config.fluxapps.gossipMessageMaxBytes) } };
 
           await peerManager.syncResponseDispatcher({ data: { type: 'fluxapptempsync', messages: [temp(), oversized], done: true } }, PEER_SOCKET);
 
@@ -3956,7 +3957,7 @@ describe('fluxCommunication tests', () => {
       ['apprunning', 'fluxapprunningsync', [], () => [serviceHelper, 'processInSlices']],
       ['appinstalling', 'fluxappinstallingsync', [], () => [serviceHelper, 'processInSlices']],
       ['apperrors', 'fluxappinstallingerrorssync', [], () => [serviceHelper, 'processInSlices']],
-      ['apptemp', 'fluxapptempsync', [{ hash: 'abc' }], () => [tempMessageHold, 'hold']],
+      ['apptemp', 'fluxapptempsync', [{ hash: specHash('abc') }], () => [tempMessageHold, 'hold']],
     ];
 
     arrivalCases.forEach(([syncType, wireType, messages, slowStep]) => {
