@@ -75,6 +75,7 @@ describe('appUninstaller tests', () => {
   let runCommandStub;
   let dockerServiceStub;
   let imageReaperStub;
+  let runtimeStateStub;
 
   beforeEach(() => {
     configStub = {
@@ -136,10 +137,15 @@ describe('appUninstaller tests', () => {
     runCommandStub = sinon.stub().resolves({ error: null, stdout: '', stderr: '' });
 
     imageReaperStub = { reclaimImages: sinon.stub().resolves({ removed: 1, kept: 0, deferred: 0 }) };
+    runtimeStateStub = {
+      setRemovedByFluxOs: sinon.stub().resolves(),
+      remove: sinon.stub().resolves(),
+    };
     dockerServiceStub = {
       appDockerStop: sinon.stub().resolves(),
       appDockerRemove: sinon.stub().resolves(),
-      clearFluxRemovedContainers: sinon.stub(),
+      appDockerForceRemove: sinon.stub().resolves(),
+      appDockerKill: sinon.stub().resolves(),
       appDockerImageRemove: sinon.stub().resolves(),
       getAppIdentifier: sinon.stub().returns('testapp'),
       isContainerNotFound,
@@ -147,6 +153,7 @@ describe('appUninstaller tests', () => {
 
     appUninstaller = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
       './imageReaper': imageReaperStub,
+      '../appManagement/appsRuntimeState': runtimeStateStub,
       '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../verificationHelper': verificationHelperStub,
@@ -491,6 +498,46 @@ describe('appUninstaller tests', () => {
     });
   });
 
+  // FluxOS records each container it takes down before it sends the removal, so
+  // the reconciler never reads its own removal as tampering.
+  describe('the record of a removal', () => {
+    const component = { name: 'web', repotag: 'repo/web:v1' };
+    const failure = (promise) => promise.then(() => null, (error) => error);
+
+    it('records a soft uninstall\'s removal before sending it', async () => {
+      await appUninstaller.softUninstallComponent('testapp', 'fluxweb_testapp', component, null);
+
+      sinon.assert.calledOnceWithExactly(runtimeStateStub.setRemovedByFluxOs, 'fluxweb_testapp', true);
+      sinon.assert.callOrder(runtimeStateStub.setRemovedByFluxOs, dockerServiceStub.appDockerRemove);
+    });
+
+    it('records a hard uninstall\'s removal before sending it', async () => {
+      await appUninstaller.hardUninstallApplication('testapp', 'fluxtestapp', { name: 'testapp', repotag: 'repo/app:v1' }, null, null, true);
+
+      sinon.assert.calledOnceWithExactly(runtimeStateStub.setRemovedByFluxOs, 'fluxtestapp', true);
+      sinon.assert.callOrder(runtimeStateStub.setRemovedByFluxOs, dockerServiceStub.appDockerForceRemove);
+    });
+
+    it('sends no removal it could not record', async () => {
+      runtimeStateStub.setRemovedByFluxOs.rejects(new Error('db unavailable'));
+
+      const error = await failure(appUninstaller.softUninstallComponent('testapp', 'fluxweb_testapp', component, null));
+
+      expect(error?.message).to.equal('db unavailable');
+      sinon.assert.notCalled(dockerServiceStub.appDockerRemove);
+    });
+
+    it('keeps the record of a removal docker did not answer in time', async () => {
+      const timedOut = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'AbortError', code: 'ABORT_ERR' });
+      dockerServiceStub.appDockerRemove.rejects(timedOut);
+
+      const error = await failure(appUninstaller.softUninstallComponent('testapp', 'fluxweb_testapp', component, null));
+
+      expect(error).to.equal(timedOut);
+      sinon.assert.calledOnceWithExactly(runtimeStateStub.setRemovedByFluxOs, 'fluxweb_testapp', true);
+    });
+  });
+
   describe('removeAppLocally tests', () => {
     it('should throw error if app name is not specified', async () => {
       const res = {
@@ -528,7 +575,6 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
-          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
           getBaseAppName: sinon.stub().returnsArg(0),
@@ -604,7 +650,6 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
-          clearFluxRemovedContainers: sinon.stub(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().returns('testapp'),
           getBaseAppName: sinon.stub().returnsArg(0),
@@ -700,7 +745,6 @@ describe('appUninstaller tests', () => {
         '../dockerService': {
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
-          clearFluxRemovedContainers: sinon.stub(),
           getAppIdentifier: sinon.stub().returns('testapp'),
           getBaseAppName: sinon.stub().returnsArg(0),
         },
@@ -766,7 +810,7 @@ describe('appUninstaller tests', () => {
     let appSliceStub;
 
     function buildUninstaller(spec, constantOverrides = {}, dbOverrides = {}) {
-      runtimeStateStub = { remove: sinon.stub().resolves() };
+      runtimeStateStub = { remove: sinon.stub().resolves(), setRemovedByFluxOs: sinon.stub().resolves() };
       appSliceStub = { release: sinon.stub().resolves() };
       // The REAL departing tracker, taken fresh per test rather than
       // reimplemented here: a fake that counts differently from the module
@@ -828,7 +872,6 @@ describe('appUninstaller tests', () => {
           appDockerKill: sinon.stub().resolves(),
           appDockerStop: sinon.stub().resolves(),
           appDockerRemove: sinon.stub().resolves(),
-          clearFluxRemovedContainers: sinon.stub(),
           appDockerForceRemove: sinon.stub().resolves(),
           appDockerImageRemove: sinon.stub().resolves(),
           getAppIdentifier: sinon.stub().callsFake((id) => `flux${id}`),

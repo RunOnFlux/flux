@@ -270,11 +270,11 @@ describe('appInstaller tests', () => {
   // default with a ten second delay, so it indexes the directory while the container is
   // writing into it. An ignore does not withdraw what already replicated.
   describe('a local directory is covered before it exists', () => {
-    const softInstaller = (volumeService, ignorePolicy, isRestoreUnfinished = sinon.stub().resolves(false)) => proxyquire(
+    const softInstaller = (volumeService, ignorePolicy, isRestoreUnfinished = sinon.stub().resolves(false), clearRemovedByFluxOs = sinon.stub().resolves()) => proxyquire(
       '../../ZelBack/src/services/appLifecycle/appInstaller',
       {
         ...baseStubs,
-        '../appManagement/appsRuntimeState': { isRestoreUnfinished },
+        '../appManagement/appsRuntimeState': { isRestoreUnfinished, clearRemovedByFluxOs },
         // The real derivation, because the folder asked about has to be the
         // component-qualified one that syncthing knows this volume by.
         '../dockerService': { ...baseStubs['../dockerService'], getAppIdentifier: (name) => `flux${name}` },
@@ -318,6 +318,21 @@ describe('appInstaller tests', () => {
 
         expect(appDockerStart.calledWith('web_myapp'), 'the soft install reached its start step').to.equal(start);
       });
+    });
+
+    it('clears the record of a removal once the container is created', async () => {
+      const clearRemovedByFluxOs = sinon.stub().resolves();
+      const installer = softInstaller({ ensureMountPathsExist: sinon.stub().resolves() }, { ensureStignoreCovers: sinon.stub().resolves() }, undefined, clearRemovedByFluxOs);
+      const { appDockerCreate } = baseStubs['../dockerService'];
+      appDockerCreate.resetHistory();
+      const spec = {
+        name: 'web', repotag: 'a/b:1', containerData: 'r:/data', ports: [], domains: [], environmentParameters: [], commands: [],
+      };
+
+      await installer.installApplicationSoft(spec, 'myapp', true, null, { name: 'myapp', compose: [spec] }, { start: false });
+
+      sinon.assert.calledOnceWithExactly(clearRemovedByFluxOs, 'web_myapp');
+      sinon.assert.callOrder(appDockerCreate, clearRemovedByFluxOs);
     });
 
     // A soft install keeps the volume, and with it a restore that did not finish on it.

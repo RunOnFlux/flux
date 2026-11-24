@@ -627,6 +627,56 @@ async function clearNetworkHeal(identifier) {
 }
 
 /**
+ * Records that FluxOS is taking this component's container down: set before the
+ * removal is sent, and cleared once FluxOS creates the container again or removes
+ * the app. While it is set, the container's absence is FluxOS's own, which is
+ * what the reconciler asks before it calls a missing container tampering. It is
+ * durable because the absence can outlast the call: a removal docker completes
+ * after FluxOS stopped waiting for it, or a FluxOS restart between a removal and
+ * the create that follows it.
+ *
+ * @param {string} identifier
+ * @param {boolean} removing
+ */
+async function setRemovedByFluxOs(identifier, removing) {
+  // No catch: a removal this record cannot cover must not be sent.
+  await setFields(identifier, { removedByFluxOs: removing });
+}
+
+/**
+ * Whether FluxOS took this component's container down and has not created it
+ * again. Rejects when the record cannot be read: read as "no", FluxOS would call
+ * its own removal tampering.
+ *
+ * @param {string} identifier
+ * @returns {Promise<boolean>}
+ */
+async function isRemovedByFluxOs(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const database = collection();
+  const state = await dbHelper.findOneInDatabase(database, appsRuntimeState, { identifier }, { projection: { _id: 0 } });
+  return state?.removedByFluxOs === true;
+}
+
+/**
+ * Clears the record that FluxOS took the container down, once it exists again.
+ * Reads first, so a create of a container no removal preceded costs a lookup,
+ * not a write. A clear that fails leaves the record set while the container
+ * exists, where nothing reads it, and the next create clears it.
+ *
+ * @param {string} identifier
+ */
+async function clearRemovedByFluxOs(identifier) {
+  try {
+    const state = await getState(identifier);
+    if (state?.removedByFluxOs !== true) return;
+    await setFields(identifier, { removedByFluxOs: false });
+  } catch (err) {
+    log.error(`appsRuntimeState - the removal record of ${identifier} was not cleared: ${err.message}`);
+  }
+}
+
+/**
  * Clears the crash-recovery backoff: the component's next start is a deliberate
  * one and begins with no rungs and an empty burst window.
  * @param {string} identifier
@@ -816,6 +866,8 @@ async function prepareCollection() {
         // a force anywhere is a force: a kill must never be merged down into a
         // graceful stop the operator did not ask for
         operatorStopForce: twins.some((t) => t.operatorStopForce === true),
+        // a removal anywhere is FluxOS's: the absence it explains is not tampering
+        removedByFluxOs: twins.some((t) => t.removedByFluxOs === true),
         // an unfinished restore anywhere holds the component: starting it on a
         // half-replaced folder is the harm, and the owner can start it
         ...(restore ? {
@@ -884,6 +936,9 @@ module.exports = {
   recordNetworkHealAttempt,
   networkHealWaitMs,
   clearNetworkHeal,
+  setRemovedByFluxOs,
+  isRemovedByFluxOs,
+  clearRemovedByFluxOs,
   recordExit,
   setSuccessfullyStarted,
   clearRestartLadder,

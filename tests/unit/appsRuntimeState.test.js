@@ -1020,6 +1020,81 @@ describe('appsRuntimeState tests', () => {
     });
   });
 
+  describe('removedByFluxOs (FluxOS took the container down)', () => {
+    it('persists the record and reads it back', async () => {
+      await appsRuntimeState.setRemovedByFluxOs('fluxwww_App', true);
+      expect(await appsRuntimeState.isRemovedByFluxOs('www_App')).to.be.true;
+    });
+
+    it('is false for a component FluxOS never took down', async () => {
+      expect(await appsRuntimeState.isRemovedByFluxOs('nope_App')).to.be.false;
+    });
+
+    it('clears the record', async () => {
+      await appsRuntimeState.setRemovedByFluxOs('www_App', true);
+      await appsRuntimeState.clearRemovedByFluxOs('www_App');
+      expect(await appsRuntimeState.isRemovedByFluxOs('www_App')).to.be.false;
+    });
+
+    it('a read failure rejects rather than answering "not FluxOS"', async () => {
+      const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async () => { throw new Error('db unavailable'); },
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      let thrown = null;
+      await failing.isRemovedByFluxOs('www_App').catch((e) => { thrown = e; });
+
+      expect(thrown, 'an unread record answered false').to.be.an('error');
+    });
+
+    it('a clear that fails is logged, not thrown', async () => {
+      const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async () => ({ identifier: 'www_App', removedByFluxOs: true }),
+          updateOneInDatabase: async () => { throw new Error('db unavailable'); },
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      await failing.clearRemovedByFluxOs('www_App');
+
+      sinon.assert.calledWithMatch(logStub.error, /removal record of www_App was not cleared/);
+    });
+
+    it('survives a process restart', async () => {
+      await appsRuntimeState.setRemovedByFluxOs('www_App', true);
+
+      const restarted = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async (_db, _coll, query) => store.get(query.identifier) || null,
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id.replace(/^flux/, '').replace(/^zel/, '') },
+      });
+
+      expect(await restarted.isRemovedByFluxOs('www_App')).to.be.true;
+    });
+
+    it('is dropped with the rest of the component state on uninstall', async () => {
+      await appsRuntimeState.setRemovedByFluxOs('www_App', true);
+      await appsRuntimeState.remove('www_App');
+      expect(await appsRuntimeState.isRemovedByFluxOs('www_App')).to.be.false;
+    });
+  });
+
   describe('network heal ladder (separate from the crash-restart ladder)', () => {
     it('allows the first attempt immediately, then paces the next ones', async () => {
       expect(await appsRuntimeState.networkHealWaitMs('www_App')).to.equal(0);
@@ -1214,6 +1289,17 @@ describe('appsRuntimeState tests', () => {
       expect(merged.restoreUnfinished).to.equal(true);
       expect(merged.restoreUnfinishedAt, 'the held record lost the time a heal needs').to.equal(5000);
       expect(merged.restoreScanned).to.equal(true);
+    });
+
+    it('keeps a removal record any twin holds', async () => {
+      docs = [
+        { identifier: 'www_App', removedByFluxOs: true, updatedAt: 1000 },
+        { identifier: 'www_App', removedByFluxOs: false, updatedAt: 9000 },
+      ];
+
+      await prepState.prepareCollection();
+
+      expect(upserts[0].set.removedByFluxOs, 'a removal FluxOS made would read as tampering').to.equal(true);
     });
 
     it('takes the image path and its stamp from the same twin', async () => {

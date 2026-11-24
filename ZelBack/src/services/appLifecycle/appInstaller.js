@@ -782,6 +782,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
   operationRegistry.throwIfPreempted(signal);
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
+  // the container exists: no absence of it is left to account for
+  await appsRuntimeState.clearRemovedByFluxOs(isComponent ? `${appSpecifications.name}_${appName}` : appName);
 
   // Attach this component to the private network of every app it is linked with
   // so it can reach their components by docker DNS name.
@@ -871,6 +873,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
+  // the container exists: no absence of it is left to account for
+  await appsRuntimeState.clearRemovedByFluxOs(identifier);
 
   // Attach this component to the private network of every app it is linked with
   // so it can reach their components by docker DNS name.

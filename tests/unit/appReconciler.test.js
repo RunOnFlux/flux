@@ -88,6 +88,9 @@ describe('appReconciler tests', () => {
         recordNetworkHealAttempt: sinon.stub().resolves(),
         networkHealWaitMs: sinon.stub().resolves(0),
         clearNetworkHeal: sinon.stub().resolves(),
+        // durable "FluxOS took this container down" record
+        isRemovedByFluxOs: sinon.stub().resolves(false),
+        clearRemovedByFluxOs: sinon.stub().resolves(),
       },
       appQueryService: {
         decryptEnterpriseApps: sinon.stub().callsFake(async (arr) => ({ readable: arr, unreadable: [], inPlace: arr })),
@@ -857,12 +860,39 @@ describe('appReconciler tests', () => {
       // container already gone - an absence FluxOS caused, still reconciled -
       // so the mark is what keeps the node from scoring its own removal against
       // the app. The recreate is unaffected; only the accusation is withheld.
-      stubs.globalState.fluxRemovedContainers.add('fluxwww_App');
+      stubs.appsRuntimeState.isRemovedByFluxOs.withArgs('www_App').resolves(true);
       stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
       stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'container_vanished')).to.be.false;
       expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App')).to.be.true;
+    });
+
+    it('neither accuses nor recreates when it cannot read whether FluxOS removed the container, and retries', async () => {
+      stubs.appsRuntimeState.isRemovedByFluxOs.rejects(new MongoNetworkTimeoutError('connection timed out'));
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      await appReconciler.reconcile('www_App');
+      expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'container_vanished'), 'an unread record was read as "not FluxOS"').to.be.false;
+      sinon.assert.notCalled(stubs.containerHealthMonitor.recreateMissingContainers);
+      const deferred = stubs.log.warn.getCalls().some((c) => /cannot read whether FluxOS removed the missing www_App/.test(c.args[0]));
+      expect(deferred, 'the pass was not deferred').to.equal(true);
+    });
+
+    it('leaves a container docker is still removing, and its removal record, for a later pass', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'removing', ExitCode: 0 } });
+      await appReconciler.reconcile('www_App');
+      sinon.assert.notCalled(stubs.appsRuntimeState.clearRemovedByFluxOs);
+      sinon.assert.notCalled(stubs.appsRuntimeState.clearNetworkHeal);
+      sinon.assert.notCalled(stubs.dockerService.appDockerStart);
+      const deferred = stubs.log.info.getCalls().some((c) => /docker is removing www_App/.test(c.args[0]));
+      expect(deferred, 'the pass was not deferred').to.equal(true);
+    });
+
+    it('clears the removal record once the container exists', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      await appReconciler.reconcile('www_App');
+      sinon.assert.calledWith(stubs.appsRuntimeState.clearRemovedByFluxOs, 'www_App');
     });
 
     it('does not remove the app when the recreate fails on a database read, and retries', async () => {

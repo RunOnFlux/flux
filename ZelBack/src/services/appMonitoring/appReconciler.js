@@ -342,6 +342,9 @@ async function dockerActual(identifier) {
       // this said it was already up - every boot, forever. The two now agree.
       running: !!(info.State && info.State.Running) && !info.State.Paused,
       paused: !!(info.State && info.State.Paused),
+      // docker has begun removing it, and the removal may still be running
+      // after the caller that asked for it stopped waiting
+      removing: info.State?.Status === 'removing',
       exitCode: everRan ? (info.State.ExitCode ?? null) : null,
       // the kernel's verdict, not the entrypoint's: an image that swallows its
       // payload's status still cannot hide this one
@@ -529,17 +532,20 @@ async function recreateMissing(identifier, op) {
   const mainAppName = identifier.split('_')[1] || identifier;
 
   // `container_vanished` is the heaviest tampering signal this node emits and it
-  // asserts one thing: a container went away and FluxOS did not take it. FluxOS's
-  // own removals are in globalState.fluxRemovedContainers, and an absence FluxOS
-  // caused is evidence of nothing. Either way the container is recreated below -
-  // only the accusation is withheld.
-  //
-  // The entry is dropped by appDockerCreate succeeding, not by being read here.
-  // A recreate that fails therefore keeps it, which is what the next pass needs:
-  // the container is still absent and that absence is still FluxOS's, so reading
-  // the entry away would have this node accuse itself on the following pass -
-  // an image pull spans several of them.
-  const removedByFluxOs = globalState.fluxRemovedContainers.has(dockerService.getAppIdentifier(identifier));
+  // asserts one thing: a container went away and FluxOS did not take it. FluxOS
+  // records each container it takes down before it sends the removal
+  // (appsRuntimeState.setRemovedByFluxOs), and an absence FluxOS caused is
+  // evidence of nothing. Either way the container is recreated below - only the
+  // accusation is withheld. The record is cleared by the create, not by being
+  // read here: a recreate that fails leaves the absence FluxOS's.
+  let removedByFluxOs;
+  try {
+    removedByFluxOs = await appsRuntimeState.isRemovedByFluxOs(identifier);
+  } catch (err) {
+    log.warn(`appReconciler - cannot read whether FluxOS removed the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
   if (removedByFluxOs) {
     log.info(`appReconciler - ${identifier} is missing because FluxOS removed it; recreating without recording a tampering event`);
   } else {
@@ -1107,9 +1113,18 @@ async function reconcile(rawIdentifier) {
   // only on the running+attached path) is what stops the flag leaking on every branch
   // that leaves a container stopped (awaiting-controller g:, operator stop), which
   // would otherwise divert a later, genuine disappearance away from the vanished path.
+  // Docker is removing it: whatever is left when it finishes is the next pass's.
+  // Until then it is neither present nor gone, and the records of a removal stand.
+  if (actual.removing) {
+    log.info(`appReconciler - docker is removing ${identifier}; reconciling it once that finishes`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
   if (actual.exists && !dockerService.isContainerDetachedFromNetwork(actual.attachment)) {
     await clearNetworkHealState(identifier);
   }
+  // The container exists, so no absence of it is left to account for.
+  if (actual.exists) await appsRuntimeState.clearRemovedByFluxOs(identifier);
 
   // what this pass decides from: a start is carried out only while no opinion has
   // been written since (writeIfUnchanged's rule)

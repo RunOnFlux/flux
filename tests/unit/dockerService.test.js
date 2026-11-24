@@ -901,39 +901,6 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe('fluxRemovedContainers authorship record tests', () => {
-    afterEach(() => {
-      sinon.restore();
-      globalState.fluxRemovedContainers.clear();
-    });
-
-    it('records a removal the reconciler can ask about', async () => {
-      sinon.stub(Dockerode.prototype, 'listContainers').resolves([{ Id: 'abc', Names: ['/fluxwebsite'] }]);
-      sinon.stub(Dockerode.Container.prototype, 'remove').resolves();
-
-      await dockerService.appDockerRemove('website');
-
-      expect([...globalState.fluxRemovedContainers]).to.deep.equal(['fluxwebsite']);
-    });
-
-    it('does not record one addressed by raw docker id', async () => {
-      // The startup orphan sweep removes by id. The reconciler only ever asks
-      // about app containers by identifier, so an entry keyed by a hex id can
-      // never be read - and clearFluxRemovedContainers matches on an app name a
-      // hex id does not carry, so it can never be dropped either. It would sit
-      // in memory for the life of the process, unreadable and undeletable.
-      const id = 'a'.repeat(64);
-      const list = sinon.stub(Dockerode.prototype, 'listContainers');
-      list.onFirstCall().resolves([]);
-      list.onSecondCall().resolves([{ Id: id, Names: ['/fluxwebsite'] }]);
-      sinon.stub(Dockerode.Container.prototype, 'remove').resolves();
-
-      await dockerService.appDockerForceRemove(id, false);
-
-      expect([...globalState.fluxRemovedContainers], 'an entry no reader wants and no cleanup can reach').to.be.empty;
-    });
-  });
-
   describe('getDockerContainerByIdOrName tests', () => {
     afterEach(() => {
       sinon.restore();

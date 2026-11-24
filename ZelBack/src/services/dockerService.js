@@ -1541,11 +1541,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     throw error;
   });
 
-  // The container exists, so there is no absence of it to attribute to anyone.
-  // The other half of the removal funnels' record: while an entry stands, this
-  // container is missing because FluxOS took it.
-  globalState.fluxRemovedContainers.delete(getDockerName(identifier));
-
   return app;
 }
 
@@ -1728,24 +1723,6 @@ async function appDockerKill(idOrName) {
 }
 
 /**
- * Whether a removal is worth recording as FluxOS's own.
- *
- * The record answers one question, asked by the reconciler: is this container
- * missing because FluxOS removed it, or because something else did? It only ever
- * asks about app containers, by identifier. A container addressed by raw docker
- * id is an orphan the reconciler never asks about - so the entry can never be
- * read, and it can never be dropped either, because clearFluxRemovedContainers
- * matches on the app name a hex id does not carry. Not writing it is the whole
- * fix; there is nothing about it worth remembering.
- *
- * @param {string} idOrName
- * @returns {boolean}
- */
-function removalIsWorthRecording(idOrName) {
-  return !/^[0-9a-f]{12,64}$/.test(idOrName);
-}
-
-/**
  * Removes app's docker.
  *
  * @param {string} idOrName
@@ -1757,9 +1734,6 @@ async function appDockerRemove(idOrName) {
 
   globalState.stoppingContainers.delete(getDockerName(idOrName));
   await dockerContainer.remove({ abortSignal: deadline(REQUEST_TIMEOUT_MS) });
-  // Recorded only once the container is actually gone - this is a record of what
-  // FluxOS removed, and a remove that threw removed nothing.
-  if (removalIsWorthRecording(idOrName)) globalState.fluxRemovedContainers.add(getDockerName(idOrName));
   return `Flux App ${idOrName} successfully removed.`;
 }
 
@@ -1776,34 +1750,7 @@ async function appDockerForceRemove(idOrName, removeVolumes = true) {
 
   globalState.stoppingContainers.delete(getDockerName(idOrName));
   await dockerContainer.remove({ force: true, v: removeVolumes, abortSignal: deadline(REQUEST_TIMEOUT_MS) });
-  if (removalIsWorthRecording(idOrName)) globalState.fluxRemovedContainers.add(getDockerName(idOrName));
   return `Flux App ${idOrName} successfully force removed.`;
-}
-
-/**
- * Drop every fluxRemovedContainers entry belonging to an app. Called when the
- * app's local row goes: nothing reconciles an app with no row, so there is no
- * absence left to attribute, and an entry with no reader would otherwise outlive
- * the app for the life of the process.
- *
- * Every entry belongs to an app, because a removal addressed by raw docker id is
- * not recorded at all - it would carry no app name for this to match, and no
- * reader to want it.
- *
- * Lives here because the entries are keyed by docker name and this module owns
- * that naming: a component is `flux<component>_<app>`, a v<=3 app is `flux<app>`,
- * and an app name never contains an underscore (the codebase splits component
- * identifiers on it throughout).
- *
- * @param {string} appName - bare app name
- */
-function clearFluxRemovedContainers(appName) {
-  const appDockerName = getDockerName(appName);
-  for (const container of globalState.fluxRemovedContainers) {
-    if (container === appDockerName || container.endsWith(`_${appName}`)) {
-      globalState.fluxRemovedContainers.delete(container);
-    }
-  }
 }
 
 /**
@@ -2762,7 +2709,6 @@ module.exports = {
   appDockerKill,
   appDockerRemove,
   appDockerForceRemove,
-  clearFluxRemovedContainers,
   appDockerRestart,
   appDockerStart,
   appDockerStop,

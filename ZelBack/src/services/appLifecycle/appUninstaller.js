@@ -585,7 +585,7 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
 
   let containerRemoved = false;
   if (force) {
-    await dockerService.appDockerForceRemove(appId).then(() => {
+    await removeContainer(appId, { force: true }).then(() => {
       containerRemoved = true;
     }).catch((error) => {
       log.error(`Force remove failed for ${appId}: ${error.message}`);
@@ -596,7 +596,7 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
       }
     });
   } else {
-    await dockerService.appDockerRemove(appId).then(() => {
+    await removeContainer(appId).then(() => {
       containerRemoved = true;
     }).catch((error) => {
       log.error(`Container remove failed for ${appId}: ${error.message}`);
@@ -729,7 +729,7 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
 
   let containerRemoved = false;
   if (force) {
-    await dockerService.appDockerForceRemove(appId).then(() => {
+    await removeContainer(appId, { force: true }).then(() => {
       containerRemoved = true;
     }).catch((error) => {
       log.error(`Force remove failed for ${appId}: ${error.message}`);
@@ -740,7 +740,7 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
       }
     });
   } else {
-    await dockerService.appDockerRemove(appId).then(() => {
+    await removeContainer(appId).then(() => {
       containerRemoved = true;
     }).catch((error) => {
       log.error(`Container remove failed for ${appId}: ${error.message}`);
@@ -860,6 +860,24 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
 }
 
 /**
+ * Removes an app's container, recording first that FluxOS is taking it down
+ * (appsRuntimeState.setRemovedByFluxOs), so its absence is never read as
+ * tampering. A removal that fails leaves the record: docker may still complete
+ * it, and the reconciler clears the record once it sees the container in place
+ * and not being removed. Rejects, sending nothing, when the record cannot be
+ * written.
+ * @param {string} appId
+ * @param {object} [options]
+ * @param {boolean} [options.force] Removes a running container.
+ * @returns {Promise<void>}
+ */
+async function removeContainer(appId, { force = false } = {}) {
+  await appsRuntimeState.setRemovedByFluxOs(appId, true);
+  if (force) await dockerService.appDockerForceRemove(appId);
+  else await dockerService.appDockerRemove(appId);
+}
+
+/**
  * Removes a container a soft uninstall takes down. One that is not there is
  * already removed: a redeploy stopped part way leaves its app with no container,
  * and the next one must not fail on it.
@@ -868,7 +886,7 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
  */
 async function removeContainerUnlessGone(appId) {
   try {
-    await dockerService.appDockerRemove(appId);
+    await removeContainer(appId);
   } catch (error) {
     if (!dockerService.isContainerNotFound(error)) throw error;
     log.info(`Container ${appId} is not there; nothing to remove`);
@@ -1356,11 +1374,6 @@ async function removeAppHolding(app, res, endResponse, sendMessage, { specificat
       } catch (error) {
         log.warn(`removeAppLocally - the placement record of ${appName} was not removed: ${error.message}`);
       }
-      // The app is gone for good: nothing reconciles an app with no row, so its
-      // removal records have no reader left. Only this full-uninstall path clears
-      // them: a soft redeploy keeps the row, and its records are what stops a
-      // teardown that fails part way being read as tampering.
-      dockerService.clearFluxRemovedContainers(appName);
       // Nor is there an app left for boot's location check to decide: an install
       // of the same name from here on is a new app.
       globalState.unconfirmedApps.delete(appName);
