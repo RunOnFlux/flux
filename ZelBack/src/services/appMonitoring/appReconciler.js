@@ -528,6 +528,22 @@ async function desiredRunState(rawIdentifier) {
  * @param {object} op The rebuild operation holding the app.
  * @returns {Promise<void>}
  */
+/**
+ * Whether any component of an app has run here: its own runtime record, or that of
+ * any component the installed specification names.
+ * Rejects when a record or the installed specification cannot be read.
+ * @param {string} mainAppName
+ * @param {string} identifier The component asking, counted whatever the specification names.
+ * @returns {Promise<boolean>}
+ */
+async function appHasRunHere(mainAppName, identifier) {
+  const installed = await appQueryService.installedApps(mainAppName);
+  if (installed?.status !== 'success') throw new Error(`the installed specification of ${mainAppName} could not be read`);
+  const ids = new Set([identifier, ...await componentIdsOf(installed.data)]);
+  const states = await Promise.all([...ids].map((id) => appsRuntimeState.getState(id)));
+  return states.some((state) => state?.hasSuccessfullyStarted === true);
+}
+
 async function recreateMissing(identifier, op) {
   const mainAppName = identifier.split('_')[1] || identifier;
 
@@ -589,23 +605,23 @@ async function recreateMissing(identifier, op) {
     if (appTamperingDetectionService.isNetworkMissingError(err.message)) {
       await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${err.message}`);
     }
-    // A component that has run here is kept, down, and its recreate retried on the
-    // ladder: a recreate that fails (an image that cannot be pulled, a bad
-    // update) is no reason to delete an established app and its data. One that
-    // never ran here is a failed install, and the app is removed. A record that
-    // cannot be read decides nothing.
-    let ranState;
+    // An app with a component that has run here is kept, the failed component down
+    // and its recreate retried on the ladder: a recreate that fails (an image that
+    // cannot be pulled, a bad update) is no reason to delete an established app and
+    // its data. An app none of whose components has run here is a failed install,
+    // and is removed. A record that cannot be read decides nothing.
+    let ranHere;
     try {
-      ranState = await appsRuntimeState.getState(identifier);
+      ranHere = await appHasRunHere(mainAppName, identifier);
     } catch (stateError) {
-      log.warn(`appReconciler - whether ${identifier} has run here could not be read (${stateError.message}); retrying, not removing`);
+      log.warn(`appReconciler - whether ${mainAppName} has run here could not be read (${stateError.message}); retrying, not removing`);
       scheduleRetry(identifier, MANAGED_RETRY_MS);
       return;
     }
-    if (ranState && ranState.hasSuccessfullyStarted) {
+    if (ranHere) {
       await appsRuntimeState.recordRestart(identifier);
       const keptWait = Math.max(await appsRuntimeState.restartWaitMs(identifier).catch(() => 0), MANAGED_RETRY_MS);
-      log.warn(`appReconciler - ${identifier} could not be recreated but has run here; kept down, retrying in ${Math.round(keptWait / 1000)}s`);
+      log.warn(`appReconciler - ${identifier} could not be recreated but ${mainAppName} has run here; kept down, retrying in ${Math.round(keptWait / 1000)}s`);
       fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreateFailedKept', waitMs: keptWait });
       scheduleRetry(identifier, keptWait);
       return;

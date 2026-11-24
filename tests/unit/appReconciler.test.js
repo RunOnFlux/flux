@@ -932,6 +932,33 @@ describe('appReconciler tests', () => {
       sinon.assert.calledWithMatch(publish, 'reconciler:actuated', { identifier: 'www_App', action: 'recreateFailedKept' });
     });
 
+    it('keeps an app another component of which has run here, when a component that never ran fails its recreate', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('manifest unknown'));
+      stubs.appQueryService.installedApps.withArgs('App').resolves({
+        status: 'success', data: [{ name: 'App', version: 8, compose: [{ name: 'www' }, { name: 'db' }] }],
+      });
+      stubs.appsRuntimeState.getState.withArgs('www_App').resolves({});
+      stubs.appsRuntimeState.getState.withArgs('db_App').resolves({ hasSuccessfullyStarted: true });
+
+      await appReconciler.reconcile('www_App');
+
+      sinon.assert.notCalled(stubs.appUninstaller.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(stubs.appsRuntimeState.recordRestart, 'www_App');
+    });
+
+    it('removes nothing when the installed specification cannot be read', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('boom'));
+      stubs.appQueryService.installedApps.withArgs('App').resolves({ status: 'error', data: { message: 'database unavailable' } });
+
+      await appReconciler.reconcile('www_App');
+
+      sinon.assert.notCalled(stubs.appUninstaller.removeAppLocally);
+    });
+
     it('removes nothing when whether the component has run here cannot be read', async () => {
       let recreateFailed = false;
       stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
