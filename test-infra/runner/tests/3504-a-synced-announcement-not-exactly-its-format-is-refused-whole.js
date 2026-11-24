@@ -5,7 +5,7 @@ import {
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
-import { apprunningEvent, socketAddr } from '../framework/state-events.js';
+import { apprunningEvent, socketAddr, specHashOf } from '../framework/state-events.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitForDaemonReady, waitForNodeStatus, waitForOrchestratorState } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -66,7 +66,7 @@ describe('a synced announcement not exactly its format is refused whole', functi
     // the well-formed report and the row it wrote.
     await dbClient(JOINER + 1).seedAppStateEvent(await apprunningEvent({ nodeNum: REFUSED_NODE, broadcastedAt: at - 5000, apps: [held] }));
     await dbClient(JOINER + 1).seedAppLocation({
-      name: held, ip: socketAddr(REFUSED_NODE), hash: `hash-${held}`, broadcastedAt: at - 5000, runningSince: at - 5000,
+      name: held, ip: socketAddr(REFUSED_NODE), hash: specHashOf(held), broadcastedAt: at - 5000, runningSince: at - 5000,
     });
     // What every peer serves: a well-formed report for GOOD_NODE; for MIXED_NODE
     // one well-formed app and one without a hash; for REFUSED_NODE a newer report

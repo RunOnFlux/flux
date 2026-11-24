@@ -10,7 +10,7 @@ import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.
 import { assertNoEvent } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
-import { socketAddr } from '../framework/state-events.js';
+import { socketAddr, specHashOf } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
 
@@ -62,7 +62,7 @@ describe('an announcement not exactly its format is refused whole', function () 
   const stubIp = () => getSubnetConfig().nodeIp(STUB_INDEX + 1);
   const rowNamesAt = async (i, address) => (await dbClient(i + 1).getAppLocationsByIp(address)).map((row) => row.name);
   const marks = () => realNodes.map((i) => env.clients[i].getLastEventId());
-  const entry = (name) => ({ name, hash: `hash-${name}`, runningSince: new Date().toISOString() });
+  const entry = (name) => ({ name, hash: specHashOf(name), runningSince: new Date().toISOString() });
   // Every node stored a report from `ip` naming `name`, after `afterIds`.
   const everyNodeStored = (afterIds, ip, name) => Promise.all(realNodes.map((i) => env.clients[i].waitForEvent(
     'network:apprunning',
@@ -140,7 +140,7 @@ describe('an announcement not exactly its format is refused whole', function () 
     this.timeout(120000);
     const held = `e2eshapecleared${stamp}`;
     let afterIds = marks();
-    await stub.runApp(held, { hash: `hash-${held}` });
+    await stub.runApp(held, { hash: specHashOf(held) });
     await everyNodeStored(afterIds, stubIp(), held);
 
     afterIds = marks();
@@ -153,6 +153,30 @@ describe('an announcement not exactly its format is refused whole', function () 
       // eslint-disable-next-line no-await-in-loop
       expect(await rowNamesAt(i, stubIp()), `node ${i} kept the sender's rows`).to.deep.equal([]);
     }
+  });
+
+  it('refuses a removal naming an app by a name no app may have, and takes a correct one after it', async function () {
+    this.timeout(180000);
+    const held = `e2eshapetaken${stamp}`;
+    const badName = `e2e shape ${stamp}`;
+    const afterIds = marks();
+    await stub.broadcast(report([entry(held)]));
+    await everyNodeStored(afterIds, stubIp(), held);
+
+    await stub.broadcast({
+      type: 'fluxappremoved', version: 1, appName: badName, ip: stubIp(), broadcastedAt: Date.now(),
+    });
+    await stub.broadcast({
+      type: 'fluxappremoved', version: 1, appName: held, ip: stubIp(), broadcastedAt: Date.now(),
+    });
+    // Handled in the order sent, so the first was handled before the second.
+    await Promise.all(realNodes.map((i) => env.clients[i].waitForEvent(
+      'network:appremoved', (d) => d.name === held, 60000, { afterId: afterIds[i] },
+    ).catch(() => { throw new Error(`node ${i} did not take the correct removal`); })));
+    await Promise.all(realNodes.map((i) => assertNoEvent(env.clients[i], 'network:appremoved',
+      (d) => d.name === badName, 0, { afterId: afterIds[i] })
+      .catch(() => { throw new Error(`node ${i} took a removal naming an app by a name no app may have`); })));
+    expect(refusedAtNodeZero(afterIds, 'fluxappremoved'), 'node 0 did not refuse the removal where it arrived').to.equal(true);
   });
 
   // A node's shutdown is handled from what the node's own reports and removals
