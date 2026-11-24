@@ -873,6 +873,7 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
  */
 async function removeContainer(appId, { force = false } = {}) {
   await appsRuntimeState.setRemovedByFluxOs(appId, true);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.CONTAINER_BEFORE_REMOVE, appId);
   if (force) await dockerService.appDockerForceRemove(appId);
   else await dockerService.appDockerRemove(appId);
 }

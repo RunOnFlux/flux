@@ -100,6 +100,9 @@ const Checkpoint = Object.freeze({
   // A removal is committed, has told the network if it tells it, and has not yet
   // torn anything down. Keyed by the app name.
   REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',
+  // FluxOS has recorded that it is taking an app container down and has not yet
+  // asked docker to remove it. Keyed by the container's docker name.
+  CONTAINER_BEFORE_REMOVE: 'container:beforeRemove',
   // An install holds its app and has the app's record, and has not created any
   // of its containers. Keyed by the app name.
   INSTALL_BEFORE_CONTAINERS: 'install:beforeContainers',
