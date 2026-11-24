@@ -12,32 +12,31 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
 
 // A node joining the network learns where apps run from its peers' event logs,
-// and judges each announcement there one entry at a time, as it judges one that
-// arrives by gossip: an entry without a name and a hash is refused
-// (network:apprunningRefused, path sync) and the rest are stored.
+// and takes a report there only when it is exactly a report, as it takes one that
+// arrives by gossip: a report naming an app that is not exactly a name, a hash
+// and a running time is refused whole, and nothing of it is stored.
 //
-// A peer that has not upgraded serves whatever it last recorded for a node,
-// which may be an announcement whose every entry the joiner refuses. The joiner
-// here is a node coming back: it already holds a row for that node and the
-// readable announcement behind it. It prunes a node's rows only against an
-// announcement it can store, so the refused one deletes neither the row nor the
-// readable announcement in the log it serves its own peers.
+// The peers serve such reports from their logs, seeded there directly. The joiner
+// here is a node coming back: it already holds a row for one node and the
+// well-formed report behind it, and a newer refused report about that node
+// deletes neither. A well-formed report served beside them is stored: the canary
+// that the joiner read what its peers served.
 
 const RUNNING = [0, 1, 2, 3];
 const JOINER = 4;
-// The nodes the announcements are about, by node number: real nodes holding no
-// apps, so the seeded announcements are the only ones there are about them.
+// The nodes the reports are about, by node number: real nodes holding no apps,
+// so the seeded reports are the only ones there are about them.
+const GOOD_NODE = 2;
 const MIXED_NODE = 3;
 const REFUSED_NODE = 4;
 
-describe('a synced announcement is judged one entry at a time', function () {
+describe('a synced announcement not exactly its format is refused whole', function () {
   let env;
   dumpLogsOnFailure(() => env);
   let joiner;
-  let refused;
   const stamp = Date.now();
-  const kept = `e2esynckept${stamp}`;
-  const dropped = `e2esyncdropped${stamp}`;
+  const good = `e2esyncgood${stamp}`;
+  const named = `e2esyncnamed${stamp}`;
   const held = `e2esyncheld${stamp}`;
   const probe = `e2esyncprobe${stamp}`;
   const rowNames = async (nodeNum) => (await dbClient(JOINER + 1).getAppLocationsByIp(socketAddr(nodeNum))).map((row) => row.name);
@@ -55,8 +54,8 @@ describe('a synced announcement is judged one entry at a time', function () {
     });
     await bootAndPeer(env);
 
-    // Booted cut off, so the seeded announcements' acceptance window spans the
-    // sync and not the boot.
+    // Booted cut off, so the seeded reports' acceptance window spans the sync
+    // and not the boot.
     await env.holdOutPendingNode(JOINER, RUNNING);
     joiner = await env.startNode(JOINER);
     await waitForDaemonReady(joiner);
@@ -64,19 +63,20 @@ describe('a synced announcement is judged one entry at a time', function () {
 
     const at = Date.now();
     // What the joiner already holds about REFUSED_NODE from before it went away:
-    // the readable announcement and the row it wrote.
+    // the well-formed report and the row it wrote.
     await dbClient(JOINER + 1).seedAppStateEvent(await apprunningEvent({ nodeNum: REFUSED_NODE, broadcastedAt: at - 5000, apps: [held] }));
     await dbClient(JOINER + 1).seedAppLocation({
       name: held, ip: socketAddr(REFUSED_NODE), hash: `hash-${held}`, broadcastedAt: at - 5000, runningSince: at - 5000,
     });
-    // What every peer serves: for MIXED_NODE one readable entry and one without a
-    // hash; for REFUSED_NODE a newer announcement whose only entry has no hash,
-    // the one a peer that has not upgraded holds for a node it last heard that from.
+    // What every peer serves: a well-formed report for GOOD_NODE; for MIXED_NODE
+    // one well-formed app and one without a hash; for REFUSED_NODE a newer report
+    // whose only app has no hash.
     const events = [
+      await apprunningEvent({ nodeNum: GOOD_NODE, broadcastedAt: at, apps: [good] }),
       await apprunningEvent({
         nodeNum: MIXED_NODE,
         broadcastedAt: at,
-        apps: [kept, { name: dropped, runningSince: new Date(at).toISOString() }],
+        apps: [named, { name: `e2esyncunhashed${stamp}`, runningSince: new Date(at).toISOString() }],
       }),
       await apprunningEvent({
         nodeNum: REFUSED_NODE, broadcastedAt: at, apps: [{ name: probe, runningSince: new Date(at).toISOString() }],
@@ -90,31 +90,28 @@ describe('a synced announcement is judged one entry at a time', function () {
     await waitForOrchestratorState(joiner, 'READY', 180000);
     // Every peer's response stored and pruned.
     await joiner.waitForEvent('ephemeralSync:allComplete', () => true, 180000, { afterId: mark });
-    refused = joiner.getEventBuffer()
-      .filter((e) => e.id > mark && e.event === 'network:apprunningRefused' && e.data.path === 'sync')
-      .flatMap((e) => e.data.refusals);
   });
 
   afterTeardown(async function () {
     await env?.teardown();
   });
 
-  it('stores the entries with a name and hash, and refuses the one without', async function () {
-    const names = await rowNames(MIXED_NODE);
-    expect(names).to.include(kept);
-    expect(names, 'the joiner stored an entry without a hash').to.not.include(dropped);
-    expect(refused.some((r) => r.ip === socketAddr(MIXED_NODE) && r.names.includes(dropped)), 'the joiner did not report the entry it refused').to.equal(true);
+  it('stores a well-formed report its peers served', async function () {
+    expect(await rowNames(GOOD_NODE), 'canary: the joiner stored nothing its peers served').to.include(good);
   });
 
-  it('keeps the row it holds for a node past a newer announcement whose every entry it refuses', async function () {
+  it('stores none of a report naming one app that is not exactly an app', async function () {
+    expect(await rowNames(MIXED_NODE), 'the joiner stored an app of a refused report').to.deep.equal([]);
+  });
+
+  it('keeps the row it holds for a node past a newer refused report', async function () {
     const names = await rowNames(REFUSED_NODE);
-    expect(names, 'the refused announcement pruned the rows the readable one stood behind').to.include(held);
-    expect(names, 'the joiner stored an entry without a hash').to.not.include(probe);
-    expect(refused.some((r) => r.ip === socketAddr(REFUSED_NODE) && r.names.includes(probe)), 'the joiner did not report the announcement it refused').to.equal(true);
+    expect(names, 'the refused report pruned the rows the well-formed one stood behind').to.include(held);
+    expect(names, 'the joiner stored an app of a refused report').to.not.include(probe);
   });
 
-  it('keeps the readable announcement in the log it serves its own peers', async function () {
+  it('keeps the well-formed report in the log it serves its own peers', async function () {
     const logged = await dbClient(JOINER + 1).getAppStateEvents({ ip: socketAddr(REFUSED_NODE), type: 'apprunning' });
-    expect(logged.map((event) => event.data.apps.map((a) => a.name)), 'the refused announcement took the readable one\'s place').to.deep.equal([[held]]);
+    expect(logged.map((event) => event.data.apps.map((a) => a.name)), 'the refused report took the well-formed one\'s place').to.deep.equal([[held]]);
   });
 });
