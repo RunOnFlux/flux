@@ -60,6 +60,7 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
       await portReconciler
         .release(testingPort, 'Flux_Test_App', { holder: options.holder })
         .catch((e) => log.error(e));
+      fluxEventBus.publish('availability:testReleased', { port: testingPort });
     }
 
     // close() stops listening before it returns; the callback waits only for
