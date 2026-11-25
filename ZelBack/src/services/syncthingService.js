@@ -18,6 +18,7 @@ const {
 } = require('./utils/numericIdTables');
 const volumeService = require('./utils/volumeService');
 const publicPorts = require('./utils/publicPorts');
+const { socketPath } = require('./utils/apiSocket');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
@@ -1333,16 +1334,6 @@ function syncthingListenPort() {
   return +apiPort + 2;
 }
 
-/**
- * Every address syncthing listens on: its port, and through a move the port kept with each API
- * port the proxy still serves, since a peer checking this node tests the port two above the API
- * port it reached.
- * @returns {string[]}
- */
-function syncthingListenAddresses() {
-  const kept = publicPorts.getAlsoServing().map((apiPort) => apiPort + 2);
-  return [syncthingListenPort(), ...kept].map((port) => `tcp://:${port}`);
-}
 
 /**
  * What syncthing's listener for its peers on its port can be known to be: bound;
@@ -1419,9 +1410,10 @@ async function adjustSyncthing() {
       globalAnnounceEnabled: false,
       localAnnounceEnabled: false,
       natEnabled: false, // let flux handle upnp and nat port mapping
-      // TCP alone - see syncthingMonitorHelpers.peerSyncthingAddresses.
-      listenAddresses: syncthingListenAddresses(),
     };
+    // Behind the front proxy configd moves syncthing's listener with the node's port. TCP alone -
+    // see syncthingMonitorHelpers.peerSyncthingAddresses.
+    if (!socketPath()) newConfig.listenAddresses = [`tcp://:${syncthingListenPort()}`];
     const newConfigDefaultFolders = {
       syncOwnership: true,
       sendOwnership: true,
@@ -1433,7 +1425,7 @@ async function adjustSyncthing() {
       if (currentConfigOptions.globalAnnounceEnabled !== newConfig.globalAnnounceEnabled
         || currentConfigOptions.localAnnounceEnabled !== newConfig.localAnnounceEnabled
         || currentConfigOptions.natEnabled !== newConfig.natEnabled
-        || serviceHelper.ensureString(currentConfigOptions.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses)) {
+        || (newConfig.listenAddresses && serviceHelper.ensureString(currentConfigOptions.listenAddresses) !== serviceHelper.ensureString(newConfig.listenAddresses))) {
         // patch our config
         await adjustConfigOptions('patch', newConfig);
       }
@@ -1458,8 +1450,6 @@ async function adjustSyncthing() {
     log.error(error);
   }
 }
-
-publicPorts.onChange(() => adjustSyncthing());
 
 /**
  * Sets up syncthing directory so current user can use it.

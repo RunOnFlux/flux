@@ -11,7 +11,7 @@
  * that needs to know the file is current checks that the process exists.
  *
  * Behind the front proxy the file says where and systemd says whether: it holds
- * apiPort, apiPortHttps and confirmedApiPort, and stays when FluxOS stops.
+ * apiPort and apiPortHttps, and stays when FluxOS stops.
  *
  * fluxd and fluxbench read it, as other users, so it is world-readable. It is written to a
  * temporary file in the same directory and renamed over the final name, so a
@@ -65,8 +65,7 @@ async function makeDirectory(dir) {
 
 /**
  * Write the port file, with this process's id. Never rejects.
- * @param {{apiPort: number, apiPortHttps: number, uiPort?: number, confirmedApiPort?: number}} ports -
- *   the ports served on, and behind the proxy the API port the chain lists
+ * @param {{apiPort: number, apiPortHttps: number, uiPort?: number}} ports - the ports served on
  * @param {{dir?: string}} [options] - the directory the file is written in
  * @returns {Promise<boolean>} True when the file was written.
  */
@@ -76,7 +75,6 @@ async function writePortFile(ports, { dir = PORT_FILE_DIR } = {}) {
   const content = JSON.stringify(socketPath() ? {
     apiPort: ports.apiPort,
     apiPortHttps: ports.apiPortHttps,
-    confirmedApiPort: ports.confirmedApiPort,
   } : {
     apiPort: ports.apiPort,
     apiPortHttps: ports.apiPortHttps,

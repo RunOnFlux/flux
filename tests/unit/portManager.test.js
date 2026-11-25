@@ -6,6 +6,7 @@ const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const portReconciler = require('../../ZelBack/src/services/portReconciler');
+const upnpd = require('../../ZelBack/src/services/upnpd');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -825,6 +826,112 @@ describe('portManager tests', () => {
       sinon.assert.notCalled(portReconciler.declare);
       sinon.assert.notCalled(portReconciler.keep);
       sinon.assert.notCalled(portReconciler.want);
+    });
+
+    it('gives flux-upnpd the set once every port is wanted, and maps nothing itself', async () => {
+      sinon.stub(upnpd, 'connection').returns('/run/flux-upnpd/api.sock');
+      sinon.stub(upnpd, 'openDesired').resolves();
+
+      await portManager.declareInstalledAppsPorts();
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      sinon.assert.calledTwice(portReconciler.declare);
+      sinon.assert.calledOnce(upnpd.openDesired);
+      expect(upnpd.openDesired.firstCall.calledAfter(portReconciler.declare.secondCall)).to.equal(true);
+      sinon.assert.notCalled(portReconciler.keep);
+    });
+
+    it('leaves flux-upnpd the set it was last given when the installed apps cannot be read', async () => {
+      sinon.stub(upnpd, 'connection').returns('/run/flux-upnpd/api.sock');
+      sinon.stub(upnpd, 'openDesired').resolves();
+      sinon.stub(dbHelper, 'findInDatabase').rejects(new Error('database gone'));
+
+      await portManager.declareInstalledAppsPorts();
+
+      sinon.assert.notCalled(upnpd.openDesired);
+    });
+  });
+
+  describe('removeAppsWithFailingPorts tests', () => {
+    let clock;
+    let stop;
+    let states;
+    const minute = 60 * 1000;
+    const nowMs = () => Number(process.hrtime.bigint() / 1000000n);
+    const failing = (port, protocol, forMs) => ({
+      port, protocol, state: 'failing', failure: 'refused', holder: null, reason: 'NoPortMapsAvailable', sinceMs: nowMs() - forMs,
+    });
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'hrtime'] });
+      states = [];
+      sinon.stub(upnpd, 'mappingStates').callsFake(() => states);
+      sinon.stub(localRemovalQueue, 'queueRemovals');
+      sinon.stub(portReconciler, 'desiredAppPorts').returns([
+        { port: 31000, description: 'Flux_App_example1' },
+        { port: 31001, description: 'Flux_App_example2' },
+      ]);
+    });
+
+    afterEach(() => {
+      stop?.();
+      stop = null;
+      clock.restore();
+    });
+
+    it('removes an app once one of its ports has been failing for the removal window', () => {
+      states = [failing(31000, 'udp', 20 * minute)];
+      stop = portManager.removeAppsWithFailingPorts();
+
+      clock.tick(10 * minute - 1000);
+      sinon.assert.notCalled(localRemovalQueue.queueRemovals);
+      clock.tick(1000);
+      sinon.assert.calledOnceWithExactly(localRemovalQueue.queueRemovals, ['example1']);
+    });
+
+    it('times a port flux-upnpd reports failing from the report', () => {
+      stop = portManager.removeAppsWithFailingPorts();
+      upnpd.events.emit('mappingState', failing(31001, 'tcp', 0));
+
+      clock.tick(config.upnp.failingAppRemovalMs - 1);
+      sinon.assert.notCalled(localRemovalQueue.queueRemovals);
+      clock.tick(1);
+      sinon.assert.calledOnceWithExactly(localRemovalQueue.queueRemovals, ['example2']);
+    });
+
+    it('keeps an app whose port maps again before the window ends', () => {
+      states = [failing(31000, 'tcp', 20 * minute)];
+      stop = portManager.removeAppsWithFailingPorts();
+
+      clock.tick(5 * minute);
+      upnpd.events.emit('mappingState', {
+        port: 31000, protocol: 'tcp', state: 'mapped', failure: null, holder: null, reason: null, sinceMs: nowMs(),
+      });
+      clock.tick(config.upnp.failingAppRemovalMs);
+
+      sinon.assert.notCalled(localRemovalQueue.queueRemovals);
+    });
+
+    it('times every port again from a new stream\'s state', () => {
+      states = [failing(31000, 'tcp', 0)];
+      stop = portManager.removeAppsWithFailingPorts();
+      clock.tick(5 * minute);
+
+      states = [failing(31000, 'tcp', 0)];
+      upnpd.events.emit('states');
+      clock.tick(config.upnp.failingAppRemovalMs - 1);
+      sinon.assert.notCalled(localRemovalQueue.queueRemovals);
+      clock.tick(1);
+      sinon.assert.calledOnceWithExactly(localRemovalQueue.queueRemovals, ['example1']);
+    });
+
+    it('removes nothing for a failing port no installed app holds', () => {
+      states = [failing(32000, 'tcp', 0)];
+      stop = portManager.removeAppsWithFailingPorts();
+
+      clock.tick(config.upnp.failingAppRemovalMs);
+
+      sinon.assert.notCalled(localRemovalQueue.queueRemovals);
     });
   });
 

@@ -194,6 +194,9 @@ module.exports = {
     // How long one turn on the router may run (portReconciler.onRouter): a turn
     // is a few requests, each answered in milliseconds by nearly every router.
     turnLimitMs: 60 * 1000,
+    // Where flux-upnpd maps the node's ports: an app whose port it has reported
+    // failing to map for this long is removed (portManager.removeAppsWithFailingPorts).
+    failingAppRemovalMs: 30 * 60 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',

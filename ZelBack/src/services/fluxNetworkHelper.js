@@ -2205,10 +2205,7 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
 async function confirmOwnAddress(record) {
   const status = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
   const listed = status?.status === 'success' ? status.data?.ip : null;
-  if (listed && socketAddressesMatch(listed, record.socketAddress)) {
-    await publicPorts.setConfirmedApiPort(extractPort(record.socketAddress));
-    return true;
-  }
+  if (listed && socketAddressesMatch(listed, record.socketAddress)) return true;
   if (record.confirmationAcceptedAt === record.movedAt) return false;
   const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
   if (result?.status === 'success' && result.data?.status !== 'Fail to send') {
@@ -2235,9 +2232,6 @@ async function confirmOwnAddress(record) {
  */
 async function reconcileOwnMove() {
   const record = await ownAddressRecord();
-  if (record?.socketAddress && (!record.movedFrom || record.settledAt === record.movedAt)) {
-    await publicPorts.setConfirmedApiPort(extractPort(record.socketAddress));
-  }
   if (!record?.movedFrom || !record.movedAt || record.settledAt === record.movedAt) return;
   const {
     socketAddress: to, movedFrom: from, movedAt, ipChanged, announce,
@@ -2477,45 +2471,14 @@ async function handleOwnAddressPass(current) {
 }
 
 /**
- * The ports behind one API port: the UI's, the API's, HTTPS and syncthing's.
- * @param {number} apiPort
- * @returns {number[]}
- */
-function portsOfApiPort(apiPort) {
-  return [apiPort - 1, apiPort, apiPort + 1, apiPort + 2];
-}
-
-/**
- * What a change of the proxy's ports does to the firewall.
- * @param {{apiPort: number, alsoServing: number[]}} ports
- * @param {{apiPort: number, alsoServing: number[]}|null} previous
- * @returns {{open: number[], close: number[]}}
- */
-function firewallChanges({ apiPort, alsoServing }, previous) {
-  const served = [apiPort, ...alsoServing].flatMap(portsOfApiPort);
-  const before = previous ? [previous.apiPort, ...previous.alsoServing].flatMap(portsOfApiPort) : [];
-  return {
-    open: served.filter((port) => !before.includes(port)),
-    close: before.filter((port) => !served.includes(port)),
-  };
-}
-
-/**
- * Follows the ports the proxy serves. Each one served is open in the firewall, a port kept through
- * a move included, and a port no longer served is closed. A new API port drops the peers this node
- * dialled, so they meet it at the new port, and reports the new address, which runs the
- * own-address move.
- * @param {{apiPort: number, alsoServing: number[]}} ports
- * @param {{apiPort: number, alsoServing: number[]}|null} previous - the ports before this change,
- *   null at the first
+ * Follows the ports the proxy serves, whose firewall configd keeps. A new API port drops the
+ * peers this node dialled, so they meet it at the new port, and reports the new address, which
+ * runs the own-address move.
+ * @param {{apiPort: number}} ports
+ * @param {{apiPort: number}|null} previous - the ports before this change, null at the first
  * @returns {Promise<void>}
  */
-async function followPublicPorts({ apiPort, alsoServing }, previous) {
-  if (await ufw.isFirewallActive()) {
-    const { open, close } = firewallChanges({ apiPort, alsoServing }, previous);
-    await Promise.all(open.map((port) => allowPort(port)));
-    await Promise.all(close.map((port) => deleteAllowPortRule(port)));
-  }
+async function followPublicPorts({ apiPort }, previous) {
   if (apiPort === previous?.apiPort) return;
   log.info(`own address - the proxy now serves the API on ${apiPort}`);
   peerManager.dropOutboundConnections();
@@ -4098,7 +4061,6 @@ module.exports = {
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
-  firewallChanges,
   allowAppPorts,
   allowTestPort,
   deleteAppPortRules,
@@ -4121,6 +4083,7 @@ module.exports = {
   leaveConfiguredAddress,
   ownAddressRecord,
   startOwnAddressWatch,
+  followPublicPorts,
   startIpChangeHoldWatch,
   setSyncthingListenerKnown,
   enforceIpChangeHold,

@@ -14,6 +14,7 @@ const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
 const { upnp: { testMappingLeaseS: TEST_LEASE_S, verifyRetryFirstMs: RETRY_FIRST_MS } } = require('config');
 const configManager = require('../../ZelBack/src/services/utils/configManager');
 const upnpRouter = require('../../ZelBack/src/services/upnpRouter');
+const upnpd = require('../../ZelBack/src/services/upnpd');
 
 const { routerEvents } = upnpRouter;
 
@@ -157,6 +158,47 @@ describe('upnpService tests', () => {
       await upnpService.declareUpnpIfUnset();
 
       sinon.assert.notCalled(configManager.writeInitial);
+    });
+
+    describe('where flux-upnpd maps the node\'s ports', () => {
+      beforeEach(() => {
+        sinon.stub(upnpd, 'connection').returns('/run/flux-upnpd/api.sock');
+      });
+
+      [[true, true], [false, false], [undefined, false]].forEach(([upnp, answer]) => {
+        it(`should take a node whose userconfig.js says upnp ${upnp} as ${answer ? '' : 'not '}mapping through UPnP, whatever its api port`, () => {
+          globalThis.userconfig = { initial: { apiport: 16137, routerIP: '192.168.1.1', upnp } };
+
+          expect(upnpService.isUPNP()).to.equal(answer);
+        });
+      });
+
+      it('should never work out upnp from the network settings: configd writes it', async () => {
+        globalThis.userconfig = { initial: { apiport: 16137, routerIP: '192.168.1.1' } };
+
+        await upnpService.declareUpnpIfUnset();
+
+        sinon.assert.notCalled(configManager.writeInitial);
+      });
+
+      it('should refuse every operator route, asking the router nothing', async () => {
+        sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+        const createMapping = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+        const removeMapping = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+        const getPublicIp = sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves('1.2.3.4');
+        const getGateway = sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves({});
+        const getMappingAt = sinon.stub(natUpnp.Client.prototype, 'getMappingAt').resolves(null);
+        const routes = [upnpService.mapPortApi, upnpService.removeMapPortApi, upnpService.getMapApi, upnpService.getIpApi, upnpService.getGatewayApi];
+        // eslint-disable-next-line no-restricted-syntax
+        for (const route of routes) {
+          const res = generateResponse();
+          // eslint-disable-next-line no-await-in-loop
+          await route({ params: { port: 31000 }, query: {} }, res);
+          expect(res.json.firstCall.args[0].status, route.name).to.equal('error');
+          expect(res.json.firstCall.args[0].data.message, route.name).to.include('flux-upnpd maps this node\'s ports');
+        }
+        [createMapping, removeMapping, getPublicIp, getGateway, getMappingAt].forEach((stub) => sinon.assert.notCalled(stub));
+      });
     });
   });
 

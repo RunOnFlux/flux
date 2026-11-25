@@ -1,15 +1,18 @@
 /* eslint-disable no-restricted-syntax */
 const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const natUpnp = require('@runonflux/nat-upnp');
 const sinon = require('sinon');
 const log = require('../../ZelBack/src/lib/log');
 const upnpRouter = require('../../ZelBack/src/services/upnpRouter');
 const portReconciler = require('../../ZelBack/src/services/portReconciler');
 const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
+const upnpd = require('../../ZelBack/src/services/upnpd');
 const config = require('config');
 
 const { upnp: { testMappingLeaseS: TEST_LEASE_S } } = config;
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('portReconciler tests', () => {
@@ -1488,7 +1491,7 @@ describe('portReconciler tests', () => {
     it('wants a port for an installation, asking the router nothing', async () => {
       await portReconciler.declare(31000, 'Flux_App_web');
 
-      expect(portReconciler.wanted.get(31000)).to.deep.equal({ description: 'Flux_App_web', holder: null });
+      expect(portReconciler.wanted.get(31000)).to.deep.equal({ description: 'Flux_App_web', holder: null, protocols: ['TCP', 'UDP'] });
       sinon.assert.notCalled(createMappingStub);
     });
 
@@ -1509,6 +1512,115 @@ describe('portReconciler tests', () => {
       expect(result.released).to.equal(true);
       sinon.assert.notCalled(createMappingStub);
       expect(portReconciler.isWanted(31000)).to.equal(false);
+    });
+  });
+
+  describe('where flux-upnpd maps the node\'s ports', () => {
+    let mapStub;
+    let desiredStub;
+    let createMappingStub;
+
+    beforeEach(() => {
+      portReconciler.wanted.clear();
+      sinon.stub(upnpd, 'connection').returns('/run/flux-upnpd/api.sock');
+      mapStub = sinon.stub(upnpd, 'map').resolves({ ok: true });
+      desiredStub = sinon.stub(upnpd, 'desiredChanged').resolves();
+      createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+    });
+
+    afterEach(() => {
+      portReconciler.wanted.clear();
+    });
+
+    it('maps a wanted port through flux-upnpd, in each protocol lowercased', async () => {
+      const result = await portReconciler.want(31000, 'Flux_App_web');
+
+      expect(result).to.deep.equal({
+        mapped: true, code: null, reason: null, routerWide: false,
+      });
+      sinon.assert.calledOnceWithExactly(mapStub, 31000, 'Flux_App_web', ['tcp', 'udp']);
+      expect(portReconciler.wanted.get(31000)).to.deep.equal({ description: 'Flux_App_web', holder: null, protocols: ['TCP', 'UDP'] });
+      sinon.assert.notCalled(createMappingStub);
+    });
+
+    it('answers a failed map with flux-upnpd\'s failure, the router\'s own as router-wide', async () => {
+      const failures = [
+        [{ ok: false, protocol: 'tcp', failure: 'unanswered', reason: 'no gateway answered' }, true],
+        [{ ok: false, protocol: 'udp', failure: 'refused', reason: 'ConflictInMappingEntry' }, true],
+        [{ ok: false, protocol: 'tcp', failure: 'held', holder: '192.168.1.50' }, false],
+        [{ ok: false, protocol: 'tcp', failure: 'leaving', reason: 'leaving 192.168.1.10' }, false],
+        [{ ok: false, failure: 'stopped', reason: 'flux-upnpd is not running' }, false],
+      ];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [answer, routerWide] of failures) {
+        mapStub.resolves(answer);
+        // eslint-disable-next-line no-await-in-loop
+        const result = await portReconciler.want(31000, 'Flux_App_web', { logged: false });
+        expect(result).to.include({
+          mapped: false, code: null, routerWide, failure: answer.failure, protocol: answer.protocol ?? null, heldBy: answer.holder ?? null,
+        });
+        expect(result.reason).to.be.a('string').and.include(answer.failure);
+        expect(portReconciler.isWanted(31000), 'wanted until released').to.equal(true);
+      }
+    });
+
+    it('never maps a port an installation wants for a test', async () => {
+      await portReconciler.declare(31000, 'Flux_App_web');
+      const holder = {};
+
+      const result = await portReconciler.want(31000, 'Flux_Test_App', { holder });
+
+      expect(result).to.include({ mapped: false, reason: '31000 held by an installation' });
+      sinon.assert.notCalled(mapStub);
+      expect(portReconciler.holds(31000, holder)).to.equal(false);
+    });
+
+    it('declares a port in both protocols and tells flux-upnpd, asking the router nothing', async () => {
+      await portReconciler.declare(31000, 'Flux_App_web');
+
+      expect(portReconciler.desiredPorts()).to.deep.equal([{ port: 31000, description: 'Flux_App_web', protocols: ['tcp', 'udp'] }]);
+      sinon.assert.calledOnce(desiredStub);
+      sinon.assert.notCalled(mapStub);
+    });
+
+    it('releases a port from the set flux-upnpd is given', async () => {
+      await portReconciler.want(31000, 'Flux_App_web');
+      desiredStub.resetHistory();
+
+      expect(await portReconciler.release(31000, 'Flux_App_web')).to.equal(true);
+
+      expect(portReconciler.isWanted(31000)).to.equal(false);
+      expect(portReconciler.desiredPorts()).to.deep.equal([]);
+      sinon.assert.calledOnce(desiredStub);
+    });
+
+    it('leaves a port another holder has taken since to it', async () => {
+      const first = {};
+      const second = {};
+      await portReconciler.want(31000, 'Flux_Test_App', { protocols: ['TCP'], holder: first });
+      await portReconciler.want(31000, 'Flux_Test_App', { protocols: ['TCP'], holder: second });
+
+      await portReconciler.release(31000, 'Flux_Test_App', { holder: first });
+
+      expect(portReconciler.holds(31000, second)).to.equal(true);
+    });
+
+    it('refuses every turn on the router, and keep', async () => {
+      const work = sinon.spy();
+
+      await expect(portReconciler.onRouter(work)).to.be.rejectedWith('flux-upnpd maps this node\'s ports');
+      await expect(portReconciler.keep(31000)).to.be.rejectedWith('flux-upnpd maps this node\'s ports');
+
+      sinon.assert.notCalled(work);
+      sinon.assert.notCalled(createMappingStub);
+    });
+
+    it('counts a failure that is the router\'s own as a refusal', () => {
+      const before = upnpRouter.routerRefusals();
+
+      upnpd.events.emit('routerFailure');
+
+      expect(upnpRouter.routerRefusals()).to.equal(before + 1);
     });
   });
 });

@@ -9,6 +9,7 @@ const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
 const upnpService = require('../upnpService');
 const portReconciler = require('../portReconciler');
+const upnpd = require('../upnpd');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 const serviceHelper = require('../serviceHelper');
 const publicPorts = require('../utils/publicPorts');
@@ -382,6 +383,69 @@ async function restoreAppsPortsPass() {
   }
 }
 
+// The timer of each app port flux-upnpd reports failing, by `port/protocol`.
+const failingTimers = new Map();
+
+/**
+ * Queues the removal of the app whose port has been failing since `entry.sinceMs`, if the port
+ * is still an installed app's.
+ * @param {{port: number, protocol: string, failure: string, holder: string|null, reason: string|null, sinceMs: number}} entry
+ */
+function removeAppOfFailingPort(entry) {
+  failingTimers.delete(`${entry.port}/${entry.protocol}`);
+  const app = portReconciler.desiredAppPorts().find(({ port }) => port === entry.port);
+  if (!app) return;
+  const name = app.description.slice(APP_DESCRIPTION_PREFIX.length);
+  const why = entry.failure === 'held' ? `held by ${entry.holder}` : entry.reason;
+  const minutes = Math.round((monotonicMs() - entry.sinceMs) / 60000);
+  log.warn(`REMOVAL REASON: UPNP port mapping failure - ${name}'s port ${entry.protocol.toUpperCase()} ${entry.port} has failed to map for ${minutes}m: ${entry.failure}${why ? ` (${why})` : ''} (portManager)`);
+  fluxEventBus.publish('upnp:failingAppRemoved', {
+    app: name, port: entry.port, protocol: entry.protocol, failure: entry.failure,
+  });
+  localRemovalQueue.queueRemovals([name]);
+}
+
+/**
+ * Times a mapping's state: a failing one removes its app once it has been failing for
+ * config.upnp.failingAppRemovalMs; any other ends its timer.
+ * @param {{port: number, protocol: string, state: string, sinceMs: number}} entry
+ */
+function timeMappingState(entry) {
+  const key = `${entry.port}/${entry.protocol}`;
+  clearTimeout(failingTimers.get(key));
+  failingTimers.delete(key);
+  if (entry.state !== 'failing') return;
+  const waitMs = Math.max(0, entry.sinceMs + config.upnp.failingAppRemovalMs - monotonicMs());
+  failingTimers.set(key, setTimeout(() => removeAppOfFailingPort(entry), waitMs));
+}
+
+/**
+ * Times every mapping's state again, from flux-upnpd's state on a new event stream.
+ */
+function timeMappingStates() {
+  failingTimers.forEach((timer) => clearTimeout(timer));
+  failingTimers.clear();
+  upnpd.mappingStates().forEach(timeMappingState);
+}
+
+/**
+ * Where flux-upnpd maps the node's ports: removes an app once any of its ports has been failing
+ * to map for config.upnp.failingAppRemovalMs, from the state flux-upnpd gives each mapping and
+ * how long it has been in it. Follows flux-upnpd from here on; the returned function stops it.
+ * @returns {function(): void}
+ */
+function removeAppsWithFailingPorts() {
+  upnpd.events.on('states', timeMappingStates);
+  upnpd.events.on('mappingState', timeMappingState);
+  timeMappingStates();
+  return () => {
+    upnpd.events.off('states', timeMappingStates);
+    upnpd.events.off('mappingState', timeMappingState);
+    failingTimers.forEach((timer) => clearTimeout(timer));
+    failingTimers.clear();
+  };
+}
+
 /**
  * Once per FluxOS start, removes the router's UPnP mappings to this node that
  * nothing here holds any more (see upnpService.removeStaleMappings).
@@ -406,9 +470,6 @@ async function removeStaleUpnpMappings() {
     const removed = await upnpService.removeStaleMappings(async () => {
       const configuredApiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
       const held = [...upnpService.corePorts(listeningApiPort()), ...upnpService.corePorts(configuredApiPort)];
-      if (socketPath()) {
-        [publicPorts.getApiPort(), ...publicPorts.getAlsoServing()].forEach((port) => held.push(...upnpService.corePorts(port)));
-      }
       const installedApps = await assignedPortsInstalledApps();
       installedApps.forEach((app) => held.push(...app.ports));
       return held;
@@ -466,11 +527,16 @@ async function mapDeclaredPorts(declared) {
  * only while its port is still wanted at its turn, so a removal that releases a
  * port meanwhile leaves it unmapped. An install wants its own ports, and a
  * removal releases them.
+ *
+ * Where flux-upnpd maps the node's ports, it is given the whole set once every
+ * port is wanted (upnpd.openDesired), and keeps the mappings from then on. A
+ * table that cannot be read leaves it the set it was last given.
  * @returns {Promise<void>}
  */
 async function declareInstalledAppsPorts() {
   try {
     if (!upnpService.isUPNP()) return;
+    const throughUpnpd = Boolean(upnpd.connection());
     const installedApps = await assignedPortsInstalledApps();
     const declared = [];
     // eslint-disable-next-line no-restricted-syntax
@@ -483,7 +549,8 @@ async function declareInstalledAppsPorts() {
         declared.push(entry);
       }
     }
-    mapDeclaredPorts(declared);
+    if (throughUpnpd) await upnpd.openDesired();
+    else mapDeclaredPorts(declared);
   } catch (error) {
     log.error(`declareInstalledAppsPorts - ${error.message}`);
   }
@@ -1635,6 +1702,7 @@ module.exports = {
   restoreAppsPortsSupport,
   restorePortsSupport,
   refreshPortsInSlot,
+  removeAppsWithFailingPorts,
   declareInstalledAppsPorts,
   removeStaleUpnpMappings,
   getAllUsedPorts,

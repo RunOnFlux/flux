@@ -138,6 +138,7 @@ module.exports = {
     cleanupCycleMs: 10 * 60 * 1000,
     removalRetryFirstMs: 30 * 1000,
     removalRetryMaxMs: 60 * 1000,
+    failingAppRemovalMs: 30 * 60 * 1000,
     verifyRetryFirstMs: 10 * 1000,
     verifyRetryMaxMs: 120 * 1000,
     testMappingLeaseS: 3 * 60,

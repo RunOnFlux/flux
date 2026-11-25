@@ -23,6 +23,7 @@ describe('appStartupManager tests', () => {
   let appQueryServiceStub;
   let appPlacementsStub;
   let portManagerStub;
+  let upnpdStub;
   let appSliceStub;
   let nodeStatusMonitor;
   let confirmationStub;
@@ -84,6 +85,7 @@ describe('appStartupManager tests', () => {
       declareInstalledAppsPorts: sinon.stub().resolves(),
     };
 
+    upnpdStub = { connection: sinon.stub().returns(null) };
     registryManagerStub = {
       getApplicationGlobalSpecifications: sinon.stub(),
     };
@@ -175,6 +177,7 @@ describe('appStartupManager tests', () => {
       '../utils/appConstants': { localAppsInformation: 'localAppsInformation', SIGTERM_EXPIRY_MS: 420000, RUNNING_EXPIRY_MS: 7500000 },
       '../utils/appUtilities': appUtilities,
       '../nodeConfirmationService': confirmationStub,
+      '../upnpd': upnpdStub,
     });
   });
 
@@ -795,6 +798,54 @@ describe('appStartupManager tests', () => {
         routerEventsStub.emit('upnpReady');
 
         sinon.assert.calledOnceWithExactly(nodeDosStateStub.clearStickyDos, 'upnpRouter');
+      });
+    });
+
+    describe('the ports flux-upnpd is given', () => {
+      const KEEP = { machineRebooted: false, downtimeMs: 1000, cleanShutdown: true };
+      const EXPIRED = { machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false };
+      const reconciled = () => logStub.info.getCalls().find((call) => /Starting boot reconciliation/.test(call.args[0]));
+
+      beforeEach(() => {
+        upnpServiceStub.isUPNP.returns(true);
+        dockerServiceStub.dockerListContainers.resolves([]);
+        dbHelperStub.findInDatabase.resolves([]);
+      });
+
+      it('are declared before the reconcile where FluxOS maps through the router itself', async () => {
+        await appStartupManager.manageAppsOnBoot(KEEP);
+
+        sinon.assert.calledOnce(portManagerStub.declareInstalledAppsPorts);
+        expect(portManagerStub.declareInstalledAppsPorts.firstCall.calledBefore(reconciled())).to.equal(true);
+      });
+
+      it('are the installed apps\' once boot has reconciled them, where flux-upnpd maps the node\'s ports', async () => {
+        upnpdStub.connection.returns('/run/flux-upnpd/api.sock');
+
+        await appStartupManager.manageAppsOnBoot(KEEP);
+
+        sinon.assert.calledOnce(portManagerStub.declareInstalledAppsPorts);
+        expect(portManagerStub.declareInstalledAppsPorts.firstCall.calledAfter(reconciled())).to.equal(true);
+      });
+
+      it('are the installed apps\' once boot has removed them all', async () => {
+        upnpdStub.connection.returns('/run/flux-upnpd/api.sock');
+        appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
+
+        await appStartupManager.manageAppsOnBoot(EXPIRED);
+
+        sinon.assert.calledOnce(portManagerStub.declareInstalledAppsPorts);
+        expect(portManagerStub.declareInstalledAppsPorts.firstCall.calledAfter(appUninstallerStub.removeAppLocally.lastCall)).to.equal(true);
+      });
+
+      it('are the installed apps\' when boot leaves them to an out-of-service hold', async () => {
+        upnpdStub.connection.returns('/run/flux-upnpd/api.sock');
+        holdNode('insightExplorer', 'fluxd is running without insightexplorer=1');
+
+        await appStartupManager.manageAppsOnBoot(KEEP);
+
+        sinon.assert.calledOnce(portManagerStub.declareInstalledAppsPorts);
+        sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
       });
     });
 

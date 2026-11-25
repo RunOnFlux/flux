@@ -4,13 +4,10 @@
  * The proxy owns them and writes /run/flux-config/fluxos-proxy-ports.json, by rename, once nginx
  * holds them:
  *
- *   {"uiPort": 16126, "apiPort": 16127, "apiPortHttps": 16128, "alsoServing": []}
+ *   {"uiPort": 16126, "apiPort": 16127, "apiPortHttps": 16128}
  *
- * alsoServing holds the API ports kept through a move, until the chain lists the new one. FluxOS
- * follows that file while running and is never restarted for a change, and republishes it
- * in its own port file with confirmedApiPort, the API port the chain lists for this node, which
- * tells configd when a port kept through a move can go. Off the socket FluxOS's ports are its
- * configured ones.
+ * FluxOS follows that file while running and is never restarted for a change, and republishes
+ * it in its own port file. Off the socket FluxOS's ports are its configured ones.
  */
 
 const { EventEmitter } = require('node:events');
@@ -21,14 +18,12 @@ const config = require('config');
 
 const log = require('../../lib/log');
 const portFile = require('./portFile');
-const { socketPath } = require('./apiSocket');
 
 const PORTS_FILE = '/run/flux-config/fluxos-proxy-ports.json';
 
 const events = new EventEmitter();
 
 let published = null;
-let confirmedApiPort;
 let watcher = null;
 let firstRead = null;
 
@@ -45,37 +40,13 @@ function getApiPort() {
 
 function publish() {
   if (!published) return Promise.resolve(false);
-  return portFile.writePortFile({ ...published, confirmedApiPort });
-}
-
-/**
- * @returns {number[]} The API ports kept through a move.
- */
-function getAlsoServing() {
-  return published?.alsoServing ?? [];
-}
-
-/**
- * Records the API port the chain lists for this node.
- * @param {number} port
- * @returns {Promise<void>}
- */
-async function setConfirmedApiPort(port) {
-  if (!socketPath() || Number(port) === confirmedApiPort) return;
-  confirmedApiPort = Number(port);
-  await publish();
+  return portFile.writePortFile(published);
 }
 
 function readPorts(file) {
   try {
-    const {
-      apiPort, apiPortHttps, uiPort, alsoServing = [],
-    } = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if ([apiPort, apiPortHttps, uiPort, ...alsoServing].every(Number.isInteger)) {
-      return {
-        apiPort, apiPortHttps, uiPort, alsoServing,
-      };
-    }
+    const { apiPort, apiPortHttps, uiPort } = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if ([apiPort, apiPortHttps, uiPort].every(Number.isInteger)) return { apiPort, apiPortHttps, uiPort };
     log.error(`${file} does not hold three ports`);
   } catch (error) {
     if (error.code !== 'ENOENT') log.error(`${file} could not be read: ${error.message}`);
@@ -120,15 +91,12 @@ function stop() {
   watcher = null;
   firstRead = null;
   published = null;
-  confirmedApiPort = undefined;
 }
 
 module.exports = {
-  getAlsoServing,
   getApiPort,
   onChange: (listener) => events.on('change', listener),
   offChange: (listener) => events.off('change', listener),
-  setConfirmedApiPort,
   start,
   stop,
 };

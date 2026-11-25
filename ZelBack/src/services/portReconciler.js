@@ -15,14 +15,21 @@ const {
   isTestMappingDescription,
 } = upnpRouter;
 const upnpMappingRecord = require('./upnpMappingRecord');
+const upnpd = require('./upnpd');
+
+upnpd.events.on('routerFailure', () => upnpRouter.countRefusal());
 
 // The one owner of this node's UPnP mappings, and the only way to the router:
 // every request this node makes of it runs as a turn on one lane (onRouter),
 // which alone hands out the client. No other turn reaches the router until it
 // settles, so what a turn reads of this module's state still holds when it
 // acts on it, and the router answers one request of this node at a time.
+//
+// Where flux-upnpd maps the node's ports (upnpd.connection()), it alone writes
+// to the router: what is wanted goes to it (upnpd), a want is its map, and keep
+// and every turn on the router are refused.
 
-// Ports wanted mapped to this node, by port: { description, holder }: what this
+// Ports wanted mapped to this node, by port: { description, holder, protocols }: what this
 // node's mappings should be. A port is wanted from its want or hold until its
 // release, a map the router refused included, so the refresh renews exactly what
 // is wanted (keep). A port wanted here is in use - a test port mid-test, an app
@@ -58,6 +65,9 @@ let laneRunning = false;
 
 // what an app's ports are described as (appInstaller.setupApplicationPorts)
 const APP_DESCRIPTION_PREFIX = 'Flux_App_';
+// An app's ports are wanted in both protocols.
+const APP_PROTOCOLS = ['TCP', 'UDP'];
+const UPNPD_MAPS = 'flux-upnpd maps this node\'s ports: FluxOS asks nothing of the router';
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -113,6 +123,7 @@ async function runLane() {
  * @returns {Promise<T>} what `work` settles with
  */
 function onRouter(work, { upkeep = false } = {}) {
+  if (upnpd.connection()) return Promise.reject(new Error(UPNPD_MAPS));
   const turn = { work };
   const settled = new Promise((resolve, reject) => {
     turn.resolve = resolve;
@@ -218,7 +229,7 @@ async function mapPort(port, description, {
     };
   }
   const heldFor = current && current.holder === null ? null : holder;
-  wanted.set(port, { description, holder: heldFor });
+  wanted.set(port, { description, holder: heldFor, protocols });
   wantedMaps.delete(port);
   if (!isTestMappingDescription(description)) await removeHeldTestMappings(port);
   dropPendingRemovals(port);
@@ -374,8 +385,70 @@ async function releasePort(port, description, holder) {
  * @param {object} holder
  */
 function holdPort(port, description, holder) {
-  wanted.set(port, { description, holder });
+  wanted.set(port, { description, holder, protocols: ['TCP'] });
   dropPendingRemovals(port);
+}
+
+/**
+ * want, where flux-upnpd maps the node's ports: the port is wanted, then mapped at once by
+ * flux-upnpd, which keeps it from then on. A port an installation wants is never mapped for a
+ * test, as in mapPort. On a failure the port stays wanted until its release.
+ * @param {number} port
+ * @param {string} description
+ * @param {{protocols: string[], logged: boolean, holder: object|null}} options
+ * @returns {Promise<{mapped: boolean, code: null, reason: string|null, routerWide: boolean, failure?: string, protocol?: string|null, heldBy?: string|null}>}
+ *   failure, protocol and heldBy as flux-upnpd's `mapped` gives them; routerWide for a failure
+ *   that is the router's own
+ */
+async function wantOfUpnpd(port, description, { protocols, logged, holder }) {
+  const current = wanted.get(port);
+  if (holder && current && current.holder === null) {
+    return {
+      mapped: false, code: null, reason: `${port} held by an installation`, routerWide: false,
+    };
+  }
+  const heldFor = current && current.holder === null ? null : holder;
+  wanted.set(port, { description, holder: heldFor, protocols });
+  const result = await upnpd.map(port, description, protocols.map((protocol) => protocol.toLowerCase()));
+  if (result.ok) return MAPPED;
+  const why = result.failure === 'held' ? `held by ${result.holder}` : result.reason;
+  const failed = {
+    mapped: false,
+    code: null,
+    reason: `${result.protocol ? `${result.protocol.toUpperCase()} ` : ''}${port} not mapped: ${result.failure}${why ? ` (${why})` : ''}`,
+    routerWide: upnpd.ROUTER_FAILURES.has(result.failure),
+    failure: result.failure,
+    protocol: result.protocol ?? null,
+    heldBy: result.holder ?? null,
+  };
+  if (logged) log.error(`UPnP - ${failed.reason}`);
+  return failed;
+}
+
+/**
+ * release, where flux-upnpd maps the node's ports: the port is no longer wanted, and flux-upnpd
+ * removes it once it has been out of the set for its grace. A port another holder has taken since
+ * is left to it.
+ * @param {number} port
+ * @param {object|null} holder
+ * @returns {Promise<boolean>} true: nothing is left for FluxOS to remove
+ */
+async function releaseOfUpnpd(port, holder) {
+  const current = wanted.get(port);
+  if (holder !== null && current && current.holder !== holder) return true;
+  wanted.delete(port);
+  await upnpd.desiredChanged();
+  return true;
+}
+
+/**
+ * The ports wanted mapped, as flux-upnpd's PUT /desired takes them.
+ * @returns {Array<{port: number, description: string, protocols: string[]}>}
+ */
+function desiredPorts() {
+  return [...wanted].map(([port, { description, protocols }]) => ({
+    port, description, protocols: protocols.map((protocol) => protocol.toLowerCase()),
+  }));
 }
 
 /**
@@ -387,8 +460,12 @@ function holdPort(port, description, holder) {
  * @returns {Promise<void>}
  */
 function declare(port, description) {
+  if (upnpd.connection()) {
+    wanted.set(+port, { description, holder: null, protocols: APP_PROTOCOLS });
+    return upnpd.desiredChanged();
+  }
   return onRouter(() => {
-    wanted.set(+port, { description, holder: null });
+    wanted.set(+port, { description, holder: null, protocols: APP_PROTOCOLS });
   });
 }
 
@@ -406,8 +483,9 @@ function declare(port, description) {
  *   the first refusal, as mapProtocol gives it; mapped when every protocol is
  */
 function want(port, description, {
-  protocols = ['TCP', 'UDP'], counted = true, logged = true, holder = null,
+  protocols = APP_PROTOCOLS, counted = true, logged = true, holder = null,
 } = {}) {
+  if (upnpd.connection()) return wantOfUpnpd(+port, description, { protocols, logged, holder });
   return onRouter(() => mapPort(+port, description, {
     protocols, counted, logged, holder, upkeep: false,
   }));
@@ -422,7 +500,7 @@ function want(port, description, {
  * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean, released?: boolean}>}
  *   released, and nothing asked of the router, for a port no installation wants
  */
-function keep(port, { protocols = ['TCP', 'UDP'] } = {}) {
+function keep(port, { protocols = APP_PROTOCOLS } = {}) {
   return onRouter(() => keepPort(+port, protocols), { upkeep: true });
 }
 
@@ -444,6 +522,7 @@ function desiredAppPorts() {
  * @returns {Promise<boolean>} whether nothing of this release is left on the router
  */
 function release(port, description = '', { holder = null } = {}) {
+  if (upnpd.connection()) return releaseOfUpnpd(+port, holder);
   return onRouter(() => releasePort(+port, description, holder));
 }
 
@@ -457,6 +536,10 @@ function release(port, description = '', { holder = null } = {}) {
  * @returns {Promise<void>}
  */
 function hold(port, description, holder) {
+  if (upnpd.connection()) {
+    wanted.set(+port, { description, holder, protocols: ['TCP'] });
+    return upnpd.desiredChanged();
+  }
   return onRouter(() => holdPort(+port, description, holder));
 }
 
@@ -489,6 +572,7 @@ function removalPending() {
 }
 
 module.exports = {
+  desiredPorts,
   onRouter,
   want,
   declare,

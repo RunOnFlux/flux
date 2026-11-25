@@ -162,11 +162,21 @@ let routerRefusalCount = 0;
  * How many of this node's mappings the router has refused since FluxOS started
  * for a reason that is its own and not the port's: no answer, or any refusal
  * but those PORT_REFUSALS names for a port it does not hold for something
- * else. verifyUPNPsupport's test mapping is not counted. Only ever goes up.
+ * else. verifyUPNPsupport's test mapping is not counted. Where flux-upnpd maps
+ * the node's ports, each mapping it reports unanswered or refused. Only ever goes
+ * up.
  * @returns {number}
  */
 function routerRefusals() {
   return routerRefusalCount;
+}
+
+/**
+ * Counts one refusal in routerRefusals.
+ */
+function countRefusal() {
+  routerRefusalCount += 1;
+  routerEvents.emit('mappingRefused');
 }
 
 /**
@@ -275,10 +285,7 @@ async function mapProtocol(port, protocol, description, { counted = true } = {})
     const code = answered ? error.code : null;
     // no answer, with no code, is the router's too
     const routerWide = !PORT_REFUSALS.has(code) && !(heldElsewhere && code !== NO_PORT_MAPS_AVAILABLE);
-    if (routerWide && counted) {
-      routerRefusalCount += 1;
-      routerEvents.emit('mappingRefused');
-    }
+    if (routerWide && counted) countRefusal();
     return {
       mapped: false, code, reason: `${protocol} ${port} not mapped: ${error.message}`, routerWide,
     };
@@ -371,6 +378,7 @@ module.exports = {
   routerEvents,
   routerLeases,
   routerRefusals,
+  countRefusal,
   MAPPED,
   mapsHere,
   leaseFor,

@@ -23,6 +23,7 @@ const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
+const upnpd = require('./upnpd');
 const publicPorts = require('./utils/publicPorts');
 const { socketPath } = require('./utils/apiSocket');
 const appInspector = require('./appManagement/appInspector');
@@ -785,12 +786,18 @@ async function startFluxFunctions() {
       // read the local app table, so it waits on the same db the sweep beside it waits
       // on.
       imageManager.startComplianceSweeps(appQueryService.installedApps, appUninstaller.removeAppLocally);
-      // Detached: from the boot gate settling, once per cycle in this node's
-      // own refresh slot. Nothing waits on it.
-      portManager.refreshPortsInSlot();
-      // Detached: one pass per start, once the boot gate has settled and in
-      // this node's own slot. Nothing waits on it.
-      portManager.removeStaleUpnpMappings();
+      if (upnpd.connection()) {
+        // flux-upnpd keeps the mappings and removes stale ones, and configd
+        // the static ports' firewall: FluxOS removes an app whose ports fail.
+        portManager.removeAppsWithFailingPorts();
+      } else {
+        // Detached: from the boot gate settling, once per cycle in this node's
+        // own refresh slot. Nothing waits on it.
+        portManager.refreshPortsInSlot();
+        // Detached: one pass per start, once the boot gate has settled and in
+        // this node's own slot. Nothing waits on it.
+        portManager.removeStaleUpnpMappings();
+      }
     };
     startDbDependentServices();
     log.info('Starting setting Node Geolocation');

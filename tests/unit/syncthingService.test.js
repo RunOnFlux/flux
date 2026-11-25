@@ -950,13 +950,15 @@ describe('syncthingService tests', () => {
 
   describe('adjustSyncthing listen addresses', () => {
     let patch;
+    let configOptions;
 
     beforeEach(() => {
+      ({ configOptions } = syncthingFixtures);
       syncthingService.getAxiosCache().reset();
       sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
       sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
       const get = sinon.fake(async (reqPath) => {
-        if (reqPath === '/rest/config/options') return { data: syncthingFixtures.configOptions };
+        if (reqPath === '/rest/config/options') return { data: configOptions };
         return { data: {} };
       });
       patch = sinon.fake.resolves({ data: {} });
@@ -974,6 +976,23 @@ describe('syncthingService tests', () => {
       const options = patch.getCalls().find((call) => call.args[0] === '/rest/config/options');
       expect(options, 'the options written').to.not.equal(undefined);
       expect(options.args[1].listenAddresses).to.deep.equal([`tcp://:${+config.server.apiport + 2}`]);
+    });
+
+    it('leaves syncthing\'s listener to configd behind the front proxy', async () => {
+      configOptions = { ...syncthingFixtures.configOptions, globalAnnounceEnabled: true };
+      const socketBefore = process.env.FLUXOS_API_SOCKET;
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
+      try {
+        await syncthingService.adjustSyncthing();
+      } finally {
+        if (socketBefore === undefined) delete process.env.FLUXOS_API_SOCKET;
+        else process.env.FLUXOS_API_SOCKET = socketBefore;
+      }
+
+      const options = patch.getCalls().find((call) => call.args[0] === '/rest/config/options');
+      expect(options, 'the options written').to.not.equal(undefined);
+      expect(options.args[1]).to.not.have.property('listenAddresses');
+      expect(options.args[1]).to.include({ globalAnnounceEnabled: false, natEnabled: false });
     });
   });
 

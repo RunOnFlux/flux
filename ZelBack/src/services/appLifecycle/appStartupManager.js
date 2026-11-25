@@ -23,6 +23,7 @@ const appPlacements = require('../appManagement/appPlacements');
 const { TIMED_OUT } = require('../utils/withinDeadline');
 const portManager = require('../appNetwork/portManager');
 const upnpService = require('../upnpService');
+const upnpd = require('../upnpd');
 const { routerEvents } = require('../upnpRouter');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -557,8 +558,9 @@ async function manageAppsOnBoot(bootContext) {
     await openInstalledAppPorts();
     // Every installed app's ports are wanted before the reconcile can remove an
     // app, whose removal then releases them; the apps start without waiting on
-    // the mappings, which follow in the background.
-    await portManager.declareInstalledAppsPorts();
+    // the mappings, which follow in the background. flux-upnpd is given them
+    // where boot ends, below.
+    if (!upnpd.connection()) await portManager.declareInstalledAppsPorts();
     try {
       await reconcileAppsOnBoot();
     } catch (error) {
@@ -568,6 +570,9 @@ async function manageAppsOnBoot(bootContext) {
     }
   } finally {
     stopWatching();
+    // However boot ends, flux-upnpd is given the ports of the apps it leaves
+    // installed; until then it keeps the set it was last given.
+    if (upnpd.connection()) await portManager.declareInstalledAppsPorts();
     globalState.bootContainerStateSettled = true;
     fluxEventBus.publish('boot:settled', {});
     log.info('appStartupManager - Boot container state settled');

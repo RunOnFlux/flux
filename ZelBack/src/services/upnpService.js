@@ -1,5 +1,4 @@
 const config = require('config');
-const { socketPath } = require('./utils/apiSocket');
 const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -24,6 +23,7 @@ const {
   mayStillBeThisNodes,
 } = upnpRouter;
 const portReconciler = require('./portReconciler');
+const upnpd = require('./upnpd');
 const configManager = require('./utils/configManager');
 const upnpMappingRecord = require('./upnpMappingRecord');
 
@@ -82,27 +82,29 @@ let upnpReady = false;
 let mapping = null;
 
 /**
- * Whether this node maps its ports through UPnP. On an api port other than
- * config.server.apiport it always does: only a UPnP node can take one. On that
- * port, as the operator's `upnp` in userconfig.js says (declareUpnpIfUnset writes
- * it where it is missing). A router that does not answer leaves a UPnP node a UPnP
- * node, out of service until it does.
+ * Whether this node maps its ports through UPnP. Where flux-upnpd maps them, as
+ * `upnp` in userconfig.js says: flux-upnpd decides the api port, which says
+ * nothing of UPnP. Elsewhere, on an api port other than config.server.apiport it
+ * always does: only a UPnP node can take one. On that port, as the operator's
+ * `upnp` says (declareUpnpIfUnset writes it where it is missing). A router that
+ * does not answer leaves a UPnP node a UPnP node, out of service until it does.
  * @returns {boolean}
  */
 function isUPNP() {
   const { apiport, upnp } = globalThis.userconfig?.initial ?? {};
+  if (upnpd.connection()) return upnp === true;
   return upnp === true || Boolean(apiport && Number(apiport) !== config.server.apiport);
 }
 
 /**
  * Writes `upnp` into userconfig.js where it is missing, from the node's network
  * settings (configManager.upnpFromNetworkSettings): from then on it is read, never
- * worked out again.
+ * worked out again. Where flux-upnpd maps the node's ports, configd writes it.
  * @returns {Promise<void>}
  */
 async function declareUpnpIfUnset() {
   const { initial } = globalThis.userconfig;
-  if (typeof initial.upnp === 'boolean') return;
+  if (typeof initial.upnp === 'boolean' || upnpd.connection()) return;
   const upnp = configManager.upnpFromNetworkSettings(initial);
   log.info(`UPnP - userconfig.js says nothing of UPnP; from its api port and router address this node ${upnp ? 'maps' : 'does not map'} its ports through it, and that is written`);
   await configManager.writeInitial({ upnp });
@@ -138,10 +140,10 @@ function setUpnpReady(ready) {
  * @returns {Promise<{verified: boolean, mapped: boolean}>}
  */
 async function verifyAndMap(apiport) {
-  // Behind the front proxy configd maps the ports the proxy serves, whichever is up first, and
-  // this node is ready for its apps' ports as soon as it starts.
-  if (socketPath()) {
-    await adjustFirewallForUPNP();
+  // flux-upnpd maps the node's own ports, and this node is ready for its apps' ports as soon as
+  // it follows flux-upnpd.
+  if (upnpd.connection()) {
+    await upnpd.start({ desired: portReconciler.desiredPorts });
     return { verified: true, mapped: true };
   }
   const verified = await verifyUPNPsupport(apiport);
@@ -479,7 +481,7 @@ async function matchFluxadmMapping(client, port, enabled) {
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
 async function setupUPNP(apiport = config.server.apiport) {
-  if (socketPath()) return true;
+  if (upnpd.connection()) return true;
   try {
     const corePortMappings = [
       [+apiport, 'Flux_Backend_API'],

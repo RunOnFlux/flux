@@ -52,12 +52,24 @@ describe('apiSocket tests', () => {
     });
   });
 
-  describe('router mappings behind the proxy', () => {
+  describe('router mappings where flux-upnpd keeps them', () => {
     const upnpService = require('../../ZelBack/src/services/upnpService');
+    const upnpd = require('../../ZelBack/src/services/upnpd');
+    let dir;
 
-    beforeEach(() => { process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock'; });
+    beforeEach(() => {
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upnpd-'));
+      process.env.FLUXUPNPD_CONNECTION = `unix://${dir}/flux-upnpd/api.sock`;
+    });
 
-    it('leaves the public ports to configd and is ready at once', async () => {
+    afterEach(() => {
+      upnpd.stop();
+      delete process.env.FLUXUPNPD_CONNECTION;
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('maps none of the node\'s own ports and is ready at once', async () => {
       expect(await upnpService.setupUPNP(16127)).to.equal(true);
       expect(await upnpService.startMapping(16127, { learn: () => {} })).to.equal(true);
       expect(upnpService.isUPNPReady()).to.equal(true);

@@ -10,14 +10,6 @@ const publicPorts = require('../../ZelBack/src/services/utils/publicPorts');
 
 const settle = () => new Promise((resolve) => { setTimeout(resolve, 100); });
 
-async function until(condition) {
-  const deadline = Date.now() + 5000;
-  while (!condition() && Date.now() < deadline) {
-    // eslint-disable-next-line no-await-in-loop
-    await new Promise((resolve) => { setTimeout(resolve, 10); });
-  }
-}
-
 describe('publicPorts tests', () => {
   const before = process.env.FLUXOS_API_SOCKET;
   const userconfigBefore = globalThis.userconfig;
@@ -54,7 +46,7 @@ describe('publicPorts tests', () => {
   it('publishes the ports it finds, with no ports before them', async () => {
     const moved = sinon.stub();
     publicPorts.onChange(moved);
-    publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128, alsoServing: [] });
+    publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await publicPorts.start({ file });
     expect(publicPorts.getApiPort()).to.equal(16127);
     sinon.assert.calledOnce(written);
@@ -68,9 +60,7 @@ describe('publicPorts tests', () => {
     publicPorts.onChange(moved);
     publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await publicPorts.start({ file });
-    publish({
-      uiPort: 16136, apiPort: 16137, apiPortHttps: 16138, alsoServing: [16127],
-    });
+    publish({ uiPort: 16136, apiPort: 16137, apiPortHttps: 16138 });
     await settle();
     sinon.assert.calledTwice(moved);
     expect(moved.secondCall.args[0].apiPort).to.equal(16137);
@@ -79,31 +69,12 @@ describe('publicPorts tests', () => {
     publicPorts.offChange(moved);
   });
 
-  it('tells of the end of a move and keeps the ports kept through it', async () => {
-    const moved = sinon.stub();
-    publicPorts.onChange(moved);
-    publish({
-      uiPort: 16146, apiPort: 16147, apiPortHttps: 16148, alsoServing: [16127],
-    });
-    await publicPorts.start({ file });
-    expect(publicPorts.getAlsoServing()).to.deep.equal([16127]);
-    publish({
-      uiPort: 16146, apiPort: 16147, apiPortHttps: 16148, alsoServing: [],
-    });
-    await until(() => moved.calledTwice);
-    sinon.assert.calledTwice(moved);
-    expect(publicPorts.getAlsoServing()).to.deep.equal([]);
-    publicPorts.offChange(moved);
-  });
-
   it('does not count a rewrite of the same ports as a move', async () => {
     const moved = sinon.stub();
     publicPorts.onChange(moved);
     publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await publicPorts.start({ file });
-    publish({
-      uiPort: 16126, apiPort: 16127, apiPortHttps: 16128, alsoServing: [],
-    });
+    publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await settle();
     sinon.assert.calledOnce(moved);
     publicPorts.offChange(moved);
@@ -118,14 +89,10 @@ describe('publicPorts tests', () => {
     expect(publicPorts.getApiPort()).to.equal(16127);
   });
 
-  it('publishes the port the chain lists, once', async () => {
+  it('publishes the ports it serves and nothing else', async () => {
     publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await publicPorts.start({ file });
-    written.resetHistory();
-    await publicPorts.setConfirmedApiPort('16127');
-    await publicPorts.setConfirmedApiPort(16127);
-    sinon.assert.calledOnce(written);
-    expect(written.firstCall.args[0].confirmedApiPort).to.equal(16127);
+    expect(written.firstCall.args[0]).to.deep.equal({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
   });
 
   it('resolves only once the proxy has published', async () => {
@@ -133,7 +100,7 @@ describe('publicPorts tests', () => {
     const started = publicPorts.start({ file }).then(() => { held = true; });
     await settle();
     expect(held).to.equal(false);
-    publish({ uiPort: 16156, apiPort: 16157, apiPortHttps: 16158, alsoServing: [] });
+    publish({ uiPort: 16156, apiPort: 16157, apiPortHttps: 16158 });
     await started;
     expect(publicPorts.getApiPort()).to.equal(16157);
   });
@@ -144,7 +111,7 @@ describe('publicPorts tests', () => {
     const started = publicPorts.start({ file }).then(() => { held = true; });
     await settle();
     expect(held).to.equal(false);
-    publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128, alsoServing: [] });
+    publish({ uiPort: 16126, apiPort: 16127, apiPortHttps: 16128 });
     await started;
   });
 });

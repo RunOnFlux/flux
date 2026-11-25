@@ -12,8 +12,38 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const generalService = require('../../ZelBack/src/services/generalService');
+const upnpd = require('../../ZelBack/src/services/upnpd');
 
 describe('benchmarkService tests', () => {
+  describe('executeUpnpBench tests', () => {
+    let run;
+    let userconfigBefore;
+
+    beforeEach(() => {
+      userconfigBefore = globalThis.userconfig;
+      sinon.stub(fs, 'stat').resolves(true);
+      sinon.stub(generalService, 'checkSynced').resolves(true);
+      run = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('started');
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = userconfigBefore;
+      sinon.restore();
+    });
+
+    [[true, 1], [false, 0]].forEach(([upnp, calls]) => {
+      it(`should ${calls ? '' : 'not '}bench every port of a node whose userconfig.js says upnp ${upnp}, whatever its api port`, async () => {
+        sinon.stub(upnpd, 'connection').returns('/run/flux-upnpd/api.sock');
+        globalThis.userconfig = { initial: { apiport: 16137, upnp } };
+
+        await benchmarkService.executeUpnpBench();
+
+        expect(run.getCalls().filter((call) => call.args[0] === 'startmultiportbench')).to.have.length(calls);
+      });
+    });
+  });
+
   describe('buildBenchdClient tests', () => {
     let connectionBefore;
 
