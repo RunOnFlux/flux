@@ -145,6 +145,11 @@ print(json.dumps(state, indent=1))
 ' 2>&1
 `;
 
+// The series a node running its own syncthing records every 15 s
+// (test-infra/syncthing-metrics.sh): when a slow sync's time went, where the state
+// above says only how much went where.
+const SYNCTHING_METRICS = 'cat /var/log/flux-syncthing-metrics.log 2>/dev/null; true';
+
 const APP_LOGS = `
 for c in $(docker ps -a --format '{{.Names}}'); do
   echo "=== $c ($(docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}}' "$c" 2>&1)), last ${APP_LOG_LINES} lines ==="
@@ -231,6 +236,7 @@ export function dumpLogsOnFailure(getEnv) {
     const nodeFilesByEnv = await Promise.all(envs.map(async (env) => ({
       syncthing: await readFromNodes(env, SYNCTHING_LOGS),
       'syncthing-state': await readFromNodes(env, SYNCTHING_STATE),
+      'syncthing-metrics': await readFromNodes(env, SYNCTHING_METRICS),
       apps: await readFromNodes(env, APP_LOGS),
       network: await readFromNodes(env, NETWORK_STATE),
     })));

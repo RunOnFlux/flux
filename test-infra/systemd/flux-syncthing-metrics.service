@@ -1,0 +1,14 @@
+[Unit]
+# A node running its own syncthing records the daemon's time totals every 15 s
+# (test-infra/syncthing-metrics.sh) for a failed suite's dump. It lives and dies
+# with the node's container.
+Description=syncthing time totals, every 15 s (harness node, real syncthing)
+
+[Service]
+EnvironmentFile=/etc/fluxos-harness.env
+ExecStart=/flux/test-infra/syncthing-metrics.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
