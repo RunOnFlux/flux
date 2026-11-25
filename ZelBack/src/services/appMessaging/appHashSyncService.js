@@ -855,6 +855,7 @@ async function syncMissingHashes(options = {}) {
 
   syncRunning = true;
   try {
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.HASHSYNC_BEFORE_SELECT);
     const db = dbHelper.databaseConnection();
     const daemonDb = db.db(config.database.daemon.database);
 

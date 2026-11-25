@@ -121,6 +121,8 @@ const Checkpoint = Object.freeze({
   // The availability check is listening on the port it tests and has not yet
   // asked a peer to reach it. Keyed by the port.
   AVAILABILITY_LISTENING: 'availability:listening',
+  // A hash sync has started and has not yet chosen which hashes to fetch.
+  HASHSYNC_BEFORE_SELECT: 'hashSync:beforeSelect',
   // A bulk hash sync has staged what its peers sent and has not yet verified
   // any of it.
   HASHSYNC_BEFORE_VERIFY: 'hashSync:beforeVerify',
