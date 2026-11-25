@@ -1390,8 +1390,11 @@ class AppSyncOrchestrator {
   }
 }
 
-// The state this node's running orchestrator is in now, and where its state-sync
-// attempt stands - harness-only, see fluxEventBus.js.
-fluxEventBus.snapshot('orchestrator', () => ({ state: globalState.appSyncState, attempt: running?.syncAttempt() ?? null }));
+// The state this node's running orchestrator is in now, where its state-sync attempt
+// stands, and whether its app registry is built (globalState.dbReady, which admitting an
+// app message needs) - harness-only, see fluxEventBus.js.
+fluxEventBus.snapshot('orchestrator', () => ({
+  state: globalState.appSyncState, attempt: running?.syncAttempt() ?? null, dbReady: globalState.dbReady,
+}));
 
 module.exports = { AppSyncOrchestrator, STATES };

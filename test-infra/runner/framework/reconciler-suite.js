@@ -282,6 +282,20 @@ export async function electionIndexOf(env, appName, holderIndex, { timeout = 900
   return position;
 }
 
+/**
+ * Every node's app registry built (the orchestrator's dbReady): until then a node refuses
+ * to admit an app message, and a peer it asks refuses it too, so an app registered before
+ * every node is ready can be refused by the network.
+ * @param {object[]} nodes Node clients.
+ * @param {number} [timeout]
+ */
+export async function waitForRegistriesBuilt(nodes, timeout = 180000) {
+  await waitFor(
+    async () => (await Promise.all(nodes.map((n) => n.getTestState('orchestrator')))).every((s) => s?.dbReady === true),
+    { timeout, interval: 1000, label: `the app registry built on each of ${nodes.length} nodes` },
+  );
+}
+
 export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   // A stub peer holds an index with no client behind it. It is something for the
   // fleet to talk to, never a node this boots, confirms or reads a height from -
@@ -420,6 +434,12 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   );
 
   await startTicker();
+  // A peer the quorum asks refuses to admit an app message until its own registry is
+  // built, so a suite registering an app straight after boot waits for every node's.
+  // Waited with blocks flowing, which a registry may need to finish. A node on a release
+  // image does not report it, and is not waited for.
+  const releaseImage = new Set(env.releaseImageNodes ?? []);
+  await waitForRegistriesBuilt(env.clients.filter((client, index) => client && !releaseImage.has(index)));
 }
 
 // The location table never gates boot: the fetch starts at DB-ready and a
