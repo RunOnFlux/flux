@@ -13,9 +13,15 @@
  * while it differs from its own, so the static nodes are judged too, and never
  * as UNSUITED.
  *
- * The data-centre half of the rule needs a published table that classes a node
- * as residential, and the unknown and conflicting answers that keep the app are
- * states this fleet cannot hold; those are unit-tested.
+ * The data-centre half runs on the residential fleet (framework/residential-
+ * fleet.js), whose published table classes nodes 1 and 3 residential and node 2
+ * hosting, every node attested, so none is evacuated. The owner's update turns on
+ * datacenter. The residential nodes cannot take it and keep the app at the
+ * specification they run; one of them hands it back as UNSUITED in its turn, and
+ * node 2 takes the update and keeps the app.
+ *
+ * The unknown and conflicting answers that keep the app are states these fleets
+ * cannot hold; those are unit-tested.
  */
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
@@ -25,10 +31,10 @@ import { bootAndPeer, waitForInstanceCount, installedInstanceIndices } from '../
 import { deliverApp } from '../framework/app-delivery.js';
 import { dbClient } from '../framework/db-client.js';
 import { waitFor } from '../framework/wait.js';
-import { driveUntil, stopTicker } from '../framework/daemon-control.js';
+import { clearSystemSecure, driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import {
-  PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING, departureWaitMs, seedApp,
+  PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING, bootResidentialFleet, departureWaitMs, seedApp,
 } from '../framework/residential-fleet.js';
 import { allowFromNow } from '../framework/time-budget.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
@@ -120,5 +126,71 @@ describe('2010: a node behind NAT hands back an app whose update asks for a stat
       expect(decided(i, unsuited, afterUpdate[i]), `node ${i} judged the app unsuited`).to.equal(false);
     });
     expect(await installedInstanceIndices(env, appName)).to.include.members(STATIC_NODES);
+  });
+});
+
+describe('2010: a residential node hands back an app whose update asks for a data centre', function () {
+  let env;
+  const appName = `e2eunsuiteddc${Date.now()}`;
+  // zero-based: the published table classes nodes 1 and 3 residential, node 2 hosting
+  const RESIDENTIAL = [0, 2];
+  const DATA_CENTRE = 1;
+  let afterUpdate;
+
+  const decided = (index, predicate, afterId) => env.clients[index].getEventBuffer()
+    .some((e) => e.event === 'giveUp:considered' && e.id > afterId
+      && e.data.appName === appName && predicate(e.data));
+  const unsuited = (d) => d.reason === 'UNSUITED';
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await bootResidentialFleet(this, { nodes: 3 });
+
+    const app = await seedApp(env, appName, { instances: env.nodeCount });
+    await waitForInstanceCount(env, appName, env.nodeCount, { timeout: 300000 });
+
+    const updated = await buildSeedableUpdate(app, (spec) => {
+      spec.datacenter = true;
+    });
+    await deliverApp(env, updated, [...Array(env.nodeCount).keys()]);
+    afterUpdate = env.clients.map((client) => client.getLastEventId());
+    await stopTicker();
+  });
+
+  afterTeardown(async function () {
+    await clearSystemSecure().catch(() => {});
+    await env?.teardown();
+  });
+
+  it('a residential node gives the app up as UNSUITED, in its turn', async function () {
+    const waitMs = departureWaitMs(RESIDENTIAL.map((i) => i + 1), env.nodeCount);
+    allowFromNow(this, waitMs + 240000);
+    let departed = null;
+    await driveUntil(
+      RESIDENTIAL.map((i) => env.clients[i]),
+      async () => {
+        departed = RESIDENTIAL.find((i) => decided(i, (d) => unsuited(d) && d.giveUp === true, afterUpdate[i])) ?? null;
+        return departed !== null;
+      },
+      { timeoutMs: waitMs, label: `a residential node gives ${appName} up as unsuited` },
+    );
+    await driveUntil(
+      env.clients[DATA_CENTRE],
+      async () => !(await installedInstanceIndices(env, appName)).includes(departed),
+      { timeoutMs: 120000, label: `node ${departed} no longer holds ${appName}` },
+    );
+  });
+
+  it('the data-centre node judges the update and keeps the app', async function () {
+    allowFromNow(this, (4 * PASS_MS) + 60000);
+    await driveUntil(
+      env.clients[DATA_CENTRE],
+      async () => decided(DATA_CENTRE, () => true, afterUpdate[DATA_CENTRE]),
+      { timeoutMs: 4 * PASS_MS, label: 'the data-centre node judges the app after the update' },
+    );
+    expect(decided(DATA_CENTRE, unsuited, afterUpdate[DATA_CENTRE]), 'the data-centre node judged the app unsuited').to.equal(false);
+    expect(await installedInstanceIndices(env, appName)).to.include(DATA_CENTRE);
   });
 });
