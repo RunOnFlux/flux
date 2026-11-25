@@ -8,8 +8,13 @@
  *
  * Every node runs the flux-upnpd stand-in (test-infra/upnpd-stub), eight behind one router as
  * production runs them. It maps every port it is asked for unless the suite makes one fail, and
- * keeps every set and map FluxOS sent it in order: its account is what the tests read. The node
- * under test is in the middle of the ring.
+ * numbers every set and map FluxOS sent it from one sequence: its account is what the tests read,
+ * once the product has said the step it took is done. The node under test is in the middle of the
+ * ring.
+ *
+ * The subject's availability check is held before its first test map, from start: a release sends
+ * a set only once boot has given flux-upnpd one, so the pass is let go after that, and nothing of
+ * the check is in flight while it is held. One pass runs; the next is production's hour away.
  *
  * The removal window is compressed to 30 s; its timing is the unit suite's (portManager). The
  * stand-in reports a failure at once where flux-upnpd asks the router first; flux-upnpd's own
@@ -40,6 +45,7 @@ const SUBJECT = 3;
 const subjectIp = subnet.nodeIp(SUBJECT + 1);
 const socketAddressOf = (index) => `${subnet.nodeIp(index + 1)}:16127`;
 const FAILING_REMOVAL_MS = 30000;
+const AVAILABILITY_LISTENING = 'availability:listening';
 
 const appPinnedTo = (name, index) => buildSeedableApp({
   name,
@@ -62,6 +68,10 @@ const appPinnedTo = (name, index) => buildSeedableApp({
 });
 
 const holds = (set, port) => set.ports.some((entry) => entry.port === port);
+// What the stand-in received since `before`, a read of it.
+const since = (before, now) => ({
+  maps: now.maps.slice(before.maps.length), desired: now.desired.slice(before.desired.length),
+});
 
 describe('flux-upnpd maps what a node wants, and the node removes an app whose port keeps failing', function () {
   let env;
@@ -80,16 +90,44 @@ describe('flux-upnpd maps what a node wants, and the node removes an app whose p
         fluxapps: { portTestMaxAttempts: 3 },
         upnp: { failingAppRemovalMs: FAILING_REMOVAL_MS },
       },
+      nodeConfigOverrides: { [SUBJECT]: { testCheckpointsHeldAtStart: [AVAILABILITY_LISTENING] } },
     });
     await bootAndPeer(env);
     client = env.clients[SUBJECT];
-    const state = await upnpdState(subjectIp);
-    expect(state.streams, 'FluxOS follows its flux-upnpd').to.equal(1);
-    expect(state.desired.length, 'boot gave flux-upnpd its set').to.be.at.least(1);
+    await waitFor(async () => {
+      const state = await upnpdState(subjectIp);
+      expect(state.streams, 'FluxOS follows its flux-upnpd').to.equal(1);
+      expect(state.desired.length, 'boot gave flux-upnpd its set').to.be.at.least(1);
+      return true;
+    }, { timeout: 120000, interval: 1000, label: 'FluxOS following its flux-upnpd, with boot\'s set given' });
   });
 
   afterTeardown(async function () {
     await env?.teardown();
+  });
+
+  it('maps the availability check\'s test port through flux-upnpd, and its release gives flux-upnpd the set without it', async function () {
+    this.timeout(600000);
+    let parked;
+    await waitFor(async () => {
+      const held = (await client.holdCheckpoint(AVAILABILITY_LISTENING)).parked;
+      parked = held.find((entry) => entry.name === AVAILABILITY_LISTENING);
+      expect(parked, 'the check\'s first pass held before its test map').to.not.equal(undefined);
+      return true;
+    }, { timeout: 300000, interval: 2000, label: 'the availability check held before its test map' });
+    const testPort = parked.key;
+    const before = await upnpdState(subjectIp);
+    const mark = client.getLastEventId();
+
+    await client.releaseCheckpoint(AVAILABILITY_LISTENING);
+    // published once the release has returned: the set it sends has been answered
+    await client.waitForEvent('availability:testReleased', (d) => d.port === testPort, 300000, { afterId: mark });
+
+    const { maps, desired } = since(before, await upnpdState(subjectIp));
+    const map = maps.find((entry) => entry.port === testPort);
+    expect(map, `the test port's map: ${JSON.stringify(maps)}`).to.include({ description: 'Flux_Test_App' });
+    const after = desired.filter((set) => set.seq > map.seq);
+    expect(after.some((set) => !holds(set, testPort)), `a set without the test port after its map: ${JSON.stringify(after)}`).to.equal(true);
   });
 
   it('maps an installing app\'s port through flux-upnpd, in both protocols, under the app\'s name', async function () {
@@ -108,24 +146,7 @@ describe('flux-upnpd maps what a node wants, and the node removes an app whose p
     mapsOfPort.forEach((map) => expect(map).to.include({ description: `Flux_App_${name}` }));
     expect(mapsOfPort.at(-1).protocols).to.deep.equal(['tcp', 'udp']);
     const last = desired.at(-1);
-    expect(!last || last.at < mapsOfPort.at(-1).at || holds(last, port), 'no set sent since the install lacks its port').to.equal(true);
-  });
-
-  it('maps the availability check\'s test port through flux-upnpd, and lets it go after the test', async function () {
-    this.timeout(600000);
-    // The check's first pass comes as the node starts, so its test mapping is any since boot: the
-    // fleet is this suite's own.
-    const tested = await client.waitForEvent('availability:testMapping', () => true, 540000);
-    const testPort = tested.data.port;
-
-    await waitFor(async () => {
-      const { maps, desired } = await upnpdState(subjectIp);
-      const map = maps.find((entry) => entry.port === testPort && entry.description === 'Flux_Test_App');
-      expect(map, `the test port's map: ${JSON.stringify(maps.slice(-5))}`).to.not.equal(undefined);
-      const after = desired.filter((set) => set.at > map.at);
-      expect(after.some((set) => !holds(set, testPort)), 'a set without the test port').to.equal(true);
-      return true;
-    }, { timeout: 120000, interval: 2000, label: `test port ${testPort} mapped through flux-upnpd and let go` });
+    expect(last.seq < mapsOfPort.at(-1).seq || holds(last, port), 'no set sent since the install lacks its port').to.equal(true);
   });
 
   it('gives flux-upnpd every port the node wants again when it restarts', async function () {
@@ -172,19 +193,19 @@ describe('flux-upnpd maps what a node wants, and the node removes an app whose p
     await failUpnpdMapping(subjectIp, {
       port: failingPort, protocol: 'udp', failure: 'refused', reason: 'ConflictInMappingEntry',
     });
+    const before = await upnpdState(subjectIp);
     const mark = client.getLastEventId();
 
     await seedSpawnerApp(env, app);
-    // the port test before the install maps the port through flux-upnpd, and is refused
+    // The port test before the install maps the port through flux-upnpd and is refused; it has
+    // released the port, and the set that sends has been answered, before the spawner defers.
     await client.waitForEvent('spawner:deferred', (d) => d.appName === failing && d.reason === 'ports_not_available', 600000, { afterId: mark });
 
-    const { maps } = await upnpdState(subjectIp);
-    expect(maps.some((map) => map.port === failingPort), 'the port was asked of flux-upnpd').to.equal(true);
-    await waitFor(async () => {
-      const { desired } = await upnpdState(subjectIp);
-      expect(holds(desired.at(-1), failingPort), JSON.stringify(desired.at(-1))).to.equal(false);
-      return true;
-    }, { timeout: 120000, interval: 2000, label: `port ${failingPort} let go` });
+    const { maps, desired } = since(before, await upnpdState(subjectIp));
+    const asked = maps.filter((map) => map.port === failingPort);
+    expect(asked.length, `the port asked of flux-upnpd: ${JSON.stringify(maps)}`).to.be.above(0);
+    const after = desired.filter((set) => set.seq > asked.at(-1).seq);
+    expect(after.some((set) => !holds(set, failingPort)), `a set without the port after its map: ${JSON.stringify(after)}`).to.equal(true);
     const installed = await client.get(`/apps/installedapps?_=${Date.now()}`);
     expect((installed.data ?? []).map((entry) => entry.name)).to.not.include(failing);
   });
@@ -192,14 +213,12 @@ describe('flux-upnpd maps what a node wants, and the node removes an app whose p
   it('removes an app once flux-upnpd has reported its port failing for the removal window', async function () {
     this.timeout(300000);
     const mark = client.getLastEventId();
-    const failedAt = Date.now();
 
     await failUpnpdMapping(subjectIp, {
       port, protocol: 'tcp', failure: 'held', holder: subnet.nodeIp(SUBJECT + 1).replace(/\.\d+$/, '.240'),
     });
 
     const removed = await client.waitForEvent('upnp:failingAppRemoved', (d) => d.app === name, 240000, { afterId: mark });
-    expect(Date.now() - failedAt, 'not before the window').to.be.at.least(FAILING_REMOVAL_MS);
     expect(removed.data).to.include({ port, protocol: 'tcp', failure: 'held' });
     await waitForAppRemoved(client, name, 240000, { afterId: mark });
   });

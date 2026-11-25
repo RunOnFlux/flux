@@ -10,9 +10,9 @@ const post = (url, body) => controlJson(url, {
 
 /**
  * Every set FluxOS sent (PUT /desired) and every map it asked (POST /map), in order, each with
- * `at` (ms since the stand-in started); restarts; open event streams.
+ * `seq`, numbered from one sequence across both; restarts; open event streams.
  * @param {string} nodeIp
- * @returns {Promise<{desired: Array<{at: number, ports: object[]}>, maps: object[], restarts: number, streams: number}>}
+ * @returns {Promise<{desired: Array<{seq: number, ports: object[]}>, maps: Array<{seq: number}>, restarts: number, streams: number}>}
  */
 export function upnpdState(nodeIp) {
   return controlJson(base(nodeIp));

@@ -15,8 +15,8 @@
 //   forgets the set, then listens again.
 //
 // Control:
-// - GET /control: every set FluxOS sent and every map it asked, in order, with when (ms since the
-//   stub started), and how many restarts.
+// - GET /control: every set FluxOS sent and every map it asked, each numbered `seq` from one
+//   sequence in the order they came, and how many restarts.
 // - POST /control/fail {port, protocol, failure, reason|holder}: the mapping fails from now on,
 //   its map included.
 // - POST /control/heal {port, protocol}: it maps again.
@@ -42,6 +42,8 @@ const states = new Map();
 const streams = new Set();
 const desiredSent = [];
 const mapsAsked = [];
+// Numbers the sets and the maps together, so a suite orders one against the other.
+let sequence = 0;
 let nextTicket = 1;
 let restarts = 0;
 let server = null;
@@ -144,7 +146,8 @@ async function api(req, res) {
       json(res, 400, { error: 'ports: [{port, description, protocols}]' });
       return;
     }
-    desiredSent.push({ at: now(), ports });
+    sequence += 1;
+    desiredSent.push({ seq: sequence, ports });
     declared.clear();
     ports.forEach(({ port, description, protocols }) => declared.set(port, { description, protocols }));
     refresh();
@@ -159,7 +162,8 @@ async function api(req, res) {
     }
     const ticket = nextTicket;
     nextTicket += 1;
-    mapsAsked.push({ at: now(), ticket, ...asked });
+    sequence += 1;
+    mapsAsked.push({ seq: sequence, ticket, ...asked });
     const held = declared.get(asked.port);
     const protocols = [...new Set([...(held?.protocols ?? []), ...asked.protocols])];
     declared.set(asked.port, { description: asked.description, protocols });

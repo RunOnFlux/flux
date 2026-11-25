@@ -314,6 +314,8 @@ export function nodeClient(nodeNum) {
         'availability:checked',
         // what an availability pass's test mapping came to: { port, mapped, reason }
         'availability:testMapping',
+        // a pass has released its test port: { port }
+        'availability:testReleased',
         // Whether startup verified UPnP on the node's router, and whether that router
         // restarts a lease when a mapping is added again: what the node's own mappings
         // are made with follows from the two.
