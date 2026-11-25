@@ -101,8 +101,10 @@ done
 // What a node's syncthing holds about each folder when the test failed: its status,
 // its completion against each device it shares the folder with, the first files it
 // still needs, its errors and its config, with the daemon's connections, devices and
-// version. The daemon's state leaves with the node, and its log says what it did,
-// not what it was waiting for. A node with no daemon answering writes nothing.
+// version, and the daemon's running totals of time spent in its database, its
+// filesystem calls and its pulls (/metrics), which split where a slow sync went.
+// The daemon's state leaves with the node, and its log says what it did, not what
+// it was waiting for. A node with no daemon answering writes nothing.
 const SYNCTHING_STATE = `
 H="${SYNCTHING_HOME}"
 K=$(sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' "$H/config.xml" 2>/dev/null | head -1)
@@ -129,6 +131,16 @@ for folder in folders if isinstance(folders, list) else []:
         "completion": {d["deviceID"]: get("/rest/db/completion?folder=" + q + "&device=" + urllib.parse.quote(d["deviceID"]))
                        for d in folder.get("devices", [])},
     }
+def metrics():
+    request = urllib.request.Request("http://127.0.0.1:8384/metrics", headers={"X-API-Key": os.environ["API_KEY"]})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            text = response.read().decode()
+    except Exception as error:
+        return {"unreadable": str(error)}
+    wanted = ("syncthing_db_operation", "syncthing_fs_operation", "syncthing_model_folder_pull")
+    return [line for line in text.splitlines() if line.startswith(wanted)]
+state["metrics"] = metrics()
 print(json.dumps(state, indent=1))
 ' 2>&1
 `;
