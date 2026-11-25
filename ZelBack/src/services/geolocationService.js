@@ -365,13 +365,13 @@ async function runGeolocationPass() {
 
     // THE WHOLE DECISION, in one table, in the order it is asked.
     //
-    //   this node WATCHED    public IP on    verdict
-    //   it change <10d ago   the interface
-    //   ------------------   -------------   -------
-    //   yes                  -               UNKNOWN
-    //   no                   yes             STATIC
-    //   no                   no  (NAT)       DYNAMIC
-    //   no                   unreadable      UNKNOWN
+    //   public IP on     this node WATCHED    verdict
+    //   the interface    it change <10d ago
+    //   -------------    ------------------   -------
+    //   no  (NAT)        -                    DYNAMIC
+    //   yes/unreadable   yes                  UNKNOWN
+    //   yes              no                   STATIC
+    //   unreadable       no                   UNKNOWN
     //
     // A NODE IS STATIC ONLY IF IT HOLDS A PUBLIC ADDRESS ON AN INTERFACE.
     // Nothing else confers it - not the published table, not an ip-api flag,
@@ -393,10 +393,13 @@ async function runGeolocationPass() {
     // expiry, or a firmware quirk while the address itself never moves - the
     // fleet UPnP survey found 135 router models and defects in several.
     //
-    // A watched change is asked FIRST and nothing overrides it: this node saw
-    // this address move, and that outranks seeing it on an interface now.
+    // NAT is asked first: a node with no public address on an interface keeps
+    // neither promise however long its address is held, so the window has
+    // nothing to decide for it. A watched change is asked next, and nothing
+    // overrides it: this node saw this address move, and that outranks seeing
+    // it on an interface now.
     //
-    // Row 2 is the common case: a node has WATCHED no change because it started
+    // Row 3 is the common case: a node has WATCHED no change because it started
     // watching after the fact, which every node does exactly once. That is not
     // evidence the address moves. Measured on the fleet an address changes on
     // 0.29% of node-days, so treating not-yet-watched as suspect is wrong about
@@ -432,17 +435,17 @@ async function runGeolocationPass() {
     // its bounds are recorded with the change that introduced this rule.
     const watchedItChange = Boolean(lastIpChangeDate) && heldForMs < stabilityThreshold;
 
-    if (watchedItChange) {
-      // Asked first, and nothing overrides it: this node saw this address move,
-      // and it has not been held long enough since to say it has settled.
-      staticIpState = STATIC_IP_STATE.UNKNOWN;
-    } else if (hasPublicIp === true) {
-      staticIpState = STATIC_IP_STATE.STATIC;
-    } else if (hasPublicIp === false) {
+    if (hasPublicIp === false) {
       // Behind NAT. The address may well be fixed upstream, but this node
       // cannot see it, cannot attest to it, and reaches the world through a
       // port mapping it does not control.
       staticIpState = STATIC_IP_STATE.DYNAMIC;
+    } else if (watchedItChange) {
+      // This node saw this address move, and it has not been held long enough
+      // since to say it has settled.
+      staticIpState = STATIC_IP_STATE.UNKNOWN;
+    } else if (hasPublicIp === true) {
+      staticIpState = STATIC_IP_STATE.STATIC;
     } else {
       // The routing table could not be read. Not evidence of anything about the
       // address, and in particular not evidence of NAT.
