@@ -1177,20 +1177,18 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
  * Monitor shared database applications and handle uninstall signals
  * @param {Function} installedApps - Async function to get installed apps
  * @param {Function} removeAppLocally - Async function to remove app locally
- * @param {object} globalState - Global state object with installation/removal flags
  * @returns {Promise<void>}
  */
-async function monitorSharedDBApps(installedApps, removeAppLocally, globalState) {
+async function monitorSharedDBApps(installedApps, removeAppLocally) {
   try {
-    // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
-    if (globalState.installationInProgress || globalState.removalInProgress || globalState.softRedeployInProgress || globalState.hardRedeployInProgress) {
-      return;
-    }
     // get list of all installed apps
     const appsInstalled = await installedApps();
     // Decrypt enterprise apps (version 8 with encrypted content)
     ({ inPlace: appsInstalled.data } = await decryptEnterpriseApps(appsInstalled.data));
 
+    // Each app's removal is sent as the app is found; the pass ends once every
+    // removal it sent has.
+    const removals = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data.filter((app) => app.version > 3)) {
       const componentUsingSharedDB = installedApp.compose.find((comp) => comp.repotag.includes('runonflux/shared-db'));
@@ -1207,8 +1205,7 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
             if (operatorStatus.data.status === 'UNINSTALL') {
               log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is UNINSTALL, going to uninstall the app`);
               log.warn(`REMOVAL REASON: Operator uninstall request - ${installedApp.name} operator status set to UNINSTALL (sharedDB monitoring)`);
-              // eslint-disable-next-line no-await-in-loop
-              await removeAppLocally(installedApp.name, null, true, false, true);
+              removals.push({ name: installedApp.name, removal: removeAppLocally(installedApp.name, null, true, false, true) });
             } else {
               log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is ${operatorStatus.data.status}`);
             }
@@ -1218,11 +1215,15 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
         }
       }
     }
+    const settled = await Promise.allSettled(removals.map(({ removal }) => removal));
+    settled.forEach((result, index) => {
+      if (result.status === 'rejected') log.error(`monitorSharedDBApps: ${removals[index].name} removal error: ${result.reason}`);
+    });
   } catch (error) {
     log.error(`monitorSharedDBApps: ${error}`);
   } finally {
     await serviceHelper.delay(5 * 60 * 1000);
-    monitorSharedDBApps(installedApps, removeAppLocally, globalState);
+    monitorSharedDBApps(installedApps, removeAppLocally);
   }
 }
 
@@ -1284,7 +1285,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
           } else {
             log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Soft redeploying...`);
             // eslint-disable-next-line no-await-in-loop
-            await softRedeploy(app).catch((error) => {
+            await softRedeploy(app, undefined, { wait: false }).catch((error) => {
               log.error(error);
             });
           }
@@ -1314,7 +1315,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
             } else {
               log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
               // eslint-disable-next-line no-await-in-loop
-              await softRedeploy(app).catch((error) => {
+              await softRedeploy(app, undefined, { wait: false }).catch((error) => {
                 log.error(error);
               });
             }

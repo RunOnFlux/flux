@@ -13,30 +13,40 @@ const { InstallOutcome } = require('../utils/installOutcome');
 /**
  * Remove the app and install it again at appSpecs.
  *
- * Nothing is installed unless the removal finished. A node busy with another removal
- * leaves the app as it was; a removal that stopped part way is finished by the
- * uninstaller, which removes the whole app and tells the network. Once the removal
- * has finished this node holds nothing of the app, so an install that does not
- * complete is told to the network, once, here.
+ * Nothing is taken down unless the node can hold appSpecs, checked without the app
+ * itself: a specification that does not fit leaves the app as it was. Nothing is
+ * installed unless the removal finished; a removal that stopped part way is
+ * finished by the uninstaller, which removes the whole app and tells the network.
+ * Once the removal has finished this node holds nothing of the app, so an install
+ * that does not complete is told to the network, once, here.
  * @param {object} appSpecs The specification to install.
  * @param {object} [res] A response stream the caller holds.
- * @returns {Promise<string>} The InstallOutcome; BUSY when another removal held the
- *   node, FAILED when the removal did not finish.
+ * @param {object} [options]
+ * @param {object} [options.parent] The operation this rebuild is a step of.
+ * @returns {Promise<string>} The InstallOutcome; DECLINED when appSpecs does not fit,
+ *   FAILED when the removal did not finish.
  */
-async function rebuildApp(appSpecs, res) {
-  const removal = await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
+async function rebuildApp(appSpecs, res, { parent = null } = {}) {
+  try {
+    await appInstaller.checkAppRequirements(appSpecs, false, false, false, { replacing: appSpecs.name });
+  } catch (error) {
+    log.warn(`appRebuild - ${appSpecs.name} is not rebuilt at its new specification, and is left as it is: ${error.message}`);
+    const outcome = InstallOutcome.DECLINED;
+    fluxEventBus.publish('app:rebuilt', { name: appSpecs.name, outcome });
+    return outcome;
+  }
+  const removal = await appUninstaller.removeAppLocally(appSpecs.name, res, false, false, false, { parent });
   if (removal !== RemovalOutcome.REMOVED && removal !== RemovalOutcome.NOT_INSTALLED) {
     log.warn(`appRebuild - ${appSpecs.name} was not removed (${removal}), so it is not reinstalled`);
-    const outcome = removal === RemovalOutcome.BUSY ? InstallOutcome.BUSY : InstallOutcome.FAILED;
+    const outcome = InstallOutcome.FAILED;
     fluxEventBus.publish('app:rebuilt', { name: appSpecs.name, outcome });
     return outcome;
   }
 
   let outcome;
   try {
-    await appInstaller.checkAppRequirements(appSpecs);
     // the installer's own teardown says nothing: whether to tell the network is decided below
-    outcome = await appInstaller.registerAppLocally(appSpecs, undefined, res, false, false);
+    outcome = await appInstaller.registerAppLocally(appSpecs, undefined, res, false, { parent });
   } catch (error) {
     log.error(`appRebuild - ${appSpecs.name} was not reinstalled: ${error.message}`);
     outcome = InstallOutcome.FAILED;

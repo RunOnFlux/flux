@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const { specHash } = require('./fixtures/specHash');
 const sinon = require('sinon');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
@@ -30,8 +31,8 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
   const OLD = '203.0.113.170:16127';
   const NEW = '203.0.113.171:16127';
   const ELSEWHERE = '203.0.113.180:16127';
-  const COLLATERAL = { txhash: 'aa'.repeat(32), outidx: '0' };
-  const OTHER_COLLATERAL = { txhash: 'bb'.repeat(32), outidx: '1' };
+  const COLLATERAL = { txhash: specHash('aa').repeat(32), outidx: '0' };
+  const OTHER_COLLATERAL = { txhash: specHash('bb').repeat(32), outidx: '1' };
   const MINUTE = 60 * 1000;
   let records;
   let events;
@@ -274,7 +275,7 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
       data: {
         type: 'fluxapprunning',
         version: 2,
-        apps: [{ name: appName, hash: `hash-${appName}`, runningSince: new Date(broadcastedAt).toISOString() }],
+        apps: [{ name: appName, hash: specHash(appName), runningSince: new Date(broadcastedAt).toISOString() }],
         ip,
         broadcastedAt,
         osUptime: 1000,

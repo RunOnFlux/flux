@@ -135,15 +135,10 @@ describe('app volume file operations - lifecycle', function () {
       expect(await imageHeld()).to.equal(true);
     });
 
-    it('survives the prune that runs before every app install', async function () {
+    it('survives a dangling image prune', async function () {
       this.timeout(300000);
-      // It was written down once that this prune DELETES the pinned image - no
-      // tag, therefore dangling. It does not. An image pulled by digest keeps
-      // its repository name and carries <none> only as its TAG, so it never
-      // matches the dangling filter that performDockerCleanup's pruneImages
-      // uses. Pinned here because the belief is the kind that gets a working
-      // fetch deleted as redundant, and because the opposite is written in a
-      // handover someone will read.
+      // An image pulled by digest keeps its repository name and carries <none>
+      // only as its TAG, so a dangling prune never matches it.
       await inNode('docker image prune -f >/dev/null 2>&1 || true');
       expect(await imageHeld(), 'a plain prune removed the pinned image').to.equal(true);
 

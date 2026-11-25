@@ -690,11 +690,9 @@ describe('geolocationService tests', () => {
       });
     }
 
-    it('lets a watched change override the table behind NAT', async () => {
-      // The correction. This node SAW this address move three days ago. That is
-      // the only evidence here about this exact address rather than about the
-      // range around it, so a hosting verdict for the range does not answer it -
-      // an address that moved is what an app requiring a fixed one cares about.
+    it('is DYNAMIC behind NAT inside a watched change\'s window', async () => {
+      // A node with no public address on an interface is never static, however
+      // long its address is held, so the window has nothing to decide for it.
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
       serviceHelperStub.axiosGet.resolves(ipApiResponse());
       changedThreeDaysAgo();
@@ -703,7 +701,8 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+      expect(geolocationService.getStaticIpState()).to.equal('DYNAMIC');
+      expect(geolocationService.isStaticIP()).to.equal(false);
     });
 
     it('lets a watched change override the table when the interface is unreadable', async () => {

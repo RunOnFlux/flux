@@ -17,9 +17,9 @@ import { afterTeardown } from '../framework/teardown-hook.js';
 
 // An app registered and not yet paid for exists only as a temporary message.
 // installapplocally places registered apps, for the flux team, and never one of
-// these. testappinstall tries one out - installs it, checks it starts, tears it
-// down, and never announces it - for its owner or the flux team, and refuses any
-// other caller before a container is made.
+// these. testappinstall tries one out in a test run - its containers run outside
+// the app machinery and are removed, and nothing is installed - for its owner or
+// the flux team, and refuses any other caller before a container is made.
 
 const REAL_NODES = 3;
 const NODE = 0;
@@ -39,10 +39,10 @@ describe('who may place or test an app by hand', function () {
     await assertNoEvent(client(), 'app:placementRecorded', (d) => d.name === appName, 0, { afterId: afterIds[NODE] });
     expect(await dbClient(NODE + 1).localApp(appName), 'the app is installed on the node').to.equal(null);
   }
-  // A test install leaves nothing of the app behind.
-  const assertTornDown = () => waitFor(async () => (await dbClient(NODE + 1).localApp(appName)) === null, {
-    timeout: 60000, interval: 2000, label: 'the test install is torn down',
-  });
+  // A test leaves no app installed.
+  const assertTornDown = async () => {
+    expect(await dbClient(NODE + 1).localApp(appName), 'the app is installed on the node').to.equal(null);
+  };
 
   before(async function () {
     this.timeout(420000);
@@ -104,7 +104,7 @@ describe('who may place or test an app by hand', function () {
     this.timeout(300000);
     const body = await client().testAppInstall(messageHash, await authAs(appOwnerKey()));
 
-    expect(body, 'the owner\'s test did not install the app').to.match(new RegExp(`Flux App ${appName} successfully installed and launched`));
+    expect(body, 'the owner\'s test did not run the app').to.match(new RegExp(`Flux App ${appName} successfully installed and launched`));
     await assertTornDown();
   });
 
@@ -112,7 +112,7 @@ describe('who may place or test an app by hand', function () {
     this.timeout(300000);
     const body = await client().testAppInstall(messageHash, await authAs(fluxTeamKey()));
 
-    expect(body, 'the flux team\'s test did not install the app').to.match(new RegExp(`Flux App ${appName} successfully installed and launched`));
+    expect(body, 'the flux team\'s test did not run the app').to.match(new RegExp(`Flux App ${appName} successfully installed and launched`));
     await assertTornDown();
   });
 });

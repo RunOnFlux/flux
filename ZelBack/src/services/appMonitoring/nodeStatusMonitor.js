@@ -7,9 +7,11 @@ const departedLocations = require('./departedLocations');
 const appKill = require('../appLifecycle/appKill');
 const dockerService = require('../dockerService');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const appRemovedMessage = require('../utils/appRemovedMessage');
 const { withinDeadline, TIMED_OUT } = require('../utils/withinDeadline');
 const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
+const operationRegistry = require('../utils/operationRegistry');
 const log = require('../../lib/log');
 
 let removalInProgress = false;
@@ -45,98 +47,86 @@ async function removeWithinDeadline(removeAppLocallyFn, name) {
 // Database collections
 
 /**
- * Remove every installed app but `skip`, one after another.
+ * Removes one app of the node's, and reports how it went.
+ * @param {Function} removeAppLocallyFn
+ * @param {string} name
+ * @param {string} reason
+ * @returns {Promise<void>}
+ */
+async function removeOne(removeAppLocallyFn, name, reason) {
+  log.info(`monitorNodeStatus - Application ${name} going to be removed: ${reason}`);
+  log.warn(`monitorNodeStatus - Removing application ${name} locally`);
+  // One removal that never returns must not hold every other app here.
+  const outcome = await removeWithinDeadline(removeAppLocallyFn, name);
+  if (outcome === TIMED_OUT) {
+    log.error(`monitorNodeStatus - Application ${name} was not removed within ${REMOVAL_DEADLINE_MS / 1000}s, moving on`);
+  } else if (outcome === STILL_REMOVING) {
+    log.warn(`monitorNodeStatus - Application ${name} is still being removed, moving on`);
+  } else if (outcome === RemovalOutcome.PENDING) {
+    log.warn(`monitorNodeStatus - Application ${name} is removed once the operation holding it stops, moving on`);
+  } else {
+    log.warn(`monitorNodeStatus - Application ${name} locally removed`);
+  }
+}
+
+/**
+ * Remove every installed app, and every app an operation is installing or
+ * redeploying. A removal stops an install or redeploy of its app at that
+ * operation's next step, so nothing it goes on to create is left. Once the
+ * network reads a removal naming several apps they are removed at once, and the
+ * announcements asked while one is being sent go out in one message
+ * (appUninstaller.announceRemoval); until then one after another, spaced.
  * @param {Function} installedAppsFn
  * @param {Function} removeAppLocallyFn
  * @param {string} reason
- * @param {string|null} skip
  * @returns {Promise<void>}
  */
-async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, skip) {
+async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason) {
   const installedAppsRes = await installedAppsFn();
   if (installedAppsRes.status !== 'success') {
     throw new Error('monitorNodeStatus - Failed to get installed Apps');
   }
-  let removedOne = false;
-  for (const installedApp of installedAppsRes.data) {
+  const names = [...new Set([
+    ...installedAppsRes.data.map((app) => app.name),
+    ...operationRegistry.listArriving(),
+  ])];
+  if (appRemovedMessage.namesSeveralApps()) {
     // a host stall's own removal has the node, and this one gives way to it
     if (unloadingForHostStall) return;
-    if (installedApp.name !== skip) {
-      if (removedOne) {
-        // Each removal sends its own fluxappremoved before its teardown, a teardown
-        // can take under a second, and every node relays each message: unspaced, a
-        // node holding maxAppsPerNode apps sends that many at once. The spacing goes
-        // once the node's apps are named in one message, sent apart from their
-        // teardowns: v9 sends a removal's message before a teardown it can defer,
-        // still one app to a message.
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(config.fluxapps.nodeMonitorRemovalDelayMs);
-        if (unloadingForHostStall) return;
-      }
-      removedOne = true;
-      log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed: ${reason}`);
-      log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
-      // One removal that never returns must not hold every other app here.
+    await Promise.all(names.map((name) => removeOne(removeAppLocallyFn, name, reason)));
+    return;
+  }
+  let removedOne = false;
+  for (const name of names) {
+    // a host stall's own removal has the node, and this one gives way to it
+    if (unloadingForHostStall) return;
+    if (removedOne) {
+      // Each removal sends its own fluxappremoved before its teardown, a teardown
+      // can take under a second, and every node relays each message: unspaced, a
+      // node holding maxAppsPerNode apps sends that many at once.
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await removeWithinDeadline(removeAppLocallyFn, installedApp.name);
-      if (outcome === TIMED_OUT) {
-        log.error(`monitorNodeStatus - Application ${installedApp.name} was not removed within ${REMOVAL_DEADLINE_MS / 1000}s, moving on`);
-      } else if (outcome === STILL_REMOVING) {
-        log.warn(`monitorNodeStatus - Application ${installedApp.name} is still being removed, moving on`);
-      } else {
-        log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
-      }
+      await serviceHelper.delay(config.fluxapps.nodeMonitorRemovalDelayMs);
+      if (unloadingForHostStall) return;
     }
+    removedOne = true;
+    // eslint-disable-next-line no-await-in-loop
+    await removeOne(removeAppLocallyFn, name, reason);
   }
 }
 
 /**
- * Why this node is out of service now, from the same reads as the monitor's own
- * pass, or null while it is in service.
- * @returns {string|null}
- */
-function outOfService() {
-  if (nodeDosState.isNodeDos()) return 'DOS state >= 100';
-  if (nodeConfirmationService.isDaemonStale()) return 'daemon unreachable';
-  if (!nodeConfirmationService.isConfirmed()) return 'node not confirmed';
-  return null;
-}
-
-/**
- * Remove every app from a node that is out of service.
- *
- * An install cannot be cancelled, and removing its app while it runs leaves the
- * containers it goes on to create with no record of the app. So the app an
- * install is running for is left to that install: every other app is removed
- * first, and once the install has released the node, whatever it left installed
- * is removed too if the node is out of service then. The wait has no deadline -
- * an image pull that keeps moving can take most of an hour, and one that stops
- * fails after pullStallMs - and holds nothing but this removal: every other app
- * is gone before it starts. This is a stopgap until installs can be cancelled,
- * as v9's are by the removal of their app.
+ * Remove every app from a node that is out of service: every app installed, and
+ * every app an operation is installing or redeploying.
  * @param {Function} installedAppsFn - Function to get installed apps
  * @param {Function} removeAppLocallyFn - Function to remove apps locally
  * @param {string} reason
  * @returns {Promise<void>}
  */
-// eslint-disable-next-line consistent-return
 async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason) {
   if (removalInProgress) return;
   removalInProgress = true;
   try {
-    const installRunning = globalState.installationInProgress;
-    const installing = installRunning ? globalState.installingApp : null;
-    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, installing);
-    if (unloadingForHostStall || !(installRunning || globalState.installationInProgress)) return;
-    log.info(`monitorNodeStatus - waiting for the running install${installing ? ` of ${installing}` : ''} to finish before removing what it installed: ${reason}`);
-    await globalState.whenInstallationReleased();
-    // decided by the node's standing now, not by what made it remove the others
-    const stillOut = outOfService();
-    if (!stillOut) {
-      log.info(`monitorNodeStatus - back in service while the install${installing ? ` of ${installing}` : ''} ran, leaving what it installed`);
-      return;
-    }
-    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, stillOut, null);
+    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason);
   } finally {
     removalInProgress = false;
   }

@@ -627,6 +627,56 @@ async function clearNetworkHeal(identifier) {
 }
 
 /**
+ * Records that FluxOS is taking this component's container down: set before the
+ * removal is sent, and cleared once FluxOS creates the container again or removes
+ * the app. While it is set, the container's absence is FluxOS's own, which is
+ * what the reconciler asks before it calls a missing container tampering. It is
+ * durable because the absence can outlast the call: a removal docker completes
+ * after FluxOS stopped waiting for it, or a FluxOS restart between a removal and
+ * the create that follows it.
+ *
+ * @param {string} identifier
+ * @param {boolean} removing
+ */
+async function setRemovedByFluxOs(identifier, removing) {
+  // No catch: a removal this record cannot cover must not be sent.
+  await setFields(identifier, { removedByFluxOs: removing });
+}
+
+/**
+ * Whether FluxOS took this component's container down and has not created it
+ * again. Rejects when the record cannot be read: read as "no", FluxOS would call
+ * its own removal tampering.
+ *
+ * @param {string} identifier
+ * @returns {Promise<boolean>}
+ */
+async function isRemovedByFluxOs(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const database = collection();
+  const state = await dbHelper.findOneInDatabase(database, appsRuntimeState, { identifier }, { projection: { _id: 0 } });
+  return state?.removedByFluxOs === true;
+}
+
+/**
+ * Clears the record that FluxOS took the container down, once it exists again.
+ * Reads first, so a create of a container no removal preceded costs a lookup,
+ * not a write. A clear that fails leaves the record set while the container
+ * exists, where nothing reads it, and the next create clears it.
+ *
+ * @param {string} identifier
+ */
+async function clearRemovedByFluxOs(identifier) {
+  try {
+    const state = await getState(identifier);
+    if (state?.removedByFluxOs !== true) return;
+    await setFields(identifier, { removedByFluxOs: false });
+  } catch (err) {
+    log.error(`appsRuntimeState - the removal record of ${identifier} was not cleared: ${err.message}`);
+  }
+}
+
+/**
  * Clears the crash-recovery backoff: the component's next start is a deliberate
  * one and begins with no rungs and an empty burst window.
  * @param {string} identifier
@@ -688,48 +738,21 @@ async function recordExit(identifier, exitCode) {
 }
 
 /**
- * What survives a component being taken down without its volume.
- *
- * Named as what is KEPT rather than what is cleared, so a controller field
- * added later is dropped by a soft removal without anyone remembering to name
- * it here. Everything in this list is the node's account of its own storage,
- * which the removal is not touching.
- */
-const SURVIVES_SOFT_REMOVAL = ['volumeImagePath', 'volumeFsUuid', 'restoreUnfinished'];
-
-/**
- * Drops the controller state for a component whose volume stays where it is.
- *
- * A soft removal leaves the image on disk and the volume mounted, so the
- * record of which image that is describes something that still exists. Losing
- * it sends the next boot back to searching the disks by filename, and stamps
- * whatever that search turns up as this node's own.
- *
- * THROWS rather than reporting a clear it did not make.
+ * Marks that this component has run on this node: the reconciler saw it stay up
+ * through the first-run proof window, or exit cleanly. Docker accepting a start
+ * is not a run: a container that cannot work starts and dies within a second.
+ * Durable, and cleared only by remove(). A component that has run here is kept,
+ * down, when its container cannot be recreated; one that never has is a failed
+ * install.
  *
  * @param {string} identifier
- * @throws When the state cannot be read or replaced.
  */
-async function removeControllerState(rawIdentifier) {
-  const identifier = canonical(rawIdentifier);
-  const database = collection();
-  // Read without the swallow: a document that could not be READ is not a
-  // document that is absent, and the difference is the operator stop lock.
-  // Answering "nothing here" for a database that would not speak leaves the
-  // lock in place and reports the redeploy done, so the component the operator
-  // asked to run stays down and nothing says why.
-  const state = await dbHelper.findOneInDatabase(
-    database,
-    appsRuntimeState,
-    { identifier },
-    { projection: { _id: 0 } },
-  );
-  if (!state) return;
-  const kept = { identifier, updatedAt: Date.now() };
-  SURVIVES_SOFT_REMOVAL.forEach((field) => {
-    if (state[field] !== undefined) kept[field] = state[field];
-  });
-  await dbHelper.replaceOneInDatabase(database, appsRuntimeState, { identifier }, kept);
+async function setSuccessfullyStarted(identifier) {
+  try {
+    await setFields(identifier, { hasSuccessfullyStarted: true });
+  } catch (err) {
+    log.error(`appsRuntimeState - failed to record that ${identifier} has run: ${err.message}`);
+  }
 }
 
 /**
@@ -829,6 +852,11 @@ async function prepareCollection() {
       // for good: the refusal returns before the line that would replace it.
       const withImage = oldestFirst.filter((t) => t.volumeImagePath);
       const image = withImage.length ? withImage[withImage.length - 1] : null;
+      // The record of an unfinished restore is one claim too: held, since when,
+      // and whether a scan has run since. Its time and scan state come from the
+      // twin that holds it, or a held record could lose the time a heal needs.
+      const withRestore = oldestFirst.filter((t) => t.restoreUnfinished === true);
+      const restore = withRestore.length ? withRestore[withRestore.length - 1] : null;
       const merged = {
         ...Object.assign({}, ...oldestFirst),
         ...(image ? { volumeImagePath: image.volumeImagePath, volumeFsUuid: image.volumeFsUuid || null } : {}),
@@ -838,9 +866,15 @@ async function prepareCollection() {
         // a force anywhere is a force: a kill must never be merged down into a
         // graceful stop the operator did not ask for
         operatorStopForce: twins.some((t) => t.operatorStopForce === true),
+        // a removal anywhere is FluxOS's: the absence it explains is not tampering
+        removedByFluxOs: twins.some((t) => t.removedByFluxOs === true),
         // an unfinished restore anywhere holds the component: starting it on a
         // half-replaced folder is the harm, and the owner can start it
-        restoreUnfinished: twins.some((t) => t.restoreUnfinished === true),
+        ...(restore ? {
+          restoreUnfinished: true,
+          restoreUnfinishedAt: restore.restoreUnfinishedAt ?? null,
+          restoreScanned: restore.restoreScanned === true,
+        } : { restoreUnfinished: false }),
         // a start waits on the election only if no locked twin withholds it: a
         // stop without one is the operator's later word
         operatorStartRequested: twins.some((t) => t.operatorStopped === true)
@@ -902,13 +936,16 @@ module.exports = {
   recordNetworkHealAttempt,
   networkHealWaitMs,
   clearNetworkHeal,
+  setRemovedByFluxOs,
+  isRemovedByFluxOs,
+  clearRemovedByFluxOs,
   recordExit,
+  setSuccessfullyStarted,
   clearRestartLadder,
   recordStopRequested,
   stopRequestedSince,
   setVolumeImage,
   getVolumeImage,
-  removeControllerState,
   remove,
   BACKOFF_DELAYS_MS,
   STABLE_RUN_MS,

@@ -1,7 +1,8 @@
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
-const fsPromises = require('fs').promises;
+const fs = require('fs');
+const fsPromises = fs.promises;
 const os = require('os');
 const path = require('path');
 const { PassThrough } = require('stream');
@@ -145,11 +146,12 @@ describe('fileTransfer tests', () => {
     const file = path.join(directory, 'growing.bin');
     await fsPromises.writeFile(file, 'x'.repeat(1000));
 
-    const sending = sendFile(res, file, 'growing.bin');
-    await fsPromises.appendFile(file, 'y'.repeat(5000));
-    await sending;
+    // the file grows the moment its length is declared
+    res.setHeader.withArgs('Content-Length').callsFake(() => fs.appendFileSync(file, 'y'.repeat(5000)));
+    await sendFile(res, file, 'growing.bin');
 
     const sent = await body;
+    expect((await fsPromises.stat(file)).size, 'the file never grew').to.equal(6000);
     expect(header('Content-Length')).to.equal('1000');
     expect(sent.length, 'the body outran the declared length').to.equal(1000);
     expect(sent.toString()).to.equal('x'.repeat(1000));

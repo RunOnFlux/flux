@@ -6,7 +6,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { listAppContainers } from '../framework/container.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
 import {
-  assertNoEvent, waitForAppInstalled, waitForAppRemoved,
+  waitForAppInstalled, waitForAppRemoved,
 } from '../framework/wait.js';
 import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { buildSeedableTestApp } from '../framework/seed-helper.js';
@@ -14,17 +14,15 @@ import { pushTestApp } from '../framework/registry-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
 
-// A node that goes out of service while an install is running, and is still out
-// of service when the install finishes, removes every other app at once, leaves
-// the app being installed to its install, and removes that app once the install
-// has finished: removed under the install, the app's record goes and the install
-// creates its containers anyway. A node back in service by then keeps it (2265).
+// A node that goes out of service while an install is running removes every
+// app, and stops the install at its next step: the app being installed leaves
+// with the others, with no record and none of its containers.
 //
 // The install is held at the point where it has the app's record and has
-// created no container, which is where a removal under it leaves containers
-// with no record. The node loses its confirmation there. The node status
-// monitor's pass runs at production's interval, so the app being installed can
-// only leave in time through the removal that waited for its install.
+// created no container, which is where a removal under it would leave
+// containers with no record. The node loses its confirmation there. The node
+// status monitor's pass runs at production's interval, so the apps can only
+// leave through the removal the lost confirmation starts.
 //
 // Node 1 is the subject; three nodes give it the two peers it fetches the
 // network policy from, which it needs to install.
@@ -33,12 +31,9 @@ const SUBJECT = 1;
 const BEFORE_CONTAINERS = 'install:beforeContainers';
 const NODE_MONITOR_INTERVAL_MS = 20 * 60 * 1000;
 const INSTALLED_MS = 180000;
-// Long enough for the removal that took the other app to reach this one, were
-// it not left to its install.
-const LEFT_TO_INSTALL_MS = 30000;
 const REMOVED_MS = 180000;
 
-describe('a node out of service removes an app being installed once its install finishes', function () {
+describe('a node out of service stops an install and removes its app', function () {
   let env;
   dumpLogsOnFailure(() => env);
   const running = `e2eoosrunning${Date.now()}`;
@@ -86,20 +81,14 @@ describe('a node out of service removes an app being installed once its install 
     await env?.teardown();
   });
 
-  it('removes every other app, and leaves the app being installed to its install', async function () {
-    this.timeout(INSTALLED_MS + LEFT_TO_INSTALL_MS + 60000);
+  it('removes every app, and stops the install of the app being installed at its next step', async function () {
+    this.timeout(INSTALLED_MS + REMOVED_MS + 60000);
     const mark = client().getLastEventId();
     await setNodeStatus(client().ip, 'EXPIRED');
     await client().waitForEvent('confirmation:changed', (d) => d.confirmed === false, 60000, { afterId: mark });
 
     await waitForAppRemoved(client(), running, REMOVED_MS, { afterId: mark });
-    await assertNoEvent(client(), 'app:removed', (d) => d.name === installing, LEFT_TO_INSTALL_MS, { afterId: mark });
-    expect(await installedNames(), 'the record of the app being installed').to.include(installing);
-  });
-
-  it('removes the app being installed once its install has finished, leaving none of its containers', async function () {
-    this.timeout(REMOVED_MS + 60000);
-    const mark = client().getLastEventId();
+    await client().waitForEvent('app:operationPreempted', (d) => d.appName === installing && d.operation === 'install' && d.by === 'removal', REMOVED_MS, { afterId: mark });
     await client().releaseCheckpoint(BEFORE_CONTAINERS, installing);
 
     await waitForAppRemoved(client(), installing, REMOVED_MS, { afterId: mark });
@@ -109,5 +98,7 @@ describe('a node out of service removes an app being installed once its install 
     const left = (await listAppContainers(client().container, { all: true }))
       .filter((c) => c.name.includes(installing));
     expect(left, 'containers of the app being installed').to.deep.equal([]);
+    const installed = client().getEventBuffer().filter((e) => e.id > mark && e.event === 'app:installed' && e.data?.name === installing);
+    expect(installed, 'the install ran on to its end').to.have.lengthOf(0);
   });
 });

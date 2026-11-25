@@ -126,8 +126,20 @@ describe('containerHealthMonitor tests', () => {
       await containerHealthMonitor.recreateMissingContainers('web_testapp', { start: false });
       await containerHealthMonitor.recreateMissingContainers('web_testapp');
 
-      expect(appInstallerStub.installApplicationSoft.firstCall.args[5]).to.deep.equal({ start: false });
-      expect(appInstallerStub.installApplicationSoft.secondCall.args[5]).to.deep.equal({ start: true });
+      expect(appInstallerStub.installApplicationSoft.firstCall.args[5]).to.deep.equal({ start: false, signal: null });
+      expect(appInstallerStub.installApplicationSoft.secondCall.args[5]).to.deep.equal({ start: true, signal: null });
+    });
+
+    // A removal aborts the operation's signal; the install stops at its next step.
+    it('hands the operation\'s signal to the install it runs', async () => {
+      const { signal } = new AbortController();
+      volumeServiceStub.verifyAppVolumeMount.resolves(true);
+      await containerHealthMonitor.recreateMissingContainers('web_testapp', { signal });
+      volumeServiceStub.verifyAppVolumeMount.resolves(false);
+      await containerHealthMonitor.recreateMissingContainers('web_testapp', { signal });
+
+      expect(appInstallerStub.installApplicationSoft.firstCall.args[5].signal).to.equal(signal);
+      expect(appInstallerStub.installApplicationHard.firstCall.args[5]).to.deep.equal({ signal });
     });
 
     it('ensures the app docker network before recreating any container', async () => {

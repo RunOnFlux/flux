@@ -80,8 +80,12 @@ const outOfServiceForTheStall = (data) => data.dosState >= 100
 // the app names here have no '-', which a slice name escapes
 const sliceOf = (appName) => `flux-${appName}.slice`;
 const containerOf = (appName) => `flux${appName}_${appName}`;
-// what of the app can still run, read from its slice, which outlives its containers
+// What of the app can still run, read from its slice, which outlives its containers.
+// A stopped slice runs nothing: stopping it kills every process in it, and the
+// removal stops it once docker's calls have each ended at their deadline.
 async function sliceProcessesThatCanRun(container, appName) {
+  const state = await execInContainer(container, `systemctl show -p ActiveState --value ${sliceOf(appName)}`);
+  if (['inactive', 'failed'].includes(state.stdout.trim())) return [];
   return processesThatCanRun(container, await unitCgroup(container, sliceOf(appName)));
 }
 

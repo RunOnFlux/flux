@@ -978,61 +978,6 @@ describe('appsRuntimeState tests', () => {
       expect(await appsRuntimeState.isNetworkHealRemoval('www_App')).to.be.false;
     });
 
-    // A soft redeploy is an explicit "make it run", so the operator lock must
-    // not survive it. Answering "nothing here" for a database that would not
-    // speak leaves the lock in place and reports the redeploy done: the
-    // component the operator asked for stays down and nothing says why.
-    it('a read failure throws rather than clearing nothing and reporting done', async () => {
-      const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
-        '../../lib/log': logStub,
-        '../dbHelper': {
-          databaseConnection: () => ({ db: () => ({}) }),
-          findOneInDatabase: async () => { throw new Error('db unavailable'); },
-          replaceOneInDatabase: async () => {},
-          updateOneInDatabase: async () => {},
-          removeDocumentsFromCollection: async () => {},
-        },
-        '../dockerService': { getBaseAppName: (id) => id },
-      });
-
-      let thrown = null;
-      await failing.removeControllerState('www_App').catch((e) => { thrown = e; });
-
-      expect(thrown, 'must not report a clear it did not make').to.be.an('error');
-    });
-
-    it('keeps the volume\'s own record - its image, an unfinished restore - and drops everything else', async () => {
-      const replaced = [];
-      const kept = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
-        '../../lib/log': logStub,
-        '../dbHelper': {
-          databaseConnection: () => ({ db: () => ({}) }),
-          findOneInDatabase: async () => ({
-            identifier: 'www_App',
-            operatorStopped: true,
-            restartHistory: [1, 2, 3],
-            volumeImagePath: '/mnt/data/img',
-            volumeFsUuid: 'u-1',
-            restoreUnfinished: true,
-          }),
-          replaceOneInDatabase: async (_db, _coll, _query, doc) => { replaced.push(doc); },
-          updateOneInDatabase: async () => {},
-          removeDocumentsFromCollection: async () => {},
-        },
-        '../dockerService': { getBaseAppName: (id) => id },
-      });
-
-      await kept.removeControllerState('www_App');
-
-      expect(replaced).to.have.lengthOf(1);
-      expect(replaced[0].volumeImagePath).to.equal('/mnt/data/img');
-      expect(replaced[0].volumeFsUuid).to.equal('u-1');
-      // the volume stays where it is, so the record of what a restore left in it does
-      expect(replaced[0].restoreUnfinished).to.equal(true);
-      expect(replaced[0].operatorStopped, 'the operator lock survived a redeploy').to.equal(undefined);
-      expect(replaced[0].restartHistory).to.equal(undefined);
-    });
-
     it('a read failure throws rather than reporting "no image recorded"', async () => {
       // null is "this node recorded no image", and a caller acts on that by
       // searching the disks and trusting what it finds. A database that would
@@ -1072,6 +1017,81 @@ describe('appsRuntimeState tests', () => {
       });
 
       expect(await restarted.isNetworkHealRemoval('www_App')).to.be.true;
+    });
+  });
+
+  describe('removedByFluxOs (FluxOS took the container down)', () => {
+    it('persists the record and reads it back', async () => {
+      await appsRuntimeState.setRemovedByFluxOs('fluxwww_App', true);
+      expect(await appsRuntimeState.isRemovedByFluxOs('www_App')).to.be.true;
+    });
+
+    it('is false for a component FluxOS never took down', async () => {
+      expect(await appsRuntimeState.isRemovedByFluxOs('nope_App')).to.be.false;
+    });
+
+    it('clears the record', async () => {
+      await appsRuntimeState.setRemovedByFluxOs('www_App', true);
+      await appsRuntimeState.clearRemovedByFluxOs('www_App');
+      expect(await appsRuntimeState.isRemovedByFluxOs('www_App')).to.be.false;
+    });
+
+    it('a read failure rejects rather than answering "not FluxOS"', async () => {
+      const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async () => { throw new Error('db unavailable'); },
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      let thrown = null;
+      await failing.isRemovedByFluxOs('www_App').catch((e) => { thrown = e; });
+
+      expect(thrown, 'an unread record answered false').to.be.an('error');
+    });
+
+    it('a clear that fails is logged, not thrown', async () => {
+      const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async () => ({ identifier: 'www_App', removedByFluxOs: true }),
+          updateOneInDatabase: async () => { throw new Error('db unavailable'); },
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      await failing.clearRemovedByFluxOs('www_App');
+
+      sinon.assert.calledWithMatch(logStub.error, /removal record of www_App was not cleared/);
+    });
+
+    it('survives a process restart', async () => {
+      await appsRuntimeState.setRemovedByFluxOs('www_App', true);
+
+      const restarted = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async (_db, _coll, query) => store.get(query.identifier) || null,
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id.replace(/^flux/, '').replace(/^zel/, '') },
+      });
+
+      expect(await restarted.isRemovedByFluxOs('www_App')).to.be.true;
+    });
+
+    it('is dropped with the rest of the component state on uninstall', async () => {
+      await appsRuntimeState.setRemovedByFluxOs('www_App', true);
+      await appsRuntimeState.remove('www_App');
+      expect(await appsRuntimeState.isRemovedByFluxOs('www_App')).to.be.false;
     });
   });
 
@@ -1250,6 +1270,36 @@ describe('appsRuntimeState tests', () => {
       ];
       await prepState.prepareCollection();
       expect(upserts[0].set.operatorStartRequested, 'a request with no lock').to.be.false;
+    });
+
+    it('takes an unfinished restore\'s time and scan state from the twin that holds it', async () => {
+      docs = [
+        {
+          identifier: 'www_App', restoreUnfinished: true, restoreUnfinishedAt: 5000, restoreScanned: true, updatedAt: 1000,
+        },
+        // written later, holding no record: its nulls must not erase the held one's time
+        {
+          identifier: 'www_App', restoreUnfinished: false, restoreUnfinishedAt: null, restoreScanned: false, updatedAt: 9000,
+        },
+      ];
+
+      await prepState.prepareCollection();
+
+      const merged = upserts[0].set;
+      expect(merged.restoreUnfinished).to.equal(true);
+      expect(merged.restoreUnfinishedAt, 'the held record lost the time a heal needs').to.equal(5000);
+      expect(merged.restoreScanned).to.equal(true);
+    });
+
+    it('keeps a removal record any twin holds', async () => {
+      docs = [
+        { identifier: 'www_App', removedByFluxOs: true, updatedAt: 1000 },
+        { identifier: 'www_App', removedByFluxOs: false, updatedAt: 9000 },
+      ];
+
+      await prepState.prepareCollection();
+
+      expect(upserts[0].set.removedByFluxOs, 'a removal FluxOS made would read as tampering').to.equal(true);
     });
 
     it('takes the image path and its stamp from the same twin', async () => {

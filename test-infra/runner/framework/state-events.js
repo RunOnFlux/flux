@@ -7,11 +7,16 @@
 // `signedBy` lets one carry another node's signature, the shape a forged event
 // has on the wire. Evictions are unsigned: a node makes them locally, and
 // createdAt is when it made the call.
+import { createHash } from 'crypto';
 import { nodeKey } from './keys.js';
 import { signBtcMessage } from '../auth.js';
 import { getSubnetConfig } from './subnet-config.js';
 
 export const socketAddr = (nodeNum) => `${getSubnetConfig().nodeIp(nodeNum)}:16127`;
+
+// A specification hash for an app a fixture names: 64 hex characters, as a real
+// one is, and a different one for each name.
+export const specHashOf = (name) => createHash('sha256').update(String(name)).digest('hex');
 
 // The names a report's storable entries give, lowercased, as a node stores them
 // beside the report (appNames): a read for one app matches them.
@@ -41,7 +46,7 @@ export async function apprunningEvent({
     version: 2,
     apps: apps.map((app) => (typeof app === 'string' ? {
       name: app,
-      hash: `hash-${app}`,
+      hash: specHashOf(app),
       runningSince: new Date(broadcastedAt).toISOString(),
     } : app)),
     ip,
@@ -90,7 +95,7 @@ export async function appRemovedEvent({
     dedupKey: `appremoved:${appName}`,
     ip,
     broadcastedAt: new Date(broadcastedAt),
-    appNameLower: appName.toLowerCase(),
+    removedNames: [appName.toLowerCase()],
     envelope: await envelopeFor(nodeNum, data, broadcastedAt, signedBy),
     data,
   };

@@ -909,12 +909,10 @@ function createComplianceSweeper({
         if (outcome === RemovalOutcome.REMOVED || outcome === RemovalOutcome.NOT_INSTALLED) {
           owed.delete(appName);
         } else {
-          // BUSY says nothing about the application - the node was doing something else -
-          // and FAILED says it may still be here. Neither is a removal, and reading
-          // either as one leaves a blocked application running with nothing coming back
-          // for it.
+          // FAILED says it may still be here: reading it as a removal leaves a blocked
+          // application running with nothing coming back for it.
           log.warn(`Application ${appName} was not removed (${outcome}); asking again`);
-          hold(appName, outcome === RemovalOutcome.BUSY ? 'busy' : 'failed');
+          hold(appName, 'failed');
         }
         if (index < removals.length - 1) {
           // eslint-disable-next-line no-await-in-loop

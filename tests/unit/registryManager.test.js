@@ -1394,20 +1394,7 @@ describe('registryManager tests', () => {
     });
 
     describe('an app with no height', () => {
-      afterEach(() => {
-        globalState.testInstallingApps.clear();
-      });
-
-      it('should leave an app being tested installed', async () => {
-        installed = [spec('TestedApp', 't', undefined, 100)];
-        globalState.testInstallingApps.add('TestedApp');
-
-        await registryManager.expireGlobalApplications();
-
-        expect(queued()).to.deep.equal([]);
-      });
-
-      it('should uninstall one no test is running for', async () => {
+      it('should uninstall it', async () => {
         installed = [spec('LeftApp', 't', undefined, 100)];
 
         await registryManager.expireGlobalApplications();
@@ -1695,19 +1682,12 @@ describe('registryManager tests', () => {
       type: 'fluxappregister', hash, height: 3000000, timestamp: 1, appSpecifications: { name: `App${hash}`, version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' },
     });
     const unresolvedSignals = () => emitSpy.args.filter(([event]) => event === SYNC_EVENTS.HASH_UNRESOLVED).length;
-    const hashIndex = 'query for getting app hash';
 
     beforeEach(async () => {
       daemonDb = db.db(config.database.daemon.database);
       await daemonDb.collection(appsHashes).deleteMany({});
-      // the node's own index; without it every correction scans the whole collection
-      await daemonDb.collection(appsHashes).createIndex({ hash: 1 }, { name: hashIndex, unique: true });
       await database.collection(appsMessages).deleteMany({});
       emitSpy = sinon.spy(appSyncEvents, 'emit');
-    });
-
-    afterEach(async () => {
-      await daemonDb.collection(appsHashes).dropIndex(hashIndex);
     });
 
     it('should signal a hash to fetch when it marks a received message missing', async () => {
@@ -1736,18 +1716,21 @@ describe('registryManager tests', () => {
       expect(unresolvedSignals()).to.equal(0);
     });
 
+    // What the corrections do to the records is the tests above; this one is the shape of the
+    // reads and writes, so they are answered without the database.
     it('reads only the message hashes and writes its corrections in batches', async () => {
-      const count = 5001;
-      await daemonDb.collection(appsHashes).insertMany(Array.from({ length: count }, (_, i) => record(`h${i}`, { message: false })));
-      await database.collection(appsMessages).insertMany(Array.from({ length: count }, (_, i) => message(`h${i}`)));
-      const reads = sinon.spy(dbHelper, 'findInDatabase');
-      const writes = sinon.spy(Collection.prototype, 'bulkWrite');
+      const batch = registryManager.HASH_RECONSTRUCTION_BATCH;
+      const hashes = Array.from({ length: batch + 1 }, (_, i) => `h${i}`);
+      const reads = sinon.stub(dbHelper, 'findInDatabase');
+      reads.onFirstCall().resolves(hashes.map((hash) => ({ hash })));
+      reads.onSecondCall().resolves(hashes.map((hash) => ({ hash, txid: `tx${hash}`, message: false })));
+      const writes = sinon.stub(Collection.prototype, 'bulkWrite').callsFake(async (ops) => ({ modifiedCount: ops.length }));
 
       const { changed } = await registryManager.reconstructAppMessagesHashCollection();
 
-      expect(changed).to.equal(count);
       expect(reads.firstCall.args[3]).to.deep.equal({ projection: { _id: 0, hash: 1 } });
-      expect(writes.getCalls().map((call) => call.args[0].length)).to.deep.equal([5000, 1]);
+      expect(writes.getCalls().map((call) => call.args[0].length)).to.deep.equal([batch, 1]);
+      expect(changed, 'the batches\' counts are not added up').to.equal(batch + 1);
     });
 
     it('should signal from the operator route', async () => {
@@ -2144,7 +2127,7 @@ describe('registryManager tests', () => {
         dedupKey: `appremoved:${appName}`,
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
-        appNameLower: appName.toLowerCase(),
+        removedNames: [appName.toLowerCase()],
         data: { ip, appName, broadcastedAt },
         envelope: { version: 1, timestamp: broadcastedAt, pubKey: '04abc', signature: 'sig' },
       };

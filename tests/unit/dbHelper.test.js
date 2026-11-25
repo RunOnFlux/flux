@@ -989,4 +989,31 @@ describe('dbHelper tests', () => {
       expect(second.reindexed).to.not.equal(true);
     });
   });
+
+  // The payment facts appMessageChain.messagesThatCount is given, read from the payment records.
+  describe('appMessagesThatCount', () => {
+    const msg = (hash, owner, timestamp) => ({
+      hash, type: 'fluxappregister', height: 5000, timestamp, appSpecifications: { name: 'contested', owner, expire: 1_000_000 },
+    });
+    // a daemon database whose payment records are `records`
+    const daemonWith = (records) => ({ collection: () => ({ find: () => ({ toArray: async () => records }) }) });
+
+    it('leaves out a message whose payment is not on the chain', async () => {
+      const counted = await dbHelper.appMessagesThatCount(
+        daemonWith([{ hash: 'reg', txIndex: 0 }, { hash: 'orphaned', notOnChain: true }]),
+        [msg('reg', 'alice', 1), { ...msg('orphaned', 'alice', 2), type: 'fluxappupdate', height: 6000 }],
+      );
+
+      expect(counted.map((message) => message.hash)).to.deep.equal(['reg']);
+    });
+
+    it('places a block\'s registrations by their positions in the payment records', async () => {
+      const counted = await dbHelper.appMessagesThatCount(
+        daemonWith([{ hash: 'signed-first', txIndex: 7 }, { hash: 'signed-last', txIndex: 3 }]),
+        [msg('signed-first', 'mallory', 1), msg('signed-last', 'alice', 9)],
+      );
+
+      expect(counted.map((message) => message.hash)).to.deep.equal(['signed-last']);
+    });
+  });
 });

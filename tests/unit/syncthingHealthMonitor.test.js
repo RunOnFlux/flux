@@ -205,12 +205,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     beforeEach(() => {
       mockState = {
-        installationInProgress: false,
-        removalInProgress: false,
-        softRedeployInProgress: false,
-        hardRedeployInProgress: false,
-        backupInProgress: [],
-        restoreInProgress: [],
+        heldApps: [],
       };
       mockFoldersConfiguration = [];
       mockFolderHealthCache = new Map();
@@ -220,8 +215,22 @@ describe('syncthingHealthMonitor tests', () => {
       removeAppLocallyFn = sinon.stub().resolves();
     });
 
-    it('should skip health check when installation in progress', async () => {
-      mockState.installationInProgress = true;
+    it('skips the folders of an app an operation holds, and checks every other folder', async () => {
+      mockState.heldApps = ['someapp'];
+      mockFoldersConfiguration = [{ id: 'fluxweb_someapp' }, { id: 'fluxotherapp' }];
+      mockReceiveOnlySyncthingAppsCache.set('fluxweb_someapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxotherapp', { restarted: true });
+      const healthy = {
+        canSync: true,
+        peersAreMoreUpdated: false,
+        peerStatuses: [],
+        localStatus: { syncPercentage: 100 },
+        issues: [],
+      };
+      syncthingServiceMock.getPeerSyncDiagnostics.resolves({
+        folders: { fluxweb_someapp: healthy, fluxotherapp: healthy },
+        summary: { connectedPeers: ['peer1'], totalFolders: 2 },
+      });
 
       const result = await healthMonitor.monitorFolderHealth({
         foldersConfiguration: mockFoldersConfiguration,
@@ -233,58 +242,9 @@ describe('syncthingHealthMonitor tests', () => {
         receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
       });
 
-      expect(result.checked).to.be.false;
-      expect(result.actions).to.have.length(0);
-    });
-
-    it('should skip health check when removal in progress', async () => {
-      mockState.removalInProgress = true;
-
-      const result = await healthMonitor.monitorFolderHealth({
-        foldersConfiguration: mockFoldersConfiguration,
-        folderHealthCache: mockFolderHealthCache,
-        appDockerStopFn,
-        appDockerStartFn,
-        removeAppLocallyFn,
-        state: mockState,
-        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
-      });
-
-      expect(result.checked).to.be.false;
-    });
-
-    it('should skip health check when backup in progress', async () => {
-      mockState.backupInProgress = ['someapp'];
-
-      const result = await healthMonitor.monitorFolderHealth({
-        foldersConfiguration: mockFoldersConfiguration,
-        folderHealthCache: mockFolderHealthCache,
-        appDockerStopFn,
-        appDockerStartFn,
-        removeAppLocallyFn,
-        state: mockState,
-        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
-      });
-
-      expect(result.checked).to.be.false;
-      expect(result.actions).to.have.length(0);
-    });
-
-    it('should skip health check when restore in progress', async () => {
-      mockState.restoreInProgress = ['someapp'];
-
-      const result = await healthMonitor.monitorFolderHealth({
-        foldersConfiguration: mockFoldersConfiguration,
-        folderHealthCache: mockFolderHealthCache,
-        appDockerStopFn,
-        appDockerStartFn,
-        removeAppLocallyFn,
-        state: mockState,
-        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
-      });
-
-      expect(result.checked).to.be.false;
-      expect(result.actions).to.have.length(0);
+      expect(result.checked).to.be.true;
+      expect(result.foldersHealthy, 'checked the held app\'s folder, or skipped the other').to.equal(1);
+      expect([...mockFolderHealthCache.keys()]).to.deep.equal(['fluxotherapp']);
     });
 
     it('should skip folders whose apps have not completed initial process', async () => {
@@ -950,38 +910,6 @@ describe('syncthingHealthMonitor tests', () => {
       });
 
       sinon.assert.notCalled(stateMachineMock.nudgeFolderDevices);
-    });
-
-    it('should skip soft redeploy in progress', async () => {
-      mockState.softRedeployInProgress = true;
-
-      const result = await healthMonitor.monitorFolderHealth({
-        foldersConfiguration: mockFoldersConfiguration,
-        folderHealthCache: mockFolderHealthCache,
-        appDockerStopFn,
-        appDockerStartFn,
-        removeAppLocallyFn,
-        state: mockState,
-        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
-      });
-
-      expect(result.checked).to.be.false;
-    });
-
-    it('should skip hard redeploy in progress', async () => {
-      mockState.hardRedeployInProgress = true;
-
-      const result = await healthMonitor.monitorFolderHealth({
-        foldersConfiguration: mockFoldersConfiguration,
-        folderHealthCache: mockFolderHealthCache,
-        appDockerStopFn,
-        appDockerStartFn,
-        removeAppLocallyFn,
-        state: mockState,
-        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
-      });
-
-      expect(result.checked).to.be.false;
     });
 
     it('should take warning action after warning threshold', async () => {

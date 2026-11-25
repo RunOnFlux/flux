@@ -171,6 +171,7 @@ module.exports = {
     storageHost: 'storage.runonflux.io',
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    firstRunProofMs: 60000,
     restartBurstCount: 5,
     restartBurstWindowMs: 300000,
     // in flux main chain per month (blocksLasting)
@@ -338,6 +339,7 @@ module.exports = {
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
+    imageReapPeriod: 720, // every day remove the images nothing wants
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
@@ -456,6 +458,10 @@ module.exports = {
     discoveryMaxIterations: 100,
     nodeMonitorRemovalDelayMs: 5000,
     pullStallMs: 90000,
+    dockerProbeTimeoutMs: 20000,
+    dockerStopSlackMs: 30000,
+    dockerRequestTimeoutMs: 120000,
+    appRemovedListFrom: '8.25.0',
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
     syncAnswerBatchBytes: 8 * 1024 * 1024,

@@ -3,6 +3,7 @@ import {
 } from './container.js';
 import { advanceBlock, setNodeAddress } from './daemon-control.js';
 import { dbClient } from './db-client.js';
+import { waitFor } from './wait.js';
 
 /**
  * A node whose address changes while it is down, as a machine that loses power
@@ -28,6 +29,26 @@ export async function moveNodeWhileDown(env, index, to, { forgetOwnAddress = fal
   await releaseFluxos(client.container);
   await client.followTo(to);
   return { from, to };
+}
+
+/**
+ * A node's own geolocation record once it is for `ip`: the node has looked itself
+ * up at that address, and when the address is one it moved to, has recorded
+ * watching it change (lastIpChangeDate) and decided its static IP afresh
+ * (staticIpState).
+ * @param {number} index The node's index.
+ * @param {string} ip Bare address.
+ * @param {object} [options]
+ * @param {number} [options.timeout]
+ * @returns {Promise<object>} The record.
+ */
+export async function waitForOwnGeolocation(index, ip, { timeout = 180000 } = {}) {
+  let record = null;
+  await waitFor(async () => {
+    record = await dbClient(index + 1).nodeGeolocation();
+    return record?.geolocation?.ip === ip && Boolean(record.staticIpState);
+  }, { timeout, interval: 3000, label: `node ${index} holds its geolocation at ${ip}` });
+  return record;
 }
 
 /**

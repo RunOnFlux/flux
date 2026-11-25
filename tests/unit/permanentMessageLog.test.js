@@ -112,8 +112,11 @@ describe('permanentMessageLog tests', () => {
     });
 
     it('yields the messages before a line longer than any message a node takes, then throws without reading on', async () => {
-      const longest = config.fluxapps.gossipMessageMaxBytes;
-      const padding = 'x'.repeat(64 * 1024);
+      const longest = 16 * 1024;
+      const { readMessageLog: readWithLimit } = proxyquire('../../ZelBack/src/services/appMessaging/permanentMessageLog', {
+        config: Object.create(config, { fluxapps: { value: { ...config.fluxapps, gossipMessageMaxBytes: longest } } }),
+      });
+      const padding = 'x'.repeat(1024);
       let piecesRead = 0;
       // a line twice as long as the limit, never ended
       async function* endless() {
@@ -127,7 +130,7 @@ describe('permanentMessageLog tests', () => {
       let error;
       try {
         // eslint-disable-next-line no-restricted-syntax
-        for await (const entry of readMessageLog(endless())) read.push(entry);
+        for await (const entry of readWithLimit(endless())) read.push(entry);
       } catch (e) {
         error = e;
       }

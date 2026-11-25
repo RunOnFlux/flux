@@ -64,24 +64,6 @@ describe('appEvacuationSafety tests', () => {
   });
 
   describe('refuses on anything it cannot establish', () => {
-    it('refuses while a backup is running', async () => {
-      globalStateStub.tryStartBackup('plainapp');
-
-      const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
-
-      expect(result.safe).to.equal(false);
-      expect(result.reason).to.contain('backup');
-    });
-
-    it('refuses while a restore is running', async () => {
-      globalStateStub.tryStartRestore('plainapp');
-
-      const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
-
-      expect(result.safe).to.equal(false);
-      expect(result.reason).to.contain('restore');
-    });
-
     it('refuses when the global specification is unavailable', async () => {
       deps.getApplicationGlobalSpecifications.resolves(null);
 

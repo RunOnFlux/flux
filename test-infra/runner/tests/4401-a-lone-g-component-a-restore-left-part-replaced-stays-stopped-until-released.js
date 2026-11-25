@@ -124,7 +124,7 @@ describe('a lone g: component a restore left part replaced stays stopped until a
 
   it('says in its error line which component it left held and how it is released', async function () {
     const errorLine = failedBody.split('\n').find((line) => /could not clear/i.test(line));
-    expect(errorLine, 'the error line').to.match(new RegExp(`^Error: could not clear ${appName} appdata before unpacking\\. ${appName} is kept stopped: restore it again, or start it to keep its data as it is and send it to the other instances\\.$`));
+    expect(errorLine, 'the error line').to.match(new RegExp(`^Error: could not clear ${appName} appdata before unpacking\\. The restore of ${appName} did not finish, so it is stopped to protect your data\\. Run the restore again\\.$`));
     expect(failedBody, 'a held restore reads as success to the UI').to.not.match(/Finalizing/);
   });
 

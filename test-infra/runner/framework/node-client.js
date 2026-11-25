@@ -238,6 +238,11 @@ export function nodeClient(nodeNum) {
         'app:removed',
         'app:rebuilt',
         'app:softRedeployed',
+        // a test run: its containers started, its report, and the boot sweep of
+        // what runs that did not end left behind
+        'testrun:started',
+        'testrun:ended',
+        'testrun:swept',
         'reinstall:passEnded',
         'app:componentRedeployed',
         'app:specStored',
@@ -350,6 +355,12 @@ export function nodeClient(nodeNum) {
         'spawner:deferred',
         'spawner:deferralMatured',
         'spawner:installFailed',
+        // an update the node cannot take, left undone with the app as it is
+        'app:updateDeclined',
+        // a pass of the image reaper, and what it removed, kept and left
+        'images:reaped',
+        // an attempt stopped by lost readiness, a move, or an install of its app from another route
+        'spawner:attemptStopped',
         'spawner:networkErrorSkip',
         'spawner:paused',
         'spawner:resumed',
@@ -359,11 +370,13 @@ export function nodeClient(nodeNum) {
         'hostStall:appsStopped',
         'network:apprunning',
         // entries of an apprunning message this node refused, by gossip or sync
-        'network:apprunningRefused',
         'network:appinstalling',
         'network:appinstallingerror',
         'network:appinstallingerrorRefused',
         'network:appremoved',
+        'app:operationPreempted',
+        'app:operationEnded',
+        'app:operationWaiting',
         'network:appmessage',
         'network:appmessageRefused',
         // whether a node took an unpaid app message, and why not
@@ -633,9 +646,10 @@ export function nodeClient(nodeNum) {
       const res = await controlFetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
       return res.text();
     },
-    // Test an app on THIS node: install it, check it starts, tear it down. By
-    // name, or by the hash of a temporary message for an app not yet paid for.
-    // Streams like installapplocally, so drained as text.
+    // Test an app on THIS node in a test run: its containers run outside the app
+    // machinery and are removed, and nothing is installed. By name, or by the hash
+    // of a temporary message for an app not yet paid for. Streams its status, so
+    // drained as text.
     testAppInstall: async (appname, zelidauth) => {
       const res = await controlFetch(`${url}/apps/testappinstall/${appname}`, { headers: { zelidauth } });
       return res.text();
@@ -647,6 +661,9 @@ export function nodeClient(nodeNum) {
       const res = await controlFetch(`${url}/apps/appremove/${appname}/${force}/false`, { headers: { zelidauth } });
       return res.text();
     },
+    // An owner's start, stop or restart of an app on THIS node - `action` is appstart,
+    // appstop or apprestart - answered as { status, headers, data }.
+    appControl: (action, appname, zelidauth) => request('GET', `/apps/${action}/${appname}`, { headers: { zelidauth } }),
     // Redeploy the WHOLE app on this node, reading the spec from the global table
     // rather than from what is installed - so a spec seeded since the install is
     // what the redeploy is judged against. Body is drained as text for the same

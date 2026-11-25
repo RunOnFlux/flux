@@ -22,18 +22,22 @@ import { afterTeardown } from '../framework/teardown-hook.js';
 // given its normal expiry by an update once the node's own location record of it is
 // in place.
 //
-// A removal stops announcing the app, so the node's location record of it expires
-// while the removal runs, and the app is short from then on. The removal is held
-// at its checkpoint after the app's containers are gone and before its row is
-// deleted, until the spawner has passed over the short app REMOVING_PASSES times:
-// the window in which the spawner sees an app it does not run, and the node still
-// has it installed. Once released, the node installs the app again.
+// A removal announces itself before its teardown, and the node deletes its own
+// location record of the app then, so the app is short from then on. The removal
+// is held at its checkpoint after the app's containers are gone and before its
+// row is deleted, until the spawner has passed over the short app REMOVING_PASSES
+// more times at its departing filter: the window in which the spawner sees an app
+// it does not run, and the node still has it installed. From the removal's start
+// to its release, no pass finds the app a candidate. Once released, the node
+// installs the app again.
 
 const NODES = 2;
 const INSTANCES = 1;
 const REMOVER = 0;
 const BEFORE_ROW_DELETE = 'removal:beforeRowDelete';
 const REMOVING_PASSES = 3;
+// The stage of the spawner's filters that passes over an app this node is removing.
+const DEPARTING = 'afterDeparting';
 // Below the spawner's allowance of 100 blocks, and with the block ticker off it
 // never expires.
 const UNPICKED_EXPIRE = 50;
@@ -60,12 +64,11 @@ describe('a node takes an app again once its removal has finished', function () 
   dumpLogsOnFailure(() => env);
   const appName = `e2eretake${Date.now()}`;
   const remover = () => env.clients[REMOVER];
-  // Every spawner pass that reaches the candidate filters tallies one verdict
-  // for each app the network is short of.
+  // Every spawner pass that reaches the candidate filters tallies one verdict for
+  // each app the network is short of, by the stage that decided it.
   const listedHere = async () => ((await remover().getAppLocations(appName))?.data ?? [])
     .some((location) => location.ip?.startsWith(remover().ip));
-  const passes = async () => Object.values((await remover().getTestCounters())?.['spawner:verdict']?.[appName] ?? {})
-    .reduce((sum, n) => sum + n, 0);
+  const verdicts = async (stage) => (await remover().getTestCounters())?.['spawner:verdict']?.[appName]?.[stage] ?? 0;
 
   before(async function () {
     this.timeout(900000);
@@ -88,15 +91,17 @@ describe('a node takes an app again once its removal has finished', function () 
   it('is installed again by the node that removed it', async function () {
     this.timeout(900000);
     const from = remover().getLastEventId();
+    const candidateBefore = await verdicts('candidate');
     await remover().holdCheckpoint(BEFORE_ROW_DELETE, appName);
     const auth = await authenticate(remover().url, fluxTeamKey());
     const removal = remover().removeAppLocally(appName, auth.zelidauth).catch(() => null);
     await remover().waitForEvent('checkpoint:held', (d) => d.name === BEFORE_ROW_DELETE && d.key === appName, 180000, { afterId: from });
 
-    expect(await passes(), 'fixture: the spawner passed over the app before its removal').to.equal(0);
-    await waitFor(async () => (await passes()) >= REMOVING_PASSES, {
-      timeout: 300000, interval: 2000, label: `${REMOVING_PASSES} spawner passes over the short app while the removal is held`,
+    const departingAtHold = await verdicts(DEPARTING);
+    await waitFor(async () => (await verdicts(DEPARTING)) >= departingAtHold + REMOVING_PASSES, {
+      timeout: 300000, interval: 2000, label: `${REMOVING_PASSES} spawner passes over the short app at its departing filter while the removal is held`,
     });
+    expect(await verdicts('candidate'), 'the spawner found the app a candidate while the node was removing it').to.equal(candidateBefore);
 
     const released = remover().getLastEventId();
     await remover().releaseCheckpoint(BEFORE_ROW_DELETE, appName);

@@ -235,6 +235,8 @@ module.exports = {
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    // how long a container must stay up to count as having run on this node
+    firstRunProofMs: 60000,
     // Backstop for images whose entrypoint discards the payload's exit status.
     // A clean exit proves nothing, so for those images restart RATE is the only
     // fault evidence left and this is the only thing that ever paces them.
@@ -530,6 +532,7 @@ module.exports = {
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
+    imageReapPeriod: 720, // every day remove the images nothing wants
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: net.fluxapps.applyMinimumPriceOn3Instances,
@@ -611,6 +614,10 @@ module.exports = {
     // client tag is refused; below it one is taken from any peer, uncounted
     // (services/appMessaging/unpaidAdmission.js).
     untaggedRefusedFrom: '8.24.0',
+    // The first release that reads a fluxappremoved naming several apps. Once
+    // minimumFluxOSAllowedVersion is at least this, the removals a node announces
+    // while one is being sent go out in one message (utils/appRemovedMessage.js).
+    appRemovedListFrom: '8.25.0',
     // Admitting an unpaid app message (services/appMessaging/admissionQuorum.js).
     // Only an ArcaneOS node admits one, only while it holds admissionQuorum
     // authenticated links on distinct IPs, and answers success only once peers on
@@ -683,6 +690,15 @@ module.exports = {
     addressMoveWaitMs: 1200000,
     // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted
     pullStallMs: 90000,
+    // A docker read that cannot answer in seconds is a wedged daemon.
+    dockerProbeTimeoutMs: 20000,
+    // `docker stop` answers nothing until its container exits, so a stop's deadline is
+    // its own SIGKILL wait plus this, and is never used alone.
+    dockerStopSlackMs: 30000,
+    // Any other short docker request: create, start, kill, remove, update, a network or
+    // image change, a log read. Past it the request is cancelled and fails; docker may
+    // still complete it.
+    dockerRequestTimeoutMs: 120000,
     // between a node's removals of its own apps when it goes out of service (nodeStatusMonitor)
     nodeMonitorRemovalDelayMs: 5000,
     // events per message of an answer to a peer's state sync

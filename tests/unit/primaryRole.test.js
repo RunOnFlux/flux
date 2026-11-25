@@ -2,10 +2,10 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
-const globalState = require('../../ZelBack/src/services/utils/globalState');
 const peerComponent = require('../../ZelBack/src/services/appMonitoring/peerComponent');
 const { RunRequest } = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 
@@ -472,11 +472,11 @@ describe('primaryRole', () => {
 
     it('writes nothing while a backup or restore holds the app', async () => {
       const t = loadRole({ primary: true });
-      globalState.tryStartRestore('n8napp');
+      operationRegistry.acquire('n8napp', 'restore', 'test');
       try {
         await t.role.holdAsPrimary(APP, FOLDER);
       } finally {
-        globalState.finishRestore('n8napp');
+        operationRegistry.clear();
       }
 
       expect(t.calls).to.deep.equal([]);
@@ -516,8 +516,7 @@ describe('primaryRole', () => {
     const returned = (t) => t.bus.publish.getCalls().filter((c) => c.args[0] === 'primaryRole:returned').map((c) => c.args[1]);
 
     afterEach(() => {
-      globalState.finishBackup('n8napp');
-      globalState.finishRestore('n8napp');
+      operationRegistry.clear();
     });
 
     it('discards what it holds when another holder runs the component: receives, unpaused, unscanned, in one write', async () => {
@@ -570,10 +569,10 @@ describe('primaryRole', () => {
       expect(t.calls).to.deep.equal([]);
     });
 
-    ['tryStartBackup', 'tryStartRestore'].forEach((claim) => {
-      it(`stays paused while ${claim === 'tryStartBackup' ? 'a backup' : 'a restore'} holds the app`, async () => {
+    ['backup', 'restore'].forEach((type) => {
+      it(`stays paused while a ${type} holds the app`, async () => {
         const t = loadRole({ folder: PAUSED_SENDING });
-        globalState[claim]('n8napp');
+        operationRegistry.acquire('n8napp', type, 'test');
 
         await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.RUNNING });
 

@@ -1194,9 +1194,10 @@ class FluxPeerManager extends EventEmitter {
   // --- Broadcast ---
 
   /**
-   * Send data to peers, with optional direction filter and exclusion.
-   * When sending to all peers, sends outbound first, then waits 500ms before inbound
-   * to prevent broadcast storms.
+   * Send data to every connected peer, or to the peers of one direction, skipping one.
+   * The peers are taken once, both directions together: a peer that links while the
+   * sends are under way is not among them, and learns what was sent from the state
+   * sync its link starts, which serves what this node recorded before sending.
    * @param {string|Buffer} data
    * @param {object} [options]
    * @param {string} [options.direction] - DIRECTION.INBOUND or DIRECTION.OUTBOUND
@@ -1205,32 +1206,15 @@ class FluxPeerManager extends EventEmitter {
    */
   async broadcast(data, options = {}) {
     const { direction, exclude, delayMs = 25 } = options;
-    if (direction) {
-      await this.#broadcastToGroup(data, direction, exclude, delayMs);
-    } else {
-      await this.#broadcastToGroup(data, DIRECTION.OUTBOUND, exclude, delayMs);
-      await serviceHelper.delay(500);
-      await this.#broadcastToGroup(data, DIRECTION.INBOUND, exclude, delayMs);
-    }
-  }
-
-  /**
-   * Send data to peers in a single direction.
-   * @param {string|Buffer} data
-   * @param {string} direction - DIRECTION.INBOUND or DIRECTION.OUTBOUND
-   * @param {string} [exclude] - peer key to skip
-   * @param {number} delayMs - delay between sends
-   * @private
-   */
-  async #broadcastToGroup(data, direction, exclude, delayMs) {
     // The keys are taken once, and each is looked up again at the moment it is
     // sent to. This loop awaits between sends, so the peer map is free to change
     // under it - a peer dropped by the monitor, a peer this loop evicts itself -
     // and a live iterator would make the result depend on when that happened.
     // Looking the key up again keeps the one behaviour that matters: a peer that
     // has gone while we were delaying is skipped rather than sent to.
-    const keys = direction === DIRECTION.INBOUND ? [...this.#inboundKeys] : [...this.#outboundKeys];
-    for (const key of keys) {
+    const outbound = direction === DIRECTION.INBOUND ? [] : [...this.#outboundKeys];
+    const inbound = direction === DIRECTION.OUTBOUND ? [] : [...this.#inboundKeys];
+    for (const key of [...outbound, ...inbound]) {
       if (exclude && key === exclude) continue;
       const peer = this.#peers.get(key);
       if (!peer) continue;
@@ -1241,7 +1225,7 @@ class FluxPeerManager extends EventEmitter {
         }
       } catch (e) {
         try {
-          const code = direction === DIRECTION.OUTBOUND ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
+          const code = peer.direction === DIRECTION.OUTBOUND ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
           // Evicted, not closed. send() returns false only when the socket is
           // already not open, so this path is reached exactly when close() can
           // achieve nothing: no frame goes out, onclose has been and gone or

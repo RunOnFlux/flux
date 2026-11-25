@@ -2,6 +2,7 @@
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire');
 const config = require('config');
 const WebSocket = require('ws');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
@@ -320,11 +321,16 @@ describe('fluxCommunicationMessagesSender tests', () => {
     let wasAuthoritative;
     let peer;
     let findStub;
+    // The sender's config: this node's own, with a copy of fluxapps a test may change.
+    let senderConfig;
+    let sender;
 
     const sent = () => peer.sendAsync.getCalls().map((c) => JSON.parse(c.args[0]).data);
 
     beforeEach(() => {
       wasAuthoritative = globalState.appStateAuthoritative;
+      senderConfig = Object.create(config, { fluxapps: { value: { ...config.fluxapps } } });
+      sender = proxyquire('../../ZelBack/src/services/fluxCommunicationMessagesSender', { config: senderConfig });
       peer = { key: '198.51.100.9:16127', sendAsync: sinon.stub().resolves(), send: sinon.stub(), remoteClockOffsetMs: 0 };
       sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
       sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
@@ -355,7 +361,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       it(`${fn} refuses and reads nothing from the store`, async () => {
         globalState.appStateAuthoritative = false;
 
-        await fluxCommunicationMessagesSender[fn](peer, 0);
+        await sender[fn](peer, 0);
 
         expect(sent()).to.deep.equal([{
           type: wireType, ...envelope, messages: [], done: true, refused: true,
@@ -369,7 +375,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       it(`${fn} answers an empty store without refusing`, async () => {
         globalState.appStateAuthoritative = true;
 
-        await fluxCommunicationMessagesSender[fn](peer, 0);
+        await sender[fn](peer, 0);
 
         const messages = sent();
         expect(messages).to.have.lengthOf(1);
@@ -379,16 +385,17 @@ describe('fluxCommunicationMessagesSender tests', () => {
         expect(messages[0]).to.not.have.property('refused');
       });
 
-      // Three events of 3 MiB: two fit in syncAnswerBatchBytes (8 MiB) and the
+      // Three events of 6 KiB: two fit in a 16 KiB syncAnswerBatchBytes and the
       // third starts the next message, though all three are under the count.
       it(`${fn} closes a message before its events would pass syncAnswerBatchBytes`, async () => {
         globalState.appStateAuthoritative = true;
+        senderConfig.fluxapps.syncAnswerBatchBytes = 16 * 1024;
         const stored = ['a', 'b', 'c'].map((hash) => ({
-          type: 'fluxappregister', version: 1, appSpecifications: { name: hash, description: 'x'.repeat(3 * 1024 * 1024) }, hash, timestamp: 1, signature: 's', arcaneSender: true,
+          type: 'fluxappregister', version: 1, appSpecifications: { name: hash, description: 'x'.repeat(6 * 1024) }, hash, timestamp: 1, signature: 's', arcaneSender: true,
         }));
         findStub.returns({ sort: () => stored });
 
-        await fluxCommunicationMessagesSender[fn](peer, 0);
+        await sender[fn](peer, 0);
 
         expect(sent().map(({ messages, done }) => [messages.map((m) => m.hash), done])).to.deep.equal([
           [['a', 'b'], false],
@@ -398,17 +405,19 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       it(`${fn} does not send an event over gossipMessageMaxBytes, and sends the rest`, async () => {
         globalState.appStateAuthoritative = true;
+        const longest = 16 * 1024;
+        senderConfig.fluxapps.gossipMessageMaxBytes = longest;
         const event = (hash, description) => ({
           type: 'fluxappregister', version: 1, appSpecifications: { name: hash, description }, hash, timestamp: 1, signature: 's', arcaneSender: true,
         });
         const exactly = (hash) => {
           const shell = Buffer.byteLength(JSON.stringify(event(hash, '')));
-          return event(hash, 'x'.repeat(config.fluxapps.gossipMessageMaxBytes - shell));
+          return event(hash, 'x'.repeat(longest - shell));
         };
-        const over = event('b', 'x'.repeat(config.fluxapps.gossipMessageMaxBytes));
+        const over = event('b', 'x'.repeat(longest));
         findStub.returns({ sort: () => [exactly('a'), over, event('c', '')] });
 
-        await fluxCommunicationMessagesSender[fn](peer, 0);
+        await sender[fn](peer, 0);
 
         expect(sent().flatMap(({ messages }) => messages.map((m) => m.hash))).to.deep.equal(['a', 'c']);
       });

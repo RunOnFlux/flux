@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { SpawnerStopped } = require('../../ZelBack/src/services/utils/spawnerControl');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const { MongoNetworkTimeoutError } = require('mongodb');
@@ -15,6 +16,8 @@ describe('appSpawner tests', () => {
   let globalStateStub;
   let aggregateStub;
   let delayStub;
+  let spawnerControlStub;
+  let attemptStub;
   let daemonSyncStub;
   let placementFeasibilityStub;
 
@@ -40,6 +43,7 @@ describe('appSpawner tests', () => {
         blocksLasting: 22000,
         newMinBlocksAllowance: 100,
         spawnDeferrals: { domainShareMs: { enterprise: 1920000, standard: 1920000 } },
+        maxAppsPerNode: 200,
         ...overrides,
       },
     };
@@ -122,8 +126,22 @@ describe('appSpawner tests', () => {
     // is gone", and the spawner told them apart by matching on error text.
     const installStubRef = opts.installStub ?? sinon.stub().resolves(InstallOutcome.INSTALLED);
 
+    attemptStub = {
+      forApp: sinon.stub(),
+      sleep: opts.sleepStub ?? delayStub,
+      holdForInstall: opts.holdForInstall ?? sinon.stub().returns(() => {}),
+      end: sinon.stub(),
+    };
+    spawnerControlStub = {
+      SpawnerStopped,
+      setRunner: sinon.stub(),
+      setReady: sinon.stub().resolves(),
+      beginAttempt: sinon.stub().returns(attemptStub),
+    };
+
     appSpawner = proxyquire('../../ZelBack/src/services/appLifecycle/appSpawner', {
       config: configStub,
+      '../utils/spawnerControl': spawnerControlStub,
       '../dbHelper': {
         databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
         aggregateInDatabase: aggregateStub,
@@ -164,7 +182,8 @@ describe('appSpawner tests', () => {
       },
       '../../lib/log': logStub,
       '../appQuery/appQueryService': {
-        listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+        listRunningApps: sinon.stub().resolves({ status: 'success', data: opts.runningApps ?? [] }),
+        installedApps: sinon.stub().resolves({ status: 'success', data: opts.installedApps ?? [] }),
       },
       '../appDatabase/registryManager': {
         // The post-install self-check re-reads the running list after this
@@ -275,6 +294,8 @@ describe('appSpawner tests', () => {
         broadcastMessageToOutgoing: sinon.stub().resolves(),
         broadcastMessageToIncoming: sinon.stub().resolves(),
         broadcastMessageToAll: sinon.stub().resolves(),
+        signBroadcast: opts.signStub ?? sinon.stub().callsFake(async (data) => ({ serialised: `signed:${data.type}`, message: { data } })),
+        sendToAll: opts.sendStub ?? sinon.stub().resolves(),
       },
       '../utils/appConstants': {
         globalAppsInformation: 'appsInformation',
@@ -292,6 +313,7 @@ describe('appSpawner tests', () => {
       '../appMessaging/messageStore': {
         storeAppInstallingMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
         storeAppInstallingErrorMessage: opts.installingErrorStub ?? sinon.stub().resolves(true),
+        storeSignedAppInstallingBroadcast: opts.signedClaimStub ?? sinon.stub().resolves(),
       },
       './appInstaller': {
         registerAppLocally: installStubRef,
@@ -412,6 +434,28 @@ describe('appSpawner tests', () => {
       // The other half of the pair: unheld, the pass reaches the install path,
       // so the assertion above is about the hold and not about the pass being
       // stopped by something else entirely.
+      expect(aggregateStub.called).to.equal(true);
+    });
+  });
+
+  // A node's report names every app it holds, and no node takes one naming more
+  // than maxAppsPerNode: an app installed and stopped counts as one held.
+  describe('the most apps a node holds', () => {
+    const held = (count) => Array.from({ length: count }, (_, i) => ({ name: `held${i}` }));
+
+    it('takes no app once it holds maxAppsPerNode, though none of them runs', async () => {
+      buildModule({ installedApps: held(200), runningApps: [], aggregateResult: [{ name: 'someapp', hash: 'h1', height: 100 }] });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(aggregateStub.called, 'the pass went on to choose an app').to.equal(false);
+    });
+
+    it('goes on to choose an app while it holds fewer', async () => {
+      buildModule({ installedApps: held(199), runningApps: [] });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
       expect(aggregateStub.called).to.equal(true);
     });
   });
@@ -1114,6 +1158,24 @@ describe('appSpawner tests', () => {
       sinon.assert.callOrder(siblingCheck, claimStub);
     });
 
+    // A peer that links while the claim is being sent, or after, asks this node for
+    // the claims it holds, and is given this one with the rest.
+    it('records its signed claim where it serves claims from, before it sends it', async () => {
+      const signedClaimStub = sinon.stub().resolves();
+      const sendStub = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, signedClaimStub, sendStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.calledOnce(signedClaimStub);
+      const [stored] = signedClaimStub.firstCall.args;
+      expect(stored.data).to.include({ type: 'fluxappinstalling', version: 1 });
+      sinon.assert.calledWithExactly(sendStub, 'signed:fluxappinstalling');
+      sinon.assert.callOrder(signedClaimStub, sendStub);
+    });
+
     // A node whose calls to other nodes are redirected cannot ask a synced app's
     // partners anything, so it is not given one. Anything else it still takes.
     describe('a node whose calls to other nodes are redirected', () => {
@@ -1345,7 +1407,19 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(installStub.calledOnce, 'the install must have been attempted, or the argument below proves nothing').to.be.true;
-      expect(installStub.firstCall.args[4], 'tore the placement down without telling the network').to.equal(true);
+      expect(installStub.firstCall.args[3], 'tore the placement down without telling the network').to.equal(true);
+    });
+
+    it('sends its install without waiting on another operation holding the app', async () => {
+      const installStub = sinon.stub().resolves(InstallOutcome.BUSY);
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, installStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(installStub.calledOnce, 'the install must have been attempted, or the argument below proves nothing').to.be.true;
+      expect(installStub.firstCall.args[4]?.wait).to.equal(false);
     });
 
     it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {
@@ -1504,19 +1578,65 @@ describe('appSpawner tests', () => {
       };
     }
 
-    // The periodic reinstall pass takes an app apart and puts it back, and holds
-    // its flag across the wait in between. An install started inside that window
-    // takes the node, and the pass is then refused when it comes back for it -
-    // leaving an app torn down with nothing to rebuild it. The spawner is the one
-    // that gives way, and it withdraws its claim rather than holding it, so
-    // another node can take the placement now.
-    it('stands down while the node is already doing something to an app', async () => {
-      const { installStub, withdrawalStub } = await runAttempt({
-        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
-      });
+    // Readiness lost or a move: what the attempt decided no longer holds.
+    it('withdraws the claim of an attempt the spawner was stopped in, installs nothing, and holds nothing against the app', async () => {
+      const { installStub, withdrawalStub } = await runAttempt({ sleepStub: sinon.stub().rejects(new SpawnerStopped()) });
 
-      expect(installStub.called, 'installed on top of an operation already in flight').to.be.false;
-      expect(withdrawalStub.called, 'a claim held while standing down blocks the placement for everyone').to.be.true;
+      expect(installStub.called).to.be.false;
+      expect(withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true)).to.have.lengthOf(1);
+      expect([...globalStateStub.trySpawningGlobalAppCache.keys()], 'the stopped attempt was held against the app').to.deep.equal([]);
+      expect([...globalStateStub.spawnErrorsLongerAppCache.keys()]).to.deep.equal([]);
+    });
+
+    // The install of the app from another route stops the attempt by its app.
+    it('names its app to the attempt before it claims the app, and ends the attempt', async () => {
+      const claimStub = sinon.stub().resolves();
+      await runAttempt({ claimStub });
+
+      sinon.assert.calledWithExactly(attemptStub.forApp, spawnableApp.name);
+      sinon.assert.called(claimStub);
+      expect(attemptStub.forApp.calledBefore(claimStub.firstCall), 'the app was named after its claim').to.equal(true);
+      sinon.assert.calledOnce(attemptStub.end);
+    });
+
+    it('keeps the mark of an app it installed when it is stopped after the install', async () => {
+      const sleepStub = sinon.stub();
+      sleepStub.onFirstCall().resolves();
+      sleepStub.rejects(new SpawnerStopped());
+      const { installStub } = await runAttempt({ sleepStub });
+
+      sinon.assert.calledOnce(installStub);
+      expect([...globalStateStub.trySpawningGlobalAppCache.keys()], 'the installed app lost its mark').to.have.lengthOf(1);
+    });
+
+    it('installs nothing when the spawner is stopped before its install takes the lock', async () => {
+      const { installStub, withdrawalStub } = await runAttempt({ holdForInstall: sinon.stub().throws(new SpawnerStopped()) });
+
+      expect(installStub.called).to.be.false;
+      expect(withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true)).to.have.lengthOf(1);
+      expect([...globalStateStub.trySpawningGlobalAppCache.keys()]).to.deep.equal([]);
+      expect([...globalStateStub.spawnErrorsLongerAppCache.keys()]).to.deep.equal([]);
+    });
+
+    // A stop waits only until the node records the app: whatever the stopper does
+    // next finds it among the node's apps, and a long install holds nothing up.
+    it('starts its install under the spawner\'s lock, and lets it go once the node records the app', async () => {
+      const letGo = sinon.stub();
+      const holdForInstall = sinon.stub().returns(letGo);
+      const { installStub } = await runAttempt({ holdForInstall });
+
+      sinon.assert.calledOnce(holdForInstall);
+      expect(holdForInstall.calledBefore(installStub)).to.equal(true);
+      sinon.assert.calledOnce(installStub);
+      expect(installStub.firstCall.args[4]?.onRecorded, 'the install was not given the lock to let go').to.equal(letGo);
+    });
+
+    it('lets the spawner\'s lock go when its install ends without recording the app', async () => {
+      const letGo = sinon.stub();
+      const { installStub } = await runAttempt({ holdForInstall: sinon.stub().returns(letGo) });
+
+      sinon.assert.called(letGo);
+      expect(letGo.lastCall.calledAfter(installStub.firstCall)).to.equal(true);
     });
 
     // An application whose specification this node cannot read contributes
@@ -1719,6 +1839,20 @@ describe('appSpawner tests', () => {
       expect(withdrawal.name).to.be.a('string');
     });
 
+    // A peer syncing from this node learns the claim is withdrawn, as it learns the
+    // claim: the signed withdrawal is recorded where claims are served from, then sent.
+    it('records its signed withdrawal where it serves claims from, before it sends it', async () => {
+      const signedClaimStub = sinon.stub().resolves();
+      const sendStub = sinon.stub().resolves();
+      await runAttempt({ portsAvailable: false, portCheck: sinon.stub(), signedClaimStub, sendStub });
+
+      const withdrawals = signedClaimStub.getCalls().filter((c) => c.args[0].data.withdrawn === true);
+      expect(withdrawals, 'signed withdrawals recorded').to.have.lengthOf(1);
+      const sent = sendStub.getCalls().filter((c) => c.args[0] === 'signed:fluxappinstalling');
+      expect(sent, 'claim and withdrawal sent').to.have.lengthOf(2);
+      expect(withdrawals[0].calledBefore(sent[1]), 'the withdrawal was sent before it was recorded').to.equal(true);
+    });
+
     it('withdraws its claim when the port check refuses, the last check before the install', async () => {
       const portCheck = sinon.stub();
       const { installStub, withdrawalStub } = await runAttempt({ portsAvailable: false, portCheck });
@@ -1743,17 +1877,6 @@ describe('appSpawner tests', () => {
       });
 
       expect(logged('earlier claimants in fault domain'), 'never reached the stand-down').to.be.true;
-      sinon.assert.notCalled(portCheck);
-    });
-
-    it('stands down while the node is already doing something to an app, before it tests a port', async () => {
-      const portCheck = sinon.stub();
-      const { withdrawalStub } = await runAttempt({
-        portCheck,
-        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
-      });
-
-      expect(withdrawalStub.called, 'never reached the stand-down').to.be.true;
       sinon.assert.notCalled(portCheck);
     });
 
@@ -2020,118 +2143,28 @@ describe('appSpawner tests', () => {
       appSyncEvents.removeAllListeners();
     });
 
-    function waitForLoopExits(n, timeoutMs = 2000) {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`Expected ${n} loop exit(s) within ${timeoutMs}ms`)), timeoutMs);
-        const check = () => {
-          const count = logStub.info.getCalls().filter(
-            (c) => c.args[0] === 'Spawn loop exited (paused)',
-          ).length;
-          if (count >= n) { clearTimeout(timer); resolve(); } else { setTimeout(check, 5); }
-        };
-        check();
-      });
-    }
-
-    it('should call trySpawningGlobalApplication repeatedly until paused', async () => {
+    it('runs on the spawner control, started when the node is ready and stopped when readiness is lost', () => {
       buildModule();
-      delayStub.resetBehavior();
-      let iterations = 0;
-      delayStub.callsFake(() => {
-        iterations += 1;
-        if (iterations >= 3) globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
       appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
 
-      expect(aggregateStub.callCount).to.equal(3);
+      sinon.assert.calledOnceWithExactly(spawnerControlStub.setRunner, sinon.match.func);
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      sinon.assert.calledWithExactly(spawnerControlStub.setReady, true);
+      expect(globalStateStub.spawnerPaused).to.equal(false);
+      appSyncEvents.emit(SYNC_EVENTS.READINESS_LOST);
+      sinon.assert.calledWithExactly(spawnerControlStub.setReady, false);
+      expect(globalStateStub.spawnerPaused).to.equal(true);
     });
 
-    it('should exit loop when spawnerPaused set mid-iteration', async () => {
+    it('answers each pass with the ms until the next', async () => {
       buildModule();
-      delayStub.resetBehavior();
-      delayStub.callsFake(() => {
-        globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
       appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
+      const pass = spawnerControlStub.setRunner.firstCall.args[0];
 
-      expect(aggregateStub.callCount).to.equal(1);
-      expect(logStub.info.calledWith('Spawn loop exited (paused)')).to.be.true;
-    });
+      const ms = await pass();
 
-    it('should not start a second loop on duplicate SPAWNER_READY', async () => {
-      buildModule();
-      delayStub.resetBehavior();
-      let iterations = 0;
-      delayStub.callsFake(() => {
-        iterations += 1;
-        if (iterations === 1) {
-          appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-        }
-        if (iterations >= 3) globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
-      appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
-
-      const exitLogs = logStub.info.getCalls().filter(
-        (c) => c.args[0] === 'Spawn loop exited (paused)',
-      );
-      expect(exitLogs).to.have.lengthOf(1);
-      expect(aggregateStub.callCount).to.equal(3);
-    });
-
-    it('should restart loop on SPAWNER_READY after pause', async () => {
-      buildModule();
-      delayStub.resetBehavior();
-      let iterations = 0;
-      delayStub.callsFake(() => {
-        iterations += 1;
-        if (iterations === 2) {
-          appSyncEvents.emit(SYNC_EVENTS.READINESS_LOST);
-        }
-        if (iterations >= 5) globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
-      appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
-
-      expect(aggregateStub.callCount).to.equal(2);
-
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(2);
-
-      expect(aggregateStub.callCount).to.be.gte(4);
-    });
-
-    it('should return delay value from trySpawningGlobalApplication not recurse', async () => {
-      buildModule();
-      delayStub.resetBehavior();
-      const delays = [];
-      delayStub.callsFake((ms) => {
-        delays.push(ms);
-        globalStateStub.spawnerPaused = true;
-        return Promise.resolve();
-      });
-
-      appSpawner.initialize();
-      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
-      await waitForLoopExits(1);
-
-      expect(delays).to.have.lengthOf(1);
-      expect(delays[0]).to.be.a('number');
-      expect(delays[0]).to.be.greaterThan(0);
+      expect(ms).to.be.a('number');
+      expect(ms).to.be.greaterThan(0);
     });
   });
 

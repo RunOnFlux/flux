@@ -2,6 +2,7 @@ const os = require('os');
 const config = require('config');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
+const networkClassifier = require('../utils/networkClassifier');
 const ipLocationStore = require('../appPlacement/ipLocationStore');
 const geolocationRule = require('../appPlacement/geolocationRule');
 const benchmarkService = require('../benchmarkService');
@@ -10,6 +11,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const { extractIp } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
+const admissionControl = require('../utils/admissionControl');
 
 // Node specifications (shared state)
 const nodeSpecs = {
@@ -403,13 +405,50 @@ async function appsResources(options) {
 }
 
 /**
- * To check app requirements of HW for a node
+ * Why this node cannot hold an app that asks for a data centre, or null when it
+ * can or the published table cannot tell: the table classes the node as
+ * residential. The one rule an update's requirements and the give-up pass both
+ * read, so a node declines an update only where the give-up pass hands the app
+ * back. A conflicting verdict, or none, is not a shortfall.
+ * @param {object} appSpecs App specifications, decrypted.
+ * @returns {Promise<string|null>}
+ */
+async function dataCenterShortfall(appSpecs) {
+  if (appSpecs.version >= 8 && appSpecs.datacenter === true) {
+    const network = await geolocationService.getNetworkClassification();
+    if (network?.classification === networkClassifier.CLASSIFICATION.RESIDENTIAL) {
+      return 'it requires a data center node and this node is residential';
+    }
+  }
+  return null;
+}
+
+/**
+ * Why this node is not the kind of node an app's specification asks for, or null
+ * when it is or cannot tell: a static IP where the node sees it is behind NAT, or
+ * a data centre where the published table classes the node as residential
+ * (dataCenterShortfall). An unknown or conflicting answer is not a shortfall.
+ * @param {object} appSpecs App specifications, decrypted.
+ * @returns {Promise<string|null>}
+ */
+async function nodeKindShortfall(appSpecs) {
+  if (appSpecs.version >= 7 && appSpecs.staticip
+    && geolocationService.getStaticIpState() === geolocationService.STATIC_IP_STATE.DYNAMIC) {
+    return 'it requires a static IP address and this node is behind NAT';
+  }
+  return dataCenterShortfall(appSpecs);
+}
+
+/**
+ * Why this node cannot hold an app's hardware, or null when it can.
+ * Rejects when what the node has or holds cannot be read: an unread answer is
+ * not a shortfall.
  * @param {object} appSpecs App specifications.
  * @param {object} [options]
  * @param {string} [options.replacing] Name of an installed app whose resources are not counted.
- * @returns {boolean} True if all checks passed.
+ * @returns {Promise<string|null>}
  */
-async function checkAppHWRequirements(appSpecs, options = {}) {
+async function hwShortfall(appSpecs, options = {}) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
   const resourcesLocked = await appsResources({ excludeApp: options.replacing });
@@ -422,14 +461,14 @@ async function checkAppHWRequirements(appSpecs, options = {}) {
   const specs = await getNodeSpecs();
   const totalSpaceOnNode = specs.ssdStorage;
   if (totalSpaceOnNode === 0) {
-    throw new Error('Insufficient space on Flux Node to spawn an application');
+    throw new Error('Unable to obtain the storage of this Flux Node from its benchmarks. Aborting.');
   }
   const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
   if (appHWrequirements.hdd > availableSpaceForApps) {
-    throw new Error('Insufficient space on Flux Node to spawn an application');
+    return 'Insufficient space on Flux Node to spawn an application';
   }
 
   const totalCpuOnNode = specs.cpuCores * 10;
@@ -438,7 +477,7 @@ async function checkAppHWRequirements(appSpecs, options = {}) {
   const adjustedAppCpu = appHWrequirements.cpu * 10;
   const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
   if (adjustedAppCpu > availableCpuForApps) {
-    throw new Error('Insufficient CPU power on Flux Node to spawn an application');
+    return 'Insufficient CPU power on Flux Node to spawn an application';
   }
 
   const totalRamOnNode = specs.ram;
@@ -446,10 +485,40 @@ async function checkAppHWRequirements(appSpecs, options = {}) {
   const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
   if (appHWrequirements.ram > availableRamForApps) {
-    throw new Error('Insufficient RAM on Flux Node to spawn an application');
+    return 'Insufficient RAM on Flux Node to spawn an application';
   }
 
+  return null;
+}
+
+/**
+ * To check app requirements of HW for a node
+ * @param {object} appSpecs App specifications.
+ * @param {object} [options]
+ * @param {string} [options.replacing] Name of an installed app whose resources are not counted.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppHWRequirements(appSpecs, options = {}) {
+  const shortfall = await hwShortfall(appSpecs, options);
+  if (shortfall) throw new Error(shortfall);
   return true;
+}
+
+/**
+ * Checks the node has room for an app and reserves it for the operation holding
+ * the app, as one step among admissions, so two apps cannot both be admitted into
+ * room for one. The app's current row and reservation are left out of the check.
+ * @param {object} appSpecs App specifications, decrypted.
+ * @returns {Promise<void>} Rejects with the reason the app does not fit.
+ */
+function admitApp(appSpecs) {
+  // eslint-disable-next-line global-require
+  const resourceQueryService = require('../appQuery/resourceQueryService');
+  return admissionControl.admit(
+    appSpecs.name,
+    () => checkAppHWRequirements(appSpecs, { replacing: appSpecs.name }),
+    async () => resourceQueryService.appFootprint(appSpecs, await generalService.nodeTier()),
+  );
 }
 
 /**
@@ -505,7 +574,11 @@ module.exports = {
   setNodeSpecs,
   returnNodeSpecs,
   totalAppHWRequirements,
+  hwShortfall,
+  dataCenterShortfall,
+  nodeKindShortfall,
   checkAppHWRequirements,
+  admitApp,
   checkAppCpuBurstHeadroom,
   checkAppRequirements,
   nodeFullGeolocation,

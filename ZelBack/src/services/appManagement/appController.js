@@ -14,6 +14,7 @@ const mountParser = require('../utils/mountParser');
 const log = require('../../lib/log');
 const { Privilege, authOf } = require('../utils/privileges');
 const { appNameRegex } = require('../utils/appIdentity');
+const operationRegistry = require('../utils/operationRegistry');
 
 const { globalCmdDelayMs } = config.fluxapps;
 // Guaranteed a finite non-negative integer, so a missing or malformed config
@@ -204,28 +205,12 @@ function restartHere(appname) {
 }
 
 /**
- * Start an application
- * @param {object} req - Request object
- * @param {object} res - Response object
- * @returns {object} Response message
- */
-/**
- * Records the operator's desired run-state for an app (or single component) so
- * the reconciler honours a deliberate stop/kill and resumes on start. Spreads
- * to every component for a whole composed-app command.
- *
+ * The components an operator command addresses, resolved from what the app is
+ * actually made of, never from a stored spec's `compose`: an enterprise app keeps
+ * its component names inside an encrypted blob, so reading compose yields an empty
+ * list and a whole-app command addresses nothing while reporting success.
  * @param {string} appname app or component identifier
- * @param {object|null} appSpecs full app spec (null for a component command)
- * The components are resolved from what the app is actually made of, never from a
- * stored spec's `compose`: an enterprise app keeps its component names inside an
- * encrypted blob, so reading compose yields an empty list and a whole-app command
- * addresses nothing while reporting success.
- *
- * @param {boolean} stopped
- * @param {object} [options]
- * @param {boolean} [options.awaitPass] hold until the reconcile pass has run
- * @param {boolean} [options.force] a stop is a hard kill, not a graceful stop
- * @param {boolean} [options.alsoRestart] raise the restart generation with the lock
+ * @returns {Promise<{ids: string[], appName: string, electedIds: string[]}>}
  */
 async function operatorTargetIds(appname) {
   const mainAppName = appname.split('_')[1] || appname;
@@ -278,7 +263,38 @@ async function holdsElectedApp(electedIds) {
   return actual.some((each) => each.running === true);
 }
 
-async function setAppOperatorStopped(appname, stopped, { awaitPass = false, force = false, alsoRestart = false } = {}) {
+/**
+ * Runs an owner's start, stop or restart of an app as an operation of the app's
+ * manager: an action taken now, refused while another operation holds the app.
+ * @param {string} appname Application or component name.
+ * @param {function(): Promise<*>} action
+ * @returns {Promise<*>} What `action` returns. Rejects with OperationRefusedError
+ *   while another operation holds the app.
+ */
+function asOwnerAction(appname, action) {
+  const appName = appname.includes('_') ? appname.split('_')[1] : appname;
+  return operationRegistry.submit(appName, 'control', action, { owner: 'owner action' });
+}
+
+/**
+ * Records the operator's desired run-state for an app (or single component) so
+ * the reconciler honours a deliberate stop/kill and resumes on start. Spreads
+ * to every component for a whole composed-app command. An owner action:
+ * refused while another operation holds the app.
+ *
+ * @param {string} appname app or component identifier
+ * @param {boolean} stopped
+ * @param {object} [options]
+ * @param {boolean} [options.awaitPass] hold until the reconcile pass has run
+ * @param {boolean} [options.force] a stop is a hard kill, not a graceful stop
+ * @param {boolean} [options.alsoRestart] raise the restart generation with the lock
+ * @returns {Promise<{ids: string[], actuated: boolean, appName: string}>}
+ */
+function setAppOperatorStopped(appname, stopped, options = {}) {
+  return asOwnerAction(appname, () => writeOperatorStopped(appname, stopped, options));
+}
+
+async function writeOperatorStopped(appname, stopped, { awaitPass = false, force = false, alsoRestart = false } = {}) {
   const { ids, appName, electedIds } = await operatorTargetIds(appname);
   // Components come up in compose order and go down in the reverse of it, so a
   // dependency outlives what writes to it: the database stops after the server it
@@ -462,6 +478,12 @@ async function containersRestarted(ids) {
   return containersReachedRunning(ids);
 }
 
+/**
+ * Start an application
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {object} Response message
+ */
 async function appStart(req, res) {
   try {
     let { appname } = req.params;
@@ -667,7 +689,18 @@ async function appRestart(req, res) {
 
     // Another instance's restore asks this one to read the data it replaced: what
     // runs is restarted, and what its owner stopped stays stopped.
-    if (serviceHelper.ensureBoolean(req.query?.unlessstopped || false)) {
+    //
+    // A STOPGAP. This is another node's instruction carried on the owner's restart
+    // route, switched by a query flag, and authorised by the owner's zelidauth that
+    // the restoring node forwards - a bearer credential every receiving node can
+    // replay as the owner for as long as it is valid. It is replaced by an
+    // instruction the owner signs for this one restart, and the flag and this
+    // branch go with it. It restarts this node only, so it is refused with global.
+    const unlessStopped = serviceHelper.ensureBoolean(req.query?.unlessstopped || false);
+    if (unlessStopped && global) {
+      throw new Error('unlessstopped restarts this node only, and cannot be combined with global');
+    }
+    if (unlessStopped) {
       const { restarted, appName: restartedName } = await restartUnlessStopped(appname);
       return res.json(messageHelper.createDataMessage(restarted.length
         ? `Application ${restartedName} will be restarted: ${restarted.join(', ')}`
@@ -899,11 +932,16 @@ async function stopAllNonFluxRunningApps() {
 /**
  * Restarts the components of an app here that their owner has not stopped, and
  * changes no stop lock and no restore record. A component whose lock cannot be
- * read is not restarted: an unread lock is not an absent one.
+ * read is not restarted: an unread lock is not an absent one. An owner action:
+ * refused while another operation holds the app.
  * @param {string} appname Application or component name.
  * @returns {Promise<{ids: string[], restarted: string[], appName: string}>}
  */
-async function restartUnlessStopped(appname) {
+function restartUnlessStopped(appname) {
+  return asOwnerAction(appname, () => restartRunning(appname));
+}
+
+async function restartRunning(appname) {
   const { ids, appName } = await operatorTargetIds(appname);
   const restarted = [];
   // eslint-disable-next-line no-restricted-syntax

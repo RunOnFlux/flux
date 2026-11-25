@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const globalState = require('../utils/globalState');
+const operationRegistry = require('../utils/operationRegistry');
 const appInspector = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appQueryService = require('../appQuery/appQueryService');
@@ -190,6 +191,8 @@ const NETWORK_PRUNED_RETRY_MS = 5 * 60 * 1000;
 // under a minute, with the sweep as the backstop. (Docker network events cannot
 // cover this: a container born detached never emits a disconnect.)
 const POST_START_VERIFY_MS = 30 * 1000;
+// how long a run must last for the component to count as having run on this node
+const FIRST_RUN_PROOF_MS = config.fluxapps.firstRunProofMs;
 
 // identifiers whose detach/prune was already recorded as a tampering event, so the
 // paced retries record it once per episode rather than once per attempt (the count
@@ -339,6 +342,9 @@ async function dockerActual(identifier) {
       // this said it was already up - every boot, forever. The two now agree.
       running: !!(info.State && info.State.Running) && !info.State.Paused,
       paused: !!(info.State && info.State.Paused),
+      // docker has begun removing it, and the removal may still be running
+      // after the caller that asked for it stopped waiting
+      removing: info.State?.Status === 'removing',
       exitCode: everRan ? (info.State.ExitCode ?? null) : null,
       // the kernel's verdict, not the entrypoint's: an image that swallows its
       // payload's status still cannot hide this one
@@ -367,16 +373,81 @@ async function dockerActual(identifier) {
   }
 }
 
+// The operations that build or tear down an app's containers.
+const CONSTRUCTING = new Set(['install', 'remove', 'redeploy', 'rebuild']);
+
+// app -> its component identifiers whose pass waits for the operation holding the
+// app to end
+const awaitingRelease = new Map();
+
 /**
- * Whether another subsystem currently owns this container — a global
- * install/remove/redeploy constructing it, or the transient window of a
- * deliberate stop/restart/kill (tracked in stoppingContainers). The reconciler
- * must not actuate while one of these is in flight. A backup or restore is not
- * one: it holds the component through operationDesired, and the reconciler keeps
- * acting on it.
+ * Whether the component's app is being built or torn down: an install, removal,
+ * redeploy or rebuild of that app holds it, or a removal of it is pending - the
+ * operation it stops releases the app to that removal, never to a start.
+ * @param {string} identifier
+ * @returns {boolean}
+ */
+function heldByConstruction(identifier) {
+  const mainAppName = identifier.split('_')[1] || identifier;
+  return operationRegistry.isRemoving(mainAppName) || CONSTRUCTING.has(operationRegistry.get(mainAppName)?.type);
+}
+
+/**
+ * Passes the component again once the operation holding its app ends - on the
+ * next turn, after the app's next operation, if any, has taken it.
+ * @param {string} identifier
+ */
+function deferUntilReleased(identifier) {
+  const mainAppName = identifier.split('_')[1] || identifier;
+  if (!awaitingRelease.has(mainAppName)) awaitingRelease.set(mainAppName, new Set());
+  awaitingRelease.get(mainAppName).add(identifier);
+}
+
+/**
+ * Runs a rebuild of the component's container as an operation on its app: taken
+ * now or refused, and while it runs nothing else runs on the app. Refused, the
+ * component is passed again once the app is free; stopped by a removal, it ends
+ * and the removal runs.
+ * @param {string} identifier
+ * @param {function(object): Promise<void>} rebuild Given the operation.
+ * @returns {Promise<void>}
+ */
+async function rebuildHolding(identifier, rebuild) {
+  const mainAppName = identifier.split('_')[1] || identifier;
+  try {
+    await operationRegistry.submit(mainAppName, 'rebuild', rebuild, { owner: `appReconciler ${identifier}` });
+  } catch (error) {
+    if (error instanceof operationRegistry.OperationRefusedError) {
+      fluxEventBus.count('reconciler:deferred', identifier, 'operationHeld');
+      deferUntilReleased(identifier);
+      return;
+    }
+    if (error instanceof operationRegistry.OperationPreemptedError) {
+      log.info(`appReconciler - the rebuild of ${identifier} stopped for ${error.by}`);
+      return;
+    }
+    throw error;
+  }
+}
+
+operationRegistry.onReleased((mainAppName) => {
+  const identifiers = awaitingRelease.get(mainAppName);
+  if (!identifiers) return;
+  awaitingRelease.delete(mainAppName);
+  // eslint-disable-next-line no-use-before-define
+  setImmediate(() => identifiers.forEach((identifier) => enqueue(identifier)));
+});
+
+/**
+ * Whether another subsystem currently owns this container - an install, removal or
+ * redeploy of its app, or the transient window of a deliberate stop/restart/kill
+ * (tracked in stoppingContainers). The reconciler must not actuate while one of
+ * these is in flight. A backup, restore or owner action is not one: it holds the
+ * component through operationDesired or the operator lock, and the reconciler
+ * keeps acting on it.
  */
 function isManagedElsewhere(identifier) {
-  if (globalState.isOperationInProgress && globalState.isOperationInProgress()) return true;
+  if (heldByConstruction(identifier)) return true;
   const mainAppName = identifier.split('_')[1] || identifier;
   if (globalState.stoppingContainers.has(dockerService.getAppIdentifier(identifier))) return true;
   // an app being removed, including one whose removal is still cleaning up
@@ -450,40 +521,64 @@ async function desiredRunState(rawIdentifier) {
 
 /**
  * Recreates a vanished container (no Docker event fires for absence), recording
- * the tampering signals and falling back to local removal on failure — the
- * behavior previously in containerHealthMonitor.monitorAndRecoverApps.
+ * the tampering signals. When the recreate fails, a component that has run on
+ * this node is kept, down, and retried on the restart ladder; the app of one that
+ * never ran here is removed, as a step of the rebuild.
+ * @param {string} identifier
+ * @param {object} op The rebuild operation holding the app.
+ * @returns {Promise<void>}
  */
-async function recreateMissing(identifier) {
+/**
+ * Whether any component of an app has run here: its own runtime record, or that of
+ * any component the installed specification names.
+ * Rejects when a record or the installed specification cannot be read.
+ * @param {string} mainAppName
+ * @param {string} identifier The component asking, counted whatever the specification names.
+ * @returns {Promise<boolean>}
+ */
+async function appHasRunHere(mainAppName, identifier) {
+  const installed = await appQueryService.installedApps(mainAppName);
+  if (installed?.status !== 'success') throw new Error(`the installed specification of ${mainAppName} could not be read`);
+  const ids = new Set([identifier, ...await componentIdsOf(installed.data)]);
+  const states = await Promise.all([...ids].map((id) => appsRuntimeState.getState(id)));
+  return states.some((state) => state?.hasSuccessfullyStarted === true);
+}
+
+async function recreateMissing(identifier, op) {
   const mainAppName = identifier.split('_')[1] || identifier;
 
   // `container_vanished` is the heaviest tampering signal this node emits and it
-  // asserts one thing: a container went away and FluxOS did not take it. FluxOS's
-  // own removals are in globalState.fluxRemovedContainers, and an absence FluxOS
-  // caused is evidence of nothing. Either way the container is recreated below -
-  // only the accusation is withheld.
-  //
-  // The entry is dropped by appDockerCreate succeeding, not by being read here.
-  // A recreate that fails therefore keeps it, which is what the next pass needs:
-  // the container is still absent and that absence is still FluxOS's, so reading
-  // the entry away would have this node accuse itself on the following pass -
-  // an image pull spans several of them.
-  const removedByFluxOs = globalState.fluxRemovedContainers.has(dockerService.getAppIdentifier(identifier));
+  // asserts one thing: a container went away and FluxOS did not take it. FluxOS
+  // records each container it takes down before it sends the removal
+  // (appsRuntimeState.setRemovedByFluxOs), and an absence FluxOS caused is
+  // evidence of nothing. Either way the container is recreated below - only the
+  // accusation is withheld. The record is cleared by the create, not by being
+  // read here: a recreate that fails leaves the absence FluxOS's.
+  let removedByFluxOs;
+  try {
+    removedByFluxOs = await appsRuntimeState.isRemovedByFluxOs(identifier);
+  } catch (err) {
+    log.warn(`appReconciler - cannot read whether FluxOS removed the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
   if (removedByFluxOs) {
     log.info(`appReconciler - ${identifier} is missing because FluxOS removed it; recreating without recording a tampering event`);
   } else {
     await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   }
-  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_RECREATE, identifier);
   try {
     // Created, not started: the pass this enqueues starts it against the desired
     // state as it is then, which a recreate of minutes may have changed.
-    await containerHealthMonitor.recreateMissingContainers(identifier, { start: false });
+    await containerHealthMonitor.recreateMissingContainers(identifier, { start: false, signal: op.signal });
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
     enqueue(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
+    // stopped for a removal, which runs next
+    if (err instanceof operationRegistry.OperationPreemptedError) throw err;
     // Removal must be justified by the state of the world NOW, not at
     // classification time: a whole recreate attempt (image pull - up to
     // minutes) sits between them, during which a redeploy can legitimately
@@ -510,8 +605,29 @@ async function recreateMissing(identifier) {
     if (appTamperingDetectionService.isNetworkMissingError(err.message)) {
       await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${err.message}`);
     }
-    log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} (appReconciler)`);
-    await appUninstaller.removeAppLocally(mainAppName, null, false, true, true);
+    // An app with a component that has run here is kept, the failed component down
+    // and its recreate retried on the ladder: a recreate that fails (an image that
+    // cannot be pulled, a bad update) is no reason to delete an established app and
+    // its data. An app none of whose components has run here is a failed install,
+    // and is removed. A record that cannot be read decides nothing.
+    let ranHere;
+    try {
+      ranHere = await appHasRunHere(mainAppName, identifier);
+    } catch (stateError) {
+      log.warn(`appReconciler - whether ${mainAppName} has run here could not be read (${stateError.message}); retrying, not removing`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
+    if (ranHere) {
+      await appsRuntimeState.recordRestart(identifier);
+      const keptWait = Math.max(await appsRuntimeState.restartWaitMs(identifier).catch(() => 0), MANAGED_RETRY_MS);
+      log.warn(`appReconciler - ${identifier} could not be recreated but ${mainAppName} has run here; kept down, retrying in ${Math.round(keptWait / 1000)}s`);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreateFailedKept', waitMs: keptWait });
+      scheduleRetry(identifier, keptWait);
+      return;
+    }
+    log.warn(`REMOVAL REASON: Container recreation failure, never ran here - ${mainAppName} (appReconciler)`);
+    await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, { parent: op });
   }
 }
 
@@ -523,20 +639,25 @@ async function recreateMissing(identifier) {
  * paces it on the heal ladder. The container is created, not started: the pass
  * this enqueues starts it against the desired state. The durable heal-removal flag is NOT cleared here: only seeing the
  * container back proves the heal worked.
+ * @param {string} identifier
+ * @param {object} op The rebuild operation holding the app.
+ * @returns {Promise<void>}
  */
-async function recreateForNetworkHeal(identifier) {
+async function recreateForNetworkHeal(identifier, op) {
   const mainAppName = identifier.split('_')[1] || identifier;
   try {
     // softOnly: a hard install would REFORMAT the app's data volume (createAppVolume
     // fallocates + mke2fs). We removed a live container whose data was intact, so a
     // recreate that cannot verify the volume must fail and be retried - never wipe it.
-    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true, start: false });
+    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true, start: false, signal: op.signal });
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated ${identifier} to clear a detached network endpoint`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated', reason: 'networkDetached' });
     enqueue(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
+    // stopped for a removal, which runs next
+    if (err instanceof operationRegistry.OperationPreemptedError) throw err;
     // Same diagnostics the vanished path emits - minus the uninstall escalation.
     // Without these a heal-removed container whose recreate keeps failing (e.g. its
     // network was pruned in the meantime) would loop with no operator-visible signal.
@@ -706,7 +827,20 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
+  // The remove and the recreate are one rebuild, an operation on the app: a backup
+  // or restore reads and replaces the volume it rebuilds the container over.
+  await rebuildHolding(identifier, (op) => clearStaleEndpoint(identifier, mainAppName, op));
+}
 
+/**
+ * Removes a container left with a stale network endpoint and recreates it, holding
+ * its app.
+ * @param {string} identifier
+ * @param {string} mainAppName
+ * @param {object} op The rebuild operation holding the app.
+ * @returns {Promise<void>}
+ */
+async function clearStaleEndpoint(identifier, mainAppName, op) {
   log.warn(`appReconciler - ${identifier} running but not attached to its docker network; clearing the stale endpoint`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkDetached' });
 
@@ -750,7 +884,64 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
-  await recreateForNetworkHeal(identifier);
+  await recreateForNetworkHeal(identifier, op);
+}
+
+/**
+ * Recreates a component's missing container, holding its app: on the network-heal
+ * ladder when FluxOS removed it to clear a stale endpoint, as a vanished container
+ * otherwise.
+ * @param {string} identifier
+ * @param {object} op The rebuild operation holding the app.
+ * @returns {Promise<void>}
+ */
+async function rebuildMissing(identifier, op) {
+  // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
+  // container to clear a stale endpoint, its absence is not tampering. Keep
+  // recreating it - paced on the heal ladder, never escalating to the vanished
+  // path's uninstall-on-failure. Only a container that vanished by other means
+  // takes that path.
+  let healRemoved;
+  try {
+    healRemoved = await appsRuntimeState.isNetworkHealRemoval(identifier);
+  } catch (err) {
+    // We cannot tell whether we removed this container ourselves. Guessing "no" is
+    // the destructive guess: it records a false tampering event and can uninstall
+    // the whole app on a failed recreate. Defer until the state is readable.
+    log.warn(`appReconciler - cannot read the heal state of the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
+  if (healRemoved) {
+    const wait = await appsRuntimeState.networkHealWaitMs(identifier);
+    if (wait > 0) {
+      log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
+      scheduleRetry(identifier, wait);
+      return;
+    }
+    try {
+      await appsRuntimeState.recordNetworkHealAttempt(identifier);
+    } catch (err) {
+      // unpaced retries would hammer the recreate; defer instead
+      log.error(`appReconciler - cannot pace the heal recreate of ${identifier} (${err.message}); will retry`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
+    await recreateForNetworkHeal(identifier, op);
+    return;
+  }
+  await recreateMissing(identifier, op);
+}
+
+/**
+ * Defers a component another subsystem owns: until the operation holding its app
+ * ends, or, for the other owners, for MANAGED_RETRY_MS.
+ * @param {string} identifier
+ */
+function deferManaged(identifier) {
+  if (heldByConstruction(identifier)) deferUntilReleased(identifier);
+  // eslint-disable-next-line no-use-before-define
+  else scheduleRetry(identifier, MANAGED_RETRY_MS);
 }
 
 // --- the reconcile -------------------------------------------------------
@@ -759,7 +950,7 @@ async function reconcile(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   if (isManagedElsewhere(identifier)) {
     fluxEventBus.count('reconciler:deferred', identifier, 'managedElsewhere');
-    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    deferManaged(identifier);
     return;
   }
 
@@ -938,9 +1129,18 @@ async function reconcile(rawIdentifier) {
   // only on the running+attached path) is what stops the flag leaking on every branch
   // that leaves a container stopped (awaiting-controller g:, operator stop), which
   // would otherwise divert a later, genuine disappearance away from the vanished path.
+  // Docker is removing it: whatever is left when it finishes is the next pass's.
+  // Until then it is neither present nor gone, and the records of a removal stand.
+  if (actual.removing) {
+    log.info(`appReconciler - docker is removing ${identifier}; reconciling it once that finishes`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
   if (actual.exists && !dockerService.isContainerDetachedFromNetwork(actual.attachment)) {
     await clearNetworkHealState(identifier);
   }
+  // The container exists, so no absence of it is left to account for.
+  if (actual.exists) await appsRuntimeState.clearRemovedByFluxOs(identifier);
 
   // what this pass decides from: a start is carried out only while no opinion has
   // been written since (writeIfUnchanged's rule)
@@ -1030,6 +1230,17 @@ async function reconcile(rawIdentifier) {
       // it off, and a stop docker never carried out leaves a running container
       // unmonitored with no later pass to notice.
       appInspector.ensureAppMonitoring(identifier);
+      // A component has run here once a run of it lasts the proof window. Until
+      // this one has, it is looked at again when it will have.
+      if (!(restartState && restartState.hasSuccessfullyStarted)) {
+        const ranMs = actual.startedAt ? Date.now() - actual.startedAt : 0;
+        if (ranMs >= FIRST_RUN_PROOF_MS) {
+          await appsRuntimeState.setSuccessfullyStarted(identifier);
+          fluxEventBus.publish('reconciler:actuated', { identifier, action: 'firstRunProven' });
+        } else {
+          scheduleRetry(identifier, FIRST_RUN_PROOF_MS - ranMs);
+        }
+      }
       return; // running and properly attached (heal state was cleared above)
     }
     await healDetachedNetwork(identifier, mainAppName, spec);
@@ -1037,41 +1248,12 @@ async function reconcile(rawIdentifier) {
   }
 
   if (!actual.exists) {
-    // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
-    // container to clear a stale endpoint, its absence is not tampering. Keep
-    // recreating it - paced on the heal ladder, never escalating to the vanished
-    // path's uninstall-on-failure. Only a container that vanished by other means
-    // takes that path.
-    let healRemoved;
-    try {
-      healRemoved = await appsRuntimeState.isNetworkHealRemoval(identifier);
-    } catch (err) {
-      // We cannot tell whether we removed this container ourselves. Guessing "no" is
-      // the destructive guess: it records a false tampering event and can uninstall
-      // the whole app on a failed recreate. Defer until the state is readable.
-      log.warn(`appReconciler - cannot read the heal state of the missing ${identifier} (${err.message}); deferring rather than treating it as vanished`);
-      scheduleRetry(identifier, MANAGED_RETRY_MS);
-      return;
-    }
-    if (healRemoved) {
-      const wait = await appsRuntimeState.networkHealWaitMs(identifier);
-      if (wait > 0) {
-        log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
-        scheduleRetry(identifier, wait);
-        return;
-      }
-      try {
-        await appsRuntimeState.recordNetworkHealAttempt(identifier);
-      } catch (err) {
-        // unpaced retries would hammer the recreate; defer instead
-        log.error(`appReconciler - cannot pace the heal recreate of ${identifier} (${err.message}); will retry`);
-        scheduleRetry(identifier, MANAGED_RETRY_MS);
-        return;
-      }
-      await recreateForNetworkHeal(identifier);
-      return;
-    }
-    await recreateMissing(identifier);
+    // The recreate is an operation on the app, taken only while nothing else holds
+    // it - a backup or restore included: a recreate that cannot find the volume
+    // mounted rebuilds it, under the archive being read or the data being replaced.
+    // The checkpoint stands before the app is taken.
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_RECREATE, identifier);
+    await rebuildHolding(identifier, (op) => rebuildMissing(identifier, op));
     return;
   }
 
@@ -1085,6 +1267,15 @@ async function reconcile(rawIdentifier) {
   // its exit code (a stop that outlasts its timeout ends in SIGKILL, 137). The start
   // after it is a deliberate start and, as an owner's start does, begins with a clear
   // ladder. An OOM kill is a death whoever asked for a stop.
+  // Docker's record of the run that ended proves the component ran here when it
+  // lasted the proof window, whether or not a pass saw it running.
+  if (actual.startedAt && actual.finishedAt && actual.finishedAt - actual.startedAt >= FIRST_RUN_PROOF_MS) {
+    const ranState = await appsRuntimeState.getState(identifier).catch(() => undefined);
+    if (ranState !== undefined && !(ranState && ranState.hasSuccessfullyStarted)) {
+      await appsRuntimeState.setSuccessfullyStarted(identifier);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'firstRunProven' });
+    }
+  }
   const stopRequested = !actual.oomKilled && await appsRuntimeState.stopRequestedSince(identifier, actual.startedAt);
   if (stopRequested) await appsRuntimeState.clearRestartLadder(identifier);
   const crashed = !stopRequested && (!!actual.oomKilled || (actual.exitCode !== null && actual.exitCode !== 0));

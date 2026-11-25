@@ -17,6 +17,8 @@ const hostStallService = require('./hostStallService');
 const appKill = require('./appLifecycle/appKill');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
+const appTestRun = require('./appLifecycle/appTestRun');
+const imageReaper = require('./appLifecycle/imageReaper');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const unregisteredEnterpriseCleanup = require('./appLifecycle/unregisteredEnterpriseCleanup');
 const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
@@ -40,7 +42,6 @@ const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const tempMessageHold = require('./appMessaging/tempMessageHold');
 const messageStore = require('./appMessaging/messageStore');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
-const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
 const networkRecovery = require('./appSystem/networkRecovery');
 const volumeExecutor = require('./appSystem/volumeExecutor');
@@ -254,8 +255,9 @@ async function prepareDatabaseSchema() {
     { key: { type: 1, ip: 1, expireAt: 1 }, name: 'events of a type at addresses, by expiry' },
     // the reports and removals of one app, by its name lowercased
     { key: { appNames: 1, expireAt: 1 }, name: 'reports by the apps they name, lowercased', partialFilterExpression: { type: 'apprunning' } },
-    { key: { appNameLower: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
+    { key: { removedNames: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
   ]);
+  await messageStore.dropMalformedStoredEvents(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   await messageStore.lowercaseStoredAppNames(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   log.info('App state events collection prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
@@ -429,6 +431,11 @@ async function startFluxFunctions() {
         log.error(`Hardware validation service error: ${error.message}`);
       });
     }, bootDelay(50 * 1000)); // Run at 50 seconds - BEFORE boot reconciliation
+
+    // What a test run that did not end left behind; no test run starts until this has run.
+    appTestRun.sweep().catch((error) => {
+      log.error(`Test run sweep did not complete, and runs again before the next test run: ${error.message}`);
+    });
 
     // Migrate existing containers from 'unless-stopped'/'always' to 'no' restart policy.
     // Non-destructive — doesn't stop containers, just prevents Docker from auto-starting
@@ -677,11 +684,6 @@ async function startFluxFunctions() {
     await crontabAndMountsCleanup.cleanupCrontabAndMounts().catch((error) => {
       log.error(`Crontab and mounts cleanup service error: ${error.message}`);
     });
-    // Perform container mount recovery - restart containers that started before their mounts were created
-    log.info('Container mount recovery check...');
-    await containerMountRecovery.performContainerMountRecovery().catch((error) => {
-      log.error(`Container mount recovery service error: ${error.message}`);
-    });
     // A file operation's container is detached from the process that started
     // it, so a FluxOS restart leaves one running with nobody waiting for its
     // result, and its staging directory on the volume. The recovery below
@@ -828,6 +830,8 @@ async function startFluxFunctions() {
     // decider self-gates per cycle on its own prerequisites (mounts, syncthing health,
     // own-IP, FDM), so an early start is safe - it skips and retries until ready.
     globalState.waitForBootContainerStateSettled().then(() => {
+      // Detached: images nothing wants, once boot has settled what runs.
+      imageReaper.pruneUnusedImages().catch((error) => log.error(`imageReaper - ${error.message}`));
       // The syncthing decider is declare-only: it writes desired run-state and
       // data-state (via appReconciler) and enqueues; the reconciler is the sole
       // actuator that stops, starts, and wipes - inside its per-key single-flight,
@@ -851,7 +855,7 @@ async function startFluxFunctions() {
         https,
       ); // stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {
-        appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
+        appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally); // Monitor SharedDB Apps.
       }, 60 * 1000);
     });
     // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)

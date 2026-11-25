@@ -19,11 +19,15 @@
  *
  * A node with a name installed refuses another owner's registration of it at its door, relayed or
  * requested; one that has fallen more than 500 messages behind catches up in bulk, which stores
- * the message log as the network holds it. So the other app's holder is put that far behind -
- * the payment records of the mainnet message slice, the messages held by its peers - before Bob
- * registers the expired name again, and its removal of Alice's install is held at
- * removalQueue:beforeRemoval, as a node with removals queued ahead of it would hold it. Its
- * reinstall pass then finds Alice's install under a name Bob registered afresh.
+ * the message log as the network holds it. A bulk fetch takes from its peers only what they have
+ * stored, and a hash the node has already asked for alone is left out of its fetches until its
+ * retry. So the other app's holder has its hash sync held (hashSync:beforeSelect) while Bob
+ * registers the expired name again and every other node stores the registration; it is then put
+ * more than 500 behind - the payment records of the mainnet message slice, the messages held by
+ * its peers - and released, and its next sync fetches them in bulk with Bob's registration among
+ * them. Its removal of Alice's install is held at removalQueue:beforeRemoval, as a node with
+ * removals queued ahead of it would hold it. Its reinstall pass then finds Alice's install under a
+ * name Bob registered afresh.
  */
 import { describe, it, before } from 'mocha';
 import { expect } from 'chai';
@@ -59,6 +63,7 @@ const SOLD_HOLDER = 3; // holds the app that is sold
 const TAKEN_HOLDER = 4; // holds the app whose name is registered again
 
 const CHECKPOINT = 'removalQueue:beforeRemoval';
+const BEFORE_HASH_SELECT = 'hashSync:beforeSelect';
 const DECISION = 'expiry:installedApp';
 const TERM = 24;
 const RENEWED_TERM = 88000;
@@ -197,6 +202,7 @@ describe('a name past its installed term is kept for a buyer and removed for a n
   });
 
   afterTeardown(async function () {
+    await env?.clients[TAKEN_HOLDER]?.releaseAllCheckpoints().catch(() => {});
     await env?.teardown();
   });
 
@@ -222,16 +228,25 @@ describe('a name past its installed term is kept for a buyer and removed for a n
     // Canary: Alice's file is on the holder until the removal.
     expect(await exists(takenHolder.container, aliceFilePath(takenName)), 'Alice\'s file before the registration').to.equal(true);
 
-    // More than 500 payments whose messages the holder lacks: its next hash sync is a bulk one.
-    await dbClient(TAKEN_HOLDER + 1).seedAppHashes(slice.records.map((record) => ({ ...record, message: false, messageNotFound: false })));
+    // The holder's hash sync waits until its peers have stored Bob's registration.
+    await takenHolder.holdCheckpoint(BEFORE_HASH_SELECT);
     // Refused by the holder at its door, with the name installed there.
     const everyNodeButTheHolder = liveIndices(env).filter((i) => i !== TAKEN_HOLDER);
+    const marks = env.clients.map((client) => client?.getLastEventId());
     const registration = await submit(appSpec(takenName, bob, RENEWED_TERM), 'fluxappregister', bob, { indices: everyNodeButTheHolder });
+    await queueAppTx(registration);
+    await mineFleetBlock(env, { label: 'the block that pays Bob\'s registration' });
+    await Promise.all(everyNodeButTheHolder.map((i) => env.clients[i].waitForEvent(
+      'app:specStored', (d) => d.hash === registration, 300000, { afterId: marks[i] },
+    )));
+
+    // More than 500 payments whose messages the holder lacks: its next hash sync is a bulk one.
+    await dbClient(TAKEN_HOLDER + 1).seedAppHashes(slice.records.map((record) => ({ ...record, message: false, messageNotFound: false })));
     const mark = takenHolder.getLastEventId();
     const bulk = takenHolder.waitForEvent('hashSync:bulkFetched', (d) => d.processed > 0, 1200000, { afterId: mark });
     let removed = false;
     const removal = waitForAppRemoved(takenHolder, takenName, 1500000, { afterId: mark }).then(() => { removed = true; });
-    await queueAppTx(registration);
+    await takenHolder.releaseCheckpoint(BEFORE_HASH_SELECT);
     // Hash sync runs on a timer, so the budget is time; the drive keeps the chain moving.
     await driveFleetUntil(env, async () => removed, {
       timeoutMs: 1200000, label: `the holder takes ${takenName}'s registration in bulk and removes Alice's install`,

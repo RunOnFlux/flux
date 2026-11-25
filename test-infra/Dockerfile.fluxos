@@ -194,6 +194,11 @@ COPY --chown=fluxuser:fluxuser package.json ./
 RUN runuser -u fluxuser -- npm install --production \
     && cp package-lock.json /tmp/image-package-lock.json
 
+# npm asks registry.npmjs.org for a newer npm whenever ~/.npm/_update-notifier-last-checked
+# is a week old, which a cached layer's marker becomes. The fleet has no route out, so the
+# check is off in npm's global config, for every account and however npm is started.
+RUN npm config set update-notifier false --location=global
+
 # pm2, for a legacy node started the way the multitool starts one, at the
 # version in test-infra/pm2-version: the multitool installs pm2@latest, and a
 # suite measuring its stop must know which pm2 it measured. The file is in the

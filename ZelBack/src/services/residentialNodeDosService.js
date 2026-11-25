@@ -28,7 +28,7 @@ const geolocationService = require('./geolocationService');
 const benchmarkService = require('./benchmarkService');
 const { CLASSIFICATION } = require('./utils/networkClassifier');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
-const globalState = require('./utils/globalState');
+const operationRegistry = require('./utils/operationRegistry');
 const fluxEventBus = require('./utils/fluxEventBus');
 const handbackTurns = require('./utils/handbackTurns');
 
@@ -643,20 +643,12 @@ async function runResidentialPolicy(deps) {
   }
 
   if (!installed.length) {
-    // The placement hold above stops the spawner taking anything NEW, but an
-    // install already running is not stopped by it - and an install is real
-    // from appInstaller's installationInProgress flag, some way before its
-    // database record exists for listInstalledApps to see. A tick landing in
-    // that gap reads an empty node, DOSes it, and nodeStatusMonitor tears the
-    // arriving app down on its next loop.
-    //
-    // Undecided rather than "not empty": the retry backoff re-asks in minutes
-    // instead of deferring the DOS for a full check interval, and an install
-    // resolves on that timescale. Bounded today by appInstaller writing its
-    // database entry before creating the container, so no volume exists in the
-    // window - nothing here referenced that ordering, and nothing tested it.
-    if (globalState.installationInProgress) {
-      log.info('residentialNodeDos - an install is in flight, not treating this node as empty yet');
+    // The placement hold above stops the spawner taking anything new, but not an
+    // install or redeploy already running, which holds its app while its database
+    // record may not exist for listInstalledApps to see. An empty node with an app
+    // arriving is undecided, not empty: the retry backoff asks again in minutes.
+    if (operationRegistry.listArriving().length) {
+      log.info('residentialNodeDos - an app is arriving, not treating this node as empty yet');
       return false;
     }
     applyDos();

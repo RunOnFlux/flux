@@ -1,9 +1,9 @@
 // Removes, on a node that is not Arcane, every installed enterprise app that was
 // never registered: no height, no global specification and no permanent message
-// under its name. Only an unpaid test install leaves such a row. Its stored
-// specification cannot be decrypted here, so it is removed by the components its
-// containers and volume images on this node name, each with no ports: a test
-// install opens none.
+// under its name. Only an unpaid test install by an earlier release leaves such a
+// row. Its stored specification cannot be decrypted here, so it is removed by the
+// components its containers and volume images on this node name, each with no
+// ports: such a test install opened none.
 //
 // Remove this module, and the specifications option of removeAppLocally, once the
 // FluxOS version floor is at or above the release that ships it.
@@ -11,7 +11,6 @@
 const config = require('config');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
-const globalState = require('../utils/globalState');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const {
   globalAppsInformation, globalAppsMessages, isArcane,
@@ -65,12 +64,14 @@ async function componentsOnNode(name) {
 
 /**
  * Removes every installed enterprise app this node cannot decrypt and that was never
- * registered. A read that fails ends the pass with nothing more removed.
+ * registered. Each app's removal is sent as the app is found, and the pass ends once
+ * every removal it sent has. A read that fails sends no further removal.
  * @returns {Promise<string[]>} the names removed
  */
 async function removeUnregisteredEnterpriseApps() {
   const removed = [];
   if (isArcane) return removed;
+  const removals = [];
   try {
     const installed = await appQueryService.installedApps();
     if (installed.status !== 'success') throw new Error('the installed apps could not be read');
@@ -79,24 +80,30 @@ async function removeUnregisteredEnterpriseApps() {
       const enterprise = app.version >= 8 && Boolean(app.enterprise);
       const hasHeight = app.height !== undefined && app.height !== null;
       // eslint-disable-next-line no-continue
-      if (!enterprise || hasHeight || globalState.testInstallingApps.has(app.name)) continue;
+      if (!enterprise || hasHeight) continue;
       // eslint-disable-next-line no-await-in-loop
       if (!await neverRegistered(app.name)) continue; // eslint-disable-line no-continue
       // eslint-disable-next-line no-await-in-loop
       const components = await componentsOnNode(app.name);
       log.warn(`REMOVAL REASON: Unregistered enterprise app - ${app.name} is installed on a node that cannot decrypt it and was never registered`);
-      // eslint-disable-next-line no-await-in-loop
       // By its docker name: removeAppLocally takes one leading flux off the name it is given.
-      const outcome = await appUninstaller.removeAppLocally(`flux${app.name}`, null, true, false, true, {
-        specifications: {
-          ...app, enterprise: '', compose: components.map((component) => ({ ...component, ports: [] })),
-        },
+      removals.push({
+        name: app.name,
+        removal: appUninstaller.removeAppLocally(`flux${app.name}`, null, true, false, true, {
+          specifications: {
+            ...app, enterprise: '', compose: components.map((component) => ({ ...component, ports: [] })),
+          },
+        }),
       });
-      if (outcome === RemovalOutcome.REMOVED) removed.push(app.name);
     }
   } catch (error) {
     log.error(`removeUnregisteredEnterpriseApps - ${error.message}`);
   }
+  const settled = await Promise.allSettled(removals.map(({ removal }) => removal));
+  settled.forEach((result, index) => {
+    if (result.status === 'rejected') log.error(`removeUnregisteredEnterpriseApps - ${removals[index].name}: ${result.reason.message}`);
+    else if (result.value === RemovalOutcome.REMOVED) removed.push(removals[index].name);
+  });
   return removed;
 }
 

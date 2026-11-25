@@ -3,10 +3,16 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const { resetGlobalState } = require('./fixtures/globalState');
 
+// A test run is its own unit (appTestRun.test.js); no installer test runs one, which
+// would run its commands on the machine the tests run on.
+const testRunStub = () => ({ run: sinon.stub().resolves(true) });
+
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
+const spawnerControl = require('../../ZelBack/src/services/utils/spawnerControl');
 const { GeoVerdict, GeoSource } = require('../../ZelBack/src/services/appRequirements/hwRequirements');
 
 // what portReconciler.want answers for a port mapped, and for one the router refused
@@ -19,11 +25,9 @@ const REFUSED = {
 
 // The full-install dockerService stub, shared by every proxyquire setup that
 // drives registerAppLocally. Pass overrides for the few tests that need a
-// specific return (e.g. a distinct getAppIdentifier or a shared pruneImages
-// spy). Fresh sinon stubs per call, so each proxyquired module gets its own.
+// specific return (e.g. a distinct getAppIdentifier). Fresh sinon stubs per call, so each proxyquired module gets its own.
 const makeDockerServiceStub = (overrides = {}) => ({
   dockerListContainers: sinon.stub().resolves([]),
-  pruneImages: sinon.stub().resolves(),
   dockerNetworkState: sinon.stub().resolves('absent'),
   getFreeFluxAppNetworkOctet: sinon.stub().resolves(1),
   createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
@@ -124,7 +128,10 @@ describe('appInstaller tests', () => {
 
     hwRequirementsStub = {
       checkAppHWRequirements: sinon.stub().resolves(),
+      // the node has room for every app, unless a test says it does not
+      admitApp: sinon.stub().resolves(),
       checkAppStaticIpRequirements: sinon.stub(),
+      dataCenterShortfall: sinon.stub().resolves(null),
       checkAppNodesRequirements: sinon.stub().resolves(),
       appGeolocationVerdict: sinon.stub().resolves({ verdict: GeoVerdict.PASS, source: null, reason: null }),
       GeoVerdict,
@@ -151,6 +158,7 @@ describe('appInstaller tests', () => {
 
     // Proxy require
     baseStubs = {
+      './appTestRun': testRunStub(),
       '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../verificationHelper': verificationHelperStub,
@@ -268,11 +276,11 @@ describe('appInstaller tests', () => {
   // default with a ten second delay, so it indexes the directory while the container is
   // writing into it. An ignore does not withdraw what already replicated.
   describe('a local directory is covered before it exists', () => {
-    const softInstaller = (volumeService, ignorePolicy, isRestoreUnfinished = sinon.stub().resolves(false)) => proxyquire(
+    const softInstaller = (volumeService, ignorePolicy, isRestoreUnfinished = sinon.stub().resolves(false), clearRemovedByFluxOs = sinon.stub().resolves()) => proxyquire(
       '../../ZelBack/src/services/appLifecycle/appInstaller',
       {
         ...baseStubs,
-        '../appManagement/appsRuntimeState': { isRestoreUnfinished },
+        '../appManagement/appsRuntimeState': { isRestoreUnfinished, clearRemovedByFluxOs },
         // The real derivation, because the folder asked about has to be the
         // component-qualified one that syncthing knows this volume by.
         '../dockerService': { ...baseStubs['../dockerService'], getAppIdentifier: (name) => `flux${name}` },
@@ -316,6 +324,21 @@ describe('appInstaller tests', () => {
 
         expect(appDockerStart.calledWith('web_myapp'), 'the soft install reached its start step').to.equal(start);
       });
+    });
+
+    it('clears the record of a removal once the container is created', async () => {
+      const clearRemovedByFluxOs = sinon.stub().resolves();
+      const installer = softInstaller({ ensureMountPathsExist: sinon.stub().resolves() }, { ensureStignoreCovers: sinon.stub().resolves() }, undefined, clearRemovedByFluxOs);
+      const { appDockerCreate } = baseStubs['../dockerService'];
+      appDockerCreate.resetHistory();
+      const spec = {
+        name: 'web', repotag: 'a/b:1', containerData: 'r:/data', ports: [], domains: [], environmentParameters: [], commands: [],
+      };
+
+      await installer.installApplicationSoft(spec, 'myapp', true, null, { name: 'myapp', compose: [spec] }, { start: false });
+
+      sinon.assert.calledOnceWithExactly(clearRemovedByFluxOs, 'web_myapp');
+      sinon.assert.callOrder(appDockerCreate, clearRemovedByFluxOs);
     });
 
     // A soft install keeps the volume, and with it a restore that did not finish on it.
@@ -374,8 +397,17 @@ describe('appInstaller tests', () => {
       expect(result).to.be.true;
       expect(hwRequirementsStub.checkAppHWRequirements.calledWith(appSpecs)).to.be.true;
       expect(hwRequirementsStub.checkAppStaticIpRequirements.calledWith(appSpecs)).to.be.true;
+      expect(hwRequirementsStub.dataCenterShortfall.calledWith(appSpecs)).to.be.true;
       expect(hwRequirementsStub.checkAppNodesRequirements.calledWith(appSpecs)).to.be.true;
       expect(hwRequirementsStub.appGeolocationVerdict.calledWith(appSpecs)).to.be.true;
+    });
+
+    it('refuses an app asking for a data centre on a node the give-up pass would hand it back from', async () => {
+      hwRequirementsStub.dataCenterShortfall.resolves('it requires a data center node and this node is residential');
+
+      const refused = await appInstaller.checkAppRequirements({ name: 'testapp' }).then(() => null, (error) => error);
+
+      expect(refused?.message).to.equal('Application testapp cannot run on this node: it requires a data center node and this node is residential');
     });
 
     it('refuses with the verdict reason when the geolocation verdict is FAIL', async () => {
@@ -987,6 +1019,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1102,6 +1135,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1251,14 +1285,8 @@ describe('appInstaller tests', () => {
       height: 0,
     };
 
-    beforeEach(() => {
-      globalStateStub.removalInProgress = false;
-      globalStateStub.installationInProgress = false;
-    });
-
     afterEach(() => {
-      globalStateStub.removalInProgress = false;
-      globalStateStub.installationInProgress = false;
+      operationRegistry.clear();
       expect(portClaims.claimedPorts(), 'an install left its ports claimed').to.deep.equal([]);
       expect(portClaims.waiting(), 'an install is still waiting for a port').to.equal(0);
     });
@@ -1273,54 +1301,35 @@ describe('appInstaller tests', () => {
     it('never closes a response it was handed, on any path', async () => {
       const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
 
-      globalStateStub.removalInProgress = true;
-      await appInstaller.registerAppLocally(appSpec, false, res);
-      globalStateStub.removalInProgress = false;
+      globalStateStub.departingApps.enter(appSpec.name);
+      try {
+        await appInstaller.registerAppLocally(appSpec, false, res);
+      } finally {
+        globalStateStub.departingApps.leave(appSpec.name);
+      }
 
-      globalStateStub.installationInProgress = true;
+      const backup = operationRegistry.acquire(appSpec.name, 'backup', 'test');
+      try {
+        await appInstaller.registerAppLocally(appSpec, false, res, false, { wait: false });
+      } finally {
+        operationRegistry.release(appSpec.name, backup);
+      }
+
       await appInstaller.registerAppLocally(appSpec, false, res);
-      globalStateStub.installationInProgress = false;
 
       expect(res.write.called, 'it must still report what happened').to.be.true;
       expect(res.end.called, 'the endpoint that opened the response is the only thing that closes it').to.be.false;
     });
 
-    it('should return error if removal is in progress', async () => {
-      const componentSpecs = false;
-      const res = {
-        write: sinon.stub(),
-        end: sinon.stub(),
-      };
-      globalStateStub.removalInProgress = true;
+    it('installs beside another app\'s install, and leaves that install holding its app', async () => {
+      const res = { write: sinon.stub(), end: sinon.stub() };
+      const other = operationRegistry.acquire('otherapp', 'install', 'test');
 
-      const result = await appInstaller.registerAppLocally(appSpec, componentSpecs, res);
+      const result = await appInstaller.registerAppLocally(appSpec, false, res);
 
-      expect(logStub.error.called).to.be.true;
-      // Nothing was touched, which is not the same answer as an install that
-      // failed and tore the app down - a caller acting on the second when it
-      // got the first destroys a running app.
-      expect(result).to.equal(InstallOutcome.BUSY);
-    });
-
-    it('should return error if another installation is in progress', async () => {
-      const componentSpecs = false;
-      const res = {
-        write: sinon.stub(),
-        end: sinon.stub(),
-      };
-      globalStateStub.installationInProgress = true;
-
-      const result = await appInstaller.registerAppLocally(appSpec, componentSpecs, res);
-
-      expect(logStub.error.called).to.be.true;
-      // Nothing was touched, which is not the same answer as an install that
-      // failed and tore the app down - a caller acting on the second when it
-      // got the first destroys a running app.
-      expect(result).to.equal(InstallOutcome.BUSY);
-      // The hold belongs to the install this call was refused for. Releasing on
-      // the way out would hand the node to the next caller while that install is
-      // still running.
-      expect(globalStateStub.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
+      expect(result, 'refused for another app\'s install').to.not.equal(InstallOutcome.BUSY);
+      expect(operationRegistry.get('otherapp'), 'this install released the other install\'s app').to.deep.include({ type: 'install' });
+      operationRegistry.release('otherapp', other);
     });
 
     it('refuses an app whose removal is pending, taking no hold', async () => {
@@ -1330,7 +1339,7 @@ describe('appInstaller tests', () => {
         const result = await appInstaller.registerAppLocally(appSpec, false, res);
 
         expect(result).to.equal(InstallOutcome.BUSY);
-        expect(globalStateStub.installationInProgress, 'the refusal took the install hold').to.be.false;
+        expect(operationRegistry.isHeld(appSpec.name), 'the refusal left the app held').to.equal(false);
       } finally {
         globalStateStub.departingApps.leave(appSpec.name);
       }
@@ -1338,6 +1347,7 @@ describe('appInstaller tests', () => {
 
     it('should return false if node tier does not return anything', async () => {
       const appInstallerWithNodeTier = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1441,10 +1451,7 @@ describe('appInstaller tests', () => {
       // failed and tore the app down - a caller acting on the second when it
       // got the first destroys a running app.
       expect(result).to.equal(InstallOutcome.DECLINED);
-      // The hold was raised one line before the tier lookup and this return used
-      // to walk straight past it. The node then refused every install, redeploy,
-      // spawn and reinstall pass it was offered until FluxOS restarted.
-      expect(globalStateStub.installationInProgress, 'the node is left holding an install that never began').to.be.false;
+      expect(operationRegistry.isHeld(appSpec.name), 'the app is left held by an install that never began').to.equal(false);
     });
 
     // The guard sits behind the socket lookup and the database connection, so a stub missing
@@ -1452,6 +1459,7 @@ describe('appInstaller tests', () => {
     // present for that reason, and appQueryService - the first call PAST the guard - rejects,
     // so a guard that stops matching lands on FAILED rather than running on into the install.
     const installerReachingTheAlreadyInstalledGuard = () => proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+      './appTestRun': testRunStub(),
       '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../messageHelper': messageHelperStub,
@@ -1497,7 +1505,7 @@ describe('appInstaller tests', () => {
       // away with the app absent, and from one that tore it down: a caller asking whether the
       // node holds the app has its yes here.
       expect(result).to.equal(InstallOutcome.ALREADY_INSTALLED);
-      expect(globalStateStub.installationInProgress, 'the hold outlived the attempt that took it').to.be.false;
+      expect(operationRegistry.isHeld(appSpec.name), 'the hold outlived the attempt that took it').to.equal(false);
     });
 
     it('does not answer ALREADY_INSTALLED for a component when the app row exists', async () => {
@@ -1520,10 +1528,11 @@ describe('appInstaller tests', () => {
     // uninstaller's, so what these tests own is which answer it is given.
     // Reaches the app's row and then fails, which is the shape a failed placement
     // has: the row is written before the image is fetched, so the claim exists by
-    // the time the install gives up. `failBeforeRow` moves the failure ahead of
-    // the row instead.
+    // the time the install gives up. `failBeforeRow` fails it at its linked-app
+    // check, ahead of the row, instead.
     function buildFailingInstaller(removeAppLocallyStub, {
-      failBeforeRow = false, alreadyInstalled = false, broadcastMessageToAll = sinon.stub().resolves(), volumeError = new Error('volume creation failed'),
+      failBeforeRow = false, alreadyInstalled = false, signBroadcast = sinon.stub().resolves(), sendToAll = sinon.stub().resolves(), storeSignedAppInstallingErrorBroadcast = sinon.stub().resolves(), volumeError = new Error('volume creation failed'),
+      dockerService = makeDockerServiceStub(),
     } = {}) {
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
@@ -1540,6 +1549,7 @@ describe('appInstaller tests', () => {
       };
 
       return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1569,13 +1579,13 @@ describe('appInstaller tests', () => {
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
         },
-        '../dockerService': makeDockerServiceStub(),
+        '../dockerService': dockerService,
         './appUninstaller': {
           removeAppLocally: removeAppLocallyStub,
         },
         './appNetworkLinker': {
           reconnectLinkedApps: sinon.stub().resolves(),
-          checkAppNetworkRequirements: sinon.stub().resolves(),
+          checkAppNetworkRequirements: failBeforeRow ? sinon.stub().rejects(new Error('a linked app is not installed')) : sinon.stub().resolves(),
           connectComponentToLinkedApps: sinon.stub().resolves(),
         },
         './advancedWorkflows': {
@@ -1586,11 +1596,13 @@ describe('appInstaller tests', () => {
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
           broadcastMessageToIncoming: sinon.stub().resolves(),
-          broadcastMessageToAll,
+          signBroadcast,
+          sendToAll,
         },
         '../appMessaging/messageStore': {
           storeAppRunningMessage: sinon.stub().resolves(),
           storeAppInstallingErrorMessage: sinon.stub().resolves(),
+          storeSignedAppInstallingErrorBroadcast,
         },
         '../appSystem/systemIntegration': {
           systemArchitecture: sinon.stub().resolves('amd64'),
@@ -1631,9 +1643,7 @@ describe('appInstaller tests', () => {
         },
         '../appRequirements/hwRequirements': hwRequirementsStub,
         '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves(
-            failBeforeRow ? { status: 'error', data: [] } : { status: 'success', data: [] },
-          ),
+          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
           listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
           decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve({ readable: apps, unreadable: [], inPlace: apps })),
         },
@@ -1642,6 +1652,82 @@ describe('appInstaller tests', () => {
         },
       });
     }
+
+    it('declines, touching nothing, an app the node has no room for', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const dockerService = makeDockerServiceStub();
+      const installer = buildFailingInstaller(removeAppLocallyStub, { dockerService });
+      hwRequirementsStub.admitApp.rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));
+
+      const result = await installer.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(result).to.equal(InstallOutcome.DECLINED);
+      sinon.assert.notCalled(dockerService.createFluxAppDockerNetwork);
+      sinon.assert.notCalled(removeAppLocallyStub);
+      expect(operationRegistry.isHeld(appSpec.name), 'the refusal left the app held').to.equal(false);
+    });
+
+    describe('in the app\'s manager', () => {
+      const res = () => ({ write: sinon.stub(), end: sinon.stub() });
+      afterEach(() => operationRegistry.clear());
+
+      it('leaves an install a removal stopped to that removal: it tells no installing error and removes nothing', async () => {
+        const removeAppLocallyStub = sinon.stub().resolves();
+        const signBroadcast = sinon.stub().resolves();
+        const installer = buildFailingInstaller(removeAppLocallyStub, {
+          signBroadcast, volumeError: new operationRegistry.OperationPreemptedError('testapp', 'removal'),
+        });
+
+        let thrown = null;
+        await installer.registerAppLocally(appSpec, false, res()).catch((error) => { thrown = error; });
+
+        expect(thrown).to.be.instanceOf(operationRegistry.OperationPreemptedError);
+        sinon.assert.notCalled(removeAppLocallyStub);
+        sinon.assert.notCalled(signBroadcast);
+      });
+
+      it('answers BUSY, touching nothing, for an install whose caller does not wait while another operation holds the app', async () => {
+        const removeAppLocallyStub = sinon.stub().resolves();
+        const installer = buildFailingInstaller(removeAppLocallyStub);
+        const backup = operationRegistry.acquire('testapp', 'backup', 'test');
+
+        const result = await installer.registerAppLocally(appSpec, false, res(), false, { wait: false });
+
+        expect(result).to.equal(InstallOutcome.BUSY);
+        sinon.assert.notCalled(removeAppLocallyStub);
+        operationRegistry.release('testapp', backup);
+      });
+
+      it('installs once the operation holding the app releases it', async () => {
+        const removeAppLocallyStub = sinon.stub().resolves();
+        const installer = buildFailingInstaller(removeAppLocallyStub);
+        const backup = operationRegistry.acquire('testapp', 'backup', 'test');
+        let settled = false;
+
+        const installing = installer.registerAppLocally(appSpec, false, res()).finally(() => { settled = true; });
+        await new Promise((resolve) => { setImmediate(resolve); });
+
+        expect(settled, 'the install ran while the backup held the app').to.equal(false);
+        operationRegistry.release('testapp', backup);
+        // the failing installer's volume error: the install ran, and cleaned up after itself
+        expect(await installing).to.equal(InstallOutcome.FAILED);
+        sinon.assert.calledOnce(removeAppLocallyStub);
+      });
+
+      it('stops before its pull when its operation was stopped, pulling nothing', async () => {
+        const dockerService = makeDockerServiceStub();
+        const installer = buildFailingInstaller(sinon.stub().resolves(), { dockerService });
+        const controller = new AbortController();
+        controller.abort(new operationRegistry.OperationPreemptedError('testapp', 'removal'));
+
+        let thrown = null;
+        await installer.installApplicationHard(appSpec, 'testapp', false, null, appSpec, { signal: controller.signal })
+          .catch((error) => { thrown = error; });
+
+        expect(thrown).to.be.instanceOf(operationRegistry.OperationPreemptedError);
+        sinon.assert.notCalled(dockerService.pullImage);
+      });
+    });
 
     it('answers FAILED when an install errors and cleans up after itself', async () => {
       const removeAppLocallyStub = sinon.stub().resolves();
@@ -1663,18 +1749,59 @@ describe('appInstaller tests', () => {
       expect(result).to.equal(InstallOutcome.FAILED);
     });
 
+    it('tears down a whole app whose install fails', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const installer = buildFailingInstaller(removeAppLocallyStub);
+
+      const result = await installer.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(result).to.equal(InstallOutcome.FAILED);
+      sinon.assert.calledOnce(removeAppLocallyStub);
+    });
+
+    // One component of an installed app: the app's row and its other components
+    // stay, and the caller hands the component to the reconciler.
+    it('removes nothing when one component of an installed app fails to install', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const installer = buildFailingInstaller(removeAppLocallyStub, { alreadyInstalled: true });
+      const { version, ...component } = { ...appSpec, name: 'web' };
+
+      const result = await installer.registerAppLocally(appSpec, component, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(version).to.equal(2);
+      expect(result).to.equal(InstallOutcome.FAILED);
+      sinon.assert.notCalled(removeAppLocallyStub);
+    });
+
     it('tells the network the first 1000 characters of an install error', async () => {
       messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
-      const broadcastMessageToAll = sinon.stub().resolves();
+      const signBroadcast = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), {
-        broadcastMessageToAll, volumeError: new Error('e'.repeat(5000)),
+        signBroadcast, volumeError: new Error('e'.repeat(5000)),
       });
 
       await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
 
-      const [sent] = broadcastMessageToAll.getCalls().map((c) => c.args[0]).filter((m) => m.type === 'fluxappinstallingerror');
+      const [sent] = signBroadcast.getCalls().map((c) => c.args[0]).filter((m) => m.type === 'fluxappinstallingerror');
       expect(sent, 'no install error was told').to.exist;
       expect(sent.error).to.have.lengthOf(1000);
+    });
+
+    // A peer syncing from this node is given its install error with the errors it
+    // received: the signed error is recorded where they are served from, then sent.
+    it('records its signed install error where it serves errors from, before it sends it', async () => {
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+      const signBroadcast = sinon.stub().callsFake(async (data) => ({ serialised: `signed:${data.type}`, message: { data } }));
+      const sendToAll = sinon.stub().resolves();
+      const storeSignedAppInstallingErrorBroadcast = sinon.stub().resolves();
+      const installer = buildFailingInstaller(sinon.stub().resolves(), { signBroadcast, sendToAll, storeSignedAppInstallingErrorBroadcast });
+
+      await installer.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() });
+
+      sinon.assert.calledOnce(storeSignedAppInstallingErrorBroadcast);
+      expect(storeSignedAppInstallingErrorBroadcast.firstCall.args[0].data.type).to.equal('fluxappinstallingerror');
+      sinon.assert.calledOnceWithExactly(sendToAll, 'signed:fluxappinstallingerror');
+      sinon.assert.callOrder(storeSignedAppInstallingErrorBroadcast, sendToAll);
     });
 
     // A caller that already holds the app keeps its claim: a redeploy's teardown
@@ -1683,7 +1810,7 @@ describe('appInstaller tests', () => {
       const removeAppLocallyStub = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
 
-      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, false);
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false);
 
       expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
       expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app the caller is keeping').to.equal(false);
@@ -1695,7 +1822,7 @@ describe('appInstaller tests', () => {
       const removeAppLocallyStub = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
 
-      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
 
       expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
       expect(removeAppLocallyStub.firstCall.args[4], 'tore the app down without telling the network').to.equal(true);
@@ -1707,7 +1834,7 @@ describe('appInstaller tests', () => {
       const removeAppLocallyStub = sinon.stub().resolves();
       const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub, { failBeforeRow: true });
 
-      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
 
       expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
       expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app this node never had').to.equal(false);
@@ -1734,89 +1861,24 @@ describe('appInstaller tests', () => {
       expect(folderStateMap.has('fluxinst')).to.equal(false);
     });
 
-    // A test install writes the app's row like any other and throws it away, so the
-    // announcement must not read that row as a claim. The mark outlives the teardown
-    // that deletes the row: released before it, a cycle in between claims the app.
-    it('marks an app it is only testing, and holds the mark until the row is gone', async () => {
-      let markedDuringCleanup = null;
-      const removeAppLocallyStub = sinon.stub().callsFake(async () => {
-        markedDuringCleanup = globalStateStub.testInstallingApps.has('testapp');
-      });
-      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
-
-      await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
-
-      expect(markedDuringCleanup, 'let the mark go before the row it covers was deleted').to.be.true;
-      expect(
-        globalStateStub.testInstallingApps.has('testapp'),
-        'left the mark behind, silencing the app for good',
-      ).to.be.false;
-    });
-
-    // The mark and the teardown both belong to the call holding the node. A
-    // refused duplicate raised neither, so taking either back strips a running
-    // test install of its cover - and the row it wrote is then a claim the next
-    // announcement broadcasts and peers hold for the location TTL.
-    it('leaves a running test install its mark and its app when it is refused', async () => {
-      const removeAppLocallyStub = sinon.stub().resolves();
-      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub);
-      globalStateStub.testInstallingApps.add('testapp');
-      globalStateStub.installationInProgress = true;
-
-      const result = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
-
-      // Names the path: an install that ran to the end would clear its own mark,
-      // and this assertion would then be true of a test proving nothing.
-      expect(result, 'never reached the refusal this test is about').to.equal(InstallOutcome.BUSY);
-      expect(
-        globalStateStub.testInstallingApps.has('testapp'),
-        'cleared the mark covering the install it was refused for',
-      ).to.be.true;
-      expect(
-        removeAppLocallyStub.called,
-        'tore down an app on behalf of a call that installed nothing',
-      ).to.be.false;
-    });
-
     // When this node took the app is written with the app's row; a redeploy's
     // reinstall finds the record it kept and leaves it alone.
     describe('the placement record', () => {
       it('is written with the app\'s row', async () => {
         const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
 
-        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
-
-        sinon.assert.calledOnceWithExactly(appPlacementsStub.recordPlacement, 'testapp');
-      });
-
-      it('is not written for a test install', async () => {
-        const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
-
         await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
 
-        sinon.assert.notCalled(appPlacementsStub.recordPlacement);
+        sinon.assert.calledOnceWithExactly(appPlacementsStub.recordPlacement, 'testapp');
       });
 
       it('is not written when the install gave up before the app\'s row', async () => {
         const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), { failBeforeRow: true });
 
-        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
 
         sinon.assert.notCalled(appPlacementsStub.recordPlacement);
       });
-    });
-
-    // A test install refused because the app is already installed here created
-    // nothing, and the installed app is not its to remove.
-    it('leaves an app already installed here alone when a test install of it is refused', async () => {
-      const removeAppLocallyStub = sinon.stub().resolves();
-      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub, { alreadyInstalled: true });
-
-      const outcome = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
-
-      expect(outcome, 'never reached the refusal this test is about').to.equal(InstallOutcome.ALREADY_INSTALLED);
-      expect(removeAppLocallyStub.called, 'a refused test install removed the app installed here').to.equal(false);
-      expect(globalStateStub.testInstallingApps.has('testapp'), 'left the mark behind').to.equal(false);
     });
 
     // An installer every step of whose install succeeds.
@@ -1836,6 +1898,7 @@ describe('appInstaller tests', () => {
       };
 
       return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -1913,6 +1976,56 @@ describe('appInstaller tests', () => {
       });
     };
 
+    describe('the caller told the app is recorded', () => {
+      it('is told once the app\'s row and placement are written, before any container is made', async () => {
+        const dockerService = makeDockerServiceStub();
+        const onRecorded = sinon.stub();
+
+        await buildSucceedingInstaller(dockerService).registerAppLocally(appSpec, false, null, true, { onRecorded });
+
+        sinon.assert.calledOnce(onRecorded);
+        expect(onRecorded.calledAfter(appPlacementsStub.recordPlacement), 'told before the placement was written').to.equal(true);
+        sinon.assert.called(dockerService.appDockerCreate);
+        expect(onRecorded.calledBefore(dockerService.appDockerCreate), 'told only after a container was made').to.equal(true);
+      });
+
+      it('is not told when the install gave up before the app\'s row', async () => {
+        const onRecorded = sinon.stub();
+
+        await buildFailingInstaller(sinon.stub().resolves(), { failBeforeRow: true })
+          .registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true, { onRecorded });
+
+        sinon.assert.notCalled(onRecorded);
+      });
+    });
+
+    describe('a spawner attempt deciding on the app', () => {
+      it('ends when the app is installed by another route, so it installs nothing', async () => {
+        const deciding = spawnerControl.beginAttempt();
+        deciding.forApp('TestApp');
+        try {
+          await buildSucceedingInstaller().registerAppLocally(appSpec, false, null, true);
+
+          expect(() => deciding.holdForInstall(), 'the attempt went on to install an app the node was installing').to.throw(spawnerControl.SpawnerStopped);
+        } finally {
+          deciding.end();
+        }
+      });
+
+      it('carries on when another app is installed', async () => {
+        const deciding = spawnerControl.beginAttempt();
+        deciding.forApp('otherapp');
+        try {
+          await buildSucceedingInstaller().registerAppLocally(appSpec, false, null, true);
+
+          const letGo = deciding.holdForInstall();
+          letGo();
+        } finally {
+          deciding.end();
+        }
+      });
+    });
+
     describe('its claim on the app\'s ports', () => {
       const PORT = appSpec.ports[0];
 
@@ -1961,7 +2074,7 @@ describe('appInstaller tests', () => {
           expect(result).to.equal(InstallOutcome.BUSY);
           sinon.assert.notCalled(dockerService.appDockerCreate);
           expect(portClaims.holderOf([PORT])).to.equal(other);
-          expect(globalStateStub.installationInProgress, 'kept the install hold').to.equal(false);
+          expect(operationRegistry.isHeld(appSpec.name), 'kept the install hold').to.equal(false);
         } finally {
           portClaims.release(other);
         }
@@ -1986,13 +2099,13 @@ describe('appInstaller tests', () => {
       });
     });
 
-    it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
-      // The announcement runs for as long as a broadcast cycle takes, and every
-      // other install, removal and redeploy on this node refuses while the install
-      // lock is up - so the lock is released before onInstallComplete is called.
-      let lockHeldWhenBroadcasting = null;
+    it('runs the post-install broadcast only after releasing its port claims', async () => {
+      // The announcement runs for as long as a broadcast cycle takes, and another
+      // install waits on a port this install claims, so the claims are released
+      // before onInstallComplete is called.
+      let portsClaimedWhenBroadcasting = null;
       const onInstallComplete = sinon.stub().callsFake(() => {
-        lockHeldWhenBroadcasting = globalStateStub.installationInProgress;
+        portsClaimedWhenBroadcasting = portClaims.claimedPorts();
         return Promise.resolve();
       });
       const appInstallerSuccess = buildSucceedingInstaller();
@@ -2004,93 +2117,7 @@ describe('appInstaller tests', () => {
 
       expect(result, 'install should succeed').to.equal(InstallOutcome.INSTALLED);
       expect(onInstallComplete.calledOnce, 'post-install broadcast should fire').to.be.true;
-      expect(lockHeldWhenBroadcasting, 'install lock must be released BEFORE broadcasting').to.equal(false);
-      expect(globalStateStub.installationInProgress).to.equal(false);
-    });
-  });
-
-  describe('prune guard with encrypted enterprise apps', () => {
-    it('should call decryptEnterpriseApps on installed apps during registration', async () => {
-      const encryptedApp = {
-        version: 8,
-        name: 'enterpriseapp123',
-        compose: [],
-        enterprise: 'encryptedblob',
-      };
-      const decryptedApp = {
-        version: 8,
-        name: 'enterpriseapp123',
-        compose: [{ name: 'MyComponent', containerData: 'r:' }],
-        enterprise: 'encryptedblob',
-      };
-      const decryptEnterpriseAppsStub = sinon.stub().resolves({ readable: [decryptedApp], unreadable: [], inPlace: [decryptedApp] });
-      const pruneImagesStub = sinon.stub().resolves();
-
-      // Use proxyquire without noCallThru so lazy requires are intercepted
-      const appInstallerFresh = proxyquire.noCallThru().load('../../ZelBack/src/services/appLifecycle/appInstaller', {
-        config: configStub,
-        '../verificationHelper': verificationHelperStub,
-        '../messageHelper': messageHelperStub,
-        '../dbHelper': {
-          databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
-          findInDatabase: sinon.stub().resolves([]),
-          findOneInDatabase: sinon.stub().resolves(null),
-          insertOneToDatabase: sinon.stub().resolves(),
-        },
-        '../serviceHelper': { ensureString: sinon.stub().returnsArg(0), ensureNumber: sinon.stub().returnsArg(0), delay: sinon.stub().resolves() },
-        '../generalService': { nodeTier: sinon.stub().resolves('cumulus'), checkSynced: sinon.stub().resolves(true) },
-        '../daemonService/daemonServiceMiscRpcs': { isDaemonSynced: sinon.stub().returns({ status: 'success', data: { synced: true, height: 2094961 } }) },
-        '../fluxNetworkHelper': {
-          getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
-          getNumberOfPeers: sinon.stub().returns(15),
-          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
-          allowPort: sinon.stub().resolves({ status: true }),
-        },
-        '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
-        '../dockerService': makeDockerServiceStub({
-          pruneImages: pruneImagesStub,
-          createFluxAppDockerNetwork: sinon.stub().resolves('net'),
-          appDockerStart: sinon.stub().resolves('ok'),
-        }),
-        './appUninstaller': { removeAppLocally: sinon.stub().resolves() },
-        './advancedWorkflows': { createAppVolume: sinon.stub().resolves() },
-        '../fluxCommunicationMessagesSender': { broadcastMessageToOutgoing: sinon.stub().resolves(), broadcastMessageToIncoming: sinon.stub().resolves() },
-        '../appMessaging/messageStore': { storeAppRunningMessage: sinon.stub().resolves(), storeAppInstallingErrorMessage: sinon.stub().resolves() },
-        '../appSystem/systemIntegration': { systemArchitecture: sinon.stub().resolves('amd64') },
-        '../appSecurity/imageManager': { checkApplicationImagesCompliance: sinon.stub().resolves(), verifyRepository: sinon.stub().resolves({ verified: true, supportedArchitectures: ['amd64'] }) },
-        '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
-        '../utils/imageVerifier': { ImageVerifier: sinon.stub().returns({ addCredentials: sinon.stub(), verifyImage: sinon.stub().resolves(), throwIfError: sinon.stub(), supported: true, provider: 'docker.io' }) },
-        '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
-        '../upnpService': { isUPNP: sinon.stub().returns(false) },
-        '../utils/enterpriseHelper': enterpriseHelperStub,
-        '../utils/appSpecHelpers': appSpecHelpersStub,
-        '../../lib/log': logStub,
-        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
-        '../appMessaging/messageVerifier': messageVerifierStub,
-        '../appDatabase/registryManager': { availableApps: sinon.stub().resolves([]), getApplicationGlobalSpecifications: sinon.stub().resolves(null) },
-        '../appRequirements/hwRequirements': hwRequirementsStub,
-        '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves({ status: 'success', data: [encryptedApp] }),
-          listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
-          decryptEnterpriseApps: decryptEnterpriseAppsStub,
-        },
-        '../utils/registryCredentialHelper': { addCredentialsToImageVerifier: sinon.stub().resolves() },
-        util: { promisify: (fn) => fn },
-      });
-
-      const newAppSpec = { version: 2, name: 'newapp', description: 'test', repotag: 'test/app', owner: '1abc', ports: [30000], containerPorts: [8080], domains: [''], cpu: 0.5, ram: 500, hdd: 5 };
-      // registerAppLocally will proceed past the prune guard before eventually failing on network setup
-      try {
-        await appInstallerFresh.registerAppLocally(newAppSpec, false, null);
-      } catch (e) {
-        // Expected — we only care that the prune guard logic ran correctly
-      }
-
-      expect(decryptEnterpriseAppsStub.calledOnce).to.be.true;
-      expect(decryptEnterpriseAppsStub.calledWith([encryptedApp], { formatSpecs: false })).to.be.true;
-      // Decrypted enterprise app has a stopped component (MyComponent_enterpriseapp123 not running),
-      // so the cleanup guard holds and no prune runs
-      expect(pruneImagesStub.called).to.be.false;
+      expect(portsClaimedWhenBroadcasting, 'port claims must be released before broadcasting').to.deep.equal([]);
     });
   });
 
@@ -2111,6 +2138,7 @@ describe('appInstaller tests', () => {
       reconcilerStub = { want: sinon.stub().resolves(MAPPED) };
       logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
       appInstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
@@ -2164,12 +2192,6 @@ describe('appInstaller tests', () => {
 
       expect(error.message).to.equal(`Error: Port 31000 FAILed to map. ${REFUSED.reason}`);
     });
-
-    it('opens nothing for a test install', async () => {
-      await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null, true);
-
-      sinon.assert.notCalled(firewallStub.allowAppPorts);
-    });
   });
 
   describe('ensureAppDockerNetwork tests', () => {
@@ -2182,6 +2204,7 @@ describe('appInstaller tests', () => {
       dockerServiceStub = makeDockerServiceStub({ getFreeFluxAppNetworkOctet: sinon.stub().resolves(7) });
       egressRulesStub = sinon.stub().resolves(true);
       appInstallerNet = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        './appTestRun': testRunStub(),
         '../appManagement/appPlacements': appPlacementsStub,
         '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
         '../dockerService': dockerServiceStub,

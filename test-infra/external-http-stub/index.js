@@ -827,14 +827,17 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
   const action = String(req.get('SOAPAction') || '').replace(/"/g, '').split('#')[1] || '';
   const arg = (name) => (String(req.body).match(new RegExp(`<${name}>([^<]*)</${name}>`)) || [])[1] ?? '';
   const sameEntry = (m) => m.externalPort === Number(arg('NewExternalPort')) && m.protocol === arg('NewProtocol').toUpperCase();
-  gateway.requests.push({
+  const request = {
     action,
     port: Number(arg('NewExternalPort')) || null,
     protocol: arg('NewProtocol').toUpperCase() || null,
     description: arg('NewPortMappingDescription') || null,
     lease: action === 'AddPortMapping' ? Number(arg('NewLeaseDuration')) : null,
     at: new Date().toISOString(),
-  });
+  };
+  gateway.requests.push(request);
+  // one line per request as answered, so a failed run's dump shows what the router was asked
+  res.on('finish', () => console.log(`upnp ${clientAddress(req)} ${JSON.stringify(request)}`));
   switch (action) {
     case 'GetExternalIPAddress':
       soapReply(res, action, { NewExternalIPAddress: gateway.externalIp ?? clientAddress(req) });
@@ -1013,8 +1016,13 @@ app.get('/api/v3/simple/price', (req, res) => {
 });
 
 // Geolocation: ip-api.com format (primary)
+// An address staged `unavailable` is one neither service can locate: both answer 503.
 app.get('/json/:ip', (req, res) => {
   const custom = state.geolocation[req.params.ip];
+  if (custom?.unavailable) {
+    res.status(503).json({ status: 'fail', message: 'unavailable' });
+    return;
+  }
   res.json({ ...defaultGeoResponse(req.params.ip), ...custom });
 });
 
@@ -1032,6 +1040,10 @@ app.get('/json/:ip', (req, res) => {
 app.get('/fluxlocation/:ip', (req, res) => {
   const { ip } = req.params;
   const custom = state.geolocation[ip];
+  if (custom?.unavailable) {
+    res.status(503).json({ status: 'error', data: { message: 'unavailable' } });
+    return;
+  }
   const geo = { ...defaultGeoResponse(ip), ...custom };
   res.json({
     status: 'success',
@@ -1072,6 +1084,33 @@ app.get('/artifact/:name', (req, res) => {
   const artifact = artifacts.get(req.params.name);
   if (!artifact) return res.status(404).json({ error: 'no such artifact' });
   res.setHeader('content-type', 'application/gzip');
+  if (artifact.stallAfter != null) {
+    // The first `stallAfter` bytes, then one byte a second until the transfer is
+    // released or the client closes it: a download in flight, never idle, for as
+    // long as a suite needs one.
+    const transfer = { stalled: true, released: false, clientClosed: false };
+    artifact.transfers.push(transfer);
+    res.setHeader('content-length', String(artifact.body.length));
+    let sent = artifact.stallAfter;
+    res.write(artifact.body.subarray(0, sent));
+    const drip = setInterval(() => {
+      if (sent < artifact.body.length - 1) {
+        res.write(artifact.body.subarray(sent, sent + 1));
+        sent += 1;
+      }
+    }, 1000);
+    transfer.release = () => {
+      if (transfer.released || transfer.clientClosed) return;
+      transfer.released = true;
+      clearInterval(drip);
+      res.end(artifact.body.subarray(sent));
+    };
+    res.on('close', () => {
+      clearInterval(drip);
+      if (!res.writableFinished) transfer.clientClosed = true;
+    });
+    return undefined;
+  }
   if (artifact.declaredLength == null) {
     res.setHeader('content-length', String(artifact.body.length));
     return res.end(artifact.body);
@@ -1508,13 +1547,34 @@ control.post('/policy', (req, res) => {
 });
 
 control.post('/artifact', (req, res) => {
-  const { name, base64, declaredLength = null } = req.body || {};
+  const {
+    name, base64, declaredLength = null, stallAfter = null,
+  } = req.body || {};
   if (!name || typeof base64 !== 'string') {
     return res.status(400).json({ error: 'name and base64 are required' });
   }
   const body = Buffer.from(base64, 'base64');
-  artifacts.set(name, { body, declaredLength });
-  return res.json({ ok: true, name, bytes: body.length, declaredLength });
+  artifacts.set(name, {
+    body, declaredLength, stallAfter, transfers: [],
+  });
+  return res.json({
+    ok: true, name, bytes: body.length, declaredLength, stallAfter,
+  });
+});
+
+// The transfers of a stalling artifact, oldest first.
+control.get('/artifact/:name/transfers', (req, res) => {
+  const artifact = artifacts.get(req.params.name);
+  if (!artifact) return res.status(404).json({ error: 'no such artifact' });
+  return res.json(artifact.transfers.map(({ stalled, released, clientClosed }) => ({ stalled, released, clientClosed })));
+});
+
+// Sends the rest of every held transfer of a stalling artifact.
+control.post('/artifact/:name/release', (req, res) => {
+  const artifact = artifacts.get(req.params.name);
+  if (!artifact) return res.status(404).json({ error: 'no such artifact' });
+  artifact.transfers.forEach((transfer) => transfer.release());
+  return res.json({ ok: true });
 });
 
 control.post('/reset', (req, res) => {

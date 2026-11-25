@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const { specHash } = require('./fixtures/specHash');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
@@ -24,7 +25,7 @@ describe('the location table and the event-derived view agree', () => {
     const data = {
       type: 'fluxapprunning',
       version: 2,
-      apps: [{ name: appName, hash: `hash-${appName}`, runningSince: new Date(broadcastedAt).toISOString() }],
+      apps: [{ name: appName, hash: specHash(appName), runningSince: new Date(broadcastedAt).toISOString() }],
       ip,
       broadcastedAt,
       osUptime: 1000,
@@ -47,6 +48,16 @@ describe('the location table and the event-derived view agree', () => {
     };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, { message, envelope });
     await messageStore.removeLocationForAppRemoved(ip, appName, broadcastedAt);
+  }
+
+  // One message naming every app given (version 2), applied as a node takes one
+  // from a peer.
+  async function removeTogether(ip, appNames, broadcastedAt) {
+    const message = {
+      type: 'fluxappremoved', version: 2, apps: appNames, ip, broadcastedAt,
+    };
+    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, { message, envelope });
+    expect(await messageStore.storeAppRemovedMessage(message)).to.equal(true);
   }
 
   async function evict(ip, evictedAt) {
@@ -99,6 +110,67 @@ describe('the location table and the event-derived view agree', () => {
     });
   });
 
+  // A node leaving service names every app it removes in one message.
+  describe('a removal naming several apps', () => {
+    const ip = '203.0.113.170:16127';
+    const apps = ['togethera', 'togetherb', 'togetherc'];
+
+    async function reportRunningAll(at) {
+      const data = {
+        type: 'fluxapprunning',
+        version: 2,
+        apps: apps.map((name) => ({ name, hash: specHash(name), runningSince: new Date(at).toISOString() })),
+        ip,
+        broadcastedAt: at,
+        osUptime: 1000,
+        staticIp: false,
+      };
+      await messageStore.storeBatchAppRunningMessages([{ ...envelope, data }]);
+    }
+
+    async function bothViews(appName) {
+      const table = (await registryManager.appLocation(appName)).map((row) => row.ip);
+      const derived = (await registryManager.appLocationFromEvents({ appname: appName })).map((row) => row.ip);
+      expect(derived, `the two views disagree on ${appName}`).to.deep.equal(table);
+      return table;
+    }
+
+    it('removes each app it names from both views, and leaves the app it does not name', async () => {
+      ips.push(ip);
+      const runningAt = Date.now() - 60000;
+      await reportRunningAll(runningAt);
+
+      await removeTogether(ip, ['togethera', 'togetherb'], runningAt + 30000);
+
+      expect(await bothViews('togethera')).to.deep.equal([]);
+      expect(await bothViews('togetherb')).to.deep.equal([]);
+      expect(await bothViews('togetherc')).to.deep.equal([ip]);
+      expect((await events.findOne({ ip, type: 'appremoved' })).removedNames).to.deep.equal(['togethera', 'togetherb']);
+    });
+
+    it('is older than the report that follows it, which stands in both views', async () => {
+      ips.push(ip);
+      const runningAt = Date.now() - 60000;
+      await reportRunningAll(runningAt);
+
+      await removeTogether(ip, ['togethera'], runningAt - 30000);
+
+      expect(await bothViews('togethera')).to.deep.equal([ip]);
+    });
+
+    it('ends the signed holding of each app it names', async () => {
+      ips.push(ip);
+      const runningAt = Date.now() - 60000;
+      await reportRunningAll(runningAt);
+      expect((await registryManager.signedHoldersOf('togethera', Date.now())).map((holder) => holder.ip)).to.deep.equal([ip]);
+
+      await removeTogether(ip, ['togethera'], runningAt + 30000);
+
+      expect(await registryManager.signedHoldersOf('togethera', Date.now())).to.deep.equal([]);
+      expect((await registryManager.signedHoldersOf('togetherc', Date.now())).map((holder) => holder.ip)).to.deep.equal([ip]);
+    });
+  });
+
   describe('an app name compared without case', () => {
     const ip = '203.0.113.160:16127';
     let now;
@@ -110,7 +182,7 @@ describe('the location table and the event-derived view agree', () => {
       await remove(ip, 'OtherApp', now - 60000);
 
       expect((await events.findOne({ ip, type: 'apprunning' })).appNames).to.deep.equal(['caseapp']);
-      expect((await events.findOne({ ip, type: 'appremoved' })).appNameLower).to.equal('otherapp');
+      expect((await events.findOne({ ip, type: 'appremoved' })).removedNames).to.deep.equal(['otherapp']);
       expect((await registryManager.appLocationFromEvents({ appname: 'caseAPP' })).map((row) => [row.name, row.ip])).to.deep.equal([['CaseApp', ip]]);
     });
 
@@ -119,7 +191,9 @@ describe('the location table and the event-derived view agree', () => {
       await events.insertMany([
         {
           ip, type: 'apprunning', dedupKey: 'v2', broadcastedAt: new Date(now - 120000), expireAt: new Date(now + 3600000),
-          data: { type: 'fluxapprunning', version: 2, ip, broadcastedAt: now - 120000, apps: [{ name: 'OldApp', hash: 'h' }, { name: 'nohash' }] },
+          data: {
+            type: 'fluxapprunning', version: 2, ip, broadcastedAt: now - 120000, osUptime: 1, staticIp: false, apps: [{ name: 'OldApp', hash: specHash('h'), runningSince: new Date(now - 120000).toISOString() }],
+          },
         },
         {
           ip, type: 'appremoved', dedupKey: 'appremoved:Gone', broadcastedAt: new Date(now - 60000), expireAt: new Date(now + 3600000),
@@ -130,7 +204,7 @@ describe('the location table and the event-derived view agree', () => {
       await messageStore.lowercaseStoredAppNames(events);
 
       expect((await events.findOne({ ip, type: 'apprunning' })).appNames).to.deep.equal(['oldapp']);
-      expect((await events.findOne({ ip, type: 'appremoved' })).appNameLower).to.equal('gone');
+      expect((await events.findOne({ ip, type: 'appremoved' })).removedNames).to.deep.equal(['gone']);
       expect((await registryManager.appLocationFromEvents({ appname: 'oldapp' })).map((row) => row.ip)).to.deep.equal([ip]);
     });
   });
@@ -146,7 +220,7 @@ describe('the location table and the event-derived view agree', () => {
       const data = {
         type: 'fluxapprunning',
         version: 2,
-        apps: [{ name, hash: `hash-${name}`, runningSince: new Date(broadcastedAt).toISOString() }],
+        apps: [{ name, hash: specHash(name), runningSince: new Date(broadcastedAt).toISOString() }],
         ip,
         broadcastedAt,
         osUptime: 1000,
@@ -335,7 +409,7 @@ describe('the location table and the event-derived view agree', () => {
         ...envelope,
         data: {
           type: 'fluxapprunning', version: 2, ip: A, broadcastedAt, osUptime: 1, staticIp: false,
-          apps: apps.map((name) => ({ name, hash: `hash-${name}`, runningSince: new Date(now - 300000).toISOString() })),
+          apps: apps.map((name) => ({ name, hash: specHash(name), runningSince: new Date(now - 300000).toISOString() })),
         },
       });
       await messageStore.storeBatchAppRunningMessages([report([appName, `${appName}gone`], now - 280000)]);
@@ -356,7 +430,7 @@ describe('the location table and the event-derived view agree', () => {
       async function gossip(ip, apps, broadcastedAt) {
         const data = {
           type: 'fluxapprunning', version: 2, ip, broadcastedAt, osUptime: 1, staticIp: false,
-          apps: apps.map((name) => ({ name, hash: `hash-${name}`, runningSince: new Date(now - 300000).toISOString() })),
+          apps: apps.map((name) => ({ name, hash: specHash(name), runningSince: new Date(now - 300000).toISOString() })),
         };
         await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: { ...envelope, data } });
         await messageStore.storeAppRunningMessage(data);

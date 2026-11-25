@@ -14,6 +14,7 @@ const util = require('util');
 const log = require('../lib/log');
 const { callerAddress, socketPath } = require('./utils/apiSocket');
 const publicPorts = require('./utils/publicPorts');
+const spawnerControl = require('./utils/spawnerControl');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
@@ -2231,6 +2232,12 @@ async function confirmOwnAddress(record) {
  * finishes a move a failure or a restart left part done and does nothing twice.
  * The move is settled once the chain lists the new address and every app has
  * been handled. Runs only on the own-address queue.
+ *
+ * While the move's apps or its geolocation are still to be handled, the spawner
+ * is stopped: an attempt decided at the old address ends, an install under way is
+ * waited for until the node records its app, which is then handled with the
+ * node's other apps, and the spawner decides
+ * again once the node knows where it now is.
  * @returns {Promise<void>}
  */
 async function reconcileOwnMove() {
@@ -2238,7 +2245,37 @@ async function reconcileOwnMove() {
   if (record?.socketAddress && (!record.movedFrom || record.settledAt === record.movedAt)) {
     await publicPorts.setConfirmedApiPort(extractPort(record.socketAddress));
   }
-  if (!record?.movedFrom || !record.movedAt || record.settledAt === record.movedAt) return;
+  if (!record?.movedFrom || !record.movedAt || record.settledAt === record.movedAt) {
+    await spawnerControl.setMoveDue(false);
+    return;
+  }
+  if (placementDue(record)) await spawnerControl.setMoveDue(true);
+  try {
+    await reconcileMoveSteps(record);
+  } finally {
+    // what the pass left: the spawner stays stopped until the move's apps and
+    // geolocation are handled, which a later pass finishes
+    await spawnerControl.setMoveDue(placementDue(await ownAddressRecord()));
+  }
+}
+
+/**
+ * Whether a move still has apps or a geolocation to handle, which decide where
+ * the node may take new apps.
+ * @param {object|null} record This node's own address record.
+ * @returns {boolean}
+ */
+function placementDue(record) {
+  return Boolean(record?.movedFrom && record.movedAt && record.settledAt !== record.movedAt && record.ipChanged
+    && (record.appsHandledAt !== record.movedAt || record.geolocatedAt !== record.movedAt));
+}
+
+/**
+ * The steps of reconcileOwnMove for a move not yet settled.
+ * @param {object} record This node's own address record.
+ * @returns {Promise<void>}
+ */
+async function reconcileMoveSteps(record) {
   const {
     socketAddress: to, movedFrom: from, movedAt, ipChanged, announce,
   } = record;
@@ -2269,16 +2306,23 @@ async function reconcileOwnMove() {
     if (appsHandled) await updateOwnAddressRecord({ appsHandledAt: movedAt });
     else log.warn(`own address - not every app was handled for the move to ${to}; the next pass handles the rest`);
   }
-  if (ipChanged && record.geolocatedAt !== movedAt) {
+  let geolocated = !ipChanged || record.geolocatedAt === movedAt;
+  if (!geolocated) {
     // Update geolocation service to track IP change and update static IP status
     // eslint-disable-next-line global-require
     const geolocationService = require('./geolocationService');
-    geolocationService.setNodeGeolocation();
-    await updateOwnAddressRecord({ geolocatedAt: movedAt });
+    await geolocationService.setNodeGeolocation();
+    // The lookup reports no failure of its own: the node is located once what it
+    // holds is for this address. Until then the spawner waits, and the next pass
+    // asks again.
+    const located = await geolocationService.getNodeGeolocation().catch(() => null);
+    geolocated = located?.ip === ip;
+    if (geolocated) await updateOwnAddressRecord({ geolocatedAt: movedAt });
+    else log.warn(`own address - the geolocation of ${ip} is not known yet; the next pass asks again`);
   }
-  // Settled only once its apps are handled too: a settled move is not
-  // reconciled again.
-  if (await confirmOwnAddress(record) && appsHandled) await updateOwnAddressRecord({ settledAt: movedAt });
+  // Settled only once its apps are handled and it is located: a settled move is
+  // not reconciled again.
+  if (await confirmOwnAddress(record) && appsHandled && geolocated) await updateOwnAddressRecord({ settledAt: movedAt });
 }
 
 // Work on this node's own address, one piece at a time in the order it came.

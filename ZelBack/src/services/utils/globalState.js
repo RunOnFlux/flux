@@ -1,18 +1,10 @@
 const { AsyncGate } = require('./asyncGate');
 const { AsyncLock } = require('./asyncLock');
+const operationRegistry = require('./operationRegistry');
 
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
 
-let removalInProgress = false;
-let installationInProgress = false;
-// The app the install holding installationInProgress is for, when its holder names one.
-let installingApp = null;
-// Resolved once installationInProgress is released, for every caller waiting on it.
-let installationReleased = null;
-let softRedeployInProgress = false;
-let hardRedeployInProgress = false;
-let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
 let shutdownInProgress = false;
 const daemonReadyGate = new AsyncGate();
@@ -23,8 +15,6 @@ let appStateAuthoritative = false;
 let appSyncState = 'INITIALIZING';
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
-const backupInProgress = [];
-const restoreInProgress = [];
 
 // Apps monitored state
 let appsMonitored = {};
@@ -71,16 +61,6 @@ const runningAppsCache = new Set();
 // removal still running.
 const departingCounts = new Map();
 
-// Apps this node is only trying out. A test install writes the app's row like any
-// other install, and the announcement is built from that table - so an announcement
-// landing inside one claims a placement for an app about to be thrown away, and the
-// test teardown tells the network nothing that would take the claim back.
-//
-// A set, not a count: the node admits one installation at a time, so a second test
-// install of the same app cannot start while this one holds the node.
-//
-// In-memory deliberately: a restart ends the test install that entered it.
-const testInstallingApps = new Set();
 
 // Held for the whole of an announcement cycle. It lives here rather than inside
 // peerNotification because a removal has to wait on it too, and peerNotification
@@ -149,29 +129,6 @@ const stoppingContainers = new Set();
 // reconciler's holdStopped and releaseHold.
 const operationStoppedContainers = new Set();
 
-// Containers FluxOS removed and has not created again — who removed the container,
-// which is the only thing the tampering decision turns on. Docker names, keyed as
-// stoppingContainers is.
-//
-// An absent container is the strongest local evidence of host-side interference the
-// node has, and the reconciler records it as `container_vanished`, the
-// heaviest-weighted tampering event there is. That reading holds only for a
-// container FluxOS did not remove: a teardown that fails part way leaves an absence
-// FluxOS caused with the app's row intact, and the app keeps being reconciled, so
-// membership here is what stops a node scoring its own removal against the app it
-// is hosting.
-//
-// Written by dockerService's removal funnels, dropped by its creation funnel, and
-// dropped for a whole app when the app's local row goes (nothing reconciles it
-// after that, so there is no absence left to attribute). FluxOS removed it ->
-// present; FluxOS created it -> absent; anything missing without an entry here is
-// what the tampering event is for.
-//
-// In-memory deliberately: across a restart the node genuinely cannot tell its own
-// removal from anyone else's, and an entry that survived would suppress a real
-// signal.
-const fluxRemovedContainers = new Set();
-
 // Syncthing folders this node holds writable (sendreceive), refreshed by the
 // syncthing monitor each pass and served to peers that ask before promoting a
 // folder of their own. Kept here rather than read from syncthing per request:
@@ -209,21 +166,6 @@ const seedMarks = new Map();
 let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
 
-/**
- * Every write of installationInProgress comes through here, so a release is seen
- * by whoever waits on it.
- * @param {boolean} value
- */
-function setInstallationInProgress(value) {
-  installationInProgress = value;
-  if (value) return;
-  installingApp = null;
-  if (installationReleased) {
-    installationReleased.resolve();
-    installationReleased = null;
-  }
-}
-
 // Initialize cache references - this must be called after cacheManager is ready
 function initializeCaches(cacheManager) {
   if (cacheManager && cacheManager.appSpawnErrorCache && cacheManager.appSpawnCache) {
@@ -235,64 +177,6 @@ function initializeCaches(cacheManager) {
 
 module.exports = {
   // State getters/setters
-  get removalInProgress() { return removalInProgress; },
-  set removalInProgress(value) { removalInProgress = value; },
-
-  get installationInProgress() { return installationInProgress; },
-  set installationInProgress(value) { setInstallationInProgress(value); },
-
-  get installingApp() { return installingApp; },
-  set installingApp(value) { installingApp = value; },
-
-  /**
-   * Resolves once no install holds the node: at once when none does, otherwise
-   * when the holder releases installationInProgress, however long it runs.
-   * @returns {Promise<void>}
-   */
-  whenInstallationReleased() {
-    if (!installationInProgress) return Promise.resolve();
-    if (!installationReleased) {
-      let resolve;
-      const promise = new Promise((done) => { resolve = done; });
-      installationReleased = { promise, resolve };
-    }
-    return installationReleased.promise;
-  },
-
-  get softRedeployInProgress() { return softRedeployInProgress; },
-  set softRedeployInProgress(value) { softRedeployInProgress = value; },
-
-  get hardRedeployInProgress() { return hardRedeployInProgress; },
-  set hardRedeployInProgress(value) { hardRedeployInProgress = value; },
-
-  get reinstallationOfOldAppsInProgress() { return reinstallationOfOldAppsInProgress; },
-  set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
-
-  // The operation holding this node right now, named, or null. `except` is the
-  // caller's OWN flag: a guard excludes the operation it belongs to and no
-  // others, because a redeploy that asked without excluding itself would refuse
-  // its own reinstall. Order is the order the guards asked in.
-  //
-  // EVERY ENTRY POINT THAT CAN START WORK ASKS THIS, and asks it for all five flags
-  // rather than a subset it picked. A guard that reads only the flags it expects to
-  // meet walks past the one it did not: a spawner that ignores the reinstall pass takes
-  // the node during that pass's own wait and leaves an app torn down that cannot be
-  // rebuilt.
-  operationHolding(except = null) {
-    const held = [
-      ['removal', removalInProgress],
-      ['installation', installationInProgress],
-      ['soft redeploy', softRedeployInProgress],
-      ['hard redeploy', hardRedeployInProgress],
-      ['reinstallation', reinstallationOfOldAppsInProgress],
-    ].find(([name, on]) => on && name !== except);
-    return held ? held[0] : null;
-  },
-
-  isOperationInProgress() {
-    return removalInProgress || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
-  },
-
   // Set by the graceful shutdown path and never cleared: the process exits at the
   // end of it. From then on no container starts and no decider acts, so what the
   // shutdown stops and drains stays stopped and drained.
@@ -358,39 +242,12 @@ module.exports = {
   get syncthingAppsFirstRun() { return syncthingAppsFirstRun; },
   set syncthingAppsFirstRun(value) { syncthingAppsFirstRun = value; },
 
-  // A frozen snapshot, not the live array: readers (the monitor, the election,
-  // the reconciler) only ever test membership, and handing out the backing
-  // array let any of them push or splice it and bypass the atomic claim below.
-  // Frozen rather than merely copied so that a stray write throws here instead
-  // of silently mutating a copy nobody reads. The claim and release are the
-  // only writers, and they hold the real arrays.
-  get backupInProgress() { return Object.freeze([...backupInProgress]); },
-  get restoreInProgress() { return Object.freeze([...restoreInProgress]); },
-
-  // Claiming an app for a backup or a restore is a test-and-set, not a read
-  // then a later write: these run to completion before the event loop hands the
-  // next request in, so two overlapping requests for one app cannot both find it
-  // free. The lists stay the observable "this app is busy" signal the monitor,
-  // the election and the reconciler read; only the claim on them is made
-  // indivisible here so a caller cannot split the test from the set.
-  tryStartBackup(appname) {
-    if (backupInProgress.includes(appname)) return false;
-    backupInProgress.push(appname);
-    return true;
-  },
-  finishBackup(appname) {
-    const index = backupInProgress.indexOf(appname);
-    if (index !== -1) backupInProgress.splice(index, 1);
-  },
-  tryStartRestore(appname) {
-    if (restoreInProgress.includes(appname)) return false;
-    restoreInProgress.push(appname);
-    return true;
-  },
-  finishRestore(appname) {
-    const index = restoreInProgress.indexOf(appname);
-    if (index !== -1) restoreInProgress.splice(index, 1);
-  },
+  // The apps a backup or a restore holds, as frozen snapshots of the operation
+  // registry, which alone takes and releases an app (operationRegistry.js).
+  get backupInProgress() { return Object.freeze(operationRegistry.listByType('backup')); },
+  get restoreInProgress() { return Object.freeze(operationRegistry.listByType('restore')); },
+  // The apps any operation holds, as a frozen snapshot of the operation registry.
+  get heldApps() { return Object.freeze(operationRegistry.listHeld()); },
 
   get appsMonitored() { return appsMonitored; },
   set appsMonitored(value) { appsMonitored = value; },
@@ -420,28 +277,16 @@ module.exports = {
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
   get departingApps() { return departingApps; },
-  get testInstallingApps() { return testInstallingApps; },
   get unconfirmedApps() { return unconfirmedApps; },
   get announceCycle() { return announceCycle; },
   get stoppingContainers() { return stoppingContainers; },
   get operationStoppedContainers() { return operationStoppedContainers; },
-  get fluxRemovedContainers() { return fluxRemovedContainers; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },
 
   get trySpawningGlobalAppCache() { return trySpawningGlobalAppCache; },
   set trySpawningGlobalAppCache(value) { trySpawningGlobalAppCache = value; },
-
-  // Helper functions to match original API
-  removalInProgressReset() { removalInProgress = false; },
-  setRemovalInProgressToTrue() { removalInProgress = true; },
-  installationInProgressReset() { setInstallationInProgress(false); },
-  setInstallationInProgressTrue() { setInstallationInProgress(true); },
-  softRedeployInProgressReset() { softRedeployInProgress = false; },
-  setSoftRedeployInProgressTrue() { softRedeployInProgress = true; },
-  hardRedeployInProgressReset() { hardRedeployInProgress = false; },
-  setHardRedeployInProgressTrue() { hardRedeployInProgress = true; },
 
   // Clear functions
   clearAppsMonitored() { appsMonitored = {}; },
