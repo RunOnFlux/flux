@@ -32,7 +32,9 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import {
   execInContainer, getAppContainerId, listAppContainers, restartFluxos,
 } from '../framework/container.js';
-import { freezeDocker, thawDocker, thawEveryNode } from '../framework/host-stall.js';
+import {
+  DOCKER_ROOT, freezeDocker, thawDocker, thawEveryNode,
+} from '../framework/host-stall.js';
 import { waitFor } from '../framework/wait.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -159,9 +161,12 @@ describe('a container FluxOS took down is not tampering', function () {
     await freezeDocker(holder.container);
     await holder.releaseCheckpoint(BEFORE_REMOVE, containerName);
     await holder.waitForEvent('app:softRedeployed', (d) => d.name === appName && d.outcome === 'failed', 2 * DOCKER_REQUEST_MS + 60000, { afterId: mark });
-    // read from docker's memory, which the freeze does not hold
-    const listed = await execInContainer(holder.container, `timeout 20 docker ps -a --format '{{.Names}}' --filter name=^${containerName}$`);
-    expect(listed.stdout.trim(), `canary: docker had finished the removal before FluxOS gave up: ${listed.output}`).to.equal(containerName);
+    // The container's directory under the data root, which docker deletes in its removal,
+    // read from the filesystem: the freeze holds writes, never reads. dockerd is not asked,
+    // since listing a container reads its image from the frozen root.
+    const containerDir = `${DOCKER_ROOT}/containers/${before}`;
+    const held = await execInContainer(holder.container, `test -d ${containerDir}`);
+    expect(held.exitCode, `canary: docker had finished the removal before FluxOS gave up (${containerDir}, exit ${held.exitCode}): ${held.output}`).to.equal(0);
 
     await thawDocker(holder.container);
     await waitFor(
