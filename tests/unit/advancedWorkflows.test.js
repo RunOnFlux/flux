@@ -9652,6 +9652,48 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
   // An update this node cannot hold leaves the way a misplaced app does: in
   // turn, one holder per refill, and until then it runs here as it is.
+  // A primary of a g: app this node hands back stops its component first, and
+  // stays stopped while the node is still leaving the app for that reason.
+  // `ownTurn` is a pass in a turn this node owns; `reasonGone` makes the reason
+  // no longer hold.
+  function standsDownWhileLeaving(ownTurn, reasonGone) {
+    describe('as the primary of a g: app', () => {
+      const STOPPED = { reachable: true, indeterminate: false, running: false };
+      let stopStub;
+      const releases = (logWarn) => logWarn.getCalls()
+        .map((c) => String(c.args[0]))
+        .filter((line) => line.includes('no longer leaving the app'));
+
+      beforeEach(() => {
+        stopStub = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+        sinon.stub(appReconciler, 'dockerActual').resolves(STOPPED);
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop the component first', standDown: ['server_appone'],
+        });
+      });
+
+      it('stops its component instead of removing the app', async () => {
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+
+        sinon.assert.calledOnceWithExactly(stopStub, 'server_appone', 'stopped', 'standing down to hand the app back');
+        sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      });
+
+      it('holds the stand-down while it is still leaving, and releases it once it is not', async () => {
+        const logWarn = sinon.stub(log, 'warn');
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+        evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it' });
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+        expect(releases(logWarn), 'released while still leaving').to.have.lengthOf(0);
+
+        reasonGone();
+        await advancedWorkflows.checkAndRemoveApplicationInstance(ownTurn());
+        expect(releases(logWarn), 'released once no longer leaving').to.have.lengthOf(1);
+      });
+    });
+  }
+
   describe('leaving an app whose registered specification no longer fits this node', () => {
     const KEYS = HOLDERS.map((holder) => holder.key);
     const PASS_S = 1320;
@@ -9745,6 +9787,8 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
       expect(decision).to.include({ giveUp: false, reason: advancedWorkflows.GiveUpReason.OUTGROWN, code: 'ABOVE_INSTANCE_COUNT' });
     });
+
+    standsDownWhileLeaving(() => ownTurn(), () => shortfall.resolves(null));
   });
 
   // An update asking for a kind of node this one is not leaves the same way.
@@ -9833,6 +9877,8 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
       expect(decision).to.include({ giveUp: false, reason: advancedWorkflows.GiveUpReason.UNSUITED, code: 'ABOVE_INSTANCE_COUNT' });
     });
+
+    standsDownWhileLeaving(() => ownTurn(), () => unsuited.resolves(null));
   });
 
   describe('leaving an app whose geolocation no longer admits this node', () => {
