@@ -1111,6 +1111,10 @@ export async function createTestEnv({
   // Nodes created with FluxOS not started, by node index: the container boots and
   // FluxOS starts at env.releaseNode(index).
   fluxosHeldNodes = [],
+  // Nodes whose ports flux-upnpd maps, by node index: each runs the stand-in
+  // (test-infra/upnpd-stub, controlled through framework/upnpd-control.js), FluxOS
+  // is given its socket, and userconfig.js says upnp.
+  upnpdNodes = [],
   // Firewalled nodes boot with ufw active as their install leaves it - the legacy
   // installer's rules on a legacy node, the ISO's on an Arcane one - and FluxOS
   // adds its own on top. true for every node, or a list of node indices. Off
@@ -1169,6 +1173,10 @@ export async function createTestEnv({
     const index = Number(key);
     if (!legacyNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} is not a legacy node`);
     if (unprivilegedNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} cannot also be unprivileged`);
+  }
+  for (const index of upnpdNodes) {
+    if (!Number.isInteger(index) || index < 0 || index >= nodes) throw new Error(`createTestEnv: upnpdNodes names node ${index}, which is not a node of the fleet`);
+    if (legacyNodes.includes(index)) throw new Error(`createTestEnv: upnpdNodes names node ${index}, a legacy node`);
   }
   for (const index of fluxosHeldNodes) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes - deferredNodes) throw new Error(`createTestEnv: fluxosHeldNodes names node ${index}, which is not a node started at creation`);
@@ -1400,7 +1408,7 @@ export async function createTestEnv({
     // boot's own.
     await startInfraDeathWatch(env);
     const tracePackages = syncthing === 'binary' ? tracedPackages() : [];
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, arcaneStubPeers, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, arcaneStubPeers, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes, upnpdNodes);
     env.stopSyncthingTrace = startSyncthingTrace(env.clients, tracePackages);
     return env;
   } catch (err) {
@@ -1438,7 +1446,7 @@ function releaseImageNodes(nodeImageTags) {
   return Object.entries(nodeImageTags).filter(([, tag]) => tag !== IMAGE_TAG).map(([index]) => Number(index));
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = [], upnpdNodes = []) {
   // The dialing nodes no link authenticates with: legacy nodes, nodes not listed
   // at their own address because they run on another's collateral, and nodes on
   // a release that has no links.
@@ -1834,6 +1842,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (fluxosHeldNodes.includes(i)) nodeEnv.FLUX_FLUXOS_HELD = '1';
+    if (upnpdNodes.includes(i)) nodeEnv.FLUXUPNPD_CONNECTION = 'unix:///run/flux-upnpd/api.sock';
     if (pausedSyncthingNodes.includes(i)) nodeEnv.FLUX_SYNCTHING_PAUSED = '1';
     if (freezableDockerRoot.includes(i)) nodeEnv.FLUX_FREEZABLE_DOCKER_ROOT = 'true';
     if (fluxdLogins[i]) {

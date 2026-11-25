@@ -6,6 +6,7 @@ module.exports = {
     network: 'mainnet',
     apiport: Number(process.env.FLUX_API_PORT) || 16127,
     routerIP: process.env.FLUX_ROUTER_IP || '',
+    ...(process.env.FLUXUPNPD_CONNECTION ? { upnp: true } : {}),
     pgpPrivateKey: '',
     pgpPublicKey: '',
   },

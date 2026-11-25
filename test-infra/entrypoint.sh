@@ -361,6 +361,10 @@ fi
 if [ -n "$FLUX_SYNCTHING_HOST" ]; then
   ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service
 fi
+# A node whose ports flux-upnpd maps (createTestEnv upnpdNodes) runs its stand-in.
+if [ -n "$FLUXUPNPD_CONNECTION" ]; then
+  ln -sf /etc/systemd/system/flux-upnpd-stub.service /etc/systemd/system/multi-user.target.wants/flux-upnpd-stub.service
+fi
 
 # Container hygiene: kernel modules cannot be loaded here, and a tmpfs
 # over /tmp would shadow the harness's /tmp/flux-boot-config bind mount.

@@ -1,0 +1,14 @@
+[Unit]
+Description=flux-upnpd stand-in (harness node): the local API FluxOS maps the node's ports through
+Before=fluxos.service
+
+[Service]
+EnvironmentFile=/etc/fluxos-harness.env
+ExecStart=/usr/bin/node /flux/test-infra/upnpd-stub/index.cjs
+Restart=always
+RestartSec=1
+StandardOutput=append:/var/lib/flux-harness/stream
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

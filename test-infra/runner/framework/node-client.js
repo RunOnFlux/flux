@@ -319,6 +319,8 @@ export function nodeClient(nodeNum) {
         // are made with follows from the two.
         'upnp:verified',
         'upnp:leaseRenewal',
+        // an app removed because flux-upnpd reported its port failing for the removal window
+        'upnp:failingAppRemoved',
         'collision:judged',
         'network:originatorNotListed',
         'syncthing:namesVisible',
