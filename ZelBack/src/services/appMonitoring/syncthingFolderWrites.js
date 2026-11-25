@@ -8,6 +8,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { appsFolder } = require('../utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('./syncthingMonitorHelpers');
 const volumeService = require('../utils/volumeService');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
 
 // Every write FluxOS makes to an app folder's syncthing config goes through this
 // module, one at a time per folder.
@@ -353,9 +354,64 @@ function volumeMounted(folderId) {
   return volumeService.isPathMounted(`${appsFolder}${folderId}`);
 }
 
+// A restore that stopped part way through replacing a component's data leaves a
+// directory that is neither copy. Until a restore of it finishes, its owner starts
+// it, or healing from a peer that holds the data clears the record, no write makes
+// its folder send.
+const RESTORE_UNFINISHED_REFUSAL = Object.freeze({ status: 'error', data: { message: 'a restore of its data did not finish: the folder does not send' } });
+
+/**
+ * @param {string} folderId
+ * @returns {Promise<boolean|null>} whether an unfinished restore holds the
+ *   folder's component, or null when the record cannot be read
+ */
+async function restoreRecord(folderId) {
+  try {
+    return await appsRuntimeState.isRestoreUnfinished(folderId);
+  } catch (error) {
+    log.warn(`Syncthing folder ${folderId}: the restore record could not be read (${error.message})`);
+    return null;
+  }
+}
+
+/**
+ * What a refusal asks: a record that cannot be read holds the folder, so nothing
+ * it guards happens on a record nobody read.
+ * @param {string} folderId
+ * @returns {Promise<boolean>} whether an unfinished restore may hold the folder's component
+ */
+async function restoreHolds(folderId) {
+  return (await restoreRecord(folderId)) !== false;
+}
+
+/**
+ * @param {string} folderId
+ * @returns {Promise<boolean>} whether the folder sends once unpaused: it is set to
+ *   send, or its config cannot be read
+ */
+async function sendsOnceUnpaused(folderId) {
+  const config = await folderConfig(folderId);
+  return config === null || config.type === 'sendreceive';
+}
+
+/**
+ * @param {string} folderId
+ * @returns {Promise<object|null>} the refusal that keeps the folder from sending, or null
+ */
+async function sendRefusal(folderId) {
+  if (!(await volumeMounted(folderId))) return UNMOUNTED_REFUSAL;
+  if (await restoreHolds(folderId)) return RESTORE_UNFINISHED_REFUSAL;
+  return null;
+}
+
 async function patchNow(folderId, fields) {
   if (globalState.shutdownInProgress && fields.paused === false) return SHUTDOWN_REFUSAL;
-  if (fields.type === 'sendreceive' && !(await volumeMounted(folderId))) return UNMOUNTED_REFUSAL;
+  // an unpause sends from a folder that is set to send as surely as setting it to send
+  if (fields.type === 'sendreceive'
+    || (fields.type === undefined && fields.paused === false && await sendsOnceUnpaused(folderId))) {
+    const refusal = await sendRefusal(folderId);
+    if (refusal) return refusal;
+  }
   const before = fields.devices ? await sharedDevices() : null;
   if (fields.devices) await syncthingDroppedDevices.dropped(devicesRemoved(before, [{ id: folderId, devices: fields.devices }]));
   const response = await syncthingService.adjustConfigFolders('patch', fields, folderId);
@@ -376,9 +432,12 @@ async function putFolders(folders) {
     return Promise.reject(new Error(`folder config without a type would be written as syncthing's default: ${untyped.join(', ')}`));
   }
   const sending = folders.filter((folder) => folder.type === 'sendreceive');
-  const unmounted = (await Promise.all(sending.map(async (folder) => ((await volumeMounted(folder.id)) ? null : folder.id)))).filter(Boolean);
-  if (unmounted.length) {
-    return Promise.reject(new Error(`folder config would send over a directory with no volume mounted: ${unmounted.join(', ')}`));
+  const refused = (await Promise.all(sending.map(async (folder) => {
+    const refusal = await sendRefusal(folder.id);
+    return refusal ? `${folder.id} (${refusal.data.message})` : null;
+  }))).filter(Boolean);
+  if (refused.length) {
+    return Promise.reject(new Error(`folder config would send what may not be sent: ${refused.join(', ')}`));
   }
   const response = await exclusive(folders.map((folder) => folder.id), async () => {
     if (globalState.shutdownInProgress) return SHUTDOWN_REFUSAL;
@@ -573,11 +632,15 @@ async function changeSyncthingFolderType(folderId, folderType, {
   const changed = await exclusive([folderId], async () => {
     try {
       if (abandonIf()) return false;
-      // asked of a folder already sending too: one whose volume went away is not
-      // kept sending, and a start over it waits for the volume
-      if (folderType === 'sendreceive' && !(await volumeMounted(folderId))) {
-        log.warn(`Syncthing folder ${folderId} is not made to send: its volume is not mounted`);
-        return false;
+      // asked of a folder already sending too: one whose volume went away, or
+      // whose data a restore left part replaced, is not kept sending, and a start
+      // over it waits
+      if (folderType === 'sendreceive') {
+        const refusal = await sendRefusal(folderId);
+        if (refusal) {
+          log.warn(`Syncthing folder ${folderId} is not made to send: ${refusal.data.message}`);
+          return false;
+        }
       }
       const folders = await syncthingService.getConfigFolders();
 
@@ -634,6 +697,8 @@ module.exports = {
   pauseAllFolders,
   putFolders,
   patchFolder,
+  restoreHolds,
+  restoreRecord,
   refetchDeviceIndex,
   deleteFolder,
   mark,

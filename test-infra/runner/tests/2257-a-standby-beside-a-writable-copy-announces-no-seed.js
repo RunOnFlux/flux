@@ -9,7 +9,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  waitFor, waitHolding, waitForReconcileActuated, waitForUp, waitForElectionDecisions,
+  waitFor, waitHolding, waitForFolderTakenOn, waitForUp, waitForElectionDecisions,
 } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { isDaemonUp, listFolderFiles, getFolderConfig } from '../framework/syncthing-real.js';
@@ -67,12 +67,12 @@ describe('a standby beside a writable copy announces no seed', function () {
     await electMaster(appName, client(B).ip);
     const primaryAfter = client(B).getLastEventId();
     await installOnNodes(env, app, [B]);
-    await waitForReconcileActuated(client(B), identifier, 'dataCleared', 120000, { afterId: primaryAfter });
+    await waitForFolderTakenOn(client(B), identifier, 120000, { afterId: primaryAfter });
     await waitForUp(client(B), appName, 'the primary is running', { timeout: 180000, interval: 3000 });
 
     const standbyAfter = client(A).getLastEventId();
     await installOnNodes(env, app, [A]);
-    await waitForReconcileActuated(client(A), identifier, 'dataCleared', 120000, { afterId: standbyAfter });
+    await waitForFolderTakenOn(client(A), identifier, 120000, { afterId: standbyAfter });
     await waitForElectionDecisions(client(A), identifier, 'primaryObserved', 1, { timeout: 120000 });
   });
 

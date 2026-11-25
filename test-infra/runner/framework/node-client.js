@@ -335,9 +335,14 @@ export function nodeClient(nodeNum) {
         'blockWork:ran',
         'syncthing:folderWritable',
         'syncthing:folderReady',
+        'syncthing:folderNotReady',
         'primaryRole:changed',
         'primaryRole:standDownGiven',
         'primaryRole:returned',
+        // a restore's record that it is replacing a component's data, written or cleared
+        'restore:record',
+        // a scan asked for since that record was set has finished
+        'restore:scanned',
         'shutdown:paused',
         'system:packages-checked',
         'system:apt-command',
@@ -390,7 +395,11 @@ export function nodeClient(nodeNum) {
         'message:dispatched',
         'reconciler:actuated',
         'reconciler:desiredChanged',
+        // a backup or restore holding a component stopped through the reconciler, or releasing it
+        'reconciler:operationHold',
         'app:operatorIntent',
+        // a restart another instance's restore asked for, and whether it was made
+        'app:restartRequested',
         'reconciler:swept',
         'giveUp:considered',
         'giveUp:safety',

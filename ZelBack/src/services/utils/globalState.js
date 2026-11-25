@@ -140,8 +140,14 @@ const departingApps = {
 // In-memory deliberately: a restart runs the boot check again.
 const unconfirmedApps = new Map();
 
-// Containers intentionally stopped by FluxOS — crash recovery skips die events for these
+// Containers intentionally stopped by FluxOS — containerEventsConsumer skips die events for these
 const stoppingContainers = new Set();
+
+// Containers a backup or restore took down, by docker name: running when the
+// operation's hold was set, and held stopped until it is lifted. The node is still
+// routed to for them (appQueryService.listRunningApps). Written by the
+// reconciler's holdStopped and releaseHold.
+const operationStoppedContainers = new Set();
 
 // Containers FluxOS removed and has not created again — who removed the container,
 // which is the only thing the tampering decision turns on. Docker names, keyed as
@@ -418,6 +424,7 @@ module.exports = {
   get unconfirmedApps() { return unconfirmedApps; },
   get announceCycle() { return announceCycle; },
   get stoppingContainers() { return stoppingContainers; },
+  get operationStoppedContainers() { return operationStoppedContainers; },
   get fluxRemovedContainers() { return fluxRemovedContainers; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },

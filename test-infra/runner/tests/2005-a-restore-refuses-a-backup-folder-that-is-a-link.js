@@ -19,7 +19,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { stageArtifact, artifactUrl } from '../framework/external-http-control.js';
-import { waitForReconcileActuated } from '../framework/wait.js';
+import { waitForFolderTakenOn } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import {
   volumeRoot, seedSymlink, contentOf, exists, isSymlink,
@@ -116,7 +116,7 @@ describe('a restore refuses a backup folder that is a link', function () {
     });
     const installAfter = client.getLastEventId();
     await installOnNodes(env, app, [0]);
-    await waitForReconcileActuated(client, `${appName}_${appName}`, 'dataCleared', 90000, { afterId: installAfter });
+    await waitForFolderTakenOn(client, `${appName}_${appName}`, 90000, { afterId: installAfter });
     await setSynced({ ip: subnet.nodeIp(1), folder: `flux${appName}_${appName}` });
 
     auth = await authenticate(client.url, appOwnerKey());

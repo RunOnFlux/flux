@@ -14,6 +14,7 @@ import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import {
   setSynced, resetSyncState, getFolderWrites, getFolderScans, getFolderConfig, setFolderConfig,
   getPendingFolderWrites, setFolderPatchDelay, setScanDuration, injectSyncthingEvent, getPendingFolderScans,
+  getPauseWrites, setSyncState, GLOBAL_BYTES,
 } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
@@ -43,6 +44,7 @@ const BEFORE_START = 'masterSlave:beforeStart';
 const BEFORE_RUN = 'masterSlave:beforeRun';
 const AFTER_FOLDER_READ = 'syncthing:afterFolderRead';
 const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
+const BEFORE_DECISION = 'masterSlave:beforeDecision';
 
 // A time well past FluxOS's timeout on a syncthing call.
 const SLOW_MS = 8000;
@@ -87,6 +89,36 @@ describe('a single-writer folder type has one writer', function () {
     await Promise.all(nodes.map((i, k) => waitFor(async () => (await passes(i)) >= from[k] + HELD_PASSES, {
       timeout: 180000, interval: 1000, label: `node ${i} ran ${HELD_PASSES} ${label} passes`,
     })));
+  };
+  // A restore on the primary that fails part-way through its clear, as one on a
+  // volume gone read-only under an ext4 error does: the clear removes one file of
+  // the copy and cannot remove the next. Syncthing knows the whole copy from the
+  // standbys, so it reports the primary's folder short of it by a local change;
+  // the folder is read again only once the restore lets go of it.
+  const restoreFailingPartWay = async (a) => {
+    const client = env.clients[a.primary];
+    const dir = `/mnt/appdata/flux-apps/${a.folder}`;
+    const archive = `${dir}/backup/local/backup_${a.appName.toLowerCase()}.tar.gz`;
+    const staged = await execInContainer(client.container,
+      `rm -rf /tmp/s-${a.appName} && mkdir -p /tmp/s-${a.appName} && printf 'restored\\n' > /tmp/s-${a.appName}/restored.txt `
+      + `&& mkdir -p ${dir}/backup/local && tar -czf ${archive} -C /tmp/s-${a.appName} . `
+      + `&& printf gone > ${dir}/appdata/gone && printf kept > ${dir}/appdata/kept && chattr +i ${dir}/appdata/kept`);
+    expect(staged.exitCode, `fixture: staging the restore failed: ${staged.output}`).to.equal(0);
+    try {
+      const auth = await authenticate(client.url, appOwnerKey());
+      const restoring = client.appendRestoreTask(a.appName, [{ component: a.appName, restore: true }], 'local', auth.zelidauth);
+      await waitFor(async () => (await getPauseWrites(ipOf(a.primary))).some((w) => w.id === a.folder && w.paused === true), {
+        timeout: 120000, interval: 500, label: 'the restore took the folder',
+      });
+      await setSyncState({
+        ip: ipOf(a.primary), folder: a.folder, state: 'idle', globalBytes: GLOBAL_BYTES, inSyncBytes: GLOBAL_BYTES / 2, receiveOnlyChangedFiles: 1,
+      });
+      expect(await restoring, 'fixture: the restore did not fail at the clear').to.match(/could not clear/i);
+      const left = await execInContainer(client.container, `ls -A ${dir}/appdata`);
+      expect(left.output.trim(), 'fixture: the clear removed part of the copy').to.equal('kept');
+    } finally {
+      await execInContainer(client.container, `chattr -i ${dir}/appdata/kept 2>/dev/null || true`);
+    }
   };
 
   // Places a g: app on the holders and waits for one running primary and two
@@ -291,6 +323,9 @@ describe('a single-writer folder type has one writer', function () {
         .some((scan) => scan.id === a.folder && scan.arrivedSeq > sends.seq), {
         timeout: 60000, interval: 500, label: 'a scan covering the folder\'s restart is under way',
       });
+      // the promotion's start has run: the volume goes after it, during the scans
+      await client.waitForEvent('reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started',
+        120000, { afterId: from });
       await destroyVolume(client.container, a.appName);
       unmountedAt = Date.now();
       await injectSyncthingEvent({ ip: ipOf(target), type: 'FolderErrors', data: { folder: a.folder, errors: [{ error: 'folder marker missing' }] } });
@@ -385,33 +420,52 @@ describe('a single-writer folder type has one writer', function () {
     this.timeout(900000);
     const a = await settle(`e2erestore${stamp}`);
     const client = env.clients[a.primary];
-    const dir = `/mnt/appdata/flux-apps/${a.folder}`;
     // A restore of a g: component runs on the node FDM names.
     await electMaster(a.appName, client.ip);
-    const archive = `${dir}/backup/local/backup_${a.appName.toLowerCase()}.tar.gz`;
-    const staged = await execInContainer(client.container,
-      `rm -rf /tmp/s-${a.appName} && mkdir -p /tmp/s-${a.appName} && printf 'restored\\n' > /tmp/s-${a.appName}/restored.txt `
-      + `&& mkdir -p ${dir}/backup/local && tar -czf ${archive} -C /tmp/s-${a.appName} .`);
-    expect(staged.exitCode, `fixture: staging the archive failed: ${staged.output}`).to.equal(0);
-    // The clear fails the way a volume gone read-only under an ext4 error does: the
-    // primary's data cannot be deleted.
-    await seedSyncScopedData(env, a.appName, a.primary);
-    const lock = await execInContainer(client.container, `chattr +i ${dir}/appdata`);
-    expect(lock.exitCode, `fixture: could not make appdata immutable: ${lock.output}`).to.equal(0);
     const from = client.getLastEventId();
     const writesBefore = (await writesTo(a.primary, a.folder)).length;
-    try {
-      const auth = await authenticate(client.url, appOwnerKey());
-      const body = await client.appendRestoreTask(a.appName, [{ component: a.appName, restore: true }], 'local', auth.zelidauth);
-      expect(body, 'fixture: the restore did not fail at the clear').to.match(/could not clear/i);
-      await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
-    } finally {
-      await execInContainer(client.container, `chattr -i ${dir}/appdata 2>/dev/null || true`);
-    }
+    await restoreFailingPartWay(a);
+    await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
 
     await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
       'a FluxOS write stops the folder holding partial data sending');
     expect((await getFolderConfig(ipOf(a.primary), a.folder))?.type).to.equal('receiveonly');
+  });
+
+  // An election pass that reached the app before a restore of it began decides
+  // once the restore has failed: it must decide from what FluxOS now intends for
+  // the component - held stopped over its half-replaced data - and not from what
+  // ran when the pass began. The pass is held at its decision until the restore
+  // has failed and released the app.
+  it('keeps a failed restore\'s folder receiving through an election pass that began before the restore', async function () {
+    this.timeout(900000);
+    const a = await settle(`e2erestorerace${stamp}`);
+    const client = env.clients[a.primary];
+    await electMaster(a.appName, client.ip);
+
+    // the pass reaches the app and stops before deciding
+    const held = client.getLastEventId();
+    await client.holdCheckpoint(BEFORE_DECISION, a.identifier);
+    await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_DECISION && d.key === a.identifier, 180000, { afterId: held });
+
+    const from = client.getLastEventId();
+    const writesBefore = (await writesTo(a.primary, a.folder)).length;
+    await restoreFailingPartWay(a);
+    await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
+    await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
+      'the failed restore stops the folder sending');
+
+    // the held pass decides, and the passes after it
+    const notReadyFrom = await electionCount(a.primary, a.appName, 'notReady');
+    const afterRestore = (await writesTo(a.primary, a.folder)).length;
+    await client.releaseCheckpoint(BEFORE_DECISION, a.identifier);
+    await passesFromNow([a.primary], (i) => folderPasses(i, a.appName), 'folder');
+    const sent = (await writesTo(a.primary, a.folder)).slice(afterRestore).filter((w) => w.body?.type === 'sendreceive');
+    expect(sent, 'a write made the half-replaced folder send').to.deep.equal([]);
+    expect((await getFolderConfig(ipOf(a.primary), a.folder))?.type).to.equal('receiveonly');
+    // canary: the released pass decided about the app - named its primary, it
+    // found the component not held here and its copy not ready, and started nothing
+    expect(await electionCount(a.primary, a.appName, 'notReady'), 'the election decided about the app').to.be.above(notReadyFrom);
   });
 
   it('writes a folder only once the write before it is applied', async function () {

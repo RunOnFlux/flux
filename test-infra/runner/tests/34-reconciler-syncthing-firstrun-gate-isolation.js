@@ -10,7 +10,7 @@ import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
-  waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged,
+  waitFor, waitForReconcileActuated, waitForFolderTakenOn, waitForReconcilerDesiredChanged,
 } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -76,11 +76,10 @@ describe('one unmountable app does not block g: election node-wide', function ()
     const gApp = await buildSeedableSyncthingApp({ name: gName, mode: 'g' });
     const installAfters = [0, 1].map((i) => env.clients[i].getLastEventId());
     await installOnNodes(env, gApp, [0, 1]);
-    // real data on disk before the index claims bytes, and only after the sync
-    // layer's first-run reset has cleared appdata - the ordering suites 35/61
-    // established, without which the phantom-index guard holds the app down
+    // real data on disk before the index claims bytes, once the sync layer has
+    // taken the folder on - without it the phantom-index guard holds the app down
     await Promise.all([0, 1].map(async (i, k) => {
-      await waitForReconcileActuated(env.clients[i], gIdentifier, 'dataCleared', 60000, { afterId: installAfters[k] });
+      await waitForFolderTakenOn(env.clients[i], gIdentifier, 60000, { afterId: installAfters[k] });
       await seedSyncScopedData(env, gName, i);
     }));
     await Promise.all([0, 1].map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: gFolder })));

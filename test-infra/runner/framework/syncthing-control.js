@@ -8,7 +8,7 @@ import { controlFetch } from './control-fetch.js';
 
 const CONTROL = process.env.SYNCTHING_CONTROL || `http://${getSubnetConfig().syncthing}:8385`;
 
-const GLOBAL_BYTES = 100000;
+export const GLOBAL_BYTES = 100000;
 
 async function post(path, body) {
   const res = await controlFetch(`${CONTROL}${path}`, {

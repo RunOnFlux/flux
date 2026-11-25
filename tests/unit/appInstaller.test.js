@@ -268,10 +268,11 @@ describe('appInstaller tests', () => {
   // default with a ten second delay, so it indexes the directory while the container is
   // writing into it. An ignore does not withdraw what already replicated.
   describe('a local directory is covered before it exists', () => {
-    const softInstaller = (volumeService, ignorePolicy) => proxyquire(
+    const softInstaller = (volumeService, ignorePolicy, isRestoreUnfinished = sinon.stub().resolves(false)) => proxyquire(
       '../../ZelBack/src/services/appLifecycle/appInstaller',
       {
         ...baseStubs,
+        '../appManagement/appsRuntimeState': { isRestoreUnfinished },
         // The real derivation, because the folder asked about has to be the
         // component-qualified one that syncthing knows this volume by.
         '../dockerService': { ...baseStubs['../dockerService'], getAppIdentifier: (name) => `flux${name}` },
@@ -314,6 +315,24 @@ describe('appInstaller tests', () => {
         await installer.installApplicationSoft(spec, 'myapp', true, null, { name: 'myapp', compose: [spec] }, { start });
 
         expect(appDockerStart.calledWith('web_myapp'), 'the soft install reached its start step').to.equal(start);
+      });
+    });
+
+    // A soft install keeps the volume, and with it a restore that did not finish on it.
+    [['an unfinished restore holds', sinon.stub().resolves(true)],
+      ['whose restore record cannot be read', sinon.stub().rejects(new Error('database unavailable'))]].forEach(([which, isRestoreUnfinished]) => {
+      it(`does not start a component ${which}`, async () => {
+        const installer = softInstaller({ ensureMountPathsExist: sinon.stub().resolves() }, { ensureStignoreCovers: sinon.stub().resolves() }, isRestoreUnfinished);
+        const { appDockerStart } = baseStubs['../dockerService'];
+        appDockerStart.resetHistory();
+        const spec = {
+          name: 'web', repotag: 'a/b:1', containerData: 's:/data', ports: [], domains: [], environmentParameters: [], commands: [],
+        };
+
+        await installer.installApplicationSoft(spec, 'myapp', true, null, { name: 'myapp', compose: [spec] }, { start: true });
+
+        sinon.assert.calledWith(isRestoreUnfinished, 'web_myapp');
+        expect(appDockerStart.called, 'the held component was started').to.equal(false);
       });
     });
 

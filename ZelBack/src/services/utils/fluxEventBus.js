@@ -51,9 +51,6 @@ const Checkpoint = Object.freeze({
   // checked that no controller opinion was written since it read the verdict.
   // Keyed by the component identifier.
   RECONCILER_BEFORE_START: 'reconciler:beforeStart',
-  // A reconcile pass has stopped a component whose local appdata is to be
-  // cleared and has not yet cleared it. Keyed by the component identifier.
-  RECONCILER_BEFORE_DATA_CLEAR: 'reconciler:beforeDataClear',
   // A reconcile pass has found a component's container missing and has not yet
   // recreated it. Keyed by the component identifier.
   RECONCILER_BEFORE_RECREATE: 'reconciler:beforeRecreate',
@@ -186,6 +183,9 @@ const Checkpoint = Object.freeze({
   // The local removal queue has taken an app as the one it removes next, and has
   // not started removing it. Keyed by app name.
   REMOVAL_QUEUE_BEFORE_REMOVAL: 'removalQueue:beforeRemoval',
+  // A restore has recorded that it is replacing a component's data and has not
+  // yet cleared any of it. Keyed by the component's folder id.
+  RESTORE_BEFORE_CLEAR: 'restore:beforeClear',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

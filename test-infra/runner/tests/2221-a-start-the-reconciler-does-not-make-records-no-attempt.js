@@ -6,7 +6,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus, crashAppContainer } from '../framework/container.js';
 import { resetFdm, electMaster } from '../framework/fdm-control.js';
 import {
-  waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged, waitForElectionDecisions, electionDecisionCount,
+  waitFor, waitForFolderTakenOn, waitForReconcilerDesiredChanged, waitForElectionDecisions, electionDecisionCount,
   assertNoEvent,
 } from '../framework/wait.js';
 import { setSynced, resetSyncState, injectSyncthingEvent } from '../framework/syncthing-control.js';
@@ -55,7 +55,7 @@ describe('a start the reconciler does not make records no attempt', function () 
     const installAfters = [0, 1].map((i) => env.clients[i].getLastEventId());
     holders = await installOnNodes(env, app, [0, 1]);
     await Promise.all(holders.map(async (i, k) => {
-      await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfters[k] });
+      await waitForFolderTakenOn(env.clients[i], identifier, 60000, { afterId: installAfters[k] });
       await seedSyncScopedData(env, appName, i);
     }));
     await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));

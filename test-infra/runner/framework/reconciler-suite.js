@@ -21,7 +21,7 @@ import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
   waitForInstallSettled,
-  waitForReconcileActuated, waitForBootSettled,
+  waitForFolderTakenOn, waitForBootSettled,
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
@@ -34,9 +34,8 @@ import { execInContainer } from './container.js';
 // nothing themselves, and an index that claims bytes over an empty disk is the
 // phantom-index state the mount-safety guard refuses to promote (and demotes) -
 // the stub never rescans, so the disagreement never converges and the app never
-// (re)starts. Call AFTER the sync layer's first-run reset (the dataCleared
-// actuation): the reset clears local appdata at install and deletes anything
-// written earlier. seedSyncthingApp runs this ordering itself; only suites
+// (re)starts. Call once the sync layer has taken the folder on
+// (waitForFolderTakenOn). seedSyncthingApp runs this ordering itself; only suites
 // installing through another path need to call it directly.
 export async function seedSyncScopedData(env, name, index) {
   const folder = `flux${name}_${name}`;
@@ -224,12 +223,11 @@ export async function placeGAppInOrder(env, app, {
     const installAfter = env.clients[i].getLastEventId();
     // eslint-disable-next-line no-await-in-loop
     await installOnNodes(env, app, [i]);
-    // Every holder enters the election empty, as a newborn app's holders do: the
-    // sync layer's first-run reset has cleared the volume before the next holder is
-    // placed. A folder a suite pins synced later gets its bytes from the synced-data
-    // keeper.
+    // Every holder enters the election empty, as a newborn app's holders do, and the
+    // sync layer has taken its folder on before the next holder is placed. A folder a
+    // suite pins synced later gets its bytes from the synced-data keeper.
     // eslint-disable-next-line no-await-in-loop
-    await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfter });
+    await waitForFolderTakenOn(env.clients[i], identifier, 60000, { afterId: installAfter });
 
     // WAITED FOR, not slept past. The ordering these placements exist to create
     // is the runningSince stamps, and a fixed gap produces it only while every
@@ -587,8 +585,8 @@ export async function waitForInstanceCount(env, appName, target, {
 // cold-start. Pinning the peer synced keeps it the stable running source the subject
 // must defer to.
 //
-// Every install here waits out the sync layer's first-run reset (dataCleared) and
-// then writes sync-scoped disk data, so a folder any test later pins synced already
+// Every install here waits for the sync layer to take the folder on and then
+// writes sync-scoped disk data, so a folder any test later pins synced already
 // holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
 // SUBJECT synced stays the caller's choice.
 export async function seedSyncthingApp(env, {
@@ -608,7 +606,7 @@ export async function seedSyncthingApp(env, {
     const afterId = env.clients[index].getLastEventId();
     const peerInstallAfter = env.clients[peerIndex].getLastEventId();
     await installOnNodes(env, app, [peerIndex]);
-    await waitForReconcileActuated(env.clients[peerIndex], identifier, 'dataCleared', 60000, { afterId: peerInstallAfter });
+    await waitForFolderTakenOn(env.clients[peerIndex], identifier, 60000, { afterId: peerInstallAfter });
     await seedSyncScopedData(env, name, peerIndex);
     await setSynced({ ip: getSubnetConfig().nodeIp(peerIndex + 1), folder });
     await env.clients[index].waitForEvent(
@@ -618,7 +616,7 @@ export async function seedSyncthingApp(env, {
 
   const installAfter = env.clients[index].getLastEventId();
   await installOnNodes(env, app, [index]);
-  await waitForReconcileActuated(env.clients[index], identifier, 'dataCleared', 60000, { afterId: installAfter });
+  await waitForFolderTakenOn(env.clients[index], identifier, 60000, { afterId: installAfter });
   await seedSyncScopedData(env, name, index);
   return {
     app, index, peerIndex, folder, identifier,

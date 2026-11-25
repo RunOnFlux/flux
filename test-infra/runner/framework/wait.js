@@ -491,6 +491,18 @@ export async function waitForReconcileActuated(node, identifier, action, timeout
   );
 }
 
+// The first pass that writes a newly installed g:/r:/s: component's folder: from
+// it the sync layer has taken the component on, its folder created to receive.
+export async function waitForFolderTakenOn(node, identifier, timeout = 60000, opts) {
+  const folder = `flux${identifier}`;
+  return node.waitForEvent(
+    'syncthing:passComplete',
+    (d) => Array.isArray(d.wrote) && d.wrote.includes(folder),
+    timeout,
+    opts,
+  );
+}
+
 // The moment an operator's stop/start/kill/restart became durable, which is the
 // point anything else has to be ordered against: an actuation on the previous
 // intent arriving AFTER this is the interleaving the per-key slot exists to stop.

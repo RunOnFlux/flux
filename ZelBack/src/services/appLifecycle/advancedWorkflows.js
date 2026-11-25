@@ -738,6 +738,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     const volumeFsUuid = crypto.randomUUID();
     await execAsRoot('mke2fs', ['-t', 'ext4', '-U', volumeFsUuid, volumeFile]);
     await volumeService.recordNewVolumeImage(appId, volumeFile, volumeFsUuid);
+    // an unfinished restore describes the data on the volume this one replaces
+    if (await appsRuntimeState.isRestoreUnfinished(appId)) await appsRuntimeState.setRestoreUnfinished(appId, false);
     const makeFilesystem2 = {
       status: 'Filesystem created',
     };
@@ -2490,168 +2492,98 @@ function syncedComponentsOfApp(appDetails, appname) {
 }
 
 /**
- * Helper function to start app docker containers
- * @param {string} appname - App name
- * @returns {Promise<void>}
- */
-async function appDockerStart(appname) {
-  try {
-    // eslint-disable-next-line global-require
-    const { startAppMonitoring } = require('../appManagement/appInspector');
-    // eslint-disable-next-line global-require
-    const registryManager = require('../appDatabase/registryManager');
-
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_');
-    if (isComponent) {
-      await dockerService.appDockerStart(appname);
-      startAppMonitoring(appname);
-    } else {
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      if (appSpecs.version <= 3) {
-        await dockerService.appDockerStart(appname);
-        startAppMonitoring(appname);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-// A dockerd restart takes seconds, and the reconciler already retries an
-// unreachable daemon on this cadence rather than acting on what it could not
-// read. Waiting here is not a stand-in for a fact - it is how the fact becomes
-// obtainable, and the attempt ceiling is what stops it waiting forever.
-const DOCKER_SETTLE_POLL_MS = 5000;
-const DOCKER_SETTLE_ATTEMPTS = 12;
-
-/**
- * This container's run state, once docker is in a position to answer for it.
- *
- * appReconciler.dockerActual tells three failures apart that an inspect error
- * cannot: the daemon being unreachable, the daemon being up but that one
- * inspect failing, and the container genuinely being gone. The first two mean
- * we did not learn anything, so they are waited out rather than read as an
- * answer - and the wait holds the caller's backup/restore lease, which is the
- * point. An operation that gives up here releases that lease and hands the app
- * back to the reconciler in the middle of its own work.
- *
- * @param {string} identifier - Component identifier
- * @returns {Promise<object|null>} dockerActual's verdict, or null if the daemon
- *  never became able to answer
- */
-async function settledDockerState(identifier, onWait) {
-  // eslint-disable-next-line no-plusplus
-  for (let attempt = 1; attempt <= DOCKER_SETTLE_ATTEMPTS; attempt++) {
-    // eslint-disable-next-line no-await-in-loop
-    const actual = await appReconciler.dockerActual(identifier);
-    if (actual.reachable && !actual.indeterminate) return actual;
-    if (attempt === DOCKER_SETTLE_ATTEMPTS) break;
-    const waiting = `Docker is not answering for ${identifier} yet, waiting (${attempt}/${DOCKER_SETTLE_ATTEMPTS - 1})...`;
-    log.warn(`appDockerStop - ${waiting}`);
-    // The response is a stream that has already returned 200, so a minute of
-    // silence is a minute in which anything between here and the browser may
-    // decide the connection is idle. Saying what we are waiting for keeps it
-    // alive and tells the operator something true.
-    // eslint-disable-next-line no-await-in-loop
-    if (onWait) await onWait(waiting);
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(DOCKER_SETTLE_POLL_MS);
-  }
-  return null;
-}
-
-/**
- * Stop every container the given app name covers, and answer whether they are
- * all actually down.
- *
- * Every component is attempted even when one fails. The catch used to sit
- * outside the loop, so the first component that would not stop skipped every
- * component after it, and the caller - which then went on to replace the app's
- * data - saw nothing at all.
- *
- * The verdict is read back from docker rather than taken from the stop call. A
- * stop that returned is not the same as a container that is down, and appdata
- * lives on a volume a running container is still writing to: clearing it under
- * one leaves the app writing into a half-emptied tree and able to save its own
- * state back over whatever the restore puts there.
- *
+ * The component identifiers an app name covers: the app itself for a v1-3 app,
+ * each `<component>_<app>` otherwise, or the one component named.
  * @param {string} appname - App name, or a single component identifier
- * @param {Function} [onWait] - Called with a progress line while waiting for docker
- * @returns {Promise<{stopped: boolean, running: string[], unavailable: boolean, errors: string[]}>}
- *  `running` names the components docker reports as still up - what a caller
- *  about to destroy data must refuse on. `unavailable` says docker never became
- *  able to answer, which is a different refusal with a different remedy.
+ * @returns {Promise<string[]>}
  */
-async function appDockerStop(appname, onWait) {
+async function operationTargetIds(appname) {
+  if (appname.includes('_')) return [appname];
   // eslint-disable-next-line global-require
   const registryManager = require('../appDatabase/registryManager');
+  const appSpecs = await registryManager.getApplicationSpecifications(appname);
+  if (!appSpecs) throw new Error('Application not found');
+  return appSpecs.version <= 3
+    ? [appname]
+    : appSpecs.compose.map((component) => `${component.name}_${appSpecs.name}`);
+}
 
-  let identifiers = [];
+// How often a caller streaming progress is told what the stop still waits for:
+// the response has already returned 200, so a silent minute is one in which
+// anything between here and the browser may decide the connection is idle.
+const STOP_PROGRESS_MS = 20 * 1000;
+
+// What the operator is told for each component holdStopped refused.
+const STOP_REFUSALS = {
+  unavailable: (id) => `docker is not answering for ${id}`,
+  busy: (id) => `${id} could not be stopped while another app operation runs on this node`,
+  nodeStarting: (id) => `${id} could not be stopped while this node is starting`,
+  running: (id) => `${id} could not be stopped`,
+};
+
+/**
+ * Stops every container the given app name covers through the reconciler, which
+ * holds them stopped for the operation, and answers whether they are all down
+ * once the pass the hold causes has run. Anything else is a refusal: appdata
+ * lives on a volume a running container is still writing to, and clearing or
+ * archiving it under one leaves the app writing into a half-emptied tree, or
+ * tears the archive.
+ *
+ * The hold stays whatever the verdict: startApplication lifts it, on every exit,
+ * from the identifiers onHold was given.
+ *
+ * @param {string} appname - App name, or a single component identifier
+ * @param {Function} [onWait] - Called with a progress line while the stop runs
+ * @param {Function} [onHold] - Called with the component identifiers before they
+ *  are held
+ * @returns {Promise<{stopped: boolean, refusal: string|null}>} `refusal` says
+ *  which components are not down, and why.
+ */
+async function stopApplication(appname, onWait, onHold = () => {}) {
+  let identifiers;
   try {
-    const mainAppName = appname.split('_')[1] || appname;
-    if (appname.includes('_')) {
-      identifiers = [appname];
-    } else {
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) throw new Error('Application not found');
-      identifiers = appSpecs.version <= 3
-        ? [appname]
-        : appSpecs.compose.map((component) => `${component.name}_${appSpecs.name}`);
-    }
+    identifiers = await operationTargetIds(appname);
   } catch (error) {
     log.error(error);
     // The component list itself is unknown, so nothing can be asserted about
     // what is running - which is a refusal, not an empty success.
-    return {
-      stopped: false, running: [], unavailable: false, errors: [error.message],
-    };
+    return { stopped: false, refusal: error.message };
   }
-
-  const running = [];
-  const errors = [];
-  let unavailable = false;
-  // eslint-disable-next-line no-restricted-syntax
-  for (const identifier of identifiers) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await dockerService.appDockerStop(identifier);
-      stopAppMonitoring(identifier, false);
-    } catch (error) {
-      // The stop failing is not itself the verdict - docker may simply have been
-      // mid-restart. What counts is what it says afterwards.
-      log.error(`appDockerStop - ${identifier}: ${error.message}`);
-      errors.push(`${identifier}: ${error.message}`);
-    }
+  onHold(identifiers);
+  // A graceful stop runs as long as the app's shutdown takes.
+  const stopping = appReconciler.holdStopped(identifiers);
+  let settled = false;
+  stopping.finally(() => { settled = true; }).catch(() => {});
+  // eslint-disable-next-line no-unmodified-loop-condition
+  while (!settled && onWait) {
     // eslint-disable-next-line no-await-in-loop
-    const actual = await settledDockerState(identifier, onWait);
-    if (!actual) {
-      // The daemon is a property of the node, not of this component: having
-      // waited it out once, waiting again for each remaining component only
-      // multiplies the refusal's latency by the compose count.
-      unavailable = true;
-      errors.push(`${identifier}: docker never became able to answer`);
-      break;
-    }
-    if (actual.running) {
-      running.push(identifier);
-    }
-    // reachable and not running - stopped, or gone, which is also not running
+    await Promise.race([stopping.catch(() => {}), serviceHelper.delay(STOP_PROGRESS_MS)]);
+    // eslint-disable-next-line no-await-in-loop
+    if (!settled) await onWait(`Waiting for ${appname} to stop...`);
   }
-
+  const { stopped, refused } = await stopping;
   return {
-    stopped: running.length === 0 && !unavailable, running, unavailable, errors,
+    stopped,
+    refusal: stopped ? null : refused.map(({ identifier, reason }) => STOP_REFUSALS[reason](identifier)).join('; '),
   };
+}
+
+/**
+ * Lifts the operation's hold on the containers its stop held. Each goes where
+ * the reconciler puts it - a g: component as its election decides, an
+ * operator-stopped one stopped, one a restore left unfinished stopped - and
+ * starting one is the reconciler's, retried as any start is. Reads nothing, so
+ * the release does not depend on the database. Never throws.
+ * @param {string[]} identifiers - The component identifiers stopApplication held
+ * @returns {Promise<void>}
+ */
+async function startApplication(identifiers) {
+  if (!identifiers.length) return;
+  try {
+    await appReconciler.releaseHold(identifiers);
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 /**
@@ -2830,6 +2762,9 @@ async function appendBackupTask(req, res) {
   let force;
   // folders this task paused, so a failure anywhere below can resume them
   const pausedFolderIds = [];
+  // The components this task has asked the reconciler to hold stopped; lifted on
+  // every exit, so a backup that fails part way never leaves the app held down.
+  let heldIds = [];
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     log.info(processedBody);
@@ -2873,6 +2808,17 @@ async function appendBackupTask(req, res) {
         throw new Error(`Refused: no specifications found for ${appname}`);
       }
       const requested = new Set(backup.filter((item) => item.backup).map((item) => item.component));
+      // A component an unfinished restore holds is not the app's data, and its
+      // archive would replace the last good one: no backup of it, forced or not.
+      const unfinished = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of requested) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await appsRuntimeState.isRestoreUnfinished(syncthingFolderIdForComponent(appname, component))) unfinished.push(component);
+      }
+      if (unfinished.length > 0) {
+        throw new Error(`Refused: a restore of ${unfinished.join(', ')} did not finish, so its data is not the app's. Restore it again, or start it to keep its data as it is, before backing it up.`);
+      }
       const allSyncedComponents = syncedComponentsOfApp(appDetails, appname);
       const syncedComponents = allSyncedComponents.filter((comp) => requested.has(comp.componentName));
 
@@ -2936,18 +2882,14 @@ async function appendBackupTask(req, res) {
           throw new Error(`Refused: ${folderId} could not be held still, so an archive taken now could be inconsistent`);
         }
       }
-      const syncthing = allSyncedComponents.length > 0;
 
       await sendChunk(res, 'Stopping application...\n');
-      const stopVerdict = await appDockerStop(appname, (line) => sendChunk(res, `${line}\n`));
+      const stopVerdict = await stopApplication(appname, (line) => sendChunk(res, `${line}\n`), (ids) => { heldIds = ids; });
       // Same reason the folders are held: an archive taken while a container is
       // still writing is torn, and a torn archive is what this path exists to
       // stop being created.
-      if (stopVerdict.unavailable) {
-        throw new Error(`Refused: docker is not answering on this node, so ${appname} cannot be confirmed stopped - try again shortly`);
-      }
       if (!stopVerdict.stopped) {
-        throw new Error(`Refused: ${stopVerdict.running.join(', ') || appname} could not be stopped, so an archive taken now could be inconsistent`);
+        throw new Error(`Refused: ${stopVerdict.refusal}, so an archive taken now could be inconsistent - try again`);
       }
       await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line global-require
@@ -2999,20 +2941,11 @@ async function appendBackupTask(req, res) {
       }
       pausedFolderIds.length = 0;
       await sendChunk(res, 'Starting application...\n');
-      if (!syncthing) {
-        await appDockerStart(appname);
-      } else {
-        // A g: component's run state belongs to the election, not to this task:
-        // starting it here would put a second writer on the shared volume.
-        // Every other component is this task's to bring back.
-        const componentsToStart = componentsOfApp(appDetails)
-          .filter((comp) => syncModeOfComponent(comp.containerData) !== 'elected');
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of componentsToStart) {
-          // eslint-disable-next-line no-await-in-loop
-          await appDockerStart(component.name === 'null' ? appname : `${component.name}_${appname}`);
-        }
-      }
+      // The reconciler brings each component back where its other inputs put it:
+      // a g: component as its election decides, an operator-stopped one stays down.
+      const releasing = heldIds;
+      heldIds = [];
+      await startApplication(releasing);
       await sendChunk(res, 'Finalizing...\n');
       await serviceHelper.delay(5 * 1000);
       res.end();
@@ -3030,9 +2963,17 @@ async function appendBackupTask(req, res) {
       await setSyncthingFolderPaused(folderId, false);
     }
     await sendChunk(res, `${error?.message}\n`);
+    // The response ends once the app is back where its other inputs put it, so a
+    // caller that sees it end can start the next operation on the app.
+    if (heldIds.length) {
+      const releasing = heldIds;
+      heldIds = [];
+      await startApplication(releasing);
+    }
     res.end();
     return false;
   } finally {
+    if (heldIds.length) await startApplication(heldIds);
     // The one release, reached by every exit the claim can survive to: success,
     // unauthorized, and error alike. The claim is made in the block above this
     // try, so a request that never claimed never reaches here.
@@ -3071,6 +3012,10 @@ async function appendRestoreTask(req, res) {
   // directory that is neither the old copy nor the new one - and nothing else.
   // A component that finished is whole, however the components after it fare.
   let swapInFlight = null;
+  // The components this task has asked the reconciler to hold stopped; lifted on
+  // every exit. A component the restore left half-replaced stays down by its own
+  // record (restoreUnfinished, or its election's stop), not by this hold.
+  let heldIds = [];
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     log.info(processedBody);
@@ -3152,21 +3097,15 @@ async function appendRestoreTask(req, res) {
     // at. Restoring onto any other copy puts the data where the primary is
     // still overwriting it: it reports success and is quietly undone. Only a
     // positive answer disqualifies this node - an unreachable FDM must not
-    // block a restore, the same way it does not block an election.
-    //
-    // The answer decides two things: whether to refuse here, and whether this
-    // task may start the elected components at the end. Silence is not consent:
-    // "FDM named no primary" and "FDM gave no answer" both arrive as a null ip, and
-    // starting a writer on the second is what turns "we do not know who the primary
-    // is" into two of them on one volume. fdmOk is what tells them apart.
-    let primaryConfirmedLocal = false;
+    // block a restore, the same way it does not block an election. Whether an
+    // elected component runs here afterwards is its election's to decide, through
+    // the reconciler, not this task's.
     if (!force && targets.some((target) => target.syncMode === 'elected')) {
       const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
       const { ip: primaryIp, fdmOk } = await getMasterIpFromFdm(appname, { timeout: 10000 });
       if (fdmOk && primaryIp && !ipsMatch(primaryIp, localSocketAddr)) {
         throw new Error(`Refused: restore on ${primaryIp}, it holds the live copy`);
       }
-      primaryConfirmedLocal = Boolean(fdmOk && primaryIp && ipsMatch(primaryIp, localSocketAddr));
     }
 
     // Hold the data still by pausing the folders being replaced. Deleting them
@@ -3190,15 +3129,12 @@ async function appendRestoreTask(req, res) {
     }
 
     await sendChunk(res, 'Stopping application...\n');
-    const stopVerdict = await appDockerStop(appname, (line) => sendChunk(res, `${line}\n`));
+    const stopVerdict = await stopApplication(appname, (line) => sendChunk(res, `${line}\n`), (ids) => { heldIds = ids; });
     // A container still up is still writing to the volume whose appdata is
     // about to be emptied - it would write into a half-cleared tree and can
     // save its own state back over what the archive puts there.
-    if (stopVerdict.unavailable) {
-      throw new Error(`Refused: docker is not answering on this node, so ${appname} cannot be confirmed stopped - try again shortly`);
-    }
     if (!stopVerdict.stopped) {
-      throw new Error(`Refused: ${stopVerdict.running.join(', ') || appname} could not be stopped, so its data cannot be replaced safely`);
+      throw new Error(`Refused: ${stopVerdict.refusal}, so its data cannot be replaced safely - try again`);
     }
     await serviceHelper.delay(5 * 1000);
 
@@ -3325,9 +3261,24 @@ async function appendRestoreTask(req, res) {
       await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
       // eslint-disable-next-line no-await-in-loop
       await requireRegularFile(target.archivePath);
+      // A folder unpaused since the restore paused it would send the clear's
+      // deletions to every peer: nothing is deleted unless it is still paused.
+      if (target.syncMode !== 'none') {
+        // eslint-disable-next-line no-await-in-loop
+        const folder = await syncthingFolderWrites.folderConfig(target.folderId);
+        if (folder && folder.paused !== true) {
+          throw new Error(`Refused: ${target.folderId} is no longer paused, so clearing it would send the deletions to its peers`);
+        }
+      }
       // from here the directory is neither copy. A clearing that reports
-      // failure may still have removed most of it, so the mark goes on first.
+      // failure may still have removed most of it, so the mark goes on first,
+      // and it is durable: a crash or restart part way must not start the
+      // component on what is left, nor make its folder send it.
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.setRestoreUnfinished(target.folderId, true);
       swapInFlight = target;
+      // eslint-disable-next-line no-await-in-loop
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RESTORE_BEFORE_CLEAR, target.folderId);
       // eslint-disable-next-line no-await-in-loop
       const cleared = await IOUtils.removeDirectory(target.appDataPath, true);
       if (cleared !== true) {
@@ -3344,6 +3295,10 @@ async function appendRestoreTask(req, res) {
       if (tarStatus.status === false) {
         throw new Error(`Error: Failed to unpack archive file for ${target.name.toLowerCase()}, ${tarStatus.error}`);
       }
+      // A component is restored once its record is cleared: until then it fails as
+      // any other component left mid-replacement does.
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.setRestoreUnfinished(target.folderId, false);
       swapInFlight = null;
       log.info(`appendRestoreTask - ${appname} ${target.name} restored ${target.archive.entries} entries, ${target.archive.bytes} bytes`);
 
@@ -3370,21 +3325,11 @@ async function appendRestoreTask(req, res) {
 
     await serviceHelper.delay(1 * 5 * 1000);
     await sendChunk(res, 'Starting application...\n');
-    // A bare app name fans out to every component, and the stop above fans out
-    // the same way - so this covers a g: component that is no target of this
-    // restore at all. An elected component is started only where FDM confirmed
-    // this node holds the primary; unconfirmed - FDM unreachable, or force
-    // skipping the check - it belongs to the election, which is what starts it
-    // on every other node anyway. The folders are back in sendreceive by here,
-    // so a container started now writes into live replicated storage at once.
-    const componentsToStart = componentsOfApp(appDetails).filter(
-      (comp) => primaryConfirmedLocal || syncModeOfComponent(comp.containerData) !== 'elected',
-    );
-    // eslint-disable-next-line no-restricted-syntax
-    for (const component of componentsToStart) {
-      // eslint-disable-next-line no-await-in-loop
-      await appDockerStart(component.name === 'null' ? appname : `${component.name}_${appname}`);
-    }
+    // Every component the stop held, each back where the reconciler puts it: an
+    // elected one as its election decides, an operator-stopped one stays down.
+    const releasing = heldIds;
+    heldIds = [];
+    await startApplication(releasing);
 
     // Only the copy this task downloaded is ours to remove. An uploaded or
     // local archive is the owner's restore point, and restoring from it must
@@ -3398,7 +3343,8 @@ async function appendRestoreTask(req, res) {
 
     // An r:/s: component runs on every instance at once, so the peers' running
     // containers are holding the data this restore has just replaced; a restart
-    // is what makes them read it again, and it recreates no volume. A g:
+    // is what makes them read it again, and it recreates no volume. It restarts
+    // only what runs there: a peer's owner stop and restore record stay. A g:
     // component has no peer container to disturb - the other instances are
     // stopped and adopt the restored data when the role next moves - and an
     // unsynced component's data never left this node.
@@ -3406,7 +3352,7 @@ async function appendRestoreTask(req, res) {
       await sendChunk(res, 'Restarting other instances...\n');
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req)); // do not wait
+      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req), undefined, undefined, { query: 'unlessstopped=true' }); // do not wait
     }
 
     await sendChunk(res, 'Finalizing...\n');
@@ -3448,24 +3394,35 @@ async function appendRestoreTask(req, res) {
           restarted: false,
           numberOfExecutions: 0,
         });
+        // Held by restoreUnfinished, written before the clear, until a restore
+        // finishes, its owner starts it, or it heals from a peer that holds the
+        // data. For a g: component the election's stop also takes it off the
+        // primary role.
+        appReconciler.setControllerDesired(swapInFlight.folderId, 'stopped', 'restore did not complete');
       }
-      // The hold means something for every component, and used to be applied
-      // only to the synced ones. A component that syncs has peers to be put
-      // right by, so holding it costs it minutes; a component that does not has
-      // no repair path at all - it is the one where running on a half-replaced
-      // directory is least recoverable, because the app writes fresh state over
-      // the wreckage and the next restore lands on top of that.
-      appReconciler.setControllerDesired(swapInFlight.folderId, 'stopped', 'restore did not complete');
     }
     // eslint-disable-next-line no-restricted-syntax
     for (const folderId of pausedFolderIds.filter((id) => id !== undemotedFolderId)) {
       // eslint-disable-next-line no-await-in-loop
       await setSyncthingFolderPaused(folderId, false);
     }
-    await sendChunk(res, `${error?.message}\n`);
+    // One line, so a caller that alerts on `Error:` shows what is held and how it
+    // is released.
+    const held = swapInFlight
+      ? `. ${swapInFlight.name.toLowerCase()} is kept stopped: restore it again, or start it to keep its data as it is${swapInFlight.syncMode === 'none' ? '' : ' and send it to the other instances'}.`
+      : '';
+    await sendChunk(res, `${error?.message}${held}\n`);
+    // The response ends once the app is back where its other inputs put it, so a
+    // caller that sees it end can start the next operation on the app.
+    if (heldIds.length) {
+      const releasing = heldIds;
+      heldIds = [];
+      await startApplication(releasing);
+    }
     res.end();
     return false;
   } finally {
+    if (heldIds.length) await startApplication(heldIds);
     // The one release, reached by every exit the claim can survive to: success,
     // unauthorized, and error alike. The claim is made in the block above this
     // try, so a request that never claimed never reaches here.
@@ -5182,14 +5139,41 @@ async function electedMembers(installedApp) {
 }
 
 /**
+ * The g: components this node runs, read when the election decides about their
+ * app: the reconciler's recorded intent, and only where none is recorded - after
+ * a FluxOS restart, which keeps the election's intent in memory - the container
+ * as docker reports it, which the election then adopts. A crashed container with
+ * `running` recorded still runs here: restarting it is the reconciler's work.
+ * Null when docker cannot answer for a component with no recorded intent, so
+ * there is nothing to decide from.
+ * @param {Array<{identifier: string}>} members
+ * @returns {Promise<string[]|null>}
+ */
+async function runningHere(members) {
+  const runHere = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { identifier } of members) {
+    if (appReconciler.hasControllerOpinion(identifier)) {
+      if (appReconciler.committedIdentifiers().includes(identifier)) runHere.push(identifier);
+    } else {
+      // eslint-disable-next-line no-await-in-loop
+      const actual = await appReconciler.dockerActual(identifier);
+      if (!actual.reachable || actual.indeterminate) return null;
+      if (actual.running) runHere.push(identifier);
+    }
+  }
+  return runHere;
+}
+
+/**
  * Whether this node holds a g: component: it runs here, a promotion to run it is
  * in progress, or the reconciler has been asked to run it.
  * @param {{identifier: string}} member
- * @param {string[]} runningAppsNames Identifiers running on this node.
+ * @param {string[]} runHere The components this node runs (runningHere).
  * @returns {boolean}
  */
-function holdsMemberHere(member, runningAppsNames) {
-  return runningAppsNames.includes(member.identifier)
+function holdsMemberHere(member, runHere) {
+  return runHere.includes(member.identifier)
     || primaryRole.inTransition(member.identifier) === primaryRole.Role.PROMOTING
     || appReconciler.committedIdentifiers().includes(member.identifier);
 }
@@ -5227,14 +5211,14 @@ async function unreadyMembers(appName, members, receiveOnlyCache) {
  * Begins the start of each given g: component this node may run, in compose
  * order: an operator-started one through its stop lock, any other as primary.
  * @param {object[]} members The components to start.
- * @param {string[]} runningAppsNames Identifiers running on this node.
+ * @param {string[]} runHere The components this node runs (runningHere).
  * @returns {Promise<boolean>} Whether a start was begun for any of them.
  */
-async function startMembers(members, runningAppsNames) {
+async function startMembers(members, runHere) {
   let begun = false;
   // eslint-disable-next-line no-restricted-syntax
   for (const member of members) {
-    if (!member.free || runningAppsNames.includes(member.identifier)) continue;
+    if (!member.free || runHere.includes(member.identifier)) continue;
     const started = member.stop.startRequested
       // eslint-disable-next-line no-await-in-loop
       ? await startOperatorStarted(member.identifier, member.appId)
@@ -5260,7 +5244,7 @@ async function startMembers(members, runningAppsNames) {
  * that.
  * @param {string} appName Global app name.
  * @param {object[]} members The app's g: components.
- * @param {string[]} runningAppsNames Identifiers running on this node.
+ * @param {string[]} runHere The components this node runs (runningHere).
  * @param {Map} receiveOnlyCache The syncthing monitor's per-folder state.
  * @param {object} options
  * @param {() => Promise<string>} options.othersHold The PeerComponent state of
@@ -5271,11 +5255,11 @@ async function startMembers(members, runningAppsNames) {
  *   over stands down for a node FDM names that has decided it holds it.
  * @returns {Promise<boolean>} Whether a start was begun.
  */
-async function startMissingMembers(appName, members, runningAppsNames, receiveOnlyCache, { othersHold, namedPrimary = false }) {
+async function startMissingMembers(appName, members, runHere, receiveOnlyCache, { othersHold, namedPrimary = false }) {
   const { identifier } = members[0];
-  const missing = members.filter((member) => member.free && !holdsMemberHere(member, runningAppsNames));
+  const missing = members.filter((member) => member.free && !holdsMemberHere(member, runHere));
   if (!missing.length) return false;
-  const holdsHere = members.some((member) => holdsMemberHere(member, runningAppsNames));
+  const holdsHere = members.some((member) => holdsMemberHere(member, runHere));
   const unready = await unreadyMembers(appName, missing, receiveOnlyCache);
   const toStart = holdsHere ? missing.filter((member) => !unready.includes(member.identifier)) : [];
   if (!holdsHere && !unready.length) toStart.push(...missing);
@@ -5290,7 +5274,7 @@ async function startMissingMembers(appName, members, runningAppsNames, receiveOn
     log.info(`masterSlaveApps: not starting app:${appName} that ${namedPrimary ? 'FDM names this node the primary of' : 'this node holds'} - a peer ${others === PeerComponent.RUNNING ? 'holds it' : 'could not be ruled out'}`);
     return false;
   }
-  const begun = await startMembers(toStart, runningAppsNames);
+  const begun = await startMembers(toStart, runHere);
   if (begun) log.info(`masterSlaveApps: starting docker component:${toStart.map((member) => member.identifier).join(', ')}`);
   return begun;
 }
@@ -5329,11 +5313,10 @@ function withdrawSeedMarks(members, outcome) {
  * photograph of that moment.
  * @param {object} globalStateParam - Global state module (busy lists, receive-only cache, run flags)
  * @param {Function} installedApps - Function to get installed apps
- * @param {Function} listRunningApps - Function to get running apps
  * @param {object} https - HTTPS module
  * @returns {Promise<void>}
  */
-async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, https) {
+async function masterSlaveApps(globalStateParam, installedApps, https) {
   try {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
@@ -5369,19 +5352,12 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     }
     // get list of all installed apps
     const appsInstalled = await installedApps();
-    // eslint-disable-next-line no-await-in-loop
-    const runningAppsRes = await listRunningApps();
-    if (runningAppsRes.status !== 'success') {
-      throw new Error('Unable to check running Apps');
-    }
-    const runningApps = runningAppsRes.data;
     if (appsInstalled.status === 'error') {
       return;
     }
 
     // Decrypt enterprise apps (version 8 with encrypted content)
     ({ inPlace: appsInstalled.data } = await decryptEnterpriseApps(appsInstalled.data));
-    const runningAppsNames = runningApps.map((app) => identifierFromContainerName(app.Names[0]));
     const agent = new https.Agent({
       rejectUnauthorized: false,
     });
@@ -5536,8 +5512,6 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
           fluxEventBus.count('masterSlave:decision', identifier, 'operatorStartPending');
           log.info(`masterSlaveApps: ${resumingMembers.map((member) => member.identifier).join(', ')} was started by its operator - deciding it with the stop lock held`);
         }
-        const runsHere = members.some((member) => runningAppsNames.includes(member.identifier));
-        const start = () => startMembers(members, runningAppsNames);
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_DECISION, identifier);
         // Get master IP from FDM using the new /appips endpoint
@@ -5551,6 +5525,18 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
           // eslint-disable-next-line no-continue
           continue;
         }
+        // Read for this app once FDM has answered, where its decisions are made -
+        // never once for the whole pass.
+        // eslint-disable-next-line no-await-in-loop
+        const runHere = await runningHere(members);
+        if (runHere === null) {
+          fluxEventBus.count('masterSlave:decision', identifier, 'runStateUnknown');
+          log.warn(`masterSlaveApps: docker cannot answer for app:${installedApp.name}, skipping it this cycle`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        const runsHere = members.some((member) => runHere.includes(member.identifier));
+        const start = () => startMembers(members, runHere);
         if (fdmOk) {
           // no ip means there was no row with ip on fdm
           // down means there was a row ip with status down
@@ -5882,7 +5868,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 // it to stopped through the standby branch below.
                 // eslint-disable-next-line no-restricted-syntax
                 for (const member of members) {
-                  if (runningAppsNames.includes(member.identifier) && !appReconciler.hasControllerOpinion(member.identifier)) {
+                  if (runHere.includes(member.identifier) && !appReconciler.hasControllerOpinion(member.identifier)) {
                     // eslint-disable-next-line no-await-in-loop
                     if (await appReconciler.adoptControllerDesired(member.identifier, 'running', 'masterSlave holder, no primary named')) {
                       fluxEventBus.count('masterSlave:decision', member.identifier, 'adopted');
@@ -5890,7 +5876,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                 }
                 // eslint-disable-next-line no-await-in-loop
-                await startMissingMembers(installedApp.name, members, runningAppsNames, globalStateParam.receiveOnlySyncthingAppsCache, {
+                await startMissingMembers(installedApp.name, members, runHere, globalStateParam.receiveOnlySyncthingAppsCache, {
                   othersHold: () => componentStateOnOtherHolders(
                     (name) => registryManagerModule.appLocation(name),
                     localSocketAddr,
@@ -5921,7 +5907,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 probeCtx,
                 { also: [ip] },
               );
-              const holdsHere = members.some((member) => holdsMemberHere(member, runningAppsNames));
+              const holdsHere = members.some((member) => holdsMemberHere(member, runHere));
               if (!ipsMatch(localSocketAddr, ip)) {
                 withdrawSeedMarks(members, `FDM names ${ip} its primary`);
                 if (resuming) {
@@ -5944,7 +5930,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // stays as its lock keeps it.
                   // eslint-disable-next-line no-restricted-syntax
                   for (const member of members.filter((each) => each.free)) {
-                    if (primaryRole.standDown(member.identifier, member.appId, { running: runningAppsNames.includes(member.identifier) })) {
+                    if (primaryRole.standDown(member.identifier, member.appId, { running: runHere.includes(member.identifier) })) {
                       log.info(`masterSlaveApps: standing down as primary of component:${member.identifier} - FDM names ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
                     } else {
                       // A standby's folder receives and never sends: what it holds is
@@ -5963,7 +5949,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 // demoted it while the container was down - and each that does
                 // not is started.
                 // eslint-disable-next-line no-restricted-syntax
-                for (const member of members.filter((each) => runningAppsNames.includes(each.identifier))) {
+                for (const member of members.filter((each) => runHere.includes(each.identifier))) {
                   // eslint-disable-next-line no-await-in-loop
                   await primaryRole.holdAsPrimary(member.identifier, member.appId);
                 }
@@ -5975,7 +5961,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 // that was taking it over stands down for a node FDM names that has
                 // decided it holds it.
                 // eslint-disable-next-line no-await-in-loop
-                await startMissingMembers(installedApp.name, members, runningAppsNames, globalStateParam.receiveOnlySyncthingAppsCache, {
+                await startMissingMembers(installedApp.name, members, runHere, globalStateParam.receiveOnlySyncthingAppsCache, {
                   othersHold,
                   namedPrimary: true,
                 });
@@ -5999,17 +5985,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
  * each pass ends, so one pass runs at a time.
  * @param {object} globalStateParam - Global state module (busy lists, receive-only cache, run flags)
  * @param {Function} installedApps - Function to get installed apps
- * @param {Function} listRunningApps - Function to get running apps
  * @param {object} https - HTTPS module
  * @returns {{ stop: Function }} stop() schedules no further pass
  */
-function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, https) {
+function startMasterSlaveApps(globalStateParam, installedApps, https) {
   let timer = null;
   let stopped = false;
 
   async function runPassThenSchedule() {
     try {
-      await masterSlaveApps(globalStateParam, installedApps, listRunningApps, https);
+      await masterSlaveApps(globalStateParam, installedApps, https);
     } catch (error) {
       log.error(`masterSlaveApps: ${error}`);
     }
@@ -6057,5 +6042,6 @@ module.exports = {
   forceAppRemovals,
   masterSlaveApps,
   startMasterSlaveApps,
-  appDockerStart,
+  stopApplication,
+  startApplication,
 };
