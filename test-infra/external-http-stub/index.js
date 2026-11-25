@@ -827,14 +827,17 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
   const action = String(req.get('SOAPAction') || '').replace(/"/g, '').split('#')[1] || '';
   const arg = (name) => (String(req.body).match(new RegExp(`<${name}>([^<]*)</${name}>`)) || [])[1] ?? '';
   const sameEntry = (m) => m.externalPort === Number(arg('NewExternalPort')) && m.protocol === arg('NewProtocol').toUpperCase();
-  gateway.requests.push({
+  const request = {
     action,
     port: Number(arg('NewExternalPort')) || null,
     protocol: arg('NewProtocol').toUpperCase() || null,
     description: arg('NewPortMappingDescription') || null,
     lease: action === 'AddPortMapping' ? Number(arg('NewLeaseDuration')) : null,
     at: new Date().toISOString(),
-  });
+  };
+  gateway.requests.push(request);
+  // one line per request as answered, so a failed run's dump shows what the router was asked
+  res.on('finish', () => console.log(`upnp ${clientAddress(req)} ${JSON.stringify(request)}`));
   switch (action) {
     case 'GetExternalIPAddress':
       soapReply(res, action, { NewExternalIPAddress: gateway.externalIp ?? clientAddress(req) });
