@@ -20,6 +20,7 @@ const upnpService = require('../upnpService');
 const portReconciler = require('../portReconciler');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const { availableApps } = require('../appDatabase/registryManager');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -105,14 +106,27 @@ function unannouncedRemovals() {
 }
 
 /**
- * Sends one fluxappremoved.
+ * Sends one fluxappremoved, recorded first as a peer records it: in the event log a
+ * peer that links to this node is answered from, and applied to this node's own
+ * location table. A node that cannot sign as itself sends nothing a peer would
+ * accept, so it records nothing either.
  * @param {object} message
  * @returns {Promise<boolean>} Whether it was sent: not when this node cannot sign
- *   as itself, or the send failed.
+ *   as itself, or it could not be recorded.
  */
 async function sendRemoval(message) {
   try {
-    return await fluxCommunicationMessagesSender.broadcastMessageToAll(message) !== null;
+    const signed = await fluxCommunicationMessagesSender.signBroadcast(message);
+    if (!signed) return false;
+    const {
+      version, timestamp, pubKey, signature,
+    } = signed.message;
+    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, {
+      message, envelope: { version, timestamp, pubKey, signature },
+    });
+    await messageStore.storeAppRemovedMessage(message);
+    await fluxCommunicationMessagesSender.sendToAll(signed.serialised);
+    return true;
   } catch (error) {
     log.error(`The removal of ${message.appName ?? message.apps.join(', ')} was not sent: ${error.message}`);
     return false;

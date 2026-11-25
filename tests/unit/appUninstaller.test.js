@@ -9,6 +9,14 @@ const { folderStates: folderStateMap } = require('../../ZelBack/src/services/uti
 const { isContainerNotFound } = require('../../ZelBack/src/services/dockerService');
 const appController = require('../../ZelBack/src/services/appManagement/appController');
 
+// What fluxCommunicationMessagesSender.signBroadcast answers for a message this node signed.
+const signedOf = (data) => ({
+  serialised: 'signed',
+  message: {
+    version: 1, timestamp: 1, pubKey: 'P', signature: 'S', data,
+  },
+});
+
 describe('appUninstaller tests', () => {
   // The placement record is its own module with its own tests; here it is the
   // seam a removal writes through. Fresh per test.
@@ -69,7 +77,9 @@ describe('appUninstaller tests', () => {
   let globalStateStub;
   let announceCycle;
   let getLocalSocketAddressStub;
-  let broadcastStub;
+  let signStub;
+  let sendToAllStub;
+  let messageStoreStub;
   let canSendMessagesStub;
   let namesSeveralAppsStub;
   let runCommandStub;
@@ -822,7 +832,13 @@ describe('appUninstaller tests', () => {
       const { departingApps, unconfirmedApps, announceCycle: realAnnounceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {});
       announceCycle = realAnnounceCycle;
       getLocalSocketAddressStub = sinon.stub().resolves(null);
-      broadcastStub = sinon.stub().resolves();
+      signStub = sinon.stub().callsFake(async (data) => signedOf(data));
+      sendToAllStub = sinon.stub().resolves();
+      messageStoreStub = {
+        APP_STATE_EVENT_TYPES: { APPREMOVED: 'appremoved' },
+        storeAppStateEvent: sinon.stub().resolves(),
+        storeAppRemovedMessage: sinon.stub().resolves(true),
+      };
       canSendMessagesStub = sinon.stub().returns(true);
       namesSeveralAppsStub = sinon.stub().returns(false);
       globalStateStub = {
@@ -905,8 +921,10 @@ describe('appUninstaller tests', () => {
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
           broadcastMessageToIncoming: sinon.stub().resolves(),
-          broadcastMessageToAll: broadcastStub,
+          signBroadcast: signStub,
+          sendToAll: sendToAllStub,
         },
+        '../appMessaging/messageStore': messageStoreStub,
         '../nodeConfirmationService': { canSendMessages: canSendMessagesStub },
         '../utils/appRemovedMessage': { namesSeveralApps: namesSeveralAppsStub },
         '../appDatabase/registryManager': {
@@ -1027,7 +1045,7 @@ describe('appUninstaller tests', () => {
         await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
 
         sinon.assert.calledTwice(deleteRow);
-        sinon.assert.calledOnce(broadcastStub);
+        sinon.assert.calledOnce(signStub);
       });
 
       it('holds its app as a removal while it runs, and not once it ends', async () => {
@@ -1080,10 +1098,10 @@ describe('appUninstaller tests', () => {
         await uninstaller.removeAppLocally('testapp', null, true, false, false);
         await uninstaller.removeAppLocally('testapp', null, true, false, true);
         operationRegistry.release('testapp', token);
-        await settle(() => broadcastStub.called);
+        await settle(() => signStub.called);
 
         sinon.assert.calledOnce(deleteRow);
-        sinon.assert.calledOnce(broadcastStub);
+        sinon.assert.calledOnce(signStub);
       });
 
       it('waits for the outcome when the removal streams to a caller', async () => {
@@ -1121,7 +1139,7 @@ describe('appUninstaller tests', () => {
           uninstaller.removeAppLocally('testapp', res, true, false, true),
         ]);
 
-        sinon.assert.calledOnce(broadcastStub);
+        sinon.assert.calledOnce(signStub);
       });
 
       it('a canary: a removal joining one that tells the network does not tell it again', async () => {
@@ -1133,7 +1151,7 @@ describe('appUninstaller tests', () => {
           uninstaller.removeAppLocally('testapp', res, true, false, true),
         ]);
 
-        sinon.assert.calledOnce(broadcastStub);
+        sinon.assert.calledOnce(signStub);
       });
 
       it('a canary: the same removal told nothing meanwhile tells the network once it finishes', async () => {
@@ -1145,7 +1163,7 @@ describe('appUninstaller tests', () => {
         await uninstaller.removeAppLocally('testapp', res, true);
         await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
 
-        sinon.assert.calledOnce(broadcastStub);
+        sinon.assert.calledOnce(signStub);
       });
 
       it('holds an app the network was already told of, and does not tell it twice', async () => {
@@ -1409,13 +1427,13 @@ describe('appUninstaller tests', () => {
         getLocalSocketAddressStub.resolves('10.0.0.1:16127');
         let toldBeforeGone = null;
         uninstaller.setOnComponentRemoved(() => {
-          toldBeforeGone = broadcastStub.called;
+          toldBeforeGone = signStub.called;
         });
 
         await uninstaller.removeAppLocally('testapp', res, true, true, true);
 
         expect(toldBeforeGone, 'told the network only once the app was gone').to.be.true;
-        sinon.assert.calledOnce(broadcastStub);
+        sinon.assert.calledOnce(signStub);
       });
 
       it('does not mark a removal the network is never told about', async () => {
@@ -1516,7 +1534,7 @@ describe('appUninstaller tests', () => {
         await uninstaller.removeAppLocally('testapp', res, true, true, true);
 
         sinon.assert.called(canSendMessagesStub);
-        sinon.assert.notCalled(broadcastStub);
+        sinon.assert.notCalled(signStub);
       });
 
       describe('a removal peers would not accept now', () => {
@@ -1548,7 +1566,7 @@ describe('appUninstaller tests', () => {
           await uninstaller.removeAppLocally('testapp', res, true, true, true);
 
           sinon.assert.called(canSendMessagesStub);
-          sinon.assert.notCalled(broadcastStub);
+          sinon.assert.notCalled(signStub);
           const keeps = updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals');
           expect(keeps.map((call) => call.args.slice(2))).to.deep.equal([[{ appName: 'testapp' }, { $set: { appName: 'testapp' }, $max: { expireAt } }, { upsert: true }]]);
         });
@@ -1562,33 +1580,72 @@ describe('appUninstaller tests', () => {
           // the canary: the row of the app on this node was read
           sinon.assert.calledWithMatch(findStub, sinon.match.any, 'appsLocations', { name: 'testapp', ip: ADDRESS });
           expect(updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals')).to.have.length(0);
-          sinon.assert.notCalled(broadcastStub);
+          sinon.assert.notCalled(signStub);
         });
 
-        // the node at ADDRESS, peers accepting its messages, and the send failing
-        it('is kept when its send fails, to be announced on a later cycle', async () => {
+        // the node at ADDRESS, peers accepting its messages, and its own record of the removal failing
+        it('is kept, and not sent, when this node cannot record it, to be announced on a later cycle', async () => {
           const expireAt = new Date(Date.now() + 600000);
           const uninstaller = buildUninstaller(v2Spec, {}, { findInDatabase: rowsHere([{ expireAt }]), updateOneInDatabase: updateOneStub });
           getLocalSocketAddressStub.resolves(ADDRESS);
-          broadcastStub.rejects(new Error('no peers'));
+          messageStoreStub.storeAppStateEvent.rejects(new Error('database unavailable'));
 
           await uninstaller.removeAppLocally('testapp', res, true, true, true);
 
-          sinon.assert.called(broadcastStub);
+          sinon.assert.called(messageStoreStub.storeAppStateEvent);
+          sinon.assert.notCalled(sendToAllStub);
           const keeps = updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals');
           expect(keeps.map((call) => call.args[2])).to.deep.equal([{ appName: 'testapp' }]);
         });
 
-        it('is kept when this node cannot sign its removal', async () => {
+        it('is kept when signing it fails', async () => {
           const expireAt = new Date(Date.now() + 600000);
           const uninstaller = buildUninstaller(v2Spec, {}, { findInDatabase: rowsHere([{ expireAt }]), updateOneInDatabase: updateOneStub });
           getLocalSocketAddressStub.resolves(ADDRESS);
-          broadcastStub.resolves(null);
+          signStub.rejects(new Error('signing failed'));
 
           await uninstaller.removeAppLocally('testapp', res, true, true, true);
 
+          sinon.assert.called(signStub);
           const keeps = updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals');
           expect(keeps.map((call) => call.args[2])).to.deep.equal([{ appName: 'testapp' }]);
+        });
+
+        it('is kept, and neither recorded nor sent, when this node cannot sign its removal', async () => {
+          const expireAt = new Date(Date.now() + 600000);
+          const uninstaller = buildUninstaller(v2Spec, {}, { findInDatabase: rowsHere([{ expireAt }]), updateOneInDatabase: updateOneStub });
+          getLocalSocketAddressStub.resolves(ADDRESS);
+          signStub.resolves(null);
+
+          await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          sinon.assert.called(signStub);
+          sinon.assert.notCalled(messageStoreStub.storeAppStateEvent);
+          sinon.assert.notCalled(messageStoreStub.storeAppRemovedMessage);
+          sinon.assert.notCalled(sendToAllStub);
+          const keeps = updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals');
+          expect(keeps.map((call) => call.args[2])).to.deep.equal([{ appName: 'testapp' }]);
+        });
+
+        // A peer records a removal in its event log and deletes the sender's row of the
+        // app; the sender does both to itself, before the message leaves.
+        it('records its removal as a peer does, in its event log and its own location table, before sending it', async () => {
+          const uninstaller = buildUninstaller(v2Spec, {}, { findInDatabase: rowsHere([{ expireAt: new Date(Date.now() + 600000) }]), updateOneInDatabase: updateOneStub });
+          getLocalSocketAddressStub.resolves(ADDRESS);
+
+          await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+          const message = signStub.firstCall.args[0];
+          expect(message).to.include({ type: 'fluxappremoved', appName: 'testapp', ip: ADDRESS });
+          sinon.assert.calledOnceWithExactly(messageStoreStub.storeAppStateEvent, 'appremoved', {
+            message,
+            envelope: {
+              version: 1, timestamp: 1, pubKey: 'P', signature: 'S',
+            },
+          });
+          sinon.assert.calledOnceWithExactly(messageStoreStub.storeAppRemovedMessage, message);
+          sinon.assert.calledOnceWithExactly(sendToAllStub, 'signed');
+          sinon.assert.callOrder(messageStoreStub.storeAppStateEvent, messageStoreStub.storeAppRemovedMessage, sendToAllStub);
         });
 
         it('is not kept when its send succeeds', async () => {
@@ -1597,7 +1654,7 @@ describe('appUninstaller tests', () => {
 
           await uninstaller.removeAppLocally('testapp', res, true, true, true);
 
-          sinon.assert.called(broadcastStub);
+          sinon.assert.called(signStub);
           expect(updateOneStub.getCalls().filter((call) => call.args[1] === 'unannouncedRemovals')).to.have.length(0);
         });
       });
@@ -1625,8 +1682,23 @@ describe('appUninstaller tests', () => {
 
           await uninstaller.announceKeptRemovals(new Set(['back']), ADDRESS);
 
-          sinon.assert.calledOnceWithMatch(broadcastStub, { type: 'fluxappremoved', appName: 'gone', ip: ADDRESS });
+          sinon.assert.calledOnceWithMatch(signStub, { type: 'fluxappremoved', appName: 'gone', ip: ADDRESS });
           expect(removeStub.getCalls().map((call) => call.args[2].appName)).to.deep.equal(['gone', 'lapsed', 'back']);
+        });
+
+        it('records each it sends as a peer does, in its event log and its own location table', async () => {
+          const uninstaller = buildUninstaller(v2Spec, {}, {
+            findInDatabase: kept([{ appName: 'gone', expireAt: new Date(Date.now() + 600000) }]),
+            removeDocumentsFromCollection: removeStub,
+          });
+
+          await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
+
+          const message = signStub.firstCall.args[0];
+          expect(message).to.include({ type: 'fluxappremoved', appName: 'gone', ip: ADDRESS });
+          sinon.assert.calledOnceWithMatch(messageStoreStub.storeAppStateEvent, 'appremoved', { message });
+          sinon.assert.calledOnceWithExactly(messageStoreStub.storeAppRemovedMessage, message);
+          sinon.assert.callOrder(messageStoreStub.storeAppRemovedMessage, sendToAllStub);
         });
 
         it('sends and forgets nothing while peers would not accept this node\'s messages', async () => {
@@ -1636,7 +1708,7 @@ describe('appUninstaller tests', () => {
 
           await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
 
-          sinon.assert.notCalled(broadcastStub);
+          sinon.assert.notCalled(signStub);
           sinon.assert.notCalled(removeStub);
         });
 
@@ -1646,12 +1718,12 @@ describe('appUninstaller tests', () => {
             findInDatabase: kept([{ appName: 'first', expireAt: future }, { appName: 'second', expireAt: future }]),
             removeDocumentsFromCollection: removeStub,
           });
-          broadcastStub.onFirstCall().rejects(new Error('no peers'));
+          signStub.onFirstCall().rejects(new Error('signing failed'));
 
           await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
 
-          sinon.assert.calledTwice(broadcastStub);
-          sinon.assert.calledWithMatch(broadcastStub.secondCall, { type: 'fluxappremoved', appName: 'second' });
+          sinon.assert.calledTwice(signStub);
+          sinon.assert.calledWithMatch(signStub.secondCall, { type: 'fluxappremoved', appName: 'second' });
           expect(removeStub.getCalls().map((call) => call.args[2].appName)).to.deep.equal(['second']);
         });
 
@@ -1662,7 +1734,7 @@ describe('appUninstaller tests', () => {
             removeDocumentsFromCollection: removeStub,
           });
           namesSeveralAppsStub.returns(true);
-          broadcastStub.rejects(new Error('no peers'));
+          signStub.rejects(new Error('signing failed'));
 
           await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
 
@@ -1679,7 +1751,7 @@ describe('appUninstaller tests', () => {
 
           await uninstaller.announceKeptRemovals(new Set(), ADDRESS);
 
-          sinon.assert.calledOnceWithMatch(broadcastStub, {
+          sinon.assert.calledOnceWithMatch(signStub, {
             type: 'fluxappremoved', version: 2, apps: ['first', 'second'], ip: ADDRESS,
           });
           expect(removeStub.getCalls().map((call) => call.args[2].appName)).to.deep.equal(['first', 'second']);
@@ -1693,13 +1765,13 @@ describe('appUninstaller tests', () => {
 
         async function announceThreeWhileTheFirstIsSent(uninstaller) {
           const first = Promise.withResolvers();
-          broadcastStub.onFirstCall().returns(first.promise);
+          signStub.onFirstCall().returns(first.promise);
           const announced = [uninstaller.announceRemoval('a')];
           await new Promise((resolve) => { setImmediate(resolve); });
           announced.push(uninstaller.announceRemoval('b'), uninstaller.announceRemoval('c'));
-          first.resolve();
+          first.resolve(signedOf({}));
           await Promise.all(announced);
-          return broadcastStub.getCalls().map((call) => call.args[0]);
+          return signStub.getCalls().map((call) => call.args[0]);
         }
 
         it('names the removals asked while one is sent in the next message', async () => {
@@ -1736,7 +1808,7 @@ describe('appUninstaller tests', () => {
         announceCycle.disable();
         await removal;
 
-        sinon.assert.calledOnceWithMatch(broadcastStub, { type: 'fluxappremoved', appName: 'testapp' });
+        sinon.assert.calledOnceWithMatch(signStub, { type: 'fluxappremoved', appName: 'testapp' });
       });
 
       // A redeploy tells the network nothing, so it contradicts no announcement and
