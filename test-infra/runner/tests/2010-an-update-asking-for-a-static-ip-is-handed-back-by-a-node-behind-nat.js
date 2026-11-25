@@ -20,6 +20,12 @@
  * specification they run; one of them hands it back as UNSUITED in its turn, and
  * node 2 takes the update and keeps the app.
  *
+ * A node behind NAT whose address has just moved is DYNAMIC as well: the window
+ * a moved address earns trust back in has nothing to decide for a node that
+ * holds no public address. Node 2 moves while down (framework/node-address.js)
+ * and starts at its new address, records watching it change, reads its static IP
+ * as DYNAMIC, and hands back an app whose update asks for a static IP.
+ *
  * The unknown and conflicting answers that keep the app are states these fleets
  * cannot hold; those are unit-tested.
  */
@@ -31,7 +37,10 @@ import { bootAndPeer, waitForInstanceCount, installedInstanceIndices } from '../
 import { deliverApp } from '../framework/app-delivery.js';
 import { dbClient } from '../framework/db-client.js';
 import { waitFor } from '../framework/wait.js';
-import { clearSystemSecure, driveUntil, stopTicker } from '../framework/daemon-control.js';
+import {
+  clearNodeAddress, clearSystemSecure, driveUntil, stopTicker,
+} from '../framework/daemon-control.js';
+import { moveNodeWhileDown, waitForOwnGeolocation } from '../framework/node-address.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import {
   PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING, bootResidentialFleet, departureWaitMs, seedApp,
@@ -192,5 +201,77 @@ describe('2010: a residential node hands back an app whose update asks for a dat
     );
     expect(decided(DATA_CENTRE, unsuited, afterUpdate[DATA_CENTRE]), 'the data-centre node judged the app unsuited').to.equal(false);
     expect(await installedInstanceIndices(env, appName)).to.include(DATA_CENTRE);
+  });
+});
+
+describe('2010: a node behind NAT whose address just moved hands back an app whose update asks for a static IP', function () {
+  let env;
+  const appName = `e2eunsuitedmoved${Date.now()}`;
+  let afterUpdate;
+  let from = null;
+  let app;
+
+  const decided = (index, predicate, afterId) => env.clients[index].getEventBuffer()
+    .some((e) => e.event === 'giveUp:considered' && e.id > afterId
+      && e.data.appName === appName && predicate(e.data));
+
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(900000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: NODES,
+      tickerAutostart: false,
+      networkShapes: { [BEHIND_NAT]: 'private-egress' },
+      configOverrides: {
+        fluxapps: {
+          daemonInfoIntervalMs: 1000,
+          removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
+          handbackTurnMs: RESIDENTIAL_PACING.handbackTurnMs,
+        },
+      },
+    });
+    await bootAndPeer(env);
+    app = await seedApp(env, appName, { instances: NODES });
+    await waitForInstanceCount(env, appName, NODES, { timeout: 300000 });
+  });
+
+  afterTeardown(async function () {
+    if (from) await clearNodeAddress(from).catch(() => {});
+    await env?.teardown();
+  });
+
+  it('reads its static IP as DYNAMIC inside the window its move opened', async function () {
+    allowFromNow(this, 600000);
+    const to = env.clients[BEHIND_NAT].ip.replace(/\.\d+$/, '.240');
+    ({ from } = await moveNodeWhileDown(env, BEHIND_NAT, to));
+    const record = await waitForOwnGeolocation(BEHIND_NAT, to, { timeout: 300000 });
+    expect(record.lastIpChangeDate, 'fixture: the node watched its address change').to.be.a('number');
+    expect(record.staticIpState).to.equal('DYNAMIC');
+  });
+
+  it('gives the app up as UNSUITED, in its turn', async function () {
+    allowFromNow(this, 900000);
+    // the moved node holds the app again, announced at its new address
+    await waitForInstanceCount(env, appName, NODES, { timeout: 300000 });
+    const updated = await buildSeedableUpdate(app, (spec) => {
+      spec.staticip = true;
+    });
+    await deliverApp(env, updated, [...Array(NODES).keys()]);
+    afterUpdate = env.clients.map((client) => client.getLastEventId());
+    await stopTicker();
+
+    const waitMs = departureWaitMs([BEHIND_NAT + 1], NODES);
+    await driveUntil(
+      env.clients[BEHIND_NAT],
+      async () => decided(BEHIND_NAT, (d) => d.reason === 'UNSUITED' && d.giveUp === true, afterUpdate[BEHIND_NAT]),
+      { timeoutMs: waitMs, label: `node ${BEHIND_NAT} gives ${appName} up as unsuited` },
+    );
+    await driveUntil(
+      env.clients[STATIC_NODES[0]],
+      async () => !(await installedInstanceIndices(env, appName)).includes(BEHIND_NAT),
+      { timeoutMs: 120000, label: `node ${BEHIND_NAT} no longer holds ${appName}` },
+    );
   });
 });
