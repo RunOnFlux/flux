@@ -131,6 +131,7 @@ describe('appInstaller tests', () => {
       // the node has room for every app, unless a test says it does not
       admitApp: sinon.stub().resolves(),
       checkAppStaticIpRequirements: sinon.stub(),
+      dataCenterShortfall: sinon.stub().resolves(null),
       checkAppNodesRequirements: sinon.stub().resolves(),
       appGeolocationVerdict: sinon.stub().resolves({ verdict: GeoVerdict.PASS, source: null, reason: null }),
       GeoVerdict,
@@ -396,8 +397,17 @@ describe('appInstaller tests', () => {
       expect(result).to.be.true;
       expect(hwRequirementsStub.checkAppHWRequirements.calledWith(appSpecs)).to.be.true;
       expect(hwRequirementsStub.checkAppStaticIpRequirements.calledWith(appSpecs)).to.be.true;
+      expect(hwRequirementsStub.dataCenterShortfall.calledWith(appSpecs)).to.be.true;
       expect(hwRequirementsStub.checkAppNodesRequirements.calledWith(appSpecs)).to.be.true;
       expect(hwRequirementsStub.appGeolocationVerdict.calledWith(appSpecs)).to.be.true;
+    });
+
+    it('refuses an app asking for a data centre on a node the give-up pass would hand it back from', async () => {
+      hwRequirementsStub.dataCenterShortfall.resolves('it requires a data center node and this node is residential');
+
+      const refused = await appInstaller.checkAppRequirements({ name: 'testapp' }).then(() => null, (error) => error);
+
+      expect(refused?.message).to.equal('Application testapp cannot run on this node: it requires a data center node and this node is residential');
     });
 
     it('refuses with the verdict reason when the geolocation verdict is FAIL', async () => {

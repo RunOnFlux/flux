@@ -1053,6 +1053,8 @@ async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStati
 
   if (!skipStaticIp) {
     hwRequirements.checkAppStaticIpRequirements(appSpecs);
+    const dataCenter = await hwRequirements.dataCenterShortfall(appSpecs);
+    if (dataCenter) throw new Error(`Application ${appSpecs.name} cannot run on this node: ${dataCenter}`);
   }
 
   if (!skipHardware) {

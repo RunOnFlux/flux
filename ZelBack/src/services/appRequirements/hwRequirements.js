@@ -405,10 +405,29 @@ async function appsResources(options) {
 }
 
 /**
+ * Why this node cannot hold an app that asks for a data centre, or null when it
+ * can or the published table cannot tell: the table classes the node as
+ * residential. The one rule an update's requirements and the give-up pass both
+ * read, so a node declines an update only where the give-up pass hands the app
+ * back. A conflicting verdict, or none, is not a shortfall.
+ * @param {object} appSpecs App specifications, decrypted.
+ * @returns {Promise<string|null>}
+ */
+async function dataCenterShortfall(appSpecs) {
+  if (appSpecs.version >= 8 && appSpecs.datacenter === true) {
+    const network = await geolocationService.getNetworkClassification();
+    if (network?.classification === networkClassifier.CLASSIFICATION.RESIDENTIAL) {
+      return 'it requires a data center node and this node is residential';
+    }
+  }
+  return null;
+}
+
+/**
  * Why this node is not the kind of node an app's specification asks for, or null
  * when it is or cannot tell: a static IP where the node sees it is behind NAT, or
- * a data centre where the published table classes the node as residential. An
- * unknown or conflicting answer is not a shortfall.
+ * a data centre where the published table classes the node as residential
+ * (dataCenterShortfall). An unknown or conflicting answer is not a shortfall.
  * @param {object} appSpecs App specifications, decrypted.
  * @returns {Promise<string|null>}
  */
@@ -417,13 +436,7 @@ async function nodeKindShortfall(appSpecs) {
     && geolocationService.getStaticIpState() === geolocationService.STATIC_IP_STATE.DYNAMIC) {
     return 'it requires a static IP address and this node is behind NAT';
   }
-  if (appSpecs.version >= 8 && appSpecs.datacenter === true) {
-    const network = await geolocationService.getNetworkClassification();
-    if (network?.classification === networkClassifier.CLASSIFICATION.RESIDENTIAL) {
-      return 'it requires a data center node and this node is residential';
-    }
-  }
-  return null;
+  return dataCenterShortfall(appSpecs);
 }
 
 /**
@@ -562,6 +575,7 @@ module.exports = {
   returnNodeSpecs,
   totalAppHWRequirements,
   hwShortfall,
+  dataCenterShortfall,
   nodeKindShortfall,
   checkAppHWRequirements,
   admitApp,
