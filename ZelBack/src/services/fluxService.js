@@ -18,6 +18,7 @@ const verificationHelperUtils = require('./verificationHelperUtils');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const fluxdCredentials = require('./daemonService/fluxdCredentials');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
@@ -109,6 +110,13 @@ let prepLock = false;
  * If fluxd needs to be restarted
  */
 let daemonStartRequired = false;
+
+/**
+ * The chain directory fluxd published when a preparation stopped it. A stopped fluxd
+ * publishes none, so the stream the preparation was for reads the chain from here.
+ * Set and cleared with daemonStartRequired.
+ */
+let preparedChainDir = null;
 
 /**
  * Only disabled if a stream fails to meet minimum
@@ -1170,6 +1178,26 @@ function getMarketplaceURL(req, res) {
 }
 
 /**
+ * fluxd's debug log: where the running fluxd publishes it, otherwise debug.log in
+ * the network's directory of fluxd's data directory.
+ * @returns {Promise<string>}
+ */
+async function fluxdDebugLog() {
+  const dirs = await fluxdCredentials.readFluxdDirs();
+  return dirs ? dirs.debuglog : path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
+}
+
+/**
+ * The directory holding fluxd's chain: where the running fluxd publishes it,
+ * otherwise the network's directory of fluxd's data directory.
+ * @returns {Promise<string>}
+ */
+async function fluxdChainDir() {
+  const dirs = await fluxdCredentials.readFluxdDirs();
+  return dirs ? dirs.chain : path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir);
+}
+
+/**
  * To download Flux daemon debug logs. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1181,7 +1209,7 @@ async function daemonDebug(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
+  const filepath = await fluxdDebugLog();
 
   return res.download(filepath, 'debug.log');
 }
@@ -1224,7 +1252,7 @@ async function tailDaemonDebug(req, res) {
     return;
   }
 
-  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
+  const filepath = await fluxdDebugLog();
 
   const { stdout, error } = await serviceHelper.runCommand('tail', {
     params: ['-n', '100', filepath],
@@ -2037,6 +2065,9 @@ async function streamChainPreparation(req, res) {
       return;
     }
 
+    // read while fluxd still runs: once stopped it publishes no directories
+    const chainDir = await fluxdChainDir();
+
     // on non Arcane, we check if the stop commands return successfully, as there is no guarantee that the
     // node is running using zelcash or pm2 etc
 
@@ -2064,6 +2095,7 @@ async function streamChainPreparation(req, res) {
       log.info('zelcash service has been stopped');
     }
 
+    preparedChainDir = chainDir;
     daemonStartRequired = true;
     const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
     res.json(response);
@@ -2072,6 +2104,7 @@ async function streamChainPreparation(req, res) {
     setTimeout(() => {
       if (!lock && daemonStartRequired) {
         daemonStartRequired = false;
+        preparedChainDir = null;
         log.info('Stream chain prep timeout hit: restarting services');
         if (isArcane) {
           serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
@@ -2189,7 +2222,7 @@ async function streamChain(req, res) {
 
     log.info(`Stream chain request received from: ${ip}`);
 
-    const base = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir);
+    const base = preparedChainDir || await fluxdChainDir();
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
@@ -2324,6 +2357,7 @@ async function streamChain(req, res) {
     // start services
     if (daemonStartRequired) {
       daemonStartRequired = false;
+      preparedChainDir = null;
 
       if (isArcane) {
         await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
