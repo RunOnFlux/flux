@@ -303,24 +303,21 @@ async function prepareDatabaseSchema() {
  * it calls; the integration harness covers the sequence.
  */
 /**
- * On a UPnP node with a router address: its firewall rules for UPnP are written again every
- * hour, against an operator removing them on a legacy node, and from a minute after the start
- * other nodes are asked every 8 minutes to call its UPnP ports. A node that does not map
- * through UPnP runs neither.
- * @returns {boolean} whether the upkeep was started
+ * While the node maps through UPnP and has a router address, each read when the step is due:
+ * its firewall rules for UPnP are written again every hour, against an operator removing them on
+ * a legacy node, and from a minute after the start other nodes are asked every 8 minutes to call
+ * its UPnP ports.
  */
 function startRouterAddressUpkeep() {
-  if (!upnpService.isUPNP() || !userconfig.initial.routerIP) return false;
-  setInterval(() => {
-    upnpService.adjustFirewallForUPNP();
-  }, (60 * 60 * 1000) + 1000);
+  const whileUpnp = (step) => () => {
+    if (upnpService.isUPNP() && userconfig.initial.routerIP) step();
+  };
+  setInterval(whileUpnp(() => upnpService.adjustFirewallForUPNP()), (60 * 60 * 1000) + 1000);
+  const askPeers = whileUpnp(() => portManager.callOtherNodeToKeepUpnpPortsOpen());
   setTimeout(() => {
-    portManager.callOtherNodeToKeepUpnpPortsOpen();
-    setInterval(() => {
-      portManager.callOtherNodeToKeepUpnpPortsOpen();
-    }, 8 * 60 * 1000);
+    askPeers();
+    setInterval(askPeers, 8 * 60 * 1000);
   }, 1 * 60 * 1000);
-  return true;
 }
 
 async function startFluxFunctions() {

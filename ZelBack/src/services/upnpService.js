@@ -83,16 +83,17 @@ let mapping = null;
 
 /**
  * Whether this node maps its ports through UPnP. Where flux-upnpd maps them, as
- * `upnp` in userconfig.js says: flux-upnpd decides the api port, which says
- * nothing of UPnP. Elsewhere, on an api port other than config.server.apiport it
+ * flux-upnpd last said (false until its first state): configd tells it, and
+ * flux-upnpd decides the api port, which says nothing of UPnP. Elsewhere, on an
+ * api port other than config.server.apiport it
  * always does: only a UPnP node can take one. On that port, as the operator's
  * `upnp` says (declareUpnpIfUnset writes it where it is missing). A router that
  * does not answer leaves a UPnP node a UPnP node, out of service until it does.
  * @returns {boolean}
  */
 function isUPNP() {
+  if (upnpd.connection()) return upnpd.upnpOn() === true;
   const { apiport, upnp } = globalThis.userconfig?.initial ?? {};
-  if (upnpd.connection()) return upnp === true;
   return upnp === true || Boolean(apiport && Number(apiport) !== config.server.apiport);
 }
 
@@ -140,12 +141,6 @@ function setUpnpReady(ready) {
  * @returns {Promise<{verified: boolean, mapped: boolean}>}
  */
 async function verifyAndMap(apiport) {
-  // flux-upnpd maps the node's own ports, and this node is ready for its apps' ports as soon as
-  // it follows flux-upnpd.
-  if (upnpd.connection()) {
-    await upnpd.start({ desired: portReconciler.desiredPorts });
-    return { verified: true, mapped: true };
-  }
   const verified = await verifyUPNPsupport(apiport);
   fluxEventBus.publish('upnp:verified', { verified });
   const mapped = verified && await setupUPNP(apiport);
@@ -164,6 +159,24 @@ async function verifyAndMap(apiport) {
  * @returns {Promise<boolean>} whether the first attempt mapped them; the attempts
  *   after it run on
  */
+let followingUpnpd = false;
+
+/**
+ * Where flux-upnpd maps the node's ports, follows it: this waits for flux-upnpd's
+ * first state, and the node is ready for its apps' ports while flux-upnpd says it
+ * maps through UPnP. The router and its tests are flux-upnpd's.
+ * @returns {Promise<void>}
+ */
+async function followUpnpd() {
+  if (!followingUpnpd) {
+    followingUpnpd = true;
+    upnpd.events.on('upnp', setUpnpReady);
+  }
+  await upnpd.start({ desired: portReconciler.desiredPorts });
+  await upnpd.whenStated();
+  setUpnpReady(upnpd.upnpOn() === true);
+}
+
 function startMapping(apiport, { attempt = verifyAndMap, learn = learnLeaseRenewal } = {}) {
   if (mapping) return mapping.first;
   let firstAnswer;
@@ -1005,6 +1018,7 @@ module.exports = {
   isUPNPReady,
   whenUPNPReady,
   declareUpnpIfUnset,
+  followUpnpd,
   startMapping,
   verifyUPNPsupport,
   learnLeaseRenewal,

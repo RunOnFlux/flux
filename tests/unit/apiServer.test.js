@@ -17,6 +17,7 @@ const { PM2_KILL_TIMEOUT_MS } = require('../../ZelBack/src/services/fluxService'
 const serviceManager = require('../../ZelBack/src/services/serviceManager');
 const systemdNotify = require('../../ZelBack/src/services/utils/systemdNotify');
 const upnpService = require('../../ZelBack/src/services/upnpService');
+const upnpd = require('../../ZelBack/src/services/upnpd');
 const dnsLookup = require('../../ZelBack/src/services/utils/dnsLookup');
 const configManager = require('../../ZelBack/src/services/utils/configManager');
 const fluxServer = require('../../ZelBack/src/lib/fluxServer');
@@ -846,6 +847,18 @@ describe('apiServer initiate readiness', () => {
     sinon.assert.calledOnce(upnpService.declareUpnpIfUnset);
     sinon.assert.notCalled(upnpService.startMapping);
     sinon.assert.calledTwice(listen);
+  });
+
+  it('follows flux-upnpd where it maps the node\'s ports, and maps nothing itself, before it listens', async () => {
+    globalThis.userconfig.initial.upnp = true;
+    sinon.stub(upnpd, 'connection').returns('/run/flux-upnpd/api.sock');
+    sinon.stub(upnpService, 'followUpnpd').resolves();
+
+    await apiServer.initiate();
+
+    sinon.assert.calledOnce(upnpService.followUpnpd);
+    sinon.assert.notCalled(upnpService.startMapping);
+    sinon.assert.callOrder(upnpService.declareUpnpIfUnset, upnpService.followUpnpd, listen);
   });
 
   it('listens, and stays up, when the router does not take its ports', async () => {

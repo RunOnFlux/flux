@@ -165,12 +165,52 @@ describe('upnpService tests', () => {
         sinon.stub(upnpd, 'connection').returns('/run/flux-upnpd/api.sock');
       });
 
-      [[true, true], [false, false], [undefined, false]].forEach(([upnp, answer]) => {
-        it(`should take a node whose userconfig.js says upnp ${upnp} as ${answer ? '' : 'not '}mapping through UPnP, whatever its api port`, () => {
-          globalThis.userconfig = { initial: { apiport: 16137, routerIP: '192.168.1.1', upnp } };
+      // Readiness is the module's: each test leaves the node not ready, as it found it.
+      afterEach(() => {
+        upnpd.events.emit('upnp', false);
+      });
+
+      [[true, true], [false, false], [null, false]].forEach(([said, answer]) => {
+        it(`should take a node as ${answer ? '' : 'not '}mapping through UPnP when flux-upnpd said ${said}, whatever its userconfig.js and api port say`, () => {
+          globalThis.userconfig = { initial: { apiport: 16137, routerIP: '192.168.1.1', upnp: !answer } };
+          sinon.stub(upnpd, 'upnpOn').returns(said);
 
           expect(upnpService.isUPNP()).to.equal(answer);
         });
+      });
+
+      [[true, true], [false, false]].forEach(([said, ready]) => {
+        it(`should be ${ready ? '' : 'not '}ready for apps' ports once flux-upnpd's first state says UPnP is ${said ? 'on' : 'off'}, asking the router nothing`, async () => {
+          const start = sinon.stub(upnpd, 'start').resolves(true);
+          let stated;
+          sinon.stub(upnpd, 'whenStated').returns(new Promise((resolve) => { stated = resolve; }));
+          sinon.stub(upnpd, 'upnpOn').returns(said);
+          const createMapping = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+
+          const loading = upnpService.followUpnpd();
+          let loaded = false;
+          loading.then(() => { loaded = true; });
+          await new Promise((resolve) => { setImmediate(resolve); });
+          expect(loaded, 'waits for the first state').to.equal(false);
+          stated();
+          await loading;
+
+          sinon.assert.calledOnce(start);
+          expect(upnpService.isUPNPReady()).to.equal(ready);
+          sinon.assert.notCalled(createMapping);
+        });
+      });
+
+      it('should follow UPnP turned off and on after boot', async () => {
+        sinon.stub(upnpd, 'start').resolves(true);
+        sinon.stub(upnpd, 'whenStated').resolves();
+        sinon.stub(upnpd, 'upnpOn').returns(true);
+        await upnpService.followUpnpd();
+        expect(upnpService.isUPNPReady()).to.equal(true);
+        upnpd.events.emit('upnp', false);
+        expect(upnpService.isUPNPReady()).to.equal(false);
+        upnpd.events.emit('upnp', true);
+        expect(upnpService.isUPNPReady()).to.equal(true);
       });
 
       it('should never work out upnp from the network settings: configd writes it', async () => {

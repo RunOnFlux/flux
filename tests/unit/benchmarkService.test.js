@@ -33,9 +33,10 @@ describe('benchmarkService tests', () => {
     });
 
     [[true, 1], [false, 0]].forEach(([upnp, calls]) => {
-      it(`should ${calls ? '' : 'not '}bench every port of a node whose userconfig.js says upnp ${upnp}, whatever its api port`, async () => {
+      it(`should ${calls ? '' : 'not '}bench every port of a node flux-upnpd says ${upnp ? 'maps' : 'does not map'} through UPnP, whatever its api port and userconfig.js`, async () => {
         sinon.stub(upnpd, 'connection').returns('/run/flux-upnpd/api.sock');
-        globalThis.userconfig = { initial: { apiport: 16137, upnp } };
+        sinon.stub(upnpd, 'upnpOn').returns(upnp);
+        globalThis.userconfig = { initial: { apiport: 16137, upnp: !upnp } };
 
         await benchmarkService.executeUpnpBench();
 

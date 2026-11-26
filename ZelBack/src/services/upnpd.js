@@ -34,8 +34,15 @@ const ROUTER_FAILURES = new Set(['unanswered', 'refused']);
 const NOT_RUNNING = { ok: false, failure: 'stopped', reason: 'flux-upnpd is not running' };
 
 // 'states' when a stream's first line has replaced every mapping's state, 'mappingState' with the
-// entry when one changes, 'routerFailure' when the router fails a mapping for a reason of its own.
+// entry when one changes, 'routerFailure' when the router fails a mapping for a reason of its own,
+// 'upnp' with whether the node maps through UPnP when that changes.
 const events = new EventEmitter();
+
+// Whether the node maps through UPnP, as flux-upnpd last said; null until its first state. Kept
+// while no stream is open: a stream that ends says nothing of UPnP.
+let upnp = null;
+let stated;
+let firstState = new Promise((resolve) => { stated = resolve; });
 
 let socket = null;
 let parentWatch = null;
@@ -172,6 +179,9 @@ function end(ticket, result) {
 function onLine(line) {
   switch (line.type) {
     case 'state': {
+      // eslint-disable-next-line no-use-before-define
+      setUpnp(line.upnp === true);
+      stated();
       const now = monotonicMs();
       states.clear();
       (line.mappings ?? []).forEach((mapping) => {
@@ -199,8 +209,40 @@ function onLine(line) {
       end(line.ticket, result);
       break;
     }
+    case 'upnp':
+      // eslint-disable-next-line no-use-before-define
+      setUpnp(line.on === true);
+      break;
     default:
   }
+}
+
+/**
+ * Records whether the node maps through UPnP; a change is an 'upnp' event, and UPnP turned on is
+ * given the set of ports wanted mapped.
+ * @param {boolean} on
+ */
+function setUpnp(on) {
+  if (on === upnp) return;
+  upnp = on;
+  events.emit('upnp', on);
+  // eslint-disable-next-line no-use-before-define
+  if (on) sendDesired();
+}
+
+/**
+ * @returns {boolean|null} whether the node maps through UPnP, as flux-upnpd last said; null until
+ *   its first state
+ */
+function upnpOn() {
+  return upnp;
+}
+
+/**
+ * @returns {Promise<void>} resolves once flux-upnpd has given its first state
+ */
+function whenStated() {
+  return firstState;
 }
 
 /**
@@ -339,6 +381,8 @@ function stop() {
   [...waiters.values()].forEach((waiter) => waiter(NOT_RUNNING));
   waiters.clear();
   states.clear();
+  upnp = null;
+  firstState = new Promise((resolve) => { stated = resolve; });
   desiredSource = () => [];
   desiredOpen = false;
   desiredQueued = false;
@@ -355,7 +399,7 @@ function sendDesired() {
   desiredQueued = true;
   return inLane(async () => {
     desiredQueued = false;
-    if (!streaming) return;
+    if (!streaming || upnp !== true) return;
     const ports = desiredSource();
     try {
       const { status, body } = await request('PUT', '/desired', { ports });
@@ -432,4 +476,6 @@ module.exports = {
   openDesired,
   start,
   stop,
+  upnpOn,
+  whenStated,
 };
