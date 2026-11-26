@@ -7,6 +7,7 @@ const path = require('node:path');
 const { expect } = require('chai');
 const config = require('config');
 const express = require('express');
+const sinon = require('sinon');
 const WebSocket = require('ws');
 
 const apiSocket = require('../../ZelBack/src/services/utils/apiSocket');
@@ -64,14 +65,20 @@ describe('apiSocket tests', () => {
     });
 
     afterEach(() => {
+      // readiness is the module's: left as it was found
+      upnpd.events.emit('upnp', false);
+      sinon.restore();
       upnpd.stop();
       delete process.env.FLUXUPNPD_CONNECTION;
       fs.rmSync(dir, { recursive: true, force: true });
     });
 
-    it('maps none of the node\'s own ports and is ready at once', async () => {
+    it('maps none of the node\'s own ports and is ready once flux-upnpd says it maps through UPnP', async () => {
       expect(await upnpService.setupUPNP(16127)).to.equal(true);
-      expect(await upnpService.startMapping(16127, { learn: () => {} })).to.equal(true);
+      sinon.stub(upnpd, 'start').resolves(true);
+      sinon.stub(upnpd, 'whenStated').resolves();
+      sinon.stub(upnpd, 'upnpOn').returns(true);
+      await upnpService.followUpnpd();
       expect(upnpService.isUPNPReady()).to.equal(true);
     });
   });

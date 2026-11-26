@@ -176,7 +176,7 @@ describe('serviceManager router address upkeep', () => {
   it('runs nothing on a node that does not map through UPnP, whatever its router address', () => {
     sinon.stub(upnpService, 'isUPNP').returns(false);
 
-    expect(startRouterAddressUpkeep()).to.equal(false);
+    startRouterAddressUpkeep();
     clock.tick(2 * 60 * 60 * 1000);
 
     sinon.assert.notCalled(upnpService.adjustFirewallForUPNP);
@@ -186,12 +186,26 @@ describe('serviceManager router address upkeep', () => {
   it('keeps a UPnP node with a router address open: its firewall rules hourly, peers asked every 8 minutes', () => {
     sinon.stub(upnpService, 'isUPNP').returns(true);
 
-    expect(startRouterAddressUpkeep()).to.equal(true);
+    startRouterAddressUpkeep();
     clock.tick(60 * 1000);
     sinon.assert.calledOnce(portManager.callOtherNodeToKeepUpnpPortsOpen);
     clock.tick(8 * 60 * 1000);
     sinon.assert.calledTwice(portManager.callOtherNodeToKeepUpnpPortsOpen);
     clock.tick(60 * 60 * 1000);
     sinon.assert.calledOnce(upnpService.adjustFirewallForUPNP);
+  });
+
+  it('follows UPnP turned on and off while the node runs', () => {
+    const upnp = sinon.stub(upnpService, 'isUPNP').returns(false);
+
+    startRouterAddressUpkeep();
+    clock.tick(60 * 1000);
+    sinon.assert.notCalled(portManager.callOtherNodeToKeepUpnpPortsOpen);
+    upnp.returns(true);
+    clock.tick(8 * 60 * 1000);
+    sinon.assert.calledOnce(portManager.callOtherNodeToKeepUpnpPortsOpen);
+    upnp.returns(false);
+    clock.tick(8 * 60 * 1000);
+    sinon.assert.calledOnce(portManager.callOtherNodeToKeepUpnpPortsOpen);
   });
 });

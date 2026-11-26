@@ -20,8 +20,12 @@ function standIn(dir) {
     desired: [],
     maps: [],
     streams: [],
-    state: { identity: 'tx:0', apiPort: 16127, mapping: true, mappings: [] },
+    state: {
+      identity: 'tx:0', upnp: true, apiPort: 16127, mapping: true, mappings: [],
+    },
     nextTicket: 1,
+    // a stream opened gives no state, as a flux-upnpd still starting
+    withholdState: false,
     // called with the ticket of each /map; the answer waits for what it returns
     onMap: null,
     send(event) {
@@ -39,7 +43,7 @@ function standIn(dir) {
       fake.requests.push(`${req.method} ${req.url}`);
       if (req.method === 'GET' && req.url === '/events') {
         res.writeHead(200, { 'content-type': 'application/x-ndjson' });
-        res.write(`${JSON.stringify({ type: 'state', ...fake.state })}\n`);
+        if (!fake.withholdState) res.write(`${JSON.stringify({ type: 'state', ...fake.state })}\n`);
         fake.streams.push(res);
         return;
       }
@@ -306,6 +310,68 @@ describe('upnpd tests', () => {
         expect(failures.callCount).to.equal(3);
       } finally {
         upnpd.events.off('routerFailure', failures);
+      }
+    });
+  });
+
+  describe('upnp tests', () => {
+    it('should know nothing of UPnP before flux-upnpd\'s first state, then take it from that state', async () => {
+      expect(upnpd.upnpOn()).to.equal(null);
+      await fake.listen();
+      await start();
+      await upnpd.whenStated();
+      expect(upnpd.upnpOn()).to.equal(true);
+    });
+
+    it('should give a flux-upnpd that says UPnP is off no set', async () => {
+      fake.state.upnp = false;
+      await fake.listen();
+      await start();
+      desired = [{ port: 31000, description: 'Flux_App_example1', protocols: ['tcp'] }];
+      await upnpd.openDesired();
+      await upnpd.desiredChanged();
+      expect(upnpd.upnpOn()).to.equal(false);
+      expect(fake.desired).to.deep.equal([]);
+    });
+
+    it('should follow UPnP turned off and on, giving the set only while it is on and again when it comes on', async () => {
+      const said = [];
+      const onUpnp = (on) => said.push(on);
+      upnpd.events.on('upnp', onUpnp);
+      try {
+        await fake.listen();
+        await start();
+        desired = [{ port: 31000, description: 'Flux_App_example1', protocols: ['tcp'] }];
+        await upnpd.openDesired();
+        expect(fake.desired).to.have.length(1);
+        fake.send({ type: 'upnp', on: false });
+        await until(() => upnpd.upnpOn() === false, 'UPnP off');
+        await upnpd.desiredChanged();
+        expect(fake.desired).to.have.length(1);
+        fake.send({ type: 'upnp', on: true });
+        await until(() => fake.desired.length === 2, 'the set given as UPnP comes on');
+        expect(fake.desired[1]).to.deep.equal(desired);
+        expect(said).to.deep.equal([true, false, true]);
+      } finally {
+        upnpd.events.off('upnp', onUpnp);
+      }
+    });
+
+    it('should keep what flux-upnpd last said while no stream is open', async () => {
+      await fake.listen();
+      await start();
+      await upnpd.whenStated();
+      await fake.close();
+      // flux-upnpd back, its state still to come: the client opens a stream only once the last
+      // has ended
+      const restarted = standIn(dir);
+      restarted.withholdState = true;
+      await restarted.listen();
+      try {
+        await until(() => restarted.requests.includes('GET /events'), 'a stream to the restarted flux-upnpd');
+        expect(upnpd.upnpOn()).to.equal(true);
+      } finally {
+        await restarted.close();
       }
     });
   });

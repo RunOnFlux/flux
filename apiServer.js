@@ -27,6 +27,7 @@ const log = require('./ZelBack/src/lib/log');
 
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
+const upnpd = require('./ZelBack/src/services/upnpd');
 const dnsLookup = require('./ZelBack/src/services/utils/dnsLookup');
 const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
 const globalState = require('./ZelBack/src/services/utils/globalState');
@@ -153,6 +154,10 @@ async function logErrorAndExit(msg, options = {}) {
 async function loadUpnpIfRequired() {
   try {
     await upnpService.declareUpnpIfUnset();
+    if (upnpd.connection()) {
+      await upnpService.followUpnpd();
+      return;
+    }
     if (!upnpService.isUPNP()) return;
     // The first attempt is awaited, so a router that answers has the node's own
     // ports mapped before it listens; one that does not is asked again until it
