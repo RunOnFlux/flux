@@ -117,9 +117,6 @@
     "ws": "~8.18.0"
   },
   "devDependencies": {
-    "@babel/core": "~7.28.0",
-    "@babel/eslint-parser": "~7.28.0",
-    "@babel/preset-env": "~7.28.0",
     "ajv": "~8.17.1",
     "chai": "~4.5.0",
     "chai-as-promised": "~7.1.2",

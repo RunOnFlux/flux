@@ -41,10 +41,8 @@ module.exports = {
     'import/extensions': ['error', 'ignorePackages', { js: 'never' }],
     'import/order': 'off',
   },
-  parser: '@babel/eslint-parser',
   parserOptions: {
-    requireConfigFile: false,
-    ecmaVersion: 2020,
+    ecmaVersion: 'latest',
     sourceType: 'module',
   },
   settings: {
