@@ -101,7 +101,7 @@
     "inquirer": "~12.8.2",
     "js-yaml": "~4.1.0",
     "mongodb": "~7.8.0",
-    "morgan": "~1.10.0",
+    "morgan": "~1.12.1",
     "nano-ethereum-signer": "~0.1.2",
     "node-abort-controller": "^3.1.1",
     "node-cmd": "~5.0.0",
