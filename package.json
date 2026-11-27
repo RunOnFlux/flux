@@ -117,7 +117,7 @@
     "ws": "~8.18.0"
   },
   "devDependencies": {
-    "@babel/core": "~7.28.0",
+    "@babel/core": "~7.29.13",
     "@babel/eslint-parser": "~7.28.0",
     "@babel/preset-env": "~7.28.0",
     "ajv": "~8.17.1",
