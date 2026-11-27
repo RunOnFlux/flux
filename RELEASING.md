@@ -90,11 +90,11 @@ to see which check failed before deciding whether to re-run it or cut the tag by
 cut by hand, or `master` was rolled back behind one. Resolve the tag, then re-run. The workflow
 refuses rather than skipping, because skipping would mean the merged tree was never verified.
 
-## Never done by hand
+## Done for you
 
-- Creating the `vX.Y.Z` tag or the GitHub Release. `release-tag` cuts both, and refuses to run over a
-  tag cut by hand at another commit.
-- Committing the fingerprint to `master`. It reaches `master` with the release PR (step 2).
+- The `vX.Y.Z` tag and the GitHub Release: `release-tag` cuts both. Cut a tag by hand only when
+  `release-tag` has failed after the merge (above).
+- The fingerprint on `master`: it arrives with the release PR (step 2), never as a commit of its own.
 
 ## Please do not commit to `master`
 
