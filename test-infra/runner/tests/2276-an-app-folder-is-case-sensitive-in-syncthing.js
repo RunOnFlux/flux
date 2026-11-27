@@ -29,6 +29,9 @@ import { afterTeardown } from '../framework/teardown-hook.js';
 
 const WRITTEN = 'appdata/written-after-the-restart.txt';
 
+// Holds a pass before it writes a folder's config.
+const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
+
 describe('an app folder is case-sensitive in syncthing', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -108,8 +111,18 @@ describe('an app folder is case-sensitive in syncthing', function () {
   it('turns case checks off on a folder syncthing holds with them on, on the primary and the standby', async function () {
     this.timeout(300000);
     const marks = new Map(HOLDERS.map((i) => [i, client(i).getLastEventId()]));
-    await Promise.all(HOLDERS.map((i) => patchFolderConfig(client(i), folder, { caseSensitiveFS: false })));
-    expect(await Promise.all(HOLDERS.map(caseSensitive)), 'fixture: both holders hold the folder with case checks on').to.deep.equal([false, false]);
+    // A pass that reads the folder after the patch writes caseSensitiveFS back:
+    // each holder's next write of it is held until the patch has been read back,
+    // and the read waits for that pass to be there.
+    await Promise.all(HOLDERS.map((i) => client(i).holdCheckpoint(BEFORE_FOLDER_WRITE, folder)));
+    try {
+      await Promise.all(HOLDERS.map((i) => patchFolderConfig(client(i), folder, { caseSensitiveFS: false })));
+      await Promise.all(HOLDERS.map((i) => client(i).waitForEvent('checkpoint:held',
+        (d) => d.name === BEFORE_FOLDER_WRITE && d.key === folder, 120000, { afterId: marks.get(i) })));
+      expect(await Promise.all(HOLDERS.map(caseSensitive)), 'fixture: both holders hold the folder with case checks on').to.deep.equal([false, false]);
+    } finally {
+      await Promise.all(HOLDERS.map((i) => client(i).releaseCheckpoint(BEFORE_FOLDER_WRITE, folder)));
+    }
 
     await Promise.all(HOLDERS.map((i) => client(i).waitForEvent('syncthing:passComplete',
       (data) => data.wrote.includes(folder), 120000, { afterId: marks.get(i) })));

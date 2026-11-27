@@ -1,7 +1,6 @@
 // App Spawner - Handles automatic spawning of global applications
 const config = require('config');
 const dbHelper = require('../dbHelper');
-const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
@@ -81,13 +80,12 @@ const appUninstaller = require('./appUninstaller');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 const fluxEventBus = require('../utils/fluxEventBus');
 const outboundPathService = require('../outboundPathService');
+const spawnerControl = require('../utils/spawnerControl');
 
 let appsCountAvailableToInstallOnMyNode = 0;
 
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
 const { spawnReconfirmDelayMs } = config.fluxapps;
-
-let spawnLoopRunning = false;
 
 /**
  * Whether an application keeps a synced volume.
@@ -104,34 +102,36 @@ function isSyncedApp(appSpecifications) {
   return appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
 }
 
+/**
+ * One spawner pass, as the spawner's loop runs it.
+ * @returns {Promise<number>} The ms until the next pass.
+ */
+async function spawnPass() {
+  try {
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SPAWNER_BEFORE_PASS);
+    return await trySpawningGlobalApplication();
+  } catch (error) {
+    // stopped before its attempt began; the loop is not run again until started
+    if (error instanceof spawnerControl.SpawnerStopped) return 0;
+    log.error(`trySpawningGlobalApplication - ${error.message}`);
+    return config.fluxapps.installation.delay * 1000;
+  }
+}
+
 function initialize() {
+  spawnerControl.setRunner(spawnPass);
   appSyncEvents.on(SYNC_EVENTS.SPAWNER_READY, () => {
     log.info('AppSyncOrchestrator signals ready, starting spawn loop');
     globalState.spawnerPaused = false;
     fluxEventBus.publish('spawner:resumed', {});
-    if (!spawnLoopRunning) {
-      spawnLoop();
-    }
+    spawnerControl.setReady(true);
   });
   appSyncEvents.on(SYNC_EVENTS.READINESS_LOST, () => {
-    log.warn('AppSyncOrchestrator signals readiness lost, spawner will pause on next iteration');
+    log.warn('AppSyncOrchestrator signals readiness lost, stopping the spawner and its attempt in flight');
     globalState.spawnerPaused = true;
     fluxEventBus.publish('spawner:paused', {});
+    spawnerControl.setReady(false).then(() => log.info('Spawn loop exited (paused)'));
   });
-}
-
-async function spawnLoop() {
-  spawnLoopRunning = true;
-  try {
-    while (!globalState.spawnerPaused) {
-      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SPAWNER_BEFORE_PASS);
-      const delayMs = await trySpawningGlobalApplication();
-      if (delayMs > 0) await serviceHelper.delay(delayMs);
-    }
-  } finally {
-    spawnLoopRunning = false;
-    log.info('Spawn loop exited (paused)');
-  }
 }
 
 // Note: Docker Hub error classification and caching is now handled by imageManager.js
@@ -184,6 +184,13 @@ async function trySpawningGlobalApplication() {
   // the holder they are kept for: released when the attempt ends, which leaves
   // whatever the installation has mapped since.
   let testedPorts = null;
+  // Withdraws this attempt's installing claim, from the claim until the install
+  // has run: an attempt the spawner was stopped in withdraws it.
+  let withdrawClaim = null;
+  // The app this attempt chose, and whether the attempt installed it.
+  let chosenApp = null;
+  let installed = false;
+  const attempt = spawnerControl.beginAttempt();
   try {
     const synced = await generalService.checkSynced();
     if (synced !== true) {
@@ -262,8 +269,14 @@ async function trySpawningGlobalApplication() {
     if (runningApps.status !== 'success') {
       throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
     }
-    if (runningApps.data.length >= config.fluxapps.maxAppsPerNode) {
-      log.info(`trySpawningGlobalApplication - Node at max apps capacity (${runningApps.data.length}/${config.fluxapps.maxAppsPerNode})`);
+    // Counted by what is installed, running or not: a node's report names every app
+    // it holds, and no node takes a report naming more than maxAppsPerNode.
+    const appsHeld = await appQueryService.installedApps();
+    if (appsHeld.status !== 'success') {
+      throw new Error('trySpawningGlobalApplication - Unable to check installed apps on this Flux');
+    }
+    if (appsHeld.data.length >= config.fluxapps.maxAppsPerNode) {
+      log.info(`trySpawningGlobalApplication - Node at max apps capacity (${appsHeld.data.length}/${config.fluxapps.maxAppsPerNode})`);
       return delayTime;
     }
 
@@ -586,6 +599,9 @@ async function trySpawningGlobalApplication() {
       }
     }
 
+    chosenApp = appToRun;
+    attempt.forApp(appToRun);
+
     // Kept through a successful install, and a later removal of the app does not
     // clear it: for the rest of its twelve hours this node does not take the app
     // again, and other nodes do. That is what paces an app removed for something
@@ -789,7 +805,7 @@ async function trySpawningGlobalApplication() {
         // geolocation admits, with no regard for whether those nodes have room
         // or take apps at all, so the better-placed candidate it assumes may not
         // exist in practice: the other domains can be full, and the refusal also
-        // left the hash in the twelve-hour spawn cache. Seen on mainnet: synced
+        // left the hash in the twelve-hour spawn cache. Seen in production: synced
         // apps pinned to Minnesota and to Missouri sat at 1 of 2, with 41 of 50
         // and 105 of 122 of those states' nodes in the running copy's own domain.
         //
@@ -1073,7 +1089,13 @@ async function trySpawningGlobalApplication() {
         await messageStore.storeAppInstallingMessage(withdrawal);
         // eslint-disable-next-line global-require
         const fluxCommMessagesSenderLib = require('../fluxCommunicationMessagesSender');
-        await fluxCommMessagesSenderLib.broadcastMessageToAll(withdrawal);
+        // Recorded before it is sent, as a claim is: a peer syncing from this node
+        // learns the claim is withdrawn.
+        const signedWithdrawal = await fluxCommMessagesSenderLib.signBroadcast(withdrawal);
+        if (signedWithdrawal) {
+          await messageStore.storeSignedAppInstallingBroadcast(signedWithdrawal.message);
+          await fluxCommMessagesSenderLib.sendToAll(signedWithdrawal.serialised);
+        }
       } catch (error) {
         // best effort - the installing TTL remains the backstop
         log.warn(`trySpawningGlobalApplication - could not retract installing claim for ${appToRun}: ${error.message}`);
@@ -1092,13 +1114,20 @@ async function trySpawningGlobalApplication() {
     };
 
     // store it in local database first
+    withdrawClaim = withdrawInstallingClaim;
     await registryManager.storeAppInstallingMessage(newAppInstallingMessage);
-    // broadcast messages about running apps to all peers
+    // The signed claim is recorded before it is sent, where the claims this node
+    // received are: a peer that links while it is being sent, or later, is
+    // given it by the state sync its link starts.
     // eslint-disable-next-line global-require
     const fluxCommMessagesSender = require('../fluxCommunicationMessagesSender');
-    await fluxCommMessagesSender.broadcastMessageToAll(newAppInstallingMessage);
+    const signedClaim = await fluxCommMessagesSender.signBroadcast(newAppInstallingMessage);
+    if (signedClaim) {
+      await messageStore.storeSignedAppInstallingBroadcast(signedClaim.message);
+      await fluxCommMessagesSender.sendToAll(signedClaim.serialised);
+    }
 
-    await serviceHelper.delay(collisionWaitMs); // give it 1.5m so messages are propagated on the network
+    await attempt.sleep(collisionWaitMs); // give it 1.5m so messages are propagated on the network
 
     // double check if app is installed in more of the instances requested
     runningAppList = await registryManager.appLocation(appToRun);
@@ -1147,20 +1176,6 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    // The node is already doing something to an app, and the spawner is the one
-    // that gives way: the periodic reinstall pass holds this flag across its own
-    // teardown-and-rebuild, and an install started inside that window is refused
-    // when the pass comes back for its node - leaving the app it tore down with
-    // nothing to rebuild it. The claim is withdrawn rather than held, so another
-    // node can take the placement now instead of waiting this one out.
-    const heldBy = globalState.operationHolding();
-    if (heldBy) {
-      log.info(`trySpawningGlobalApplication - Application ${appToRun} not installed, this node is undergoing ${heldBy}`);
-      await withdrawInstallingClaim(`node is undergoing ${heldBy}`);
-      globalState.trySpawningGlobalAppCache.delete(appHash);
-      return shortDelayTime;
-    }
-
     // The dearest check, so the last: it maps the app's ports on the router and has
     // a peer read them, and the install keeps the mappings it makes.
     testedPorts = { ports: appPorts, appName: appSpecifications.name, holder: {} };
@@ -1201,15 +1216,28 @@ async function trySpawningGlobalApplication() {
     let installError = null;
     try {
       // A placement this node does not hold yet, so a failed install retracts the
-      // claim rather than keeping it.
-      const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, false, true); // can throw
-      registerOk = outcome === InstallOutcome.INSTALLED;
-      if (!registerOk) installError = `installer ${outcome}`;
+      // claim rather than keeping it. An app another operation holds is refused,
+      // never waited for: the spawner goes on to its next app. Started under the
+      // spawner's lock, held until the node records the app: a stop that came
+      // first installs nothing, and one that comes later finds the app among the
+      // node's apps.
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SPAWNER_BEFORE_INSTALL, appToRun);
+      const letGo = attempt.holdForInstall();
+      try {
+        const outcome = await appInstaller.registerAppLocally(appSpecifications, null, null, true, { wait: false, onRecorded: letGo }); // can throw
+        registerOk = outcome === InstallOutcome.INSTALLED;
+        if (!registerOk) installError = `installer ${outcome}`;
+      } finally {
+        letGo();
+      }
     } catch (error) {
+      if (error instanceof spawnerControl.SpawnerStopped) throw error;
       log.error(error);
       installError = error.message ?? String(error);
       registerOk = false;
     }
+    withdrawClaim = null;
+    installed = registerOk;
     if (!registerOk) {
       log.info(`trySpawningGlobalApplication - Install failed for ${appToRun}, adding to local error cache`);
       globalState.spawnErrorsLongerAppCache.set(appHash, '');
@@ -1217,7 +1245,7 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
-    await serviceHelper.delay(1 * 60 * 1000); // await 1 minute to give time for messages to be propagated on the network
+    await attempt.sleep(1 * 60 * 1000); // await 1 minute to give time for messages to be propagated on the network
     // double check if app is installed in more of the instances requested
     runningAppList = await registryManager.appLocation(appToRun);
     if (runningAppList.length > minInstances) {
@@ -1238,6 +1266,16 @@ async function trySpawningGlobalApplication() {
     log.info('trySpawningGlobalApplication - Reinitiating possible app installation');
     return isEnterprise ? 0 : delayTime;
   } catch (error) {
+    // Stopped: readiness was lost, the node is moving, or the app was installed
+    // by another route. What this attempt decided no longer holds, so it withdraws
+    // its claim and is not held against the app; an app it installed keeps its mark.
+    if (error instanceof spawnerControl.SpawnerStopped) {
+      log.info(`trySpawningGlobalApplication - the spawner was stopped; this attempt${chosenApp ? ` for ${chosenApp}` : ''} ends`);
+      if (appHash && !installed) globalState.trySpawningGlobalAppCache.delete(appHash);
+      if (withdrawClaim) await withdrawClaim('the spawner was stopped');
+      fluxEventBus.publish('spawner:attemptStopped', { appName: chosenApp, installed });
+      return 0;
+    }
     log.error(error);
     // A database that did not answer says nothing about the app: the next pass
     // tries it again.
@@ -1251,6 +1289,7 @@ async function trySpawningGlobalApplication() {
     }
     return shortDelayTime || 5 * 60 * 1000;
   } finally {
+    attempt.end();
     if (testedPorts) {
       await portManager.releaseTestedPorts(testedPorts.ports, testedPorts.appName, testedPorts.holder)
         .catch((error) => log.error(error));

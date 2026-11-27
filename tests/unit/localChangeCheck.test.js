@@ -224,7 +224,7 @@ describe('localChangeCheck tests', () => {
   });
 
   describe('revert', () => {
-    const CHANGED = { files: 1, directories: 0 };
+    const CHANGED = { files: 1, directories: 0, deletes: 2 };
     // A folder no other test has stubbed reads for, page by page.
     // A folder checked with one change, its answer left on its entry.
     async function checked(folderId = 'fluxr_r') {
@@ -243,7 +243,9 @@ describe('localChangeCheck tests', () => {
         await settled();
 
         sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'fluxr_r');
-        sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', { folder: 'fluxr_r', files: 1, directories: 0 });
+        sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', {
+          folder: 'fluxr_r', files: 1, directories: 0, deletes: 2,
+        });
         expect(entry).to.not.have.property('localChangeCheck');
       } finally {
         publish.restore();

@@ -249,8 +249,8 @@ async function assertNodeImageStamped(tag) {
 // The FluxOS code of one built node image, copied into a running node: the
 // parts of the tree the process loads. Its data, its containers and its
 // database stay.
-const UPGRADE_DIRS = ['ZelBack/src', 'helpers', 'lib'];
-const UPGRADE_FILES = ['package.json', 'ZelBack/pinEnvironment.js', 'ZelBack/config/default.js', 'ZelBack/config/volumeToolsImage.json', 'app.js', 'apiServer.js', 'init.js'];
+const UPGRADE_DIRS = ['ZelBack/src', 'ZelBack/config/networks', 'helpers', 'lib'];
+const UPGRADE_FILES = ['package.json', 'ZelBack/pinEnvironment.js', 'ZelBack/runtimePaths.js', 'ZelBack/config/default.js', 'ZelBack/config/volumeToolsImage.json', 'app.js', 'apiServer.js', 'init.js'];
 // The new build's per-node config files and the script that writes the overlay from them.
 const UPGRADE_HARNESS = ['test-infra/config', 'test-infra/write-node-config.sh'];
 
@@ -1103,7 +1103,7 @@ export async function createTestEnv({
   confirmationIntervalBlocks = 1,
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
+  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], freezableContainerRoot = [], symlinkedAppsFolder = [], rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
   // Arcane nodes whose unit passes the node key as a credential, by node index:
   // no flux.conf, and fluxd reached with the cookie and port in fluxd's run files
   // (framework/fluxd-control.js).
@@ -1140,6 +1140,11 @@ export async function createTestEnv({
   // (framework/host-stall.js), by node index.
   for (const index of freezableDockerRoot) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes) throw new Error(`createTestEnv: freezableDockerRoot names node ${index}, outside a fleet of ${nodes}`);
+  }
+  // Nodes whose docker keeps its container directories on a filesystem a suite can
+  // freeze (framework/host-stall.js freezeContainers), by node index.
+  for (const index of freezableContainerRoot) {
+    if (!Number.isInteger(index) || index < 0 || index >= nodes) throw new Error(`createTestEnv: freezableContainerRoot names node ${index}, outside a fleet of ${nodes}`);
   }
   for (const index of credentialNodes) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes) throw new Error(`createTestEnv: credentialNodes names node ${index}, outside a fleet of ${nodes}`);
@@ -1400,7 +1405,7 @@ export async function createTestEnv({
     // boot's own.
     await startInfraDeathWatch(env);
     const tracePackages = syncthing === 'binary' ? tracedPackages() : [];
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, arcaneStubPeers, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, freezableContainerRoot, symlinkedAppsFolder, arcaneStubPeers, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
     env.stopSyncthingTrace = startSyncthingTrace(env.clients, tracePackages);
     return env;
   } catch (err) {
@@ -1438,7 +1443,7 @@ function releaseImageNodes(nodeImageTags) {
   return Object.entries(nodeImageTags).filter(([, tag]) => tag !== IMAGE_TAG).map(([index]) => Number(index));
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], freezableContainerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
   // The dialing nodes no link authenticates with: legacy nodes, nodes not listed
   // at their own address because they run on another's collateral, and nodes on
   // a release that has no links.
@@ -1836,6 +1841,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (fluxosHeldNodes.includes(i)) nodeEnv.FLUX_FLUXOS_HELD = '1';
     if (pausedSyncthingNodes.includes(i)) nodeEnv.FLUX_SYNCTHING_PAUSED = '1';
     if (freezableDockerRoot.includes(i)) nodeEnv.FLUX_FREEZABLE_DOCKER_ROOT = 'true';
+    if (freezableContainerRoot.includes(i)) nodeEnv.FLUX_FREEZABLE_CONTAINER_ROOT = 'true';
     if (fluxdLogins[i]) {
       // The key's fixture is where the entrypoint takes the credential from;
       // FLUXD_CONFIG_PATH names a file the node does not have.

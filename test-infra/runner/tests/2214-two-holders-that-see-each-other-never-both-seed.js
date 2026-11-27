@@ -1,4 +1,6 @@
-import { describe, it, before } from 'mocha';
+import {
+  describe, it, before, afterEach,
+} from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
@@ -122,6 +124,13 @@ describe('two holders that can reach each other never both seed', function () {
     expect((await ask(holder, silenced)).stdout.trim(), 'fixture: the holder cannot reach the silenced holder either').to.equal('200');
     expect((await ask(lowest, holder)).stdout.trim(), 'fixture: the contenders cannot reach each other').to.equal('200');
     expect((await ask(holder, lowest)).stdout.trim(), 'fixture: the contenders cannot reach each other').to.equal('200');
+  });
+
+  // Each case holds checkpoints on its own app's folder, and a held checkpoint stops
+  // that node's whole folder pass: every case leaves none held for the next.
+  afterEach(async function () {
+    if (!env) return;
+    await Promise.all(holders.map((i) => client(i)?.releaseAllCheckpoints().catch(() => {})));
   });
 
   afterTeardown(async function () {

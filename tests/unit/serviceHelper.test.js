@@ -17,7 +17,6 @@ const adminConfig = {
   initial: {
     ipaddress: '83.51.212.243',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    testnet: true,
   },
 };
 

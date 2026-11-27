@@ -81,161 +81,37 @@ describe('globalState tests', () => {
     });
   });
 
-  describe('operationHolding tests', () => {
-    afterEach(() => {
-      globalState.removalInProgress = false;
-      globalState.installationInProgress = false;
-      globalState.softRedeployInProgress = false;
-      globalState.hardRedeployInProgress = false;
-      globalState.reinstallationOfOldAppsInProgress = false;
+  // The apps an operation holds are the operation registry's leases; the
+  // registry alone takes and releases them.
+  describe('held apps', () => {
+    // eslint-disable-next-line global-require
+    const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
+
+    afterEach(() => operationRegistry.clear());
+
+    it('lists the apps each type holds, as frozen snapshots', () => {
+      operationRegistry.acquire('app1', 'restore', 'test');
+      operationRegistry.acquire('app2', 'backup', 'test');
+      operationRegistry.acquire('app3', 'remove', 'test');
+
+      expect(globalState.restoreInProgress).to.deep.equal(['app1']);
+      expect(globalState.backupInProgress).to.deep.equal(['app2']);
+      expect(Object.isFrozen(globalState.backupInProgress)).to.equal(true);
     });
 
-    it('names nothing when the node is free', () => {
-      expect(globalState.operationHolding()).to.equal(null);
+    it('lists the apps any operation holds, as a frozen snapshot', () => {
+      operationRegistry.acquire('app1', 'install', 'test');
+      operationRegistry.acquire('app2', 'redeploy', 'test');
+
+      expect(globalState.heldApps).to.have.members(['app1', 'app2']);
+      expect(Object.isFrozen(globalState.heldApps)).to.equal(true);
     });
 
-    // The flag no guard used to read. A caller asking the question at all is the
-    // fix; answering it with four of the five would leave the same hole.
-    it('names the periodic reinstall pass, which is a holder like any other', () => {
-      globalState.reinstallationOfOldAppsInProgress = true;
+    it('lists no app once its operation releases it', () => {
+      const token = operationRegistry.acquire('app1', 'remove', 'test');
+      operationRegistry.release('app1', token);
 
-      expect(globalState.operationHolding()).to.equal('reinstallation');
-    });
-
-    // A guard excludes the operation it belongs to and no others: the reinstall
-    // pass sets its own flag before the loop, so asking without the exclusion
-    // would make it skip every app on its own account.
-    it('excludes only the caller its own operation, and still sees the others', () => {
-      globalState.reinstallationOfOldAppsInProgress = true;
-
-      expect(globalState.operationHolding('reinstallation')).to.equal(null);
-
-      globalState.removalInProgress = true;
-      expect(globalState.operationHolding('reinstallation')).to.equal('removal');
-    });
-
-    it('answers in the order the guards asked in, so the message does not change', () => {
-      globalState.hardRedeployInProgress = true;
-      globalState.installationInProgress = true;
-
-      expect(globalState.operationHolding()).to.equal('installation');
-    });
-  });
-
-  describe('state flags tests', () => {
-    it('should have default values for state flags', () => {
-      expect(globalState.removalInProgress).to.equal(false);
-      expect(globalState.installationInProgress).to.equal(false);
-      expect(globalState.softRedeployInProgress).to.equal(false);
-      expect(globalState.hardRedeployInProgress).to.equal(false);
-      expect(globalState.reinstallationOfOldAppsInProgress).to.equal(false);
-    });
-
-    it('should allow setting removalInProgress', () => {
-      globalState.removalInProgress = true;
-      expect(globalState.removalInProgress).to.equal(true);
-
-      globalState.removalInProgressReset();
-      expect(globalState.removalInProgress).to.equal(false);
-    });
-
-    it('should allow setting installationInProgress', () => {
-      globalState.installationInProgress = true;
-      expect(globalState.installationInProgress).to.equal(true);
-
-      globalState.installationInProgressReset();
-      expect(globalState.installationInProgress).to.equal(false);
-    });
-  });
-
-  describe('whenInstallationReleased', () => {
-    const settled = async (promise) => {
-      let done = false;
-      promise.then(() => { done = true; });
-      await new Promise((resolve) => { setImmediate(resolve); });
-      return done;
-    };
-
-    it('resolves at once when no install holds the node', async () => {
-      expect(await settled(globalState.whenInstallationReleased())).to.equal(true);
-    });
-
-    it('resolves every waiter when the install releases the node, and not before', async () => {
-      globalState.installationInProgress = true;
-      const first = globalState.whenInstallationReleased();
-      const second = globalState.whenInstallationReleased();
-      expect(await settled(first)).to.equal(false);
-
-      globalState.installationInProgress = false;
-
-      expect(await settled(first)).to.equal(true);
-      expect(await settled(second)).to.equal(true);
-    });
-
-    it('is released by the reset helper too', async () => {
-      globalState.setInstallationInProgressTrue();
-      const waiting = globalState.whenInstallationReleased();
-
-      globalState.installationInProgressReset();
-
-      expect(await settled(waiting)).to.equal(true);
-    });
-
-    it('forgets the app the install was for once it releases the node', () => {
-      globalState.installationInProgress = true;
-      globalState.installingApp = 'newapp';
-
-      globalState.installationInProgress = false;
-
-      expect(globalState.installingApp).to.equal(null);
-    });
-  });
-
-  // The restore claim. Two restores of one app run the same archive into the same
-  // appdata, so this pair is what makes an app's restore exclusive - and the
-  // boolean is the whole of it: the caller learns from the return value alone
-  // whether the claim is theirs, since a second claim leaves the list looking
-  // exactly as it did after the first.
-  describe('restore claim tests', () => {
-    it('grants the claim to the first caller', () => {
-      expect(globalState.tryStartRestore('app1')).to.equal(true);
-      expect(globalState.restoreInProgress).to.include('app1');
-    });
-
-    it('refuses a second claim on an app already being restored', () => {
-      globalState.tryStartRestore('app1');
-
-      expect(globalState.tryStartRestore('app1')).to.equal(false);
-    });
-
-    it('does not enter the app twice when the second claim is refused', () => {
-      globalState.tryStartRestore('app1');
-      globalState.tryStartRestore('app1');
-
-      const held = globalState.restoreInProgress.filter((app) => app === 'app1');
-      expect(held).to.have.lengthOf(1);
-    });
-
-    it('leaves a claim on a different app alone', () => {
-      globalState.tryStartRestore('app1');
-
-      expect(globalState.tryStartRestore('app2')).to.equal(true);
-      expect(globalState.restoreInProgress).to.include('app1');
-    });
-
-    it('releases the claim so the app can be restored again', () => {
-      globalState.tryStartRestore('app1');
-      globalState.finishRestore('app1');
-
-      expect(globalState.restoreInProgress).to.not.include('app1');
-      expect(globalState.tryStartRestore('app1')).to.equal(true);
-    });
-
-    it('ignores a release for an app that holds no claim', () => {
-      globalState.tryStartRestore('app1');
-      globalState.finishRestore('app2');
-
-      expect(globalState.restoreInProgress).to.include('app1');
+      expect(globalState.heldApps).to.deep.equal([]);
     });
   });
 

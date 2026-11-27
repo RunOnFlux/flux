@@ -299,15 +299,39 @@ async function relay(data, excludeKey) {
 }
 
 /**
+ * Sign a message this node sends, and keep it for a peer that asks for it again.
+ * A caller that records the message signs it, records it, then sends it
+ * (sendToAll), so a peer that links while it is being sent finds it in the state
+ * sync its link starts.
+ * @param {object} dataToBroadcast Data to broadcast.
+ * @returns {Promise<{serialised: string, message: object}|null>} null when this
+ *   node cannot sign as itself
+ */
+async function signBroadcast(dataToBroadcast) {
+  const serialised = await serialiseAndSignFluxBroadcast(dataToBroadcast);
+  if (!serialised) return null;
+  return { serialised, message: keepOwnBroadcast(serialised) };
+}
+
+/**
+ * Send a message signBroadcast signed to all connected peers (both directions).
+ * @param {string} serialised The signed broadcast.
+ * @returns {Promise<void>}
+ */
+async function sendToAll(serialised) {
+  await relay(serialised);
+}
+
+/**
  * Sign once, send to all connected peers (both directions).
  * @param {object} dataToBroadcast Data to broadcast.
+ * @returns {Promise<object|null>} The signed broadcast, null when this node cannot sign
  */
 async function broadcastMessageToAll(dataToBroadcast) {
-  const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  if (!serialisedData) return null;
-  const message = keepOwnBroadcast(serialisedData);
-  await relay(serialisedData);
-  return message;
+  const signed = await signBroadcast(dataToBroadcast);
+  if (!signed) return null;
+  await sendToAll(signed.serialised);
+  return signed.message;
 }
 
 /**
@@ -636,6 +660,8 @@ module.exports = {
   broadcastMessageToIncomingFromUser,
   broadcastMessageToIncomingFromUserPost,
   broadcastMessageToAll,
+  signBroadcast,
+  sendToAll,
   broadcastMessageFromUser,
   broadcastMessageFromUserPost,
   broadcastMessageToRandomOutgoing,

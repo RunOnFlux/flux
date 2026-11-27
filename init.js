@@ -52,8 +52,7 @@ function showQuestions() {
       initial: {
         ipaddress: '${answers.ipaddr}',
         zelid: '${answers.zelid}',
-        testnet: false,
-        development: false,
+        network: 'mainnet',
         apiport: 16127,
         pgpPrivateKey: '',
         pgpPublicKey: '',

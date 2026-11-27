@@ -29,6 +29,10 @@ const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
 const folderStates = require('./folderStates');
 const localChangeCheck = require('./localChangeCheck');
+const syncthingFolderWrites = require('./syncthingFolderWrites');
+const messageHelper = require('../messageHelper');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
+const operationRegistry = require('../utils/operationRegistry');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
 const { componentStateOnOtherHolders, PeerComponent } = require('./peerComponent');
@@ -1059,97 +1063,6 @@ async function findSeedRival(appId, peers, localSocketAddr, liveness, own, { wri
 }
 
 /**
- * Handle first run scenario for an app/component
- * @param {Object} params - Parameters
- * @returns {Promise<Object>} Updated folder config and cache
- */
-async function handleFirstRun(params) {
-  const {
-    appId,
-    containerDataFlags,
-    syncFolder,
-    syncthingFolder,
-    receiveOnlySyncthingAppsCache,
-  } = params;
-
-  if (!syncFolder) {
-    // No sync folder exists - clean install. Declare the stop + local appdata clear
-    // to the reconciler (the sole container/data actuator) so the wipe runs inside
-    // its per-key single-flight and a start can never race it (the S1 data-loss
-    // window the old imperative stop+rm-rf left open).
-    log.info(`handleFirstRun - First run, no sync folder - requesting stop + clean of ${appId}`);
-    decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-    const cache = { numberOfExecutions: 1 };
-
-    // Set cache BEFORE requesting the reset to prevent re-processing as "new"
-    receiveOnlySyncthingAppsCache.set(appId, cache);
-
-    appReconciler.requestStopAndClearData(appId, 'syncthing first-run clean install');
-
-    return { syncthingFolder, cache };
-  }
-
-  // Sync folder exists - check container status
-  log.info('handleFirstRun - First run, sync folder exists - checking container status');
-  let containerRunning = false;
-
-  try {
-    const containerInspect = await dockerService.dockerContainerInspect(appId);
-    containerRunning = containerInspect.State.Running;
-    log.info(`handleFirstRun - ${appId} running status: ${containerRunning}`);
-  } catch (error) {
-    log.warn(`handleFirstRun - Could not inspect ${appId}: ${error.message}`);
-  }
-
-  if (containerRunning) {
-    // App is running - this means FluxOS restart, not computer restart
-    // Skip processing - keep existing state
-    log.info(`handleFirstRun - ${appId} is running, FluxOS restart detected, keeping existing state`);
-    // An r: component running here is ready, and its folder sends.
-    decideType(syncthingFolder, containerDataFlags, 'sendreceive');
-    const cache = { restarted: true };
-    return { syncthingFolder, cache };
-  }
-
-  // Container is stopped - computer was restarted
-  // Set to receiveonly mode to wait for sync before starting
-  log.info(`handleFirstRun - ${appId} is stopped, computer restart detected, setting to receiveonly mode`);
-  decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-  const cache = {
-    restarted: false,
-    numberOfExecutions: 1,
-  };
-
-  return { syncthingFolder, cache };
-}
-
-/**
- * Handle skipped app on second encounter
- * @param {Object} params - Parameters
- * @returns {Promise<Object>} Updated folder config and cache
- */
-async function handleSkippedAppSecondEncounter(params) {
-  const {
-    appId,
-    containerDataFlags,
-    syncthingFolder,
-    receiveOnlySyncthingAppsCache,
-  } = params;
-
-  log.info(`handleSkippedAppSecondEncounter - ${appId} was skipped on first encounter, now processing as new app`);
-  decideType(syncthingFolder, containerDataFlags, 'receiveonly');
-  const cache = { numberOfExecutions: 1 };
-
-  // Set cache BEFORE requesting the reset to prevent re-processing as "new"
-  receiveOnlySyncthingAppsCache.set(appId, cache);
-
-  // stop + local appdata clear is declared to the reconciler (the sole actuator)
-  appReconciler.requestStopAndClearData(appId, 'syncthing skipped-app second encounter');
-
-  return { syncthingFolder, cache };
-}
-
-/**
  * Check if any remote peers have this folder in sendreceive mode and fully synced
  * @param {string} folderId - Syncthing folder ID
  * @returns {Promise<boolean>} True if at least one peer has folder in sendreceive and synced
@@ -1331,6 +1244,130 @@ async function nudgeFolderDevices(folderId) {
   }
 }
 
+// How long a scan asked for a held folder may take. Syncthing has scanned the folder
+// once already as it was unpaused, so this one checks files rather than reads them.
+const HELD_SCAN_TIMEOUT_MS = 10 * 60 * 1000;
+// folder id -> the record time a scan asked for that folder is running for
+const heldScans = new Map();
+
+/**
+ * Syncthing's status of a held folder once it describes the disk as the restore left
+ * it, else null. Syncthing counts local changes only in a receiving folder and only
+ * once it has scanned it, and it scans no paused folder; the restore wrote with the
+ * folder paused, after its record was set. So the counts hold once a scan asked for
+ * with the folder receiving and unpaused has finished: the first pass that finds it so
+ * asks syncthing for one and returns, syncthing's answer marks the record scanned, and
+ * the status is read after the record says so. A read that fails, or a record that
+ * carries no time, says null.
+ * @param {string} appId Folder id.
+ * @returns {Promise<object|null>} getFolderSyncCompletion's answer, idle
+ */
+async function statusScannedSinceRestore(appId) {
+  let folder;
+  let record;
+  try {
+    [folder, record] = await Promise.all([
+      syncthingService.getConfigFolders(appId),
+      appsRuntimeState.unfinishedRestore(appId),
+    ]);
+  } catch (error) {
+    log.warn(`healHeldFolder - ${appId}: whether syncthing has scanned it since the restore could not be read: ${error.message}`);
+    return null;
+  }
+  if (folder?.type !== 'receiveonly' || folder.paused === true || record?.at == null) return null;
+  if (!record.scanned) {
+    if (!heldScans.has(appId)) {
+      heldScans.set(appId, record.at);
+      syncthingService.scanFolder(appId, { timeoutMs: HELD_SCAN_TIMEOUT_MS })
+        .then(() => appsRuntimeState.setRestoreScanned(appId, record.at))
+        .catch((error) => log.warn(`healHeldFolder - ${appId}: the scan asked for since the restore did not finish: ${error.message}`))
+        .finally(() => heldScans.delete(appId));
+    }
+    return null;
+  }
+  const status = await getFolderSyncCompletion(appId);
+  return status?.state === 'idle' ? status : null;
+}
+
+/**
+ * healHeldFolder's pass, run holding the app.
+ * @param {string} appId Folder id.
+ * @returns {Promise<boolean>} true once the record is cleared
+ */
+async function healHolding(appId) {
+  const syncStatus = await statusScannedSinceRestore(appId);
+  if (!syncStatus) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
+    return false;
+  }
+  const localChanges = receiveOnlyChanges(syncStatus);
+  const aPeerHasData = Boolean(await findSyncedPeer(appId));
+  if (aPeerHasData === true && localChanges > 0) {
+    log.warn(`healHeldFolder - ${appId} holds ${localChanges} local changes an unfinished restore left; reverting to the copy its peers hold`);
+    try {
+      await syncthingFolderWrites.exclusive([appId], async () => messageHelper.dataOrThrow(await syncthingService.dbRevert(appId)));
+    } catch (error) {
+      log.error(`healHeldFolder - ${appId}: reverting what an unfinished restore left failed: ${error.message}`);
+    }
+  }
+  if (!(syncStatus?.isSynced && aPeerHasData === true && localChanges === 0)) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
+    return false;
+  }
+  try {
+    await appsRuntimeState.setRestoreUnfinished(appId, false);
+  } catch (error) {
+    log.error(`healHeldFolder - ${appId} has healed, but its restore record could not be cleared: ${error.message}; it stays held`);
+    return false;
+  }
+  fluxEventBus.count('syncthing:restoreUnfinished', appId, 'healed');
+  log.info(`healHeldFolder - ${appId} has synced from a peer that holds the data; the unfinished restore no longer holds it`);
+  return true;
+}
+
+/**
+ * One pass over a folder an unfinished restore holds. Every local change in it is
+ * that restore's damage: when a peer holds the data they are reverted to the
+ * peers' copy, and once the folder is synced, a peer holds the data and no local
+ * change is left, the record is cleared. With no such peer nothing heals it: a
+ * restore that finishes, or its owner's start, releases it. Nothing is reverted
+ * or cleared on counts syncthing has not scanned since the restore.
+ *
+ * The peer is one findSyncedPeer shows holds the data, never this node: a folder
+ * sending here says nothing about where else its data is.
+ *
+ * The heal is an operation on the app: it holds the app from its first read to the
+ * clear, so no restore sets a record it then clears. While another operation holds
+ * the app it does not run, and the folder stays held. It holds the app under the
+ * app's name, as a backup or restore does: a v1-3 app's folder id is the app's
+ * docker name.
+ * @param {string} appId Folder id.
+ * @returns {Promise<boolean>} true once the record is cleared
+ */
+async function healHeldFolder(appId) {
+  const appName = appId.includes('_') ? appId.split('_')[1] : dockerService.getBaseAppName(appId);
+  const lease = operationRegistry.acquire(appName, 'heal', 'healHeldFolder');
+  if (!lease) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'held');
+    return false;
+  }
+  try {
+    return await healHolding(appId);
+  } finally {
+    operationRegistry.release(appName, lease);
+  }
+}
+
+/**
+ * @param {object} syncStatus getFolderSyncCompletion's answer
+ * @returns {number} every receive-only local change the folder holds: files,
+ *   directories, symlinks and deletions
+ */
+function receiveOnlyChanges(syncStatus) {
+  return (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0)
+    + (syncStatus.receiveOnlyChangedSymlinks || 0) + (syncStatus.receiveOnlyChangedDeletes || 0);
+}
+
 /**
  * Reverts a synced receiveonly folder's local changes to the cluster's version.
  *
@@ -1371,14 +1408,15 @@ async function nudgeFolderDevices(folderId) {
 async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCurrent, othersRunTheApp }) {
   const cache = folderCache;
   if (!syncStatus?.isSynced) return false;
-  const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
-  if (changed === 0) {
+  // a receive-only folder whose only local changes are deletions reads as synced
+  if (receiveOnlyChanges(syncStatus) === 0) {
     delete cache.keepingChanges;
     delete cache.localChangeCheck;
     return false;
   }
   const files = syncStatus.receiveOnlyChangedFiles || 0;
   const directories = syncStatus.receiveOnlyChangedDirectories || 0;
+  const deletes = syncStatus.receiveOnlyChangedDeletes || 0;
   const devices = (await syncthingService.getConfigFolders(appId).catch(() => null))?.devices;
   if (!Array.isArray(devices)) {
     log.warn(`revertLocalChangesIfSynced - ${appId}: could not read which devices share the folder; neither reverting nor promoting this pass`);
@@ -1393,9 +1431,9 @@ async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCu
   const keep = (reason, why) => {
     if (cache.keepingChanges === reason) return false;
     cache.keepingChanges = reason;
-    log.warn(`revertLocalChangesIfSynced - ${appId} ${why} (${files} files, ${directories} directories changed); keeping its changes, a revert would delete them`);
+    log.warn(`revertLocalChangesIfSynced - ${appId} ${why} (${files} files, ${directories} directories changed, ${deletes} deleted); keeping its changes, a revert would delete them`);
     fluxEventBus.publish('syncthing:localChangesKept', {
-      folder: appId, files, directories, reason,
+      folder: appId, files, directories, deletes, reason,
     });
     return false;
   };
@@ -1417,7 +1455,7 @@ async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCu
   }
   delete cache.waitingOnHolders;
   delete cache.keepingChanges;
-  localChangeCheck.revert(appId, cache, answer, isCurrent, { files, directories });
+  localChangeCheck.revert(appId, cache, answer, isCurrent, { files, directories, deletes });
   return true;
 }
 
@@ -1475,6 +1513,9 @@ async function electedAppWriter(siblings, electionList, localSocketAddr, livenes
  * @param {Object} params - Parameters
  * @param {string[]} [params.electedSiblings] Folder ids of the app's other g:
  *   components, for a g: folder; empty for any other.
+ * @param {boolean} params.restoreHeld Whether an unfinished restore holds the
+ *   folder's component, as read for this pass.
+ * @param {Function} [params.onHealed] Called once this pass clears that record.
  * @returns {Promise<Object>} Updated folder config and cache
  */
 async function handleReceiveOnlyTransition(params) {
@@ -1490,6 +1531,8 @@ async function handleReceiveOnlyTransition(params) {
     electedSiblings = [],
     receiveOnlySyncthingAppsCache,
     othersRunTheApp = null,
+    restoreHeld,
+    onHealed = () => {},
   } = params;
 
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
@@ -1526,6 +1569,23 @@ async function handleReceiveOnlyTransition(params) {
   // a peer too old to answer at all - and the folder is not one this node has yet to
   // look at.
   folderStates.measured(appId, holdings);
+  // A restore that stopped part way left this folder neither copy, and every local
+  // change in it - deletions included - is that damage. It is ready only once it
+  // has synced from a peer that holds the data and keeps no local change of its
+  // own; until then it stays receiveonly and not ready, whatever else this cycle
+  // would decide. With no such peer nothing heals it: a restore that finishes, or
+  // its owner's start, releases it.
+  if (restoreHeld) {
+    if (!(await healHeldFolder(appId))) {
+      // a held folder seeds nothing: it claims no holdings, so no peer defers to it,
+      // and a mark it made before the restore goes too
+      folderStates.measured(appId, null);
+      globalState.seedMarks.delete(appId);
+      decideType(syncthingFolder, containerDataFlags, 'receiveonly');
+      return { syncthingFolder, cache };
+    }
+    onHealed();
+  }
   // Designated-leader election, debounced: require leadership to hold for
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
   // doesn't flip a follower to leader.
@@ -1996,7 +2056,12 @@ async function handleReceiveOnlyTransition(params) {
 }
 
 /**
- * Handle new app that was never processed
+ * A copy with no recorded progress, or an r: copy whose folder syncthing does not
+ * have. An r: copy has caught up only while its folder sends, so it catches up
+ * before it runs: its folder receives and its container is stopped. Whether a g:
+ * component runs is its election's: running here, it is the primary and its copy
+ * is the source, so it is ready; stopped, it is a standby, ready once it shows it
+ * has caught up.
  * @param {Object} params - Parameters
  * @returns {Promise<Object>} Updated folder config and cache
  */
@@ -2008,16 +2073,25 @@ async function handleNewApp(params) {
     receiveOnlySyncthingAppsCache,
   } = params;
 
-  log.info(`handleNewApp - ${appId} NOT in cache. requesting stop + clean of ${appId}`);
   decideType(syncthingFolder, containerDataFlags, 'receiveonly');
+  if (containerDataFlags.includes('g')) {
+    const running = await dockerService.dockerContainerInspect(appId)
+      .then((inspect) => inspect?.State?.Running === true)
+      .catch((error) => {
+        log.warn(`handleNewApp - ${appId} could not be inspected, so it is taken as a standby: ${error.message}`);
+        return false;
+      });
+    log.info(`handleNewApp - ${appId} has no recorded progress and ${running ? 'runs here as its primary, so it is ready' : 'is a standby, ready once it has caught up'}`);
+    return { syncthingFolder, cache: running ? { restarted: true } : { restarted: false, numberOfExecutions: 1 } };
+  }
+
+  log.info(`handleNewApp - ${appId} has no recorded progress, receiving its data before it runs`);
   const cache = { numberOfExecutions: 1 };
 
-  // Set cache BEFORE requesting the reset so subsequent monitoring cycles don't
-  // re-process this app as "new"
+  // Set before the stop, so the next pass does not process it as new again
   receiveOnlySyncthingAppsCache.set(appId, cache);
 
-  // stop + local appdata clear is declared to the reconciler (the sole actuator)
-  appReconciler.requestStopAndClearData(appId, 'syncthing new app clean install');
+  appReconciler.setControllerDesired(appId, 'stopped', 'syncthing: receives its data before it runs');
 
   return { syncthingFolder, cache };
 }
@@ -2061,9 +2135,18 @@ async function ensureContainerRunning(appId, containerDataFlags) {
  * Manages the transition from receiveonly to sendreceive mode
  *
  * @param {Object} params - All required parameters
- * @returns {Promise<Object>} Updated folder config and cache
+ * @param {boolean} params.restoreHeld Whether an unfinished restore holds the
+ *   folder's component, as the caller read it for this pass.
+ * @returns {Promise<Object>} Updated folder config and cache, and `restoreHeld`:
+ *   whether the record still holds it once this pass is done
  */
 async function manageFolderSyncState(params) {
+  let restoreHeld = params.restoreHeld === true;
+  const result = await decideFolderSyncState({ ...params, restoreHeld, onHealed: () => { restoreHeld = false; } });
+  return { ...result, restoreHeld };
+}
+
+async function decideFolderSyncState(params) {
   const {
     appId,
     identifier,
@@ -2079,6 +2162,8 @@ async function manageFolderSyncState(params) {
     installedAppName,
     liveness,
     electedSiblings = [],
+    restoreHeld,
+    onHealed,
   } = params;
 
   // One per pass per folder, whatever the pass decides: a harness suite counts
@@ -2094,7 +2179,30 @@ async function manageFolderSyncState(params) {
   // turns on whether another holder runs the app. Every holder of an r: folder runs it.
   const othersRunTheApp = containerDataFlags.includes('g') ? othersHold : null;
 
-  // Check if folder already exists and is in sendreceive mode
+  // A folder an unfinished restore holds takes the transition on every pass,
+  // whatever state it is in - sending, settled, just started - so only healing
+  // from a peer that holds the data, a restore that finishes, or its owner's
+  // start releases it; until then it receives.
+  if (restoreHeld) {
+    const existing = receiveOnlySyncthingAppsCache.get(appId);
+    const cache = existing?.restarted === false ? existing : { restarted: false, numberOfExecutions: 0 };
+    return handleReceiveOnlyTransition({
+      appId,
+      cache,
+      runningAppList: await appLocation(installedAppName),
+      localSocketAddr,
+      containerDataFlags,
+      unsyncedSubdirs,
+      syncthingFolder,
+      liveness,
+      electedSiblings,
+      receiveOnlySyncthingAppsCache,
+      othersRunTheApp,
+      restoreHeld,
+      onHealed,
+    });
+  }
+
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
   const sendingSingleWriter = folderAlreadySyncing && containerDataFlags.includes('g');
   const held = sendingSingleWriter ? await appQueryService.holdsComponent(appId) : null;
@@ -2135,29 +2243,29 @@ async function manageFolderSyncState(params) {
     return { syncthingFolder, cache };
   }
 
-  // First run scenario
-  if (syncthingAppsFirstRun) {
-    const result = await handleFirstRun({
+  // With no folder, syncthing holds nothing that kept an r: copy in step, whatever
+  // this process recorded of it.
+  if (!syncFolder && !containerDataFlags.includes('g')) {
+    log.info(`manageFolderSyncState - ${appId} has no syncthing folder`);
+    return handleNewApp({
       appId,
       containerDataFlags,
-      syncFolder,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
-    return result;
   }
 
   const cache = receiveOnlySyncthingAppsCache.get(appId);
 
   // Second encounter of a skipped app
   if (cache?.firstEncounterSkipped) {
-    const result = await handleSkippedAppSecondEncounter({
+    log.info(`manageFolderSyncState - ${appId} was skipped on first encounter, now processing as new app`);
+    return handleNewApp({
       appId,
       containerDataFlags,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
-    return result;
   }
 
   // App in cache but not yet restarted - handle transition
@@ -2175,41 +2283,27 @@ async function manageFolderSyncState(params) {
       electedSiblings,
       receiveOnlySyncthingAppsCache,
       othersRunTheApp,
+      restoreHeld,
+      onHealed,
     });
     return result;
   }
 
   // App not in cache at all
   if (!cache) {
-    // If syncFolder doesn't exist, this is a NEW app installation - process it immediately
-    // regardless of syncthingAppsFirstRun flag to prevent data loss
-    if (!syncFolder) {
-      log.info(`manageFolderSyncState - ${appId} NOT in cache but syncFolder doesn't exist, treating as new app installation`);
-      const result = await handleNewApp({
-        appId,
-        containerDataFlags,
-        syncthingFolder,
-        receiveOnlySyncthingAppsCache,
-      });
-      return result;
-    }
-
-    // syncFolder exists but not in cache and not first run - skip on first encounter
-    // This handles apps that existed before monitoring but weren't tracked in cache
-    if (!syncthingAppsFirstRun) {
+    // A folder that exists with no recorded progress, met after the first pass, is
+    // passed over once before it is processed.
+    if (syncFolder && !syncthingAppsFirstRun) {
       log.info(`manageFolderSyncState - ${appId} NOT in cache and not first run, marking for skip on first encounter`);
       const skipCache = { firstEncounterSkipped: true };
       return { syncthingFolder, cache: skipCache, skipProcessing: true };
     }
-
-    // First run and not in cache - clean install
-    const result = await handleNewApp({
+    return handleNewApp({
       appId,
       containerDataFlags,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
-    return result;
   }
 
   // Default case - ensure container is running
@@ -2232,7 +2326,17 @@ async function manageFolderSyncState(params) {
   return { syncthingFolder, cache: null };
 }
 
+/**
+ * healHeldFolder for a folder the state machine does not run for (s:).
+ * @param {string} appId Folder id.
+ * @returns {Promise<boolean>} true once the record is cleared
+ */
+async function healHeldSharedFolder(appId) {
+  return healHeldFolder(appId);
+}
+
 module.exports = {
+  healHeldSharedFolder,
   manageFolderSyncState,
   getFolderSyncCompletion,
   probeFolderSyncCompletion,

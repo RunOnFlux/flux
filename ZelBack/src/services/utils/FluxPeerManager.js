@@ -1,6 +1,7 @@
 const { EventEmitter } = require('events');
 const config = require('config');
 const log = require('../../lib/log');
+const { callerAddress } = require('./apiSocket');
 const serviceHelper = require('../serviceHelper');
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./FluxPeerSocket');
 const { DEFAULT_API_PORT, compareSocketAddresses } = require('./socketAddressUtils');
@@ -533,6 +534,18 @@ class FluxPeerManager extends EventEmitter {
     const count = this.#evictAll(CLOSE_CODES.DEAD_CONNECTION, 'address moved');
     log.info(`Dropped all ${count} peers, still accepting connections`);
     return count;
+  }
+
+  /**
+   * Drops the peers this node dialled, so they re-dial it and learn its new port. Inbound peers
+   * reached a port that is still served.
+   * @returns {number} how many peers were dropped
+   */
+  dropOutboundConnections() {
+    const keys = [...this.#outboundKeys];
+    keys.forEach((key) => this.evict(key, CLOSE_CODES.DEAD_CONNECTION, 'port moved'));
+    log.info(`Dropped ${keys.length} dialled peers after a port move`);
+    return keys.length;
   }
 
   /**
@@ -1079,6 +1092,17 @@ class FluxPeerManager extends EventEmitter {
   // --- Close code classification ---
 
   /**
+   * How many inbound connections a node takes: it grows with the network, within
+   * four and nine times the inbound minimum, and never falls below the network's floor.
+   * @param {number} numberOfFluxNodes
+   * @returns {number}
+   */
+  static incomingCap(numberOfFluxNodes) {
+    const { minIncoming, incomingCapFloor } = config.fluxapps;
+    return Math.max(4 * minIncoming, Math.min(numberOfFluxNodes / 160, 9 * minIncoming), incomingCapFloor);
+  }
+
+  /**
    * Should we queue this peer for reconnection?
    * Whitelist approach: only reconnect for codes that mean "peer went away unexpectedly".
    * Everything else (policy, auth, admin close, duplicate) means "don't retry".
@@ -1170,9 +1194,10 @@ class FluxPeerManager extends EventEmitter {
   // --- Broadcast ---
 
   /**
-   * Send data to peers, with optional direction filter and exclusion.
-   * When sending to all peers, sends outbound first, then waits 500ms before inbound
-   * to prevent broadcast storms.
+   * Send data to every connected peer, or to the peers of one direction, skipping one.
+   * The peers are taken once, both directions together: a peer that links while the
+   * sends are under way is not among them, and learns what was sent from the state
+   * sync its link starts, which serves what this node recorded before sending.
    * @param {string|Buffer} data
    * @param {object} [options]
    * @param {string} [options.direction] - DIRECTION.INBOUND or DIRECTION.OUTBOUND
@@ -1181,32 +1206,15 @@ class FluxPeerManager extends EventEmitter {
    */
   async broadcast(data, options = {}) {
     const { direction, exclude, delayMs = 25 } = options;
-    if (direction) {
-      await this.#broadcastToGroup(data, direction, exclude, delayMs);
-    } else {
-      await this.#broadcastToGroup(data, DIRECTION.OUTBOUND, exclude, delayMs);
-      await serviceHelper.delay(500);
-      await this.#broadcastToGroup(data, DIRECTION.INBOUND, exclude, delayMs);
-    }
-  }
-
-  /**
-   * Send data to peers in a single direction.
-   * @param {string|Buffer} data
-   * @param {string} direction - DIRECTION.INBOUND or DIRECTION.OUTBOUND
-   * @param {string} [exclude] - peer key to skip
-   * @param {number} delayMs - delay between sends
-   * @private
-   */
-  async #broadcastToGroup(data, direction, exclude, delayMs) {
     // The keys are taken once, and each is looked up again at the moment it is
     // sent to. This loop awaits between sends, so the peer map is free to change
     // under it - a peer dropped by the monitor, a peer this loop evicts itself -
     // and a live iterator would make the result depend on when that happened.
     // Looking the key up again keeps the one behaviour that matters: a peer that
     // has gone while we were delaying is skipped rather than sent to.
-    const keys = direction === DIRECTION.INBOUND ? [...this.#inboundKeys] : [...this.#outboundKeys];
-    for (const key of keys) {
+    const outbound = direction === DIRECTION.INBOUND ? [] : [...this.#outboundKeys];
+    const inbound = direction === DIRECTION.OUTBOUND ? [] : [...this.#inboundKeys];
+    for (const key of [...outbound, ...inbound]) {
       if (exclude && key === exclude) continue;
       const peer = this.#peers.get(key);
       if (!peer) continue;
@@ -1217,7 +1225,7 @@ class FluxPeerManager extends EventEmitter {
         }
       } catch (e) {
         try {
-          const code = direction === DIRECTION.OUTBOUND ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
+          const code = peer.direction === DIRECTION.OUTBOUND ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
           // Evicted, not closed. send() returns false only when the socket is
           // already not open, so this path is reached exactly when close() can
           // achieve nothing: no frame goes out, onclose has been and gone or
@@ -1378,11 +1386,7 @@ class FluxPeerManager extends EventEmitter {
           metadata.remoteFluxUptime = Number(req.headers['x-flux-uptime']);
         }
       }
-      const maxPeers = 4 * config.fluxapps.minIncoming;
-      const maxNumberOfConnections = this.numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming
-        ? this.numberOfFluxNodes / 160
-        : 9 * config.fluxapps.minIncoming;
-      const maxCon = Math.max(maxPeers, maxNumberOfConnections);
+      const maxCon = FluxPeerManager.incomingCap(this.numberOfFluxNodes);
       // An inbound connection still in its link handshake holds a socket and
       // its queued frames as surely as one that has joined.
       if (this.inboundCount + this.#handshakingInboundCount() > maxCon) {
@@ -1394,7 +1398,7 @@ class FluxPeerManager extends EventEmitter {
 
       let ipv4Peer;
       try {
-        ipv4Peer = (req.socket.remoteAddress || '').replace('::ffff:', '');
+        ipv4Peer = (callerAddress(req) || '').replace('::ffff:', '');
       } catch (error) {
         log.error(error);
         return;

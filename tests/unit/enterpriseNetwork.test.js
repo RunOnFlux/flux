@@ -538,6 +538,24 @@ describe('enterpriseNetwork', () => {
       expect(firstCall[4]).to.equal(true);
     });
 
+    // Removals of different apps run at once: each app has its own manager.
+    it('sends every removal before any of them ends, and throws a removal that threw once all have ended', async () => {
+      const ends = Promise.withResolvers();
+      const removeAppLocally = sinon.stub().callsFake((name) => (name === 'drop1' ? Promise.reject(new Error('docker gone')) : ends.promise));
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+        dbHelper: installedAppsStub([{ name: 'drop1', owner: 'stranger' }, { name: 'drop2', owner: null }]),
+        appUninstaller: { removeAppLocally },
+      });
+
+      const sweep = m.cleanupOwnershipViolations().then(() => null, (error) => error);
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(removeAppLocally.getCalls().map((call) => call.args[0])).to.deep.equal(['drop1', 'drop2']);
+      ends.resolve('removed');
+      expect((await sweep)?.message).to.equal('docker gone');
+    });
+
     it('enterprise-network node: uninstalls an app owned by a valid enterprise owner NOT mapped to THIS node (finding #9)', async () => {
       // pubA is mapped to ['ownerA'] only. ownerB is a valid enterprise owner
       // (in the global union) but is NOT allowed on this node, so its app must be

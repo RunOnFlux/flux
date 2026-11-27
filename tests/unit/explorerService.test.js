@@ -21,6 +21,8 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const proxyquire = require('proxyquire');
+const { networks, configWith } = require('./fixtures/networkConfig');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -648,6 +650,35 @@ describe('explorerService tests', () => {
       });
     });
 
+    describe('the network\'s skip ranges', () => {
+      const block = {
+        tx: [], height: 700000, hash: 'h700000', previousblockhash: 'h699999', confirmations: 2, time: 1700000000,
+      };
+
+      beforeEach(() => {
+        daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: block });
+      });
+
+      it('skips the heights a range names', async () => {
+        const step = await explorerService.processBlock(700000);
+
+        expect(step).to.deep.equal({ next: explorerService.Step.block(862002), waitMs: 0 });
+        sinon.assert.neverCalledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 700000 } });
+      });
+
+      it('scans every height on a network with no range', async () => {
+        const labExplorer = proxyquire('../../ZelBack/src/services/explorerService', {
+          config: configWith({ fluxapps: { explorerInsightSkipRanges: networks.labnet.fluxapps.explorerInsightSkipRanges } }),
+        });
+
+        const step = await labExplorer.processBlock(700000);
+
+        expect(step).to.deep.equal({ next: labExplorer.Step.block(700001), waitMs: 0 });
+        sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 700000 } });
+      });
+    });
+
     describe('a chain reorganisation', () => {
       // Heights past the insight explorer's skip, processed behind the tip so no
       // tip work runs.
@@ -891,6 +922,41 @@ describe('explorerService tests', () => {
         sinon.assert.calledWithMatch(daemonServiceBlockchainRpcsStub, { params: { hashheight: base + 2 } });
         sinon.assert.notCalled(getBlockHashStub);
         sinon.assert.notCalled(removeDocumentsStub);
+      });
+    });
+
+    describe('a block fluxd does not give', () => {
+      const pollIntervalMs = config.fluxapps.explorerPollIntervalMs;
+      const blockHeight = 100000;
+
+      beforeEach(() => {
+        daemonServiceMiscRpcsStub.returns({ data: { synced: true, height: blockHeight } });
+      });
+
+      it('is asked for again at the next poll, with nothing written, while fluxd\'s chain does not reach it', async () => {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'error', data: { code: -8, name: 'RPCError', message: 'Block height out of range' } });
+
+        const step = await explorerService.processBlock(blockHeight);
+
+        expect(step).to.deep.equal({ next: explorerService.Step.poll(), waitMs: pollIntervalMs });
+        sinon.assert.notCalled(dbStubUpdate);
+      });
+
+      it('is recovered from one poll interval later when fluxd refuses it for another reason', async () => {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'error', data: { code: -28, name: 'RPCError', message: 'Loading block index...' } });
+
+        const step = await explorerService.processBlock(blockHeight);
+
+        expect(step).to.deep.equal({ next: explorerService.Step.recover(true, false), waitMs: pollIntervalMs });
+      });
+
+      it('is recovered from when out of range is raised after the block was fetched', async () => {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: { tx: [], height: blockHeight, confirmations: 1 } });
+        sinon.stub(fluxnodeAddressRecord, 'recordBlock').rejects(Object.assign(new Error('Block height out of range'), { code: -8 }));
+
+        const step = await explorerService.processBlock(blockHeight);
+
+        expect(step).to.deep.equal({ next: explorerService.Step.recover(true, false), waitMs: pollIntervalMs });
       });
     });
   });

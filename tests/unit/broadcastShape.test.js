@@ -1,11 +1,15 @@
 const { expect } = require('chai');
-const { wellFormed, FIXED_SIZE_MAX_BYTES } = require('../../ZelBack/src/services/utils/broadcastShape');
+const { wellFormed, isAppRunningEntry, FIXED_SIZE_MAX_BYTES } = require('../../ZelBack/src/services/utils/broadcastShape');
+
+const without = (data, field) => Object.fromEntries(Object.entries(data).filter(([key]) => key !== field));
+
+const HASH = 'a'.repeat(64);
 
 describe('broadcastShape', () => {
   const broadcastedAt = 1793960000000;
   const ip = '1.2.3.4:16127';
   const running = {
-    type: 'fluxapprunning', version: 2, ip, broadcastedAt, osUptime: 10, staticIp: true, apps: [{ name: 'a', hash: 'h' }],
+    type: 'fluxapprunning', version: 2, ip, broadcastedAt, osUptime: 10, staticIp: true, apps: [{ name: 'a', hash: HASH, runningSince: '2026-11-01T00:00:00.000Z' }],
   };
   const shapes = {
     running,
@@ -17,6 +21,9 @@ describe('broadcastShape', () => {
     },
     removed: {
       type: 'fluxappremoved', version: 1, ip, broadcastedAt, appName: 'a',
+    },
+    'removed together': {
+      type: 'fluxappremoved', version: 2, ip, broadcastedAt, apps: ['a', 'b'],
     },
     sigterm: {
       type: 'fluxnodesigterm', version: 1, ip, broadcastedAt,
@@ -46,22 +53,52 @@ describe('broadcastShape', () => {
     ['an address that is not text', { ...running, ip: { $ne: '' } }],
     ['an uptime that is not a number', { ...running, osUptime: { $add: [1, 2] } }],
     ['a static flag that is not a flag', { ...running, staticIp: '$ip' }],
-    ['a running time that is not a time', { ...running, runningSince: { $add: [1, 2] } }],
-    ['an app whose running time is not a time', { ...running, apps: [{ name: 'a', hash: 'h', runningSince: {} }] }],
+    ['a running message with a field no running message carries', { ...running, runningSince: '2026-11-01T00:00:00.000Z' }],
+    ['a running message without its uptime', without(running, 'osUptime')],
+    ['a running message without its static flag', without(running, 'staticIp')],
+    ['an app whose running time is not text', { ...running, apps: [{ name: 'a', hash: HASH, runningSince: 5 }] }],
+    ['an app without a hash', { ...running, apps: [...running.apps, { name: 'b', runningSince: '2026-11-01T00:00:00.000Z' }] }],
+    ['an app with an empty hash', { ...running, apps: [{ ...running.apps[0], hash: '' }] }],
+    ['an app with a field no app carries', { ...running, apps: [{ ...running.apps[0], extra: 1 }] }],
+    ['an app that is not an object', { ...running, apps: [...running.apps, 'b'] }],
+    ['a running message naming more apps than a node may hold', { ...running, apps: Array.from({ length: 201 }, () => running.apps[0]) }],
+    ['a version 1 removal with a field no removal carries', { ...shapes.removed, apps: 'x' }],
+    ['a version 1 removal naming its app as a list', { ...shapes.removed, apps: ['a'] }],
+    ['a version 2 removal with a field no removal carries', { ...shapes['removed together'], appName: 'a' }],
+    ['a removal of an unknown version', { ...shapes.removed, version: 3 }],
+    ['an app whose name is not an app\'s name', { ...running, apps: [{ ...running.apps[0], name: 'bad name' }] }],
+    ['an app whose name is longer than an app\'s may be', { ...running, apps: [{ ...running.apps[0], name: 'a'.repeat(64) }] }],
+    ['an app whose hash is not a specification\'s hash', { ...running, apps: [{ ...running.apps[0], hash: 'h' }] }],
+    ['an app whose running time is not as toISOString writes it', { ...running, apps: [{ ...running.apps[0], runningSince: '2026-11-01' }] }],
+    ['a running message from an address that is not a node\'s', { ...running, ip: 'x'.repeat(2000) }],
+    ['a removal naming an app by a name no app may have', { ...shapes.removed, appName: '-a' }],
+    ['a removal together naming an app by a name no app may have', { ...shapes['removed together'], apps: ['a', 'a'.repeat(64)] }],
+    ['a removal from an address that is not a node\'s', { ...shapes['removed together'], ip: 'not an address' }],
     ['apps that are not a list', { ...running, apps: {} }],
     ['an unknown version', { ...running, version: 3 }],
     ['an install error that is not text', { ...shapes['install error'], error: { $add: [1, 2] } }],
+    ['a removal naming no app', { ...shapes['removed together'], apps: [] }],
+    ['a removal naming an app that is not text', { ...shapes['removed together'], apps: ['a', { $ne: '' }] }],
+    ['a removal naming more apps than a node may hold', { ...shapes['removed together'], apps: Array.from({ length: 201 }, (_, i) => `app${i}`) }],
   ].forEach(([name, data]) => {
     it(`refuses ${name}`, () => {
       expect(wellFormed(data)).to.equal(false);
     });
   });
 
-  it('leaves a running app it cannot store to the store, as one entry refused', () => {
-    expect(wellFormed({ ...running, apps: [{ name: 1 }, { name: 'a', hash: 'h' }] })).to.equal(true);
+  it('takes an app\'s name of the longest an app\'s may be', () => {
+    expect(wellFormed({ ...running, apps: [{ ...running.apps[0], name: 'a'.repeat(63) }] })).to.equal(true);
+    expect(wellFormed({ ...shapes['removed together'], apps: ['a'.repeat(63), 'b-c'] })).to.equal(true);
   });
 
-  ['sigterm', 'removed', 'ip changed'].forEach((name) => {
+  it('takes an app entry that is exactly a name, a hash and a running time, and no other', () => {
+    expect(isAppRunningEntry(running.apps[0])).to.equal(true);
+    expect(isAppRunningEntry({ name: 'a', hash: HASH })).to.equal(false);
+    expect(isAppRunningEntry(null)).to.equal(false);
+    expect(isAppRunningEntry(['a', 'h', 't'])).to.equal(false);
+  });
+
+  ['sigterm', 'ip changed'].forEach((name) => {
     it(`refuses a ${name} message over the fixed size, and takes one at it`, () => {
       const data = shapes[name];
       const room = FIXED_SIZE_MAX_BYTES - JSON.stringify({ ...data, padding: '' }).length;

@@ -1,4 +1,5 @@
 {
   "timeout": 60000,
-  "slow": 5000
+  "slow": 5000,
+  "require": ["./framework/http-client.js"]
 }

@@ -434,6 +434,9 @@ const state = {
   // The unpaid-message allowances and submitter ranges. null is the document absent, so a
   // node uses its release defaults.
   unpaidAllowances: null,
+  // Whether a node running in a container is held out of service. null is the document
+  // absent, which is the default: every harness node runs in a container.
+  containerDos: null,
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
   // The syncthing the node image ships, read from the repository the image was built
@@ -571,6 +574,7 @@ function resignPolicy({ bumpSeq = true } = {}) {
       ...(state.udpPortDos === null ? {} : { udpportdos: state.udpPortDos }),
       ...(state.udpInstallRefusalOff === null ? {} : { udpinstallrefusaloff: state.udpInstallRefusalOff }),
       ...(state.unpaidAllowances === null ? {} : { unpaidallowances: state.unpaidAllowances }),
+      ...(state.containerDos === null ? {} : { containerdos: state.containerDos }),
     },
     // Content-addressed, as the real publisher does it: the plain name is mutable and means
     // "the current table", so the bundle names the hash a fetch should produce. Derived from
@@ -823,14 +827,17 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
   const action = String(req.get('SOAPAction') || '').replace(/"/g, '').split('#')[1] || '';
   const arg = (name) => (String(req.body).match(new RegExp(`<${name}>([^<]*)</${name}>`)) || [])[1] ?? '';
   const sameEntry = (m) => m.externalPort === Number(arg('NewExternalPort')) && m.protocol === arg('NewProtocol').toUpperCase();
-  gateway.requests.push({
+  const request = {
     action,
     port: Number(arg('NewExternalPort')) || null,
     protocol: arg('NewProtocol').toUpperCase() || null,
     description: arg('NewPortMappingDescription') || null,
     lease: action === 'AddPortMapping' ? Number(arg('NewLeaseDuration')) : null,
     at: new Date().toISOString(),
-  });
+  };
+  gateway.requests.push(request);
+  // one line per request as answered, so a failed run's dump shows what the router was asked
+  res.on('finish', () => console.log(`upnp ${clientAddress(req)} ${JSON.stringify(request)}`));
   switch (action) {
     case 'GetExternalIPAddress':
       soapReply(res, action, { NewExternalIPAddress: gateway.externalIp ?? clientAddress(req) });
@@ -990,10 +997,6 @@ app.get('/marketplace/listapps', (req, res) => {
   res.json({ status: 'success', data: state.marketplaceApps });
 });
 
-app.get('/marketplace/listdevapps', (req, res) => {
-  res.json({ status: 'success', data: state.marketplaceApps });
-});
-
 // Stats: per-spec USD pricing. Unavailable, so a node prices by the USD table it
 // ships with (config fluxapps.usdprice), as it does whenever the stats service
 // does not answer.
@@ -1013,8 +1016,13 @@ app.get('/api/v3/simple/price', (req, res) => {
 });
 
 // Geolocation: ip-api.com format (primary)
+// An address staged `unavailable` is one neither service can locate: both answer 503.
 app.get('/json/:ip', (req, res) => {
   const custom = state.geolocation[req.params.ip];
+  if (custom?.unavailable) {
+    res.status(503).json({ status: 'fail', message: 'unavailable' });
+    return;
+  }
   res.json({ ...defaultGeoResponse(req.params.ip), ...custom });
 });
 
@@ -1032,6 +1040,10 @@ app.get('/json/:ip', (req, res) => {
 app.get('/fluxlocation/:ip', (req, res) => {
   const { ip } = req.params;
   const custom = state.geolocation[ip];
+  if (custom?.unavailable) {
+    res.status(503).json({ status: 'error', data: { message: 'unavailable' } });
+    return;
+  }
   const geo = { ...defaultGeoResponse(ip), ...custom };
   res.json({
     status: 'success',
@@ -1072,6 +1084,33 @@ app.get('/artifact/:name', (req, res) => {
   const artifact = artifacts.get(req.params.name);
   if (!artifact) return res.status(404).json({ error: 'no such artifact' });
   res.setHeader('content-type', 'application/gzip');
+  if (artifact.stallAfter != null) {
+    // The first `stallAfter` bytes, then one byte a second until the transfer is
+    // released or the client closes it: a download in flight, never idle, for as
+    // long as a suite needs one.
+    const transfer = { stalled: true, released: false, clientClosed: false };
+    artifact.transfers.push(transfer);
+    res.setHeader('content-length', String(artifact.body.length));
+    let sent = artifact.stallAfter;
+    res.write(artifact.body.subarray(0, sent));
+    const drip = setInterval(() => {
+      if (sent < artifact.body.length - 1) {
+        res.write(artifact.body.subarray(sent, sent + 1));
+        sent += 1;
+      }
+    }, 1000);
+    transfer.release = () => {
+      if (transfer.released || transfer.clientClosed) return;
+      transfer.released = true;
+      clearInterval(drip);
+      res.end(artifact.body.subarray(sent));
+    };
+    res.on('close', () => {
+      clearInterval(drip);
+      if (!res.writableFinished) transfer.clientClosed = true;
+    });
+    return undefined;
+  }
   if (artifact.declaredLength == null) {
     res.setHeader('content-length', String(artifact.body.length));
     return res.end(artifact.body);
@@ -1475,6 +1514,7 @@ control.post('/policy', (req, res) => {
       udpportdos: 'udpPortDos',
       udpinstallrefusaloff: 'udpInstallRefusalOff',
       unpaidallowances: 'unpaidAllowances',
+      containerdos: 'containerDos',
     };
     for (const [name, value] of Object.entries(body.documents)) {
       if (!map[name]) return res.status(400).json({ error: `unknown document ${name}` });
@@ -1507,13 +1547,34 @@ control.post('/policy', (req, res) => {
 });
 
 control.post('/artifact', (req, res) => {
-  const { name, base64, declaredLength = null } = req.body || {};
+  const {
+    name, base64, declaredLength = null, stallAfter = null,
+  } = req.body || {};
   if (!name || typeof base64 !== 'string') {
     return res.status(400).json({ error: 'name and base64 are required' });
   }
   const body = Buffer.from(base64, 'base64');
-  artifacts.set(name, { body, declaredLength });
-  return res.json({ ok: true, name, bytes: body.length, declaredLength });
+  artifacts.set(name, {
+    body, declaredLength, stallAfter, transfers: [],
+  });
+  return res.json({
+    ok: true, name, bytes: body.length, declaredLength, stallAfter,
+  });
+});
+
+// The transfers of a stalling artifact, oldest first.
+control.get('/artifact/:name/transfers', (req, res) => {
+  const artifact = artifacts.get(req.params.name);
+  if (!artifact) return res.status(404).json({ error: 'no such artifact' });
+  return res.json(artifact.transfers.map(({ stalled, released, clientClosed }) => ({ stalled, released, clientClosed })));
+});
+
+// Sends the rest of every held transfer of a stalling artifact.
+control.post('/artifact/:name/release', (req, res) => {
+  const artifact = artifacts.get(req.params.name);
+  if (!artifact) return res.status(404).json({ error: 'no such artifact' });
+  artifact.transfers.forEach((transfer) => transfer.release());
+  return res.json({ ok: true });
 });
 
 control.post('/reset', (req, res) => {
@@ -1525,6 +1586,7 @@ control.post('/reset', (req, res) => {
   state.udpPortDos = null;
   state.udpInstallRefusalOff = null;
   state.unpaidAllowances = null;
+  state.containerDos = null;
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
   artifacts.clear();

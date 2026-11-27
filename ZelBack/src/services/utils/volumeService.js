@@ -945,7 +945,7 @@ async function ensureAppVolumeMounted(identifier) {
   }
 
   const mountRes = await serviceHelper.runCommand('mount', {
-    runAsRoot: true, params: ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, mountPoint], logError: false,
+    runAsRoot: true, hostMountNamespace: true, params: ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, mountPoint], logError: false,
   });
   if (mountRes.error) {
     // another actor (e.g. a legacy @reboot job on its last boot) may have
@@ -1205,71 +1205,6 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   }
 }
 
-/**
- * Delete everything an app holds in its volume, leaving the volume itself mounted
- * @param {string} identifier - Component identifier
- * @returns {Promise<void>}
- */
-async function clearAppVolumeData(identifier) {
-  const appId = dockerService.getAppIdentifier(identifier);
-  const appDataPath = path.join(appsFolder, appId, 'appdata');
-
-  // Enumerated AND deleted as root, in one command.
-  //
-  // Listing the directory host-side runs as the FluxOS user while the rm runs
-  // under sudo, and that asymmetry is fatal for exactly the apps g: mode exists
-  // to serve: a hardening image chmods its data dir (postgres does `chmod 700
-  // $PGDATA`, and for a component mounting /var/lib/postgresql/data that dir IS
-  // this appdata), so readdir fails EACCES. The caller treats that as a failed
-  // wipe - correctly - and holds dataDesired at 'clear' with a paced retry, so
-  // the component would never start again. Refusing to wipe is the right answer
-  // to a wipe that failed; it is the wrong answer to one that could have
-  // succeeded as root.
-  //
-  // find, not a shell glob: `rm -rf <dir>/*` was the old shape and hits E2BIG on
-  // a large directory, misses dotfiles, and needs a shell. -mindepth 1 empties
-  // the directory without removing it - the mount structure has to stay - and
-  // -exec ... + batches, so this is one process rather than the concurrent,
-  // uncapped rm-per-entry it replaces.
-  const wipe = await serviceHelper.runCommand('find', {
-    runAsRoot: true,
-    params: [appDataPath, '-mindepth', '1', '-maxdepth', '1', '-exec', 'rm', '-rf', '{}', '+'],
-  });
-
-  if (wipe.error) {
-    // Nothing to clear is not a failed clear: an app whose volume was never
-    // populated must not hold the reconciler on a retry forever.
-    //
-    // Asked of the kernel, not of find's message and not of a second command.
-    // find renders strerror in the node's locale, so its words answer only on
-    // an English node; a command asked instead comes back through sudo, which
-    // refuses with the same status a negative answer uses and writes warnings
-    // of its own. `stat` needs traverse permission on the parents and no read
-    // permission on the target, so the chmod that defeats a host-side readdir
-    // - postgres does `chmod 700 $PGDATA`, and for a component mounting
-    // /var/lib/postgresql/data that dir IS this appdata - does not reach it.
-    //
-    // ENOENT and ENOTDIR are the two codes that say there was nothing here to
-    // wipe. Anything else - EACCES on a parent, EIO - is this node unable to
-    // ask, and an unanswered question is not an empty directory.
-    //
-    // Asked AFTER the wipe rather than before it: check-first races toward
-    // "falsely clean" when the directory appears inside the window, where this
-    // order races toward a throw - and the next pass wipes whatever arrived.
-    const absent = await fs.stat(appDataPath)
-      .then(() => false)
-      .catch((error) => error.code === 'ENOENT' || error.code === 'ENOTDIR');
-    if (absent) {
-      log.info(`No data to delete for app ${appId}`);
-      return;
-    }
-    throw new Error(`Failed to delete data for app ${appId}: ${wipe.stderr || wipe.error.message || wipe.error}`);
-  }
-
-  log.info(`Deleted data for app ${appId}`);
-}
-
-
 module.exports = {
   verifyAppVolumeMount,
   placementVolumesInGib,
@@ -1285,5 +1220,4 @@ module.exports = {
   recordVolumeImage,
   getComponentAppIdsFromVolumeFiles,
   ensureAppVolumeMounted,
-  clearAppVolumeData,
 };

@@ -154,6 +154,12 @@ describe('fluxnodeAddressRecord', () => {
       return { height, confirmations: tip() - height + 1, tx: txs };
     };
 
+    // These tests read what the record holds, which no index changes; building
+    // the indexes is the one test that checks them.
+    beforeEach(() => {
+      sinon.stub(dbHelper, 'ensureIndexes').resolves();
+    });
+
     it('proves a move by a node that last confirmed before the explorer first kept the record', async () => {
       expect(await fluxnodeAddressRecord.isBuilt(), 'an empty record reads as built').to.equal(false);
 
@@ -280,6 +286,7 @@ describe('fluxnodeAddressRecord', () => {
     });
 
     it('carries the record\'s indexes', async () => {
+      dbHelper.ensureIndexes.restore();
       await fluxnodeAddressRecord.rebuild(tip(), async (height) => chain(height), database);
 
       const names = (await records.indexes()).map((index) => index.name);

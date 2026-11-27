@@ -12,6 +12,8 @@
 import { execInContainer } from './container.js';
 
 export const DOCKER_ROOT = '/mnt/appdata/docker';
+// Where docker keeps each container's own directory: its config, its state, its log.
+export const CONTAINERS_ROOT = `${DOCKER_ROOT}/containers`;
 
 async function run(container, command, what) {
   const result = await execInContainer(container, command);
@@ -38,6 +40,23 @@ export async function freezeDocker(container) {
 export async function thawDocker(container) {
   // fsfreeze refuses to thaw a filesystem that is not frozen, with EINVAL
   await run(container, `out=$(fsfreeze -u ${DOCKER_ROOT} 2>&1) || echo "$out" | grep -q 'Invalid argument' || { echo "$out"; exit 1; }`, 'thawDocker');
+}
+
+/**
+ * Hold every write the node's docker makes to its containers' own directories, until
+ * thawContainers: a removal docker has taken is held at its first write of the
+ * container's state, and finishes once thawed. Docker's image and layer stores are
+ * not held, so a request that reads them still answers. The node is booted with
+ * createTestEnv({ freezableContainerRoot: [index] }).
+ */
+export async function freezeContainers(container) {
+  await run(container, `mountpoint -q ${CONTAINERS_ROOT}`, `${CONTAINERS_ROOT} is not a mount of its own: boot the node with freezableContainerRoot`);
+  await run(container, `fsfreeze -f ${CONTAINERS_ROOT}`, 'freezeContainers');
+}
+
+/** Let the node's docker write its containers' directories again. One not frozen is left as it is. */
+export async function thawContainers(container) {
+  await run(container, `out=$(fsfreeze -u ${CONTAINERS_ROOT} 2>&1) || echo "$out" | grep -q 'Invalid argument' || { echo "$out"; exit 1; }`, 'thawContainers');
 }
 
 // The device-mapper device a stallable mount sits on, in the node's shell.
@@ -79,7 +98,8 @@ export async function readsHeld(container, dir, { file, overMs = 3000 } = {}) {
 }
 
 /**
- * Thaw and resume every node's docker data root that is held, and every cgroup frozen in it
+ * Thaw and resume every node's docker data root that is held, its container directories,
+ * and every cgroup frozen in it
  * (systemd-control.freezeUnit), and pass over the rest: the last step before
  * anything reads a node through its docker or stops it, since a node whose docker
  * is held can be neither read nor stopped. Never rejects.
@@ -87,7 +107,7 @@ export async function readsHeld(container, dir, { file, overMs = 3000 } = {}) {
  */
 export async function thawEveryNode(clients) {
   const thaw = `d=${deviceOf(DOCKER_ROOT)}; [ -n "$d" ] && dmsetup resume "$d" 2>/dev/null; `
-    + `fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; `
+    + `fsfreeze -u ${CONTAINERS_ROOT} 2>/dev/null; fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; `
     + 'for f in $(find /sys/fs/cgroup -name cgroup.freeze 2>/dev/null); do [ "$(cat $f)" = 1 ] && echo 0 > $f; done; true';
   await Promise.all(clients.map(async (client) => {
     if (!client?.container) return;

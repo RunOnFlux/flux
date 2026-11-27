@@ -71,11 +71,17 @@ describe('a name its own DNS server never answers leaves a node using that serve
 
   it('looks the policy host up through its own DNS server', async function () {
     // The route under test, shown working before the dead name is looked up.
-    this.timeout(90000);
+    this.timeout(150000);
     await waitFor(async () => (await policyA()).own > 0, {
       timeout: 60000, label: `the shaped node to look ${POLICY_HOST} up through its own server`,
     });
     expect((await policyA()).public).to.equal(0);
+    // The node verifies a registration's images only once it holds the policy, and
+    // refuses it before resolving the repotag until then.
+    await waitFor(
+      () => env.clients[SHAPED].getEventBuffer().some((e) => e.event === 'policy:bundleChanged'),
+      { timeout: 60000, interval: 500, label: 'the shaped node to hold the policy' },
+    );
   });
 
   it('asks its own DNS server for the dead name when a registration names it', async function () {

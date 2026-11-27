@@ -12,6 +12,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const jobRegistry = require('../utils/jobRegistry');
 const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
+const { callerAddress } = require('../utils/apiSocket');
 const { Writable, pipeline } = require('node:stream');
 const { createWriteStream, createReadStream } = require('node:fs');
 const { AsyncLock } = require('../utils/asyncLock');
@@ -726,7 +727,7 @@ async function serveImageToPeer(req, res) {
     // IPv6 caller could never match the network state whatever it held, and the
     // 403 it received said nothing about why. Stripping just the prefix leaves
     // such an address intact to be compared as itself.
-    const remote = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
+    const remote = (callerAddress(req) || '').replace(/^::ffff:/i, '');
     if (!remote) {
       res.status(400).end();
       return;
@@ -1078,12 +1079,9 @@ function stopImagePrefetch() {
  * dockerd is replaced; the check is one inspect when it is present, so paying
  * it every time costs nothing and removes a whole class of "worked yesterday".
  *
- * `performDockerCleanup` is NOT one of the things that removes it, despite
- * running before every app install: `pruneImages` filters on dangling, and a
- * tagged image is not dangling. That holds for BOTH routes only because the
- * peer route names what it took - an archive addressed by id carries no names,
- * so an untagged arrival would be dangling and this would be false for exactly
- * the nodes that cannot reach the registry.
+ * The image reaper is NOT one of the things that removes it: it keeps FluxOS's
+ * own image by its configured reference and pinned ids, whether or not a file
+ * operation is running.
  *
  * A caller waits a short while and is then told to come back. It does not wait
  * for the fetch's own patience - a peer has two minutes to hand over thirteen
@@ -1529,6 +1527,13 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  *   extraction, a new folder or an archive is otherwise root's, and an app
  *   running as another user cannot change its own files. Only meaningful with
  *   `publish.staging`; a copy or a move keeps the owners its files already have.
+ * @param {boolean} [options.parents] - make the folders missing above the
+ *   destination when the result is published, each owned by the folder that
+ *   receives it (with or without `inheritOwner`). They are made only once the
+ *   result is ready, so a failed command or an upload over the ceiling makes
+ *   none; once made they stay if the publish is then refused (a `noReplace`
+ *   collision, say). A file or a dead link at any level refuses the operation, as
+ *   `mkdir -p` does. Needs flux-volume-tools v1.7.0.
  * @param {VolumePath} [options.workingDir] - the directory the command runs in,
  *   defaulting to the volume root. An archiver decides its stored layout from
  *   where it is run and what it is handed, and zip has no equivalent of tar's
@@ -1551,7 +1556,7 @@ async function run(session, argv, options = {}) {
     onProgress = null, isCanceled = null, status = 'Working...',
     publish = null, mkdirStaging = false, maxBytes = 0, maxFileBytes = 0, dataOnly = false,
     noReplace = false, merge = false, onBytes = null, workingDir = null, input = null,
-    slotHeld = false, inheritOwner = false,
+    slotHeld = false, inheritOwner = false, parents = false,
   } = options;
 
   if (!(session instanceof VolumeSession)) {
@@ -1608,6 +1613,7 @@ async function run(session, argv, options = {}) {
       ...(noReplace ? ['--no-replace'] : []),
       ...(merge ? ['--merge'] : []),
       ...(inheritOwner ? ['--inherit-owner'] : []),
+      ...(parents ? ['--parents'] : []),
       ...(input ? ['--from-stdin'] : []),
       toParam(target),
       toParam(publish.destination),

@@ -11,6 +11,7 @@ const messageHelper = require('./messageHelper');
 const geolocationService = require('./geolocationService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
+const systemdSockets = require('./utils/systemdSockets');
 const generalService = require('./generalService');
 const dockerService = require('./dockerService');
 const benchmarkService = require('./benchmarkService');
@@ -121,6 +122,13 @@ function start() {
   app.get('/hostinfo', getHostInfo);
   app.all('*', (_, res) => res.status(404).end());
 
+  const fd = systemdSockets.fd(systemdSockets.NODE_SERVICE);
+  if (fd !== undefined) {
+    server = app.listen({ fd }, () => {
+      log.info(`Server listening on systemd's ${systemdSockets.NODE_SERVICE} socket`);
+    });
+    return;
+  }
   const bindAddress = config.server.fluxNodeServiceAddress;
   server = app.listen(16101, bindAddress, () => {
     log.info(`Server listening on port: 16101 address: ${bindAddress}`);

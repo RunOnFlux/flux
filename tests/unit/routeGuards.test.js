@@ -10,6 +10,7 @@ const http = require('node:http');
 const { once } = require('node:events');
 
 const { expect } = require('chai');
+const sinon = require('sinon');
 const express = require('express');
 const request = require('supertest');
 const apicache = require('apicache');
@@ -23,9 +24,11 @@ const {
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
+  requireDatabase,
   requirePolicyReady,
   requireRegistryReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 // apicache.clear() with no target empties the store but leaves each entry's
@@ -448,6 +451,56 @@ describe('routeGuards', () => {
         expect(res.status).to.equal(503);
         expect(handlerCalls).to.equal(1);
       });
+    });
+  });
+
+  // The API answers before FluxOS has connected to MongoDB. A route read from
+  // the database is refused until it has, through the real cache, so a refusal
+  // is never what the cache remembers.
+  describe('requireDatabase', () => {
+    let app;
+    let server;
+    let handlerCalls;
+    let connection;
+
+    beforeEach(() => {
+      clearCache();
+      connection = null;
+      sinon.stub(dbHelper, 'databaseConnection').callsFake(() => connection);
+      handlerCalls = 0;
+      app = express();
+      app.get('/flux/info', requireDatabase, cache('60 seconds'), (req, res) => {
+        handlerCalls += 1;
+        res.json({ status: 'success', data: {} });
+      });
+    });
+
+    afterEach(async () => {
+      sinon.restore();
+      clearCache();
+      if (server) { await closeServer(server); server = null; }
+    });
+
+    const get = () => {
+      if (!server) server = app.listen(0);
+      return request(server).get('/flux/info');
+    };
+
+    it('refuses before the database is connected, and says when to come back', async () => {
+      const res = await get();
+      expect(res.status).to.equal(503);
+      expect(res.headers['retry-after']).to.equal('15');
+      expect(res.body.data.name).to.equal('ServiceUnavailable');
+      expect(res.body.data.message).to.match(/database/i);
+      expect(handlerCalls).to.equal(0);
+    });
+
+    it('answers from the handler once connected, not from a remembered refusal', async () => {
+      await get();
+      connection = { db: () => ({}) };
+      const res = await get();
+      expect(res.status).to.equal(200);
+      expect(handlerCalls).to.equal(1);
     });
   });
 

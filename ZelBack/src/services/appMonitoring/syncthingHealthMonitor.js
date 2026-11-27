@@ -9,6 +9,7 @@
 // belongs to the election/reconciler designs, with evidence).
 const log = require('../../lib/log');
 const syncthingService = require('../syncthingService');
+const dockerService = require('../dockerService');
 const { isPathMounted, nudgeFolderDevices } = require('./syncthingFolderStateMachine');
 const { appsFolder } = require('../utils/appConstants');
 const {
@@ -109,18 +110,6 @@ async function monitorFolderHealth(params) {
     receiveOnlySyncthingAppsCache,
   } = params;
 
-  // Skip if other operations in progress
-  if (state.installationInProgress || state.removalInProgress || state.softRedeployInProgress || state.hardRedeployInProgress) {
-    log.info('monitorFolderHealth - Skipping health check, other operations in progress');
-    return { checked: false, actions: [] };
-  }
-
-  // Skip if backup or restore in progress
-  if ((state.backupInProgress && state.backupInProgress.length > 0) || (state.restoreInProgress && state.restoreInProgress.length > 0)) {
-    log.info('monitorFolderHealth - Skipping health check, backup or restore in progress');
-    return { checked: false, actions: [] };
-  }
-
   const results = {
     checked: true,
     timestamp: Date.now(),
@@ -150,6 +139,15 @@ async function monitorFolderHealth(params) {
     // eslint-disable-next-line no-restricted-syntax
     for (const folderConfig of foldersConfiguration) {
       const folderId = folderConfig.id;
+
+      // A held app's folders are its operation's: a nudge pauses and resumes a
+      // folder a backup or restore holds paused.
+      const base = dockerService.getBaseAppName(folderId);
+      if (state.heldApps.includes(base.includes('_') ? base.split('_')[1] : base)) {
+        log.info(`monitorFolderHealth - Skipping ${folderId}, an operation holds its app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
 
       // Skip folders whose mounts are not ready
       const folderPath = `${appsFolder}${folderId}`;

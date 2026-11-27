@@ -59,6 +59,15 @@ describe('a global command reaches the node it was sent through', function () {
     }
   }));
 
+  // An owner's start, stop or restart holds the app until the pass it causes has
+  // run, and the next command is refused while it does.
+  const ownerActionEnded = (from) => onEveryHolder(from, (c, opts) => c.waitForEvent(
+    'app:operationEnded',
+    (d) => d.appName === appName && d.operation === 'control',
+    180000,
+    opts,
+  ));
+
   before(async function () {
     this.timeout(600000);
     env = await createTestEnv({ hookCtx: this, nodes: 4 });
@@ -130,6 +139,7 @@ describe('a global command reaches the node it was sent through', function () {
       180000,
       opts,
     ));
+    await ownerActionEnded(from);
   });
 
   it('stops the app on every holder', async function () {
@@ -137,6 +147,7 @@ describe('a global command reaches the node it was sent through', function () {
     const from = marks();
     await globally(`/apps/appstop/${appName}/true`);
     await onEveryHolder(from, (c, opts) => waitForOperatorIntent(c, identifier, true, 180000, opts));
+    await ownerActionEnded(from);
   });
 
   it('starts the app on every holder', async function () {
@@ -144,6 +155,7 @@ describe('a global command reaches the node it was sent through', function () {
     const from = marks();
     await globally(`/apps/appstart/${appName}/true`);
     await onEveryHolder(from, (c, opts) => waitForOperatorIntent(c, identifier, false, 180000, opts));
+    await ownerActionEnded(from);
   });
 
   it('removes the app from every holder', async function () {

@@ -192,7 +192,7 @@ async function currentStamp(folderId) {
  * the folder still carries the answer's stamp, and the entry has not been replaced.
  * Otherwise the answer is dropped, so the pass asks for the folder to be checked
  * again; a folder that could not be read keeps it.
- * @param {{folderId: string, entry: object, answer: object, isCurrent: Function, files: number, directories: number}} job
+ * @param {{folderId: string, entry: object, answer: object, isCurrent: Function, files: number, directories: number, deletes: number}} job
  */
 async function runRevert(job) {
   const { folderId, entry, answer } = job;
@@ -215,13 +215,15 @@ async function runRevert(job) {
       return;
     }
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_LOCAL_CHANGE_REVERT_SENT, folderId);
-    log.warn(`localChangeCheck - ${folderId} is synced but the receive-only folder has local changes (${job.files} files, ${job.directories} directories); reverting to the cluster's version`);
+    log.warn(`localChangeCheck - ${folderId} is synced but the receive-only folder has local changes (${job.files} files, ${job.directories} directories, ${job.deletes} deleted); reverting to the cluster's version`);
     try {
       // dataOrThrow: dbRevert answers in-band; without it a failed revert reads as reverted
       messageHelper.dataOrThrow(await syncthingService.dbRevert(folderId));
       // eslint-disable-next-line no-param-reassign
       delete entry.localChangeCheck;
-      fluxEventBus.publish('syncthing:localChangesReverted', { folder: folderId, files: job.files, directories: job.directories });
+      fluxEventBus.publish('syncthing:localChangesReverted', {
+        folder: folderId, files: job.files, directories: job.directories, deletes: job.deletes,
+      });
     } catch (error) {
       log.error(`localChangeCheck - revert of local changes for ${folderId} failed: ${error.message}`);
     }
@@ -270,12 +272,12 @@ function request(folderId, entry, stamp, isCurrent) {
  * @param {object} entry The folder's entry in receiveOnlySyncthingAppsCache.
  * @param {object} answer The answer the revert rests on, left on `entry`.
  * @param {Function} isCurrent Whether `entry` is still the folder's entry.
- * @param {{files: number, directories: number}} changed What the folder's status counts.
+ * @param {{files: number, directories: number, deletes: number}} changed What the folder's status counts.
  */
-function revert(folderId, entry, answer, isCurrent, { files, directories }) {
+function revert(folderId, entry, answer, isCurrent, { files, directories, deletes }) {
   if (running?.kind === 'revert' && running.folderId === folderId && running.answer === answer) return;
   enqueue({
-    kind: 'revert', folderId, entry, answer, isCurrent, files, directories,
+    kind: 'revert', folderId, entry, answer, isCurrent, files, directories, deletes,
   });
 }
 

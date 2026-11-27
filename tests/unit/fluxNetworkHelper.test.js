@@ -4,8 +4,7 @@ globalThis.userconfig = {
     ipaddress: '127.0.0.1',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
-    testnet: false,
-    development: false,
+    network: 'mainnet',
     apiport: 16127,
     routerIP: '',
     pgpPrivateKey: '',
@@ -42,6 +41,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { requireMongo, releaseMongo } = require('./dbTestHelper');
+const { networks, configWith } = require('./fixtures/networkConfig');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
@@ -277,6 +277,30 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+
+  describe('firewallChanges tests', () => {
+    it('opens every port of the first ports the proxy serves', () => {
+      expect(fluxNetworkHelper.firewallChanges({ apiPort: 16147, alsoServing: [] }, null)).to.deep.equal({
+        open: [16146, 16147, 16148, 16149], close: [],
+      });
+    });
+
+    it('keeps the old ports open through a move', () => {
+      const changes = fluxNetworkHelper.firewallChanges(
+        { apiPort: 16157, alsoServing: [16147] },
+        { apiPort: 16147, alsoServing: [] },
+      );
+      expect(changes).to.deep.equal({ open: [16156, 16157, 16158, 16159], close: [] });
+    });
+
+    it('closes the old ports when the move ends', () => {
+      const changes = fluxNetworkHelper.firewallChanges(
+        { apiPort: 16157, alsoServing: [] },
+        { apiPort: 16157, alsoServing: [16147] },
+      );
+      expect(changes).to.deep.equal({ open: [], close: [16146, 16147, 16148, 16149] });
+    });
+  });
 
   describe('the node\'s public address', () => {
     const apiPort = () => String(userconfig.initial.apiport || config.server.apiport);
@@ -2114,8 +2138,7 @@ describe('fluxNetworkHelper tests', () => {
           ipaddress: '127.0.0.1',
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
           kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
-          testnet: false,
-          development: false,
+          network: 'mainnet',
           apiport: 16127,
           routerIP: '',
           pgpPrivateKey: '',
@@ -2140,8 +2163,8 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2\?chainid=0',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: false,/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/network: 'mainnet',/gm));
+      sinon.assert.neverCalledWithMatch(writeFileStub, callPath, sinon.match(/development:/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPrivateKey: '',/gm));
@@ -2158,7 +2181,11 @@ describe('fluxNetworkHelper tests', () => {
         globalThis.userconfig = before;
       }
 
-      sinon.assert.calledOnceWithMatch(writeFileStub, sinon.match.string, sinon.match(/ipaddress: '127.0.0.67',\n[\s\S]*upnp: true,\n[\s\S]*network: 'mainnet',/));
+      sinon.assert.calledOnceWithMatch(
+        writeFileStub,
+        sinon.match.string,
+        sinon.match(/ipaddress: '127\.0\.0\.67',\n/).and(sinon.match(/upnp: true,\n/)).and(sinon.match(/network: 'mainnet',\n/)),
+      );
     });
 
     it('should not write to file if the config already has same exact ip', async () => {
@@ -2226,8 +2253,7 @@ describe('fluxNetworkHelper tests', () => {
           ipaddress: '127.0.0.1',
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
           kadena: '',
-          testnet: false,
-          development: false,
+          network: 'mainnet',
           apiport: 16127,
           routerIP: '',
           pgpPrivateKey: '',
@@ -3955,6 +3981,35 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [], appliedBy: 'library' });
     });
 
+    it('on ArcaneOS also lets app networks reach flux-shutdownd\'s termination API', async () => {
+      process.env.FLUXOS_PATH = '/usr/lib/fluxos';
+      let arcaneHelper;
+      try {
+        arcaneHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {});
+      } finally {
+        delete process.env.FLUXOS_PATH;
+      }
+      firewallEnabled(true);
+      answered({ removed: 0, applied: true });
+
+      await arcaneHelper.adjustFirewall();
+
+      expect(appliedRules()).to.deep.include(['allow', 'from', '172.23.0.0/16', 'proto', 'tcp', 'to', '169.254.43.43/32', 'port', '16102']);
+    });
+
+    it('opens the network\'s daemon port', async () => {
+      const labHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        config: configWith({ daemon: { port: networks.labnet.daemon.port } }),
+      });
+      firewallEnabled(true);
+      answered({ removed: 0, applied: true });
+
+      await labHelper.adjustFirewall();
+
+      expect(appliedRules()).to.deep.include(['allow', String(networks.labnet.daemon.port)]);
+      expect(appliedRules()).to.not.deep.include(['allow', String(networks.mainnet.daemon.port)]);
+    });
+
     it('should write no outbound rule and never set a default policy', async () => {
       firewallEnabled(true);
       answered({ removed: 0, applied: true });
@@ -4903,6 +4958,33 @@ describe('fluxNetworkHelper tests', () => {
         const answer = await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', port, { schedule: [0, 10], deadline: 200 });
         expect(answer).to.equal(undefined);
       });
+    });
+  });
+
+  describe('addFluxNodeServiceIpToLoopback tests', () => {
+    const systemdSockets = require('../../ZelBack/src/services/utils/systemdSockets');
+    const nodecmd = require('node-cmd');
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('leaves the address to an image that passed the node service socket', async () => {
+      sinon.stub(systemdSockets, 'fd').withArgs('fluxos-node-service').returns(3);
+      const run = sinon.stub(nodecmd, 'run');
+
+      await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
+
+      sinon.assert.notCalled(run);
+    });
+
+    it('adds the address when no socket was passed', async () => {
+      sinon.stub(systemdSockets, 'fd').returns(undefined);
+      const run = sinon.stub(nodecmd, 'run').callsFake((cmd, cb) => cb(null, '', ''));
+
+      await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
+
+      sinon.assert.calledOnceWithMatch(run, 'sudo ip addr add 169.254.43.43/32 dev lo');
     });
   });
 });

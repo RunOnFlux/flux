@@ -12,9 +12,10 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
+const appTestRun = require('./appTestRun');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-const { storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
+const { storeAppInstallingErrorMessage, storeSignedAppInstallingErrorBroadcast } = require('../appMessaging/messageStore');
 
 let onInstallComplete = null;
 function setOnInstallComplete(callback) {
@@ -29,7 +30,9 @@ const upnpService = require('../upnpService');
 const portReconciler = require('../portReconciler');
 const portClaims = require('../appNetwork/portClaims');
 const globalState = require('../utils/globalState');
+const fluxosTrial = require('../utils/fluxosTrial');
 const folderStates = require('../appMonitoring/folderStates');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -45,6 +48,8 @@ const hwRequirements = require('../appRequirements/hwRequirements');
 const config = require('config');
 const fluxEventBus = require('../utils/fluxEventBus');
 const volumeService = require('../utils/volumeService');
+const operationRegistry = require('../utils/operationRegistry');
+const spawnerControl = require('../utils/spawnerControl');
 const { Privilege, authOf } = require('../utils/privileges');
 
 // Legacy apps that use old gateway IP assignment method
@@ -60,39 +65,6 @@ const legacyPinnedOctets = appsThatMightBeUsingOldGatewayIpAssignment.map((name)
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
-/**
- * Reclaim disk before an install by removing unreferenced docker images.
- *
- * Only images. Containers, networks and volumes were pruned here too, keyed on
- * docker's notion of "unused" - nothing attached right now - which is equally
- * true of a healthy app whose container is momentarily down, of a container
- * FluxOS is running for its own purposes, and of anything the node operator
- * left stopped. The guard in front of this only ever knew about installed app
- * components, so those other three were never covered. An image, by contrast,
- * is unreferenced or it is not, and re-pulling one is a download rather than a
- * loss.
- *
- * @param {object} res - Response object for streaming
- * @returns {Promise<void>}
- */
-async function performDockerCleanup(res) {
-  const dockerImages = {
-    status: 'Clearing up unused docker images...',
-  };
-  log.info(dockerImages);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerImages));
-    if (res.flush) res.flush();
-  }
-  await dockerService.pruneImages();
-  const dockerImages2 = {
-    status: 'Docker images cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerImages2));
-    if (res.flush) res.flush();
-  }
-}
 
 /**
  * Setup firewall and UPnP ports for application/component
@@ -100,10 +72,9 @@ async function performDockerCleanup(res) {
  * @param {string} appName - Application name
  * @param {boolean} isComponent - Whether this is a component
  * @param {object} res - Response object for streaming
- * @param {boolean} test - Whether this is a test installation (skips port setup if true)
  * @returns {Promise<void>}
  */
-async function setupApplicationPorts(appSpecifications, appName, isComponent, res, test = false) {
+async function setupApplicationPorts(appSpecifications, appName, isComponent, res) {
   const portStatusInitial = {
     status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
   };
@@ -113,15 +84,13 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     if (res.flush) res.flush();
   }
 
-  if (!test) {
-    const appPorts = appSpecifications.ports ?? (appSpecifications.port ? [appSpecifications.port] : []);
-    const { failed, locked } = await fluxNetworkHelper.allowAppPorts(appPorts.map((port) => serviceHelper.ensureNumber(port)));
-    // Clients outside the node reach the ports over IPv4 either way, so the install goes on.
-    if (locked) log.warn(`Ports of ${appName} not opened in the firewall: ufw is locked by another ufw command`);
-    failed.forEach(({ rule, error }) => log.warn(`Port of ${appName} not opened in the firewall: ufw ${rule}: ${error}`));
-  }
+  const appPorts = appSpecifications.ports ?? (appSpecifications.port ? [appSpecifications.port] : []);
+  const { failed, locked } = await fluxNetworkHelper.allowAppPorts(appPorts.map((port) => serviceHelper.ensureNumber(port)));
+  // Clients outside the node reach the ports over IPv4 either way, so the install goes on.
+  if (locked) log.warn(`Ports of ${appName} not opened in the firewall: ufw is locked by another ufw command`);
+  failed.forEach(({ rule, error }) => log.warn(`Port of ${appName} not opened in the firewall: ufw ${rule}: ${error}`));
 
-  if (!test && appSpecifications.ports) {
+  if (appSpecifications.ports) {
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
@@ -143,7 +112,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
         }
       }
     }
-  } else if (!test && appSpecifications.port) {
+  } else if (appSpecifications.port) {
     // v1 compatibility
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
@@ -172,9 +141,11 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
  * @param {boolean} isComponent - Whether this is a component
  * @param {object} res - Response object for streaming
  * @param {object} fullAppSpecs - Full app specifications
+ * @param {object} [options]
+ * @param {AbortSignal} [options.signal] - Ends the pull when aborted
  * @returns {Promise<void>}
  */
-async function verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+async function verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, { signal = null } = {}) {
   // check image and its architecture
   const architecture = await systemArchitecture();
   if (!supportedArchitectures.includes(architecture)) {
@@ -236,6 +207,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   pullConfig.provider = imgVerifier.provider;
 
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_BEFORE_PULL, appName);
+  if (signal) pullConfig.signal = signal;
   // eslint-disable-next-line no-unused-vars
   await dockerService.pullImage(pullConfig, res);
 
@@ -337,22 +309,21 @@ async function ensureAppDockerNetwork(appName, res) {
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
- * @param {boolean} test indicates if it is just to test the app install.
  * @param {boolean} sendRemovalMessage whether the teardown broadcasts the removal.
  *   True wherever this node does not already hold the app: an announcement landing
  *   during the install claims it, and nothing else takes that claim back before it
  *   expires. False for a rebuild, whose claim the node is keeping.
+ * @param {object} [options]
+ * @param {object} [options.parent] The operation this install is a step of.
+ * @param {function(): void} [options.onRecorded] Called once the node records the app as
+ *   installed (its row and its placement), before any container is made.
  * @returns {Promise<string>} One of InstallOutcome.
  */
-async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage = false, { parent = null, onRecorded = null } = {}) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
-  // Whether THIS call raised the install hold. The guards below refuse because
-  // someone else is holding the node, and a refusal must not release their hold
-  // on its way out.
-  let acquired = false;
   // Whether this node's local table has named the app during this call. The
   // announcement is built from that table, so the row is the claim, and the
   // teardown below has one to take back only once it exists.
@@ -360,25 +331,10 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
   // This install's claim on the host ports it starts containers on, held until
   // the install ends.
   let portClaim = null;
+  // The node installing the app is what any spawner attempt deciding on it was
+  // deciding: that attempt ends, and the spawner decides afresh.
+  if (!componentSpecs) spawnerControl.stopAttemptFor(appSpecs.name).catch((error) => log.error(error));
   try {
-    if (globalState.removalInProgress) {
-      const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
-      return InstallOutcome.BUSY;
-    }
-    if (globalState.installationInProgress) {
-      const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        if (res.flush) res.flush();
-      }
-      return InstallOutcome.BUSY;
-    }
     // A pending removal of the app removes whatever is installed in its place, so
     // the app takes no install until that removal has finished.
     if (globalState.departingApps.has(appSpecs.name)) {
@@ -390,12 +346,6 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       }
       return InstallOutcome.BUSY;
     }
-    globalState.installationInProgress = true;
-    globalState.installingApp = appSpecs.name;
-    acquired = true;
-    // A test install holds nothing: it writes the app's row like any other install
-    // and throws it away, so the announcement must not read that row as a claim.
-    if (test) globalState.testInstallingApps.add(appSpecs.name);
     const hostPorts = componentSpecs ? (componentSpecs.ports ?? []).map(Number) : getAppPorts(appSpecs);
     const ports = await portClaims.claimForInstall(hostPorts, appSpecs.name, portClaims.InstallStep.INSTALL);
     if (!ports.claim) {
@@ -476,46 +426,20 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       return InstallOutcome.ALREADY_INSTALLED;
     }
 
-    // Lazy-load appQueryService to avoid circular dependency issues
-    // eslint-disable-next-line global-require
-    const appQueryService = require('../appQuery/appQueryService');
-    const installedAppsRes = await appQueryService.installedApps();
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('Failed to get installed Apps');
-    }
-    const runningAppsRes = await appQueryService.listRunningApps();
-    if (runningAppsRes.status !== 'success') {
-      throw new Error('Unable to check running Apps');
-    }
-    const appsInstalled = installedAppsRes.data;
-    const { readable: decryptedAppsInstalled, unreadable } = await appQueryService.decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
-    if (unreadable.length) {
-      log.warn(`Component names unavailable for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
-    }
-    const runningApps = runningAppsRes.data;
-    const installedAppComponentNames = [];
-    decryptedAppsInstalled.forEach((app) => {
-      if (app.version >= 4) {
-        app.compose.forEach((appAux) => {
-          installedAppComponentNames.push(`${appAux.name}_${app.name}`);
-        });
-      } else {
-        installedAppComponentNames.push(app.name);
+    // Room on the node for the app, reserved until the operation holding it ends;
+    // an install that no longer fits touches nothing.
+    try {
+      await hwRequirements.admitApp(appSpecs);
+    } catch (error) {
+      const rStatus = messageHelper.createErrorMessage(error.message);
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        if (res.flush) res.flush();
       }
-    });
-    // kadena and folding is old naming scheme having /zel.  all global application start with /flux
-    const runningAppsNames = runningApps.map((app) => {
-      if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].slice(4);
-      }
-      return app.Names[0].slice(5);
-    });
-    // installed always is bigger array than running
-    const runningSet = new Set(runningAppsNames);
-    const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
-    if (stoppedApps.length === 0 && !globalState.masterSlaveAppsRunning) {
-      await performDockerCleanup(res);
+      return InstallOutcome.DECLINED;
     }
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_AFTER_ADMISSION, appSpecs.name);
 
     // Verify the apps this app must be networked with (networkWith token in the
     // description) are installed locally and owned by the same owner before any
@@ -572,20 +496,21 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       // the app starts now. The write must succeed, like the insert above: an
       // install that went on without it would leave any earlier record of the
       // app standing, dated before this volume existed.
-      if (!test) await appPlacements.recordPlacement(appSpecifications.name);
+      await appPlacements.recordPlacement(appSpecifications.name);
+      onRecorded?.();
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = test ? 0.2 : appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = test ? 300 : appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = test ? 2 : appSpecifications[hddTier] || appSpecifications.hdd;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
     } else {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appComponent.cpu = test ? 0.2 : appComponent[cpuTier] || appComponent.cpu;
-      appComponent.ram = test ? 300 : appComponent[ramTier] || appComponent.ram;
-      appComponent.hdd = test ? 2 : appComponent[hddTier] || appComponent.hdd;
+      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+      appComponent.ram = appComponent[ramTier] || appComponent.ram;
+      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
@@ -611,18 +536,19 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
           const hddTier = `hdd${tier}`;
           const ramTier = `ram${tier}`;
           const cpuTier = `cpu${tier}`;
-          appComponentSpecs.cpu = test ? 0.2 : appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
-          appComponentSpecs.ram = test ? 300 : appComponentSpecs[ramTier] || appComponentSpecs.ram;
-          appComponentSpecs.hdd = test ? 2 : appComponentSpecs[hddTier] || appComponentSpecs.hdd;
+          appComponentSpecs.cpu = appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
+          appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
+          appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
           // eslint-disable-next-line no-await-in-loop, no-use-before-define
-          await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test);
+          await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, { signal: parent?.signal });
         }
       } else {
         // eslint-disable-next-line no-use-before-define
-        await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
+        await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, { signal: parent?.signal });
       }
     } catch (error) {
-      if (!test) {
+      // An install a removal stopped is that removal's to take down and tell.
+      if (!(error instanceof operationRegistry.OperationPreemptedError)) {
         const errorResponse = messageHelper.createErrorMessage(
           error.message || error,
           error.name,
@@ -641,20 +567,22 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop, no-use-before-define
         await storeAppInstallingErrorMessage(newAppRunningMessage);
-        // broadcast messages about running apps to all peers
-        await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
-        // broadcast messages about running apps to all peers
+        // Recorded signed before it is sent, where the errors this node received
+        // are: a peer syncing from this node is given it.
+        const signedError = await fluxCommunicationMessagesSender.signBroadcast(newAppRunningMessage);
+        if (signedError) {
+          await storeSignedAppInstallingErrorBroadcast(signedError.message);
+          await fluxCommunicationMessagesSender.sendToAll(signedError.serialised);
+        }
       }
       throw error;
     }
-
-    log.info(`Flux App: ${appName} is test install: ${test}`);
 
     // Reconnect any locally installed apps that are networked with this app —
     // its private network was (re)created during this install. Guarded on
     // appComponent (the unmutated entry value) since isComponent is flipped to
     // true inside the component install loop above.
-    if (!appComponent && !test) {
+    if (!appComponent) {
       await appNetworkLinker.reconnectLinkedApps(appName);
     }
 
@@ -679,59 +607,41 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
+    if (error instanceof operationRegistry.OperationPreemptedError) throw error;
 
-    if (!test) {
-      const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
-      log.info(removeStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(removeStatus));
-        if (res.flush) res.flush();
-      }
-      // endResponse false: the endpoint opened this response and closes it. With
-      // true, this teardown's own "was successfuly removed" landed as the last
-      // thing the caller saw, and the reinstall failure that caused it was
-      // written into a response that had already closed.
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage && claimed);
-      log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
+    // One component of an installed app: the app's row and its other components
+    // stay, and the caller hands the component to the reconciler.
+    if (componentSpecs) {
+      log.warn(`Component ${componentSpecs.name} of ${appSpecs.name} was not installed: ${error.message}. The app stays installed.`);
+      return InstallOutcome.FAILED;
     }
 
-    // The app is gone from this node - the teardown above removed it. A caller
-    // that reads this as "nothing happened" leaves a half-removed app behind;
-    // one that reads BUSY as this destroys a running app for a scheduling
+    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    log.info(removeStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(removeStatus));
+      if (res.flush) res.flush();
+    }
+    // endResponse false: the endpoint opened this response and closes it. With
+    // true, this teardown's own "was successfuly removed" landed as the last
+    // thing the caller saw, and the reinstall failure that caused it was
+    // written into a response that had already closed.
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, sendRemovalMessage && claimed, { parent });
+    log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
+
+    // A whole app is gone from this node - the teardown above removed it. A
+    // caller that reads this as "nothing happened" leaves a half-removed app
+    // behind; one that reads BUSY as this destroys a running app for a scheduling
     // collision. They are not the same answer.
     return InstallOutcome.FAILED;
   } finally {
-    // THE ONE PLACE THE HOLD IS RELEASED, so every way out of this function releases
-    // it - including the early returns above. A path that leaves without releasing
-    // costs the node every install, redeploy, spawn and reinstall pass it is offered
-    // until FluxOS restarts.
-    if (acquired) globalState.installationInProgress = false;
     portClaims.release(portClaim);
-    // The mark is bound to the hold: it is set under the hold with nothing awaited
-    // in between, so a call that took the hold has a mark to take back. The
-    // teardown is bound to the row: a call that never wrote one created nothing,
-    // and an app a refusal finds already installed is not its to remove.
-    if (test && acquired) {
-      if (claimed) {
-        try {
-          await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
-          log.info(`Test cleanup completed for ${appSpecs.name}`);
-        } catch (cleanupError) {
-          log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
-        }
-      }
-      // Released after the teardown, not before: the row is what the announcement
-      // reads, and it exists until the teardown has deleted it.
-      globalState.testInstallingApps.delete(appSpecs.name);
-    }
   }
 
-  // Announced once the finally above has released the install hold: a broadcast
-  // cycle takes as long as it takes, and every other install, removal and redeploy
-  // on this node refuses while the hold is up. Below the block rather than ordered
-  // by hand inside it, so the release cannot drift back after it.
-  // checkAndNotifyPeersOfRunningApps never throws.
-  if (!test && onInstallComplete) {
+  // Announced once the finally above has released this install's port claims, so
+  // a broadcast cycle, which takes as long as it takes, holds no port another
+  // install needs. checkAndNotifyPeersOfRunningApps never throws.
+  if (onInstallComplete) {
     await onInstallComplete();
     fluxEventBus.publish('app:installed', { name: appSpecs.name, hash: appSpecs.hash });
   }
@@ -755,107 +665,53 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
  *
  * A throw is reported under FAILED: the app is in whatever state the teardown reached, which
  * is what FAILED means everywhere else.
+ *
+ * Installing one component of an installed app, FAILED removes nothing: the app's row and
+ * its other components stay, and the component is the caller's to hand to the reconciler.
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications, when one component is being installed.
  * @param {object} res Response stream, when a caller holds one.
- * @param {boolean} [test] A test install, torn down again on the way out.
  * @param {boolean} [sendRemovalMessage] Whether a teardown announces itself.
- * @returns {Promise<string>} One of InstallOutcome.
+ * @param {object} [options]
+ * @param {object} [options.parent] The operation this install is a step of.
+ * @param {boolean} [options.wait] False refuses the install, as BUSY, while another
+ *   operation holds the app, for a caller whose next round asks again.
+ * @param {function(): void} [options.onRecorded] Called once the node records the app as
+ *   installed, before any container is made; never called for an install that ends
+ *   before that, nor for a component.
+ * @returns {Promise<string>} One of InstallOutcome. The install is sent to the
+ *   app's manager; refused there, it is BUSY.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+async function registerAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage = false, { parent = null, wait = true, onRecorded = null } = {}) {
+  await fluxosTrial.settled();
   // Published for every outcome but INSTALLED, which has app:installed of its own.
   const announce = (outcome) => {
-    if (test || outcome === InstallOutcome.INSTALLED) return;
+    if (outcome === InstallOutcome.INSTALLED) return;
     fluxEventBus.publish('app:installOutcome', { name: appSpecs?.name, outcome });
   };
+  const attempt = (op) => attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemovalMessage, { parent: op, onRecorded });
   let outcome;
   try {
-    outcome = await attemptRegisterAppLocally(appSpecs, componentSpecs, res, test, sendRemovalMessage);
+    outcome = appSpecs?.name
+      ? await operationRegistry.submit(appSpecs.name, 'install', attempt, {
+        parent, wait, owner: 'install',
+      })
+      : await attempt(null);
   } catch (error) {
+    if (error instanceof operationRegistry.OperationRefusedError) {
+      log.warn(`registerAppLocally - ${error.message}`);
+      if (res) {
+        res.write(serviceHelper.ensureString(messageHelper.createWarningMessage(error.message)));
+        if (res.flush) res.flush();
+      }
+      announce(InstallOutcome.BUSY);
+      return InstallOutcome.BUSY;
+    }
     announce(InstallOutcome.FAILED);
     throw error;
   }
   announce(outcome);
   return outcome;
-}
-
-/**
- * Checks Orbit (Deploy with Git) app health by polling its /api/status endpoint.
- * Waits for initialTestStatus to become true, then checks if the deployment failed.
- * @param {object} appSpecifications - Component specifications containing repotag and ports
- * @param {string} appName - Application name
- * @param {boolean} isComponent - Whether this is a component
- * @param {object} res - Response object for streaming status updates
- * @returns {Promise<{passed: boolean, reason: string|null}>} Result with passed status and failure reason
- */
-async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res) {
-  if (!appSpecifications.ports || !appSpecifications.ports.length) {
-    return { passed: false, reason: 'No ports configured for Orbit component' };
-  }
-  const hostPort = appSpecifications.ports[0];
-  const statusUrl = `http://127.0.0.1:${hostPort}/api/status`;
-  const pollInterval = 5000; // 5 seconds between polls
-  const maxAttempts = 24; // 2 minutes total (24 * 5s)
-  const initialWait = 5000; // 5 seconds before first poll
-
-  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-
-  const checkingStatus = {
-    status: `Checking Orbit deployment status for ${identifier} on port ${hostPort}...`,
-  };
-  log.info(checkingStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(checkingStatus));
-    if (res.flush) res.flush();
-  }
-
-  // Wait for Orbit to initialize before first poll
-  await serviceHelper.delay(initialWait);
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    let pollStatus = '';
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const response = await serviceHelper.axiosGet(statusUrl, { timeout: 5000 });
-
-      if (response.data && response.data.initialTestStatus === true) {
-        if (response.data.failed === true) {
-          const reason = response.data.failure_reason || 'Unknown failure';
-          return { passed: false, reason };
-        }
-        // initialTestStatus is true and failed is false - test passed
-        const successStatus = {
-          status: `Orbit initial test passed for ${identifier}`,
-        };
-        log.info(successStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(successStatus));
-          if (res.flush) res.flush();
-        }
-        return { passed: true, reason: null };
-      }
-
-      // Log what Orbit is actually returning for debugging
-      pollStatus = ` | response: ${JSON.stringify(response.data)}`;
-    } catch (error) {
-      pollStatus = ` | error: ${error.message}`;
-      log.info(`Orbit status poll attempt ${attempt}/${maxAttempts} for ${identifier}: ${error.message}`);
-    }
-
-    const elapsed = attempt * 5;
-    const waitingStatus = {
-      status: `Waiting for Orbit initial test... (${elapsed}s/${maxAttempts * 5}s)${pollStatus}`,
-    };
-    if (res) {
-      res.write(serviceHelper.ensureString(waitingStatus));
-      if (res.flush) res.flush();
-    }
-
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(pollInterval);
-  }
-
-  return { passed: false, reason: 'Orbit health check timed out: initial test did not complete within 2 minutes' };
 }
 
 /**
@@ -865,10 +721,12 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
  * @param {boolean} isComponent - Whether this is a component
  * @param {object} res - Response object
  * @param {object} fullAppSpecs - Full app specifications
- * @param {boolean} test - Whether this is a test installation
+ * @param {object} [options]
+ * @param {AbortSignal} [options.signal] - The operation's: the install stops at its
+ *   next step, and its pull at once, when it aborts
  * @returns {Promise<void>} Installation result
  */
-async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
+async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, { signal = null } = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
   // installed locally and owned by the same owner. Enforced here too — not just
   // in registerAppLocally — so direct callers that bypass it (container health
@@ -877,14 +735,16 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   await appNetworkLinker.checkAppNetworkRequirements(fullAppSpecs);
 
   // Setup firewall and UPnP ports (fail fast before downloading images)
-  await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
+  await setupApplicationPorts(appSpecifications, appName, isComponent, res);
 
   // Verify and pull Docker image
-  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
+  operationRegistry.throwIfPreempted(signal);
+  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, { signal });
 
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const advancedWorkflows = require('./advancedWorkflows');
+  operationRegistry.throwIfPreempted(signal);
   await advancedWorkflows.createAppVolume(appSpecifications, appName, isComponent, res);
 
   // Verify that the volume was mounted successfully
@@ -920,13 +780,17 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // Mount paths must exist before the container is created (Syncthing cleanup can
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
+  operationRegistry.throwIfPreempted(signal);
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
+  // the container exists: no absence of it is left to account for
+  await appsRuntimeState.clearRemovedByFluxOs(isComponent ? `${appSpecifications.name}_${appName}` : appName);
 
   // Attach this component to the private network of every app it is linked with
   // so it can reach their components by docker DNS name.
   const componentContainerName = dockerService.getAppIdentifier(isComponent ? `${appSpecifications.name}_${appName}` : appName);
   await appNetworkLinker.connectComponentToLinkedApps(componentContainerName, fullAppSpecs);
 
+  operationRegistry.throwIfPreempted(signal);
   const startStatus = {
     status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
   };
@@ -935,28 +799,18 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(startStatus));
     if (res.flush) res.flush();
   }
-  if (test || (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:'))) {
+  if (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:')) {
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
       throw new Error(`Failed to start ${identifier} container`);
     }
-    if (!test) {
-      startAppMonitoring(identifier);
-    }
+    startAppMonitoring(identifier);
     const appResponse = messageHelper.createDataMessage(app);
     log.info(appResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appResponse));
       if (res.flush) res.flush();
-    }
-
-    // For Orbit (Deploy with Git) apps, verify deployment health during test installs
-    if (test && appSpecifications.repotag && appSpecifications.repotag.startsWith('runonflux/orbit')) {
-      const orbitHealth = await checkOrbitAppHealth(appSpecifications, appName, isComponent, res);
-      if (!orbitHealth.passed) {
-        throw new Error(`Orbit deployment failed: ${orbitHealth.reason}`);
-      }
     }
   }
 }
@@ -971,21 +825,23 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {object} [options]
  * @param {boolean} [options.start] False creates the container without starting
  *   it, for a caller whose next reconcile pass starts it.
+ * @param {AbortSignal} [options.signal] - The operation's: the install stops at its
+ *   next step, and its pull at once, when it aborts
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, { start = true } = {}) {
+async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, { start = true, signal = null } = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
-  // installed locally and owned by the same owner. Enforced here too — not just
-  // in softRegisterAppLocally — so direct callers that bypass it (container
-  // health recovery, legacy v<=3 redeploys) cannot create a container without
-  // its network links satisfied.
+  // installed locally and owned by the same owner, so no caller creates a
+  // container without its network links satisfied.
   await appNetworkLinker.checkAppNetworkRequirements(fullAppSpecs);
 
   // Setup firewall and UPnP ports (fail fast before downloading images)
   await setupApplicationPorts(appSpecifications, appName, isComponent, res);
 
   // Verify and pull Docker image
-  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
+  operationRegistry.throwIfPreempted(signal);
+  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, { signal });
+  operationRegistry.throwIfPreempted(signal);
 
   const createApp = {
     status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,
@@ -1017,6 +873,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
+  // the container exists: no absence of it is left to account for
+  await appsRuntimeState.clearRemovedByFluxOs(identifier);
 
   // Attach this component to the private network of every app it is linked with
   // so it can reach their components by docker DNS name.
@@ -1031,8 +889,23 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(startStatus));
     if (res.flush) res.flush();
   }
-  if (start && !appSpecifications.containerData.includes('g:')) {
-    const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  const startedHere = start && !appSpecifications.containerData.includes('g:');
+  const componentId = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  // A soft install keeps the volume, and with it a restore that did not finish
+  // on it: such a component is not started here, and the reconciler keeps it
+  // stopped until the record is cleared. An unread record holds it too.
+  const restoreHolds = startedHere
+    && await appsRuntimeState.isRestoreUnfinished(componentId).catch(() => true);
+  if (restoreHolds) {
+    const held = { status: `${componentId} is not started: a restore of its data did not finish` };
+    log.warn(held);
+    if (res) {
+      res.write(serviceHelper.ensureString(held));
+      if (res.flush) res.flush();
+    }
+  }
+  if (startedHere && !restoreHolds) {
+    const identifier = componentId;
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
       throw new Error(`Failed to start ${identifier} container`);
@@ -1069,17 +942,6 @@ async function installAppLocally(req, res) {
     // tears it down again and never announces it.
     const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized) {
-      // registerAppLocally refuses a concurrent removal or installation but not a
-      // redeploy or the periodic reinstall pass, and those hold the node across a
-      // teardown they intend to rebuild from. Asked here, before anything is
-      // written, so the refusal is still a status line rather than an envelope in
-      // a half-streamed body.
-      const heldBy = globalState.operationHolding();
-      if (heldBy) {
-        // published as registerAppLocally publishes its own refusals: busy, ask again
-        fluxEventBus.publish('app:installOutcome', { name: appname, outcome: InstallOutcome.BUSY });
-        throw new Error(`Another application is undergoing ${heldBy}. Installation not possible.`);
-      }
       const allApps = await availableApps();
       let appSpecifications = allApps.find((app) => app.name === appname);
       if (!appSpecifications) {
@@ -1145,7 +1007,7 @@ async function installAppLocally(req, res) {
       res.setHeader('Content-Type', 'application/json');
       // A placement this node does not hold yet - refused above if it did - so a
       // failed install retracts the claim rather than keeping it.
-      await registerAppLocally(appSpecifications, undefined, res, false, true); // can throw
+      await registerAppLocally(appSpecifications, undefined, res, true); // can throw
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1191,6 +1053,8 @@ async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStati
 
   if (!skipStaticIp) {
     hwRequirements.checkAppStaticIpRequirements(appSpecs);
+    const dataCenter = await hwRequirements.dataCenterShortfall(appSpecs);
+    if (dataCenter) throw new Error(`Application ${appSpecs.name} cannot run on this node: ${dataCenter}`);
   }
 
   if (!skipHardware) {
@@ -1222,7 +1086,9 @@ async function pendingMessageSigner(tempMessage) {
 }
 
 /**
- * Test application installation - Similar to installAppLocally but for testing with reduced resource requirements
+ * Test an app on this node: its containers run for the test-run window at the resources it
+ * declares, outside the app machinery, and nothing is installed (appTestRun). FluxOS v9's
+ * playground replaces it.
  * @param {object} req - Request object containing appname in params or query
  * @param {object} res - Response object
  * @returns {Promise<void>}
@@ -1242,12 +1108,6 @@ async function testAppInstall(req, res) {
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
     if (authorized) {
-      // A test install creates and starts real containers, so it takes the node
-      // the same way a real one does.
-      const heldBy = globalState.operationHolding();
-      if (heldBy) {
-        throw new Error(`Another application is undergoing ${heldBy}. Test installation not possible.`);
-      }
       let appSpecifications;
 
       // An app not yet paid for is tested by the owner whose key signs its
@@ -1330,7 +1190,7 @@ async function testAppInstall(req, res) {
         appSpecifications.hash = hash;
       }
 
-      // An app this node holds is not tested here: the test would install over it.
+      // An app this node holds is not tested here.
       const installed = await dbHelper.findOneInDatabase(
         dbHelper.databaseConnection().db(config.database.appslocal.database),
         localAppsInformation,
@@ -1342,8 +1202,8 @@ async function testAppInstall(req, res) {
         return;
       }
 
-      // Test installation - similar to regular install but with test flag
-      // Skip all requirement checks for test installations (geolocation, static IP, hardware, nodes)
+      // Placement rules (geolocation, static IP, nodes) do not apply to a test; the
+      // test run refuses on the node's free hardware itself.
       await checkAppRequirements(appSpecifications, true, true, true);
 
       res.setHeader('Content-Type', 'application/json');
@@ -1387,8 +1247,9 @@ async function testAppInstall(req, res) {
         return;
       }
 
-      // Run test installation (registerAppLocally with test=true)
-      await registerAppLocally(appSpecifications, undefined, res, true);
+      await appTestRun.run(appSpecifications, res, {
+        pull: (component) => verifyAndPullImage(component, appSpecifications.name, true, res, appSpecifications),
+      });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);

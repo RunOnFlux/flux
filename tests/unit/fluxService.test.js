@@ -18,6 +18,7 @@ const geolocationService = require('../../ZelBack/src/services/geolocationServic
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 const configManager = require('../../ZelBack/src/services/utils/configManager');
+const { networks, configWith } = require('./fixtures/networkConfig');
 
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
@@ -31,9 +32,11 @@ const appInspector = require('../../ZelBack/src/services/appManagement/appInspec
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 // eslint-disable-next-line no-unused-vars
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
+const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -50,8 +53,7 @@ const adminConfig = {
     ipaddress: '127.0.0.1',
     zelid: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
     kadena: 'kadena:k:b3d922d1a57793651a1e0d951ef1671a10833e170810d3520388628cdc082fce?chainid=0',
-    testnet: false,
-    development: false,
+    network: 'mainnet',
     apiport: 16127,
     routerIP: '',
     pgpPrivateKey: '',
@@ -86,6 +88,19 @@ const fluxServiceOnArcane = proxyquire(
 );
 if (fluxPathOutsideArcane === undefined) delete process.env.FLUXOS_PATH;
 else process.env.FLUXOS_PATH = fluxPathOutsideArcane;
+
+// The same module on a labnet node.
+const labFluxService = proxyquire(
+  '../../ZelBack/src/services/fluxService',
+  {
+    '../../../config/userconfig': adminConfig,
+    'node:fs/promises': fsPromisesStubs,
+    config: configWith({
+      daemon: { chainSubdir: networks.labnet.daemon.chainSubdir },
+      fluxapps: { epochstart: networks.labnet.fluxapps.epochstart },
+    }),
+  },
+);
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -386,7 +401,8 @@ describe('fluxService tests', () => {
       sinon.restore();
     });
 
-    ['updateFlux', 'softUpdateFluxApi', 'softUpdateFluxInstallApi', 'hardUpdateFlux'].forEach((handler) => {
+    ['updateFlux', 'softUpdateFluxApi', 'softUpdateFluxInstallApi', 'hardUpdateFlux', 'enterMasterApi',
+      'enterDevelopmentApi'].forEach((handler) => {
       it(`${handler} refuses, and changes nothing`, async () => {
         const res = generateResponse();
 
@@ -501,13 +517,13 @@ describe('fluxService tests', () => {
   // while its tests stayed green.
   describe('rebuildUi tests', () => {
     let verifyPrivilegeStub;
-    let runUpdateScriptStub;
+    let rebuildIfIdleStub;
     let runCmdStub;
     let watchdogOwnsStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      runUpdateScriptStub = sinon.stub(cloudUIUpdateService, 'runUpdateScript');
+      rebuildIfIdleStub = sinon.stub(cloudUIUpdateService, 'rebuildIfIdle');
       watchdogOwnsStub = sinon.stub(cloudUIUpdateService, 'watchdogManagesCloudUI').returns(false);
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
     });
@@ -531,24 +547,24 @@ describe('fluxService tests', () => {
       await fluxService.rebuildUi(undefined, res);
 
       sinon.assert.calledWithExactly(res.json, expectedResponse);
-      sinon.assert.notCalled(runUpdateScriptStub);
+      sinon.assert.notCalled(rebuildIfIdleStub);
     });
 
     it('should report success when the UI is fetched', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(true);
+      rebuildIfIdleStub.resolves('installed');
       const res = generateResponse();
 
       await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.calledOnce(runUpdateScriptStub);
+      sinon.assert.calledOnce(rebuildIfIdleStub);
       expect(res.json.firstCall.args[0].status).to.equal('success');
       expect(res.json.firstCall.args[0].data.message).to.equal('Flux UI successfully rebuilt');
     });
 
     it('should report an error when the fetch fails', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(false);
+      rebuildIfIdleStub.resolves('failed');
       const res = generateResponse();
 
       await fluxService.rebuildUi(undefined, res);
@@ -557,10 +573,20 @@ describe('fluxService tests', () => {
       expect(res.json.firstCall.args[0].data.message).to.contain('Error rebuilding Flux UI');
     });
 
-    // The script removes the served directory before it copies the new one in.
-    // On ArcaneOS the watchdog owns CloudUI, which is why the periodic check
-    // stands aside there - reaching the script directly from here would walk
-    // under that and tear down a directory this node does not manage.
+    it('answers at once that an update is in progress when another run holds the lock', async () => {
+      verifyPrivilegeStub.returns(true);
+      rebuildIfIdleStub.resolves('busy');
+      const res = generateResponse();
+
+      await fluxService.rebuildUi(undefined, res);
+
+      sinon.assert.calledOnce(rebuildIfIdleStub);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.contain('already in progress');
+    });
+
+    // On ArcaneOS the watchdog owns CloudUI, so the route leaves it alone, as the
+    // periodic check does.
     it('refuses on ArcaneOS, where the watchdog owns CloudUI', async () => {
       verifyPrivilegeStub.returns(true);
       watchdogOwnsStub.returns(true);
@@ -568,7 +594,7 @@ describe('fluxService tests', () => {
 
       await fluxService.rebuildUi(undefined, res);
 
-      sinon.assert.notCalled(runUpdateScriptStub);
+      sinon.assert.notCalled(rebuildIfIdleStub);
       expect(res.json.firstCall.args[0].status).to.equal('error');
       expect(res.json.firstCall.args[0].data.message).to.contain('managed by the watchdog');
     });
@@ -577,7 +603,7 @@ describe('fluxService tests', () => {
     // be deleted somewhere else without anything failing until a node runs it.
     it('should not spawn a package script of its own', async () => {
       verifyPrivilegeStub.returns(true);
-      runUpdateScriptStub.resolves(true);
+      rebuildIfIdleStub.resolves('installed');
 
       await fluxService.rebuildUi(undefined, generateResponse());
 
@@ -1403,6 +1429,16 @@ describe('fluxService tests', () => {
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledOnceWithExactly(res.download, '/dat/var/lib/fluxd/debug.log', 'debug.log');
     });
+
+    it('downloads the debug.log fluxd keeps for the network', async () => {
+      verifyPrivilegeStub.returns(true);
+      sinon.stub(daemonServiceUtils, 'fluxdDataDir').returns('/home/flux/.flux');
+      const res = generateResponse();
+
+      await labFluxService.daemonDebug(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.download, '/home/flux/.flux/labnet/debug.log', 'debug.log');
+    });
   });
 
   describe('benchmarkDebug tests', () => {
@@ -1514,6 +1550,16 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', nodedpath] });
+    });
+
+    it('tails the debug.log fluxd keeps for the network', async () => {
+      verifyPrivilegeStub.returns(true);
+      runCmdStub.resolves({ error: null, stdout: 'tail' });
+      const res = generateResponse();
+
+      await labFluxService.tailDaemonDebug(undefined, res);
+
+      sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', '/dat/var/lib/fluxd/labnet/debug.log'] });
     });
   });
 
@@ -2029,6 +2075,9 @@ describe('fluxService tests', () => {
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getIncomingConnectionsInfo');
       syncthingServiceStub = sinon.stub(syncthingService, 'systemVersion');
       sinon.stub(dockerService, 'dockerVersion').resolves({ Version: '27.5.1' });
+      sinon.stub(dbHelper, 'getMongoDbVersion').resolves('7.0.14');
+      sinon.stub(cloudUIUpdateService, 'getLocalVersionTag').returns('v3.20.22');
+      sinon.stub(cloudUIUpdateService, 'getLocalVersionHash').returns('abc123');
     });
 
     afterEach(() => {
@@ -2057,6 +2106,30 @@ describe('fluxService tests', () => {
       State: 'running',
       Status: 'Up 2 hours',
     };
+
+    it('counts the app hashes from the network\'s epoch start', async () => {
+      daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
+      benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
+      benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
+      appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
+      appsServiceGetAppHashesStub.returns({
+        status: 'success',
+        data: [{ height: 0, message: true }, { height: 1, message: true }, { height: 40, message: false }],
+      });
+      explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
+      fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
+      fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
+      const result = await labFluxService.getFluxInfo();
+
+      expect(result.data.appsHashesTotal).to.equal(2);
+      expect(result.data.hashesPresent).to.equal(1);
+    });
 
     it('carries the staging that is otherwise invisible', async () => {
       // A held node takes no new apps and is in every other respect
@@ -2117,6 +2190,9 @@ describe('fluxService tests', () => {
       expect(result.data.flux.dosStaging).to.equal(null);
       expect(result.data.flux.uplink).to.eql({ tunnel: 'unknown', mtu: null, rttMs: null });
       expect(result.data.flux.kernel).to.eql({ tainted: 4736, flags: ['D', 'W', 'O'] });
+      expect(result.data.flux.cloudUI).to.eql({ tag: 'v3.20.22', sha256: 'abc123' });
+      expect(result.data.flux.dockerVersion).to.equal('27.5.1');
+      expect(result.data.flux.mongoDbVersion).to.equal('7.0.14');
       expect(result.data.apps).to.be.an('object');
       expect(result.data.benchmark).to.eql({
         info: 'info2 data',
@@ -2544,6 +2620,16 @@ describe('fluxService tests', () => {
       globalThis.userconfig = originalUserConfig;
     });
 
+    it('is refused on ArcaneOS, where configd owns the file', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      await fluxServiceOnArcane.adjustRouterIP({ params: { routerip: '10.0.0.1' } }, res);
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.include('router address');
+    });
+
     it('should return error when unauthorized ', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(false);
@@ -2602,6 +2688,16 @@ describe('fluxService tests', () => {
       sinon.restore();
       // Restore original userconfig
       globalThis.userconfig = originalUserConfig;
+    });
+
+    it('is refused on ArcaneOS, where configd owns the file', async () => {
+      const res = generateResponse();
+      verifyPrivilegeStub.returns(true);
+      await fluxServiceOnArcane.adjustAPIPort({ params: { apiport: '16157' } }, res);
+
+      sinon.assert.calledOnce(res.json);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.include('API port');
     });
 
     it('should return error when unauthorized ', async () => {
@@ -3114,6 +3210,30 @@ describe('fluxService tests', () => {
       expect(res.statusMessage).to.equal('Unable to compress blockchain in unsafe mode, it will corrupt new db.');
       sinon.assert.calledWithExactly(res.status, 422);
       sinon.assert.calledOnce(res.end);
+    });
+
+    it('streams the chain fluxd keeps for the network', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '10.20.30.40' }, body: { unsafe: true, compress: true } };
+      const savedPath = process.env.FLUXD_PATH;
+      delete process.env.FLUXD_PATH;
+      osStub.returns('/home/testuser');
+      fsPromisesStubs.stat.callsFake(async (dir) => {
+        if (dir.startsWith('/home/testuser/.flux/labnet/')) return { isDirectory: () => true };
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+
+      try {
+        await labFluxService.streamChain(req, res);
+      } finally {
+        if (savedPath !== undefined) process.env.FLUXD_PATH = savedPath;
+      }
+
+      // Past the chain check: the next refusal is the unsafe-compression one.
+      expect(res.statusMessage).to.equal('Unable to compress blockchain in unsafe mode, it will corrupt new db.');
+      ['determ_zelnodes', 'chainstate', 'blocks'].forEach((folder) => {
+        sinon.assert.calledWith(fsPromisesStubs.stat, `/home/testuser/.flux/labnet/${folder}`);
+      });
     });
 
     it('should return 503 when fluxd still running when in safe mode', async () => {
@@ -3866,6 +3986,119 @@ describe('fluxService tests', () => {
       await fluxService.updateFlux(undefined, generateResponse());
       await clock.tickAsync(5000);
       expect(pm2Restarts()).to.have.length(1);
+    });
+  });
+
+  describe('daemon and benchmark control on ArcaneOS', () => {
+    let runCommandStub;
+
+    beforeEach(() => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    });
+
+    afterEach(() => { sinon.restore(); });
+
+    ['stopDaemon', 'stopBenchmark', 'startBenchmarkByDaemon', 'stopBenchmarkByDaemon'].forEach((endpoint) => {
+      it(`${endpoint} is refused`, async () => {
+        const res = generateResponse();
+        await fluxServiceOnArcane[endpoint]({}, res);
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+        expect(res.json.firstCall.args[0].data.message).to.include('ArcaneOS');
+      });
+    });
+
+    it('restartFluxOS is refused and runs nothing', async () => {
+      const res = generateResponse();
+      await fluxServiceOnArcane.restartFluxOS({}, res);
+      sinon.assert.notCalled(runCommandStub);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
+    ['startDaemon', 'restartDaemon', 'reindexDaemon', 'updateDaemon',
+      'startBenchmark', 'restartBenchmark', 'updateBenchmark'].forEach((endpoint) => {
+      it(`${endpoint} is refused and runs nothing`, async () => {
+        const res = generateResponse();
+        await fluxServiceOnArcane[endpoint]({}, res);
+        sinon.assert.notCalled(runCommandStub);
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+      });
+
+      it(`${endpoint} still runs off ArcaneOS`, async () => {
+        const res = generateResponse();
+        await fluxService[endpoint]({}, res);
+        sinon.assert.calledOnce(runCommandStub);
+      });
+    });
+  });
+
+  describe('chain streaming on ArcaneOS', () => {
+    const socketBefore = process.env.FLUXOS_API_SOCKET;
+    let runCommandStub;
+    let clock;
+    // A request every check of the preparation passes: a private caller on no app
+    // network, a synced fluxd and a node outside its confirmation window.
+    const preparationRequest = () => ({ socket: { remoteAddress: '10.20.30.40' } });
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ now: 1_800_000_000_000, toFake: ['setTimeout', 'Date'] });
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(dockerService, 'getFluxDockerNetworkSubnets').resolves(['172.23.5.0/24']);
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlockchainInfo').resolves({ status: 'success', data: { bestblockhash: 'aa', blocks: 1000 } });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').resolves({ status: 'success', data: { time: 1_800_000_000 - 60 } });
+      sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'success', data: { status: 'CONFIRMED', last_confirmed_height: 990 } });
+      sinon.stub(daemonServiceUtils, 'buildFluxdClient');
+    });
+
+    afterEach(async () => {
+      if (socketBefore === undefined) delete process.env.FLUXOS_API_SOCKET;
+      else process.env.FLUXOS_API_SOCKET = socketBefore;
+      // the preparation's timer starts the services again and frees the next preparation
+      await clock.tickAsync(30_000);
+      clock.restore();
+      sinon.restore();
+    });
+
+    it('without the proxy the preparation stops the watchdog and fluxd through their units', async () => {
+      delete process.env.FLUXOS_API_SOCKET;
+      const res = generateResponse();
+      await fluxServiceOnArcane.streamChainPreparation(preparationRequest(), res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['stop', 'flux-watchdog.service', 'fluxd.service'] }));
+    });
+
+    it('behind the proxy the preparation is refused, and neither stops nor starts a service', async () => {
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
+      const res = generateResponse();
+      await fluxServiceOnArcane.streamChainPreparation(preparationRequest(), res);
+      await clock.tickAsync(30_000);
+
+      sinon.assert.calledWithExactly(res.status, 404);
+      expect(res.statusMessage).to.include('flux-chainstreamd');
+      sinon.assert.notCalled(runCommandStub);
+      sinon.assert.notCalled(daemonServiceBlockchainRpcs.getBlockchainInfo);
+    });
+
+    it('behind the proxy the stream is refused, and neither reads the chain nor starts a service', async () => {
+      process.env.FLUXOS_API_SOCKET = '/run/fluxos/api.sock';
+      const res = generateResponse();
+      await fluxServiceOnArcane.streamChain({ socket: { remoteAddress: '10.20.30.40' }, body: {} }, res);
+
+      sinon.assert.calledWithExactly(res.status, 404);
+      expect(res.statusMessage).to.include('flux-chainstreamd');
+      sinon.assert.notCalled(runCommandStub);
+      sinon.assert.notCalled(daemonServiceUtils.buildFluxdClient);
+      expect(fluxServiceOnArcane.getStreamLock()).to.equal(false);
+    });
+
+    it('off ArcaneOS the preparation stops the pm2 watchdog and zelcash', async () => {
+      const res = generateResponse();
+      await fluxService.streamChainPreparation(preparationRequest(), res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      sinon.assert.calledWith(runCommandStub, 'pm2', sinon.match({ params: ['stop', 'watchdog'] }));
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ runAsRoot: true, params: ['stop', 'zelcash.service'] }));
     });
   });
 });

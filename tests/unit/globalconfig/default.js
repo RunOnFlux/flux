@@ -2,6 +2,7 @@
 const database = process.env.FLUX_DATABASE || '127.0.0.1';
 
 module.exports = {
+  network: 'mainnet',
   testEventStream: false,
   system: {
     bootIdPath: '/proc/sys/kernel/random/boot_id',
@@ -148,16 +149,14 @@ module.exports = {
     host: '127.0.0.1',
     port: 16225,
     rpcport: 16224,
-    porttestnet: 26225,
-    rpcporttestnet: 26224,
   },
   daemon: {
     host: '127.0.0.1',
     chainValidHeight: 1062000,
     port: 16125,
     rpcport: 16124,
-    porttestnet: 26125,
-    rpcporttestnet: 26124,
+    initialHeaderFloor: 1136836,
+    chainSubdir: '',
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.0.0',
@@ -172,6 +171,7 @@ module.exports = {
     storageHost: 'storage.runonflux.io',
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    firstRunProofMs: 60000,
     restartBurstCount: 5,
     restartBurstWindowMs: 300000,
     // in flux main chain per month (blocksLasting)
@@ -272,10 +272,10 @@ module.exports = {
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
     addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
-    addressDevelopment: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
     multisigAddressChange: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
+    explorerInsightSkipRanges: [{ from: 699420, to: 862002 }],
     portMinLegacy: 31000, // ports 30000 - 30999 are reserved for local applications
     portMaxLegacy: 39999,
     portBlockheightChange: 1420000,
@@ -293,6 +293,7 @@ module.exports = {
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
     minIncoming: 4,
+    incomingCapFloor: 0,
     minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
     availabilityCheckIntervalMs: 300000,
@@ -338,6 +339,7 @@ module.exports = {
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
+    imageReapPeriod: 720, // every day remove the images nothing wants
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
@@ -456,6 +458,10 @@ module.exports = {
     discoveryMaxIterations: 100,
     nodeMonitorRemovalDelayMs: 5000,
     pullStallMs: 90000,
+    dockerProbeTimeoutMs: 20000,
+    dockerStopSlackMs: 30000,
+    dockerRequestTimeoutMs: 120000,
+    appRemovedListFrom: '8.25.0',
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
     syncAnswerBatchBytes: 8 * 1024 * 1024,

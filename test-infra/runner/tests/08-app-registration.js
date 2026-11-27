@@ -9,6 +9,7 @@ import { waitForDaemonReady, waitFor, waitForBlockProcessed, waitForNodeStatus }
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
+import { waitForRegistriesBuilt } from '../framework/reconciler-suite.js';
 
 let env;
 
@@ -25,6 +26,7 @@ describe('App registration', function () {
     await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
     await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
     await startTicker();
+    await waitForRegistriesBuilt(env.clients);
   });
 
   afterTeardown(async function () {

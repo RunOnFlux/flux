@@ -1047,15 +1047,13 @@ async function uploadAppsFiles(req, res) {
     // after uploading a gigabyte.
     releaseSlot = executor.acquireSlot(volume.identifier);
 
-    // Created if it is not there. The restore flow uploads into backup/upload
-    // on volumes that have never held a restore, so an upload has always
-    // brought its own destination into existence.
+    // A destination that is not there is made by the first file's publish
+    // (`parents`), so only one that is there and is not a folder is refused. An
+    // upload into a missing folder creates it with its first file; the restore
+    // flow relies on this for backup/upload.
     const present = await volume.isDirectory(target).catch(() => null);
     if (present === false) {
       throw new Error('Upload destination is not a folder');
-    }
-    if (present === null) {
-      await executor.run(volume, ['mkdir', '-p', target], { slotHeld: true });
     }
   } catch (error) {
     if (releaseSlot) releaseSlot();
@@ -1099,6 +1097,9 @@ async function uploadAppsFiles(req, res) {
         maxBytes: ceiling,
         slotHeld: true,
         inheritOwner: true,
+        // The folders missing above the file, each owned by the folder that
+        // receives it, so an app running as its own user can write into them.
+        parents: true,
         status: 'Uploading...',
       });
 

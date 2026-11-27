@@ -7,6 +7,7 @@ const generalService = require('../generalService');
 const registryManager = require('../appDatabase/registryManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const appConstants = require('../utils/appConstants');
+const admissionControl = require('../utils/admissionControl');
 const log = require('../../lib/log');
 
 // Import appQueryService to avoid circular dependency (will be cleaned up later)
@@ -93,42 +94,22 @@ async function appsResources({ excludeApp } = {}) {
   const { decryptEnterpriseApps } = require('./appQueryService');
   const { inPlace: appsResult, unreadable } = await decryptEnterpriseApps(stored, { formatSpecs: false });
 
+  const tier = await generalService.nodeTier().catch((error) => log.error(error));
+  const reservations = admissionControl.reserved();
+  if (excludeApp) reservations.delete(excludeApp);
+
   let appsCpusLocked = 0;
   let appsRamLocked = 0;
   let appsHddLocked = 0;
-  const tier = await generalService.nodeTier().catch((error) => log.error(error));
-  const hddTier = `hdd${tier}`;
-  const ramTier = `ram${tier}`;
-  const cpuTier = `cpu${tier}`;
-
-  // Ensure appsResult is an array
+  const count = ({ cpu, ram, hdd }) => {
+    appsCpusLocked += cpu;
+    appsRamLocked += ram;
+    appsHddLocked += hdd;
+  };
+  // An app holding a reservation is counted by it, not by its row.
   const apps = Array.isArray(appsResult) ? appsResult : [];
-  apps.forEach((app) => {
-    if (app.version >= 4) {
-      app.compose.forEach((component) => {
-        if (component.tiered && tier) {
-          appsCpusLocked += serviceHelper.ensureNumber(component[cpuTier] || component.cpu) || 0;
-          appsRamLocked += serviceHelper.ensureNumber(component[ramTier] || component.ram) || 0;
-          appsHddLocked += serviceHelper.ensureNumber(component[hddTier] || component.hdd) || 0;
-        } else {
-          appsCpusLocked += serviceHelper.ensureNumber(component.cpu) || 0;
-          appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
-          appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
-        }
-        appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
-      });
-    } else if (app.tiered && tier) {
-      appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
-      appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
-      appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
-      appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
-    } else {
-      appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
-      appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
-      appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
-      appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
-    }
-  });
+  apps.filter((app) => !reservations.has(app.name)).forEach((app) => count(appFootprint(app, tier)));
+  reservations.forEach(count);
   const appsUsage = {
     appsCpusLocked,
     appsRamLocked,
@@ -136,6 +117,31 @@ async function appsResources({ excludeApp } = {}) {
     unreadable: unreadable.map((app) => app.name),
   };
   return messageHelper.createDataMessage(appsUsage);
+}
+
+/**
+ * What an app takes of the node: its cpu cores, ram (MB) and disk (GB), with the
+ * filesystem minimum and swap each component's volume carries.
+ * @param {object} app App specification, decrypted.
+ * @param {string|undefined} tier The node's tier; undefined counts untiered sizes.
+ * @returns {{cpu: number, ram: number, hdd: number}}
+ */
+function appFootprint(app, tier) {
+  const perVolume = config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap;
+  const sized = (spec) => {
+    const tiered = spec.tiered && tier;
+    return {
+      cpu: serviceHelper.ensureNumber(tiered ? spec[`cpu${tier}`] || spec.cpu : spec.cpu) || 0,
+      ram: serviceHelper.ensureNumber(tiered ? spec[`ram${tier}`] || spec.ram : spec.ram) || 0,
+      hdd: (serviceHelper.ensureNumber(tiered ? spec[`hdd${tier}`] || spec.hdd : spec.hdd) || 0) + perVolume,
+    };
+  };
+  if (app.version >= 4) {
+    return app.compose.map(sized).reduce((sum, each) => ({
+      cpu: sum.cpu + each.cpu, ram: sum.ram + each.ram, hdd: sum.hdd + each.hdd,
+    }), { cpu: 0, ram: 0, hdd: 0 });
+  }
+  return sized(app);
 }
 
 /**
@@ -201,6 +207,7 @@ function publicResourceView(usage) {
 module.exports = {
   fluxUsage,
   appsResources,
+  appFootprint,
   unaccountedApps,
   appsResourcesApi,
   publicResourceView,

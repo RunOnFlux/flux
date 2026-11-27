@@ -18,18 +18,62 @@ async function post(path, body) {
 }
 
 /**
+ * Has neither geolocation service (ip-api, and the stats fallback) locate `ip`:
+ * both answer 503 until clearGeolocation.
+ * @param {string} ip A bare IP.
+ */
+export async function setGeolocationUnavailable(ip) {
+  return post(`/geolocation/${ip}`, { unavailable: true });
+}
+
+/**
+ * Has both geolocation services answer for `ip` as they do by default.
+ * @param {string} ip A bare IP.
+ */
+export async function clearGeolocation(ip) {
+  const res = await fetch(`${CONTROL}/geolocation/${ip}`, { method: 'DELETE' });
+  return res.json();
+}
+
+/**
  * Stage bytes to be served at artifactUrl(name).
  *
  * `declaredLength` overrides the content-length header without changing what is
  * sent, which is how a download that stops short of what was promised is
  * reproduced - a dropped connection, or an error page served as 200.
  *
+ * `stallAfter` sends that many bytes of a GET, then one byte a second, and the
+ * rest on releaseArtifact, or nothing more once the client closes the
+ * transfer: a download in flight, never idle, for as long as the suite needs
+ * one (artifactTransfers reports it).
+ *
  * @param {string} name - artifact name, used in the URL
  * @param {string} base64 - the bytes, base64 encoded
- * @param {{declaredLength?: number}} [opts]
+ * @param {{declaredLength?: number, stallAfter?: number}} [opts]
  */
-export async function stageArtifact(name, base64, { declaredLength = null } = {}) {
-  return post('/artifact', { name, base64, declaredLength });
+export async function stageArtifact(name, base64, { declaredLength = null, stallAfter = null } = {}) {
+  return post('/artifact', {
+    name, base64, declaredLength, stallAfter,
+  });
+}
+
+/**
+ * The GETs of a stalling artifact, oldest first: whether each is held, was
+ * released, or was closed by its client before it ended.
+ * @param {string} name
+ * @returns {Promise<Array<{stalled: boolean, released: boolean, clientClosed: boolean}>>}
+ */
+export async function artifactTransfers(name) {
+  const res = await fetch(`${CONTROL}/artifact/${name}/transfers`);
+  return res.json();
+}
+
+/**
+ * Sends the rest of every held GET of a stalling artifact.
+ * @param {string} name
+ */
+export async function releaseArtifact(name) {
+  return post(`/artifact/${name}/release`);
 }
 
 /**
@@ -101,6 +145,17 @@ export async function dnsBrokenServed() {
  */
 export async function setBlocklist(entries) {
   return post('/blocklist', entries);
+}
+
+/**
+ * Merge policy documents over the ones the stub serves and publish the result as a new
+ * signed bundle. A document set to null is left out of the bundle.
+ *
+ * @param {object} documents Document name to value.
+ * @returns {Promise<{seq: number}>} The sequence the fleet converges on.
+ */
+export async function setPolicyDocuments(documents) {
+  return post('/policy', { documents });
 }
 
 /**

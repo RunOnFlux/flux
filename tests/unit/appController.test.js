@@ -11,6 +11,7 @@ const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsR
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const bootGateAtStart = globalState.bootContainerStateSettled;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -69,6 +70,9 @@ describe('appController tests', () => {
     // eslint-disable-next-line global-require
     const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
     verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+    // no restore left a component half-replaced unless a test says so
+    sinon.stub(appsRuntimeState, 'isRestoreUnfinished').resolves(false);
+    sinon.stub(appsRuntimeState, 'setRestoreUnfinished').resolves();
   });
 
   afterEach(() => {
@@ -92,6 +96,25 @@ describe('appController tests', () => {
         return true;
       });
       sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
+    });
+
+    it('clears the record of a restore that did not finish: the owner accepts the data', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      appsRuntimeState.isRestoreUnfinished.resolves(true);
+
+      await appController.appStart({ params: { appname: 'TestApp' }, query: {} }, { json: sinon.fake() });
+
+      sinon.assert.calledOnceWithExactly(appsRuntimeState.setRestoreUnfinished, 'TestApp', false);
+    });
+
+    it('leaves no record behind on a start when there was none', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+
+      await appController.appStart({ params: { appname: 'TestApp' }, query: {} }, { json: sinon.fake() });
+
+      sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
     });
 
     it('should start app and return success message', async () => {
@@ -692,6 +715,95 @@ describe('appController tests', () => {
   });
 
 
+  describe('an owner action while another operation holds the app', () => {
+    beforeEach(() => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      sinon.stub(appsRuntimeState, 'requestRestart').resolves();
+      sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').resolves(false);
+      sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
+        await mutate();
+        return true;
+      });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
+      appsRuntimeState.isRestoreUnfinished.resolves(true);
+    });
+
+    afterEach(() => operationRegistry.clear());
+
+    const req = (query = {}) => ({ params: { appname: 'TestApp' }, query });
+    const actions = {
+      start: (res) => appController.appStart(req(), res),
+      stop: (res) => appController.appStop(req(), res),
+      restart: (res) => appController.appRestart(req(), res),
+      kill: (res) => appController.appKill(req(), res),
+      'restart of what runs': (res) => appController.appRestart(req({ unlessstopped: 'true' }), res),
+    };
+
+    Object.entries(actions).forEach(([name, act]) => {
+      it(`refuses a ${name} while a restore holds the app, changing nothing`, async () => {
+        const restore = operationRegistry.acquire('TestApp', 'restore', 'test');
+        const res = { json: sinon.fake((param) => param) };
+
+        await act(res);
+
+        expect(JSON.stringify(res.json.firstCall.args[0])).to.include('Refused: a restore of TestApp is in progress');
+        sinon.assert.notCalled(appReconciler.applyIntent);
+        sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
+        operationRegistry.release('TestApp', restore);
+      });
+    });
+
+    it('a canary: a start of an app nothing holds clears its restore record', async () => {
+      await actions.start({ json: sinon.fake((param) => param) });
+
+      sinon.assert.calledOnceWithExactly(appsRuntimeState.setRestoreUnfinished, 'TestApp', false);
+    });
+  });
+
+  describe('componentStates tests', () => {
+    it('refuses a caller who is neither the owner nor the Flux team', async () => {
+      verificationHelperStub.resolves(false);
+      const res = { json: sinon.fake((param) => param) };
+
+      await appController.componentStates({ params: { appname: 'TestApp' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(verificationHelperStub.firstCall.args[0]).to.equal(Privilege.APP_OWNER_OR_FLUX_TEAM);
+      expect(verificationHelperStub.firstCall.args[2]).to.deep.equal({ appName: 'TestApp' });
+    });
+
+    it('answers, for each component here, whether it runs and why it does not', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: false });
+      sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: false, reason: 'restoreUnfinished', force: false });
+      const res = { json: sinon.fake((param) => param) };
+
+      await appController.componentStates({ params: { appname: 'TestApp' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0]).to.deep.equal({
+        status: 'success',
+        data: [{
+          component: 'TestApp', running: false, desired: false, reason: 'restoreUnfinished',
+        }],
+      });
+    });
+
+    it('says running is unknown when docker cannot tell', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: false, exists: false, running: false });
+      sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: true, reason: 'policy', force: false });
+      const res = { json: sinon.fake((param) => param) };
+
+      await appController.componentStates({ params: { appname: 'TestApp' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0].data[0].running).to.equal(null);
+    });
+  });
+
   describe('appRestart tests', () => {
     beforeEach(() => {
       sinon.stub(dockerService, 'appDockerRestart').resolves('Flux App TestApp successfully restarted.');
@@ -702,6 +814,72 @@ describe('appController tests', () => {
       });
       sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: true });
       sinon.stub(appsRuntimeState, 'getState').resolves({ restartGeneration: 1, actuatedRestartGeneration: 1 });
+    });
+
+    describe('sent by another instance\'s restore', () => {
+      const restoreRestart = (appname) => appController.appRestart(
+        { params: { appname }, query: { unlessstopped: 'true' } },
+        { json: sinon.fake((param) => param) },
+      );
+
+      it('leaves a component its owner stopped stopped, and changes no lock', async () => {
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').resolves(true);
+        const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+        await restoreRestart('TestApp');
+
+        sinon.assert.notCalled(setOperatorStopped);
+        sinon.assert.notCalled(appsRuntimeState.requestRestart);
+        sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
+      });
+
+      it('restarts a component its owner did not stop, and changes no lock', async () => {
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').resolves(false);
+        const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+        await restoreRestart('TestApp');
+
+        sinon.assert.notCalled(setOperatorStopped);
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.requestRestart, 'TestApp');
+      });
+
+      it('is refused with global, and restarts nothing', async () => {
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').resolves(false);
+        const res = { json: sinon.fake((param) => param) };
+
+        await appController.appRestart({ params: { appname: 'TestApp', global: 'true' }, query: { unlessstopped: 'true' } }, res);
+
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+        expect(JSON.stringify(res.json.firstCall.args[0])).to.include('cannot be combined with global');
+        sinon.assert.notCalled(appsRuntimeState.requestRestart);
+        sinon.assert.notCalled(appsRuntimeState.operatorStoppedOrThrow);
+      });
+
+      it('does not restart a component whose lock cannot be read', async () => {
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        sinon.stub(appsRuntimeState, 'operatorStoppedOrThrow').rejects(new Error('database unavailable'));
+
+        await restoreRestart('TestApp');
+
+        sinon.assert.notCalled(appsRuntimeState.requestRestart);
+      });
+    });
+
+    it('keeps the record of a restore that did not finish: a restart accepts nothing', async () => {
+      verificationHelperStub.resolves(true);
+      stubInstalledApp({ name: 'TestApp', version: 3 });
+      appsRuntimeState.isRestoreUnfinished.resolves(true);
+
+      await appController.appRestart({ params: { appname: 'TestApp' }, query: {} }, { json: sinon.fake() });
+
+      sinon.assert.notCalled(appsRuntimeState.setRestoreUnfinished);
     });
 
     it('should restart app and return success message', async () => {
@@ -1370,6 +1548,19 @@ describe('appController tests', () => {
 
       sinon.assert.calledOnce(axiosStub);
       sinon.assert.calledWith(axiosStub, `http://${otherNode}/apps/apprestart/TestApp`);
+    });
+
+    it('sends the query it is given to every other instance', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { ip: thisNode, name: 'TestApp' },
+        { ip: otherNode, name: 'TestApp' },
+      ]);
+      const axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
+
+      await appController.executeAppGlobalCommand('TestApp', 'apprestart', 'test-auth', undefined, undefined, { query: 'unlessstopped=true' });
+
+      sinon.assert.calledOnce(axiosStub);
+      sinon.assert.calledWith(axiosStub, `http://${otherNode}/apps/apprestart/TestApp?unlessstopped=true`);
     });
 
     it('logs a failure of the share for this node and still sends the others', async () => {

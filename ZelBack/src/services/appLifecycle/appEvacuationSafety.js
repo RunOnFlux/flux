@@ -16,7 +16,6 @@
 const config = require('config');
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
-const globalState = require('../utils/globalState');
 const mountParser = require('../utils/mountParser');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { socketAddressesMatch, extractIp } = require('../utils/socketAddressUtils');
@@ -86,6 +85,9 @@ function otherHostCount(locations, localSocketAddr) {
 /**
  * May this node remove this app right now?
  *
+ * Asked by the hand-back, which holds the app: no other operation runs on it
+ * between this answer and the removal.
+ *
  * @param {string} appName Global app name.
  * @param {object} deps Injected collaborators, so this is testable without a
  *   database, a docker daemon or a syncthing process.
@@ -129,13 +131,6 @@ async function canSafelyRemoveApp(appName, deps) {
       || typeof shuttingDownDevices !== 'function' || typeof folderHoldsNothing !== 'function') {
       throw new Error('isElectedPrimary, isComponentRunningLocally, shuttingDownDevices and folderHoldsNothing are required');
     }
-    if (globalState.backupInProgress.includes(appName)) {
-      return { safe: false, code: 'BACKUP_IN_PROGRESS', reason: 'backup in progress' };
-    }
-    if (globalState.restoreInProgress.includes(appName)) {
-      return { safe: false, code: 'RESTORE_IN_PROGRESS', reason: 'restore in progress' };
-    }
-
     const spec = await getApplicationGlobalSpecifications(appName);
     if (!spec) {
       // No spec means we cannot tell how many instances the app needs, nor

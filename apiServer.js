@@ -49,6 +49,8 @@ const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
 const SHUTDOWN_PAUSE_MS = 3000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 const portFile = require('./ZelBack/src/services/utils/portFile');
+const apiSocket = require('./ZelBack/src/services/utils/apiSocket');
+const publicPorts = require('./ZelBack/src/services/utils/publicPorts');
 const fluxdCredentials = require('./ZelBack/src/services/daemonService/fluxdCredentials');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -201,6 +203,27 @@ async function initiate() {
   await loadUpnpIfRequired();
 
   setImmediate(configReload);
+
+  const socketPath = apiSocket.socketPath();
+  if (socketPath) {
+    const server = new fluxServer.FluxServer();
+    const socketError = await server.listen({
+      path: socketPath, backlog: apiSocket.SOCKET_BACKLOG, group: apiSocket.socketGroup(),
+    }).catch((err) => err);
+
+    if (socketError) {
+      logErrorAndExit(`Flux api server unable to start. ${socketError}`, { exitCode: systemdNotify.EXIT_CONFIG });
+      return '';
+    }
+
+    log.info(`Flux listening on ${socketPath}!`);
+    // Before the functions below, each of which reads the node's ports as it starts.
+    await publicPorts.start();
+    systemdNotify.notifyReady();
+    setAxiosDefaults([server.socketIo]);
+    serviceManager.startFluxFunctions();
+    return apiPort;
+  }
 
   const appRoot = process.cwd();
   // ToDo: move this to async

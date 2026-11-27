@@ -28,7 +28,8 @@
 #
 # Per-suite TAP + run-all output land under $E2E_LOG_DIR (default /tmp/e2e-logs/<n>/);
 # progress + the final tally stream to $E2E_LOG_DIR/driver.log; capture sidecars
-# (docker events, host mem/load watch, dmesg OOM) sit beside them as cap-*.log.
+# (docker events, host mem/load watch, disk statistics, dmesg OOM) sit beside them
+# as cap-*.log.
 # Exit status is non-zero if any suite failed.
 
 set -o pipefail   # NOTE: deliberately NOT `set -u` — empty associative-array
@@ -315,21 +316,36 @@ capture_memory(){
     sleep 5
   done
 }
+# Extended statistics of the box's disks every 5 s, flushes included (f/s, f_await):
+# what a run's file writes and fsyncs waited on. Loop and optical devices are left
+# out; every node's volumes sit on the disks listed.
+capture_io(){
+  local disks
+  disks=$(lsblk -dno NAME -e 7,11 2>/dev/null | tr '\n' ' ')
+  if ! command -v iostat >/dev/null 2>&1 || [ -z "${disks// }" ]; then
+    echo "no iostat, or no disk to watch: nothing recorded"
+    return
+  fi
+  # shellcheck disable=SC2086
+  S_TIME_FORMAT=ISO exec iostat -x -t -y 5 $disks
+}
 # Runs with the pipe's read end as its standard input. An asynchronous command
 # reads /dev/null unless told otherwise, so the root half is handed it as fd 3.
 run_captures(){
-  local mem events
+  local mem events io
   exec 3<&0
   sudo -n sh -c 'dmesg -wT & d=$!; read -r _; kill "$d"' 2>/dev/null <&3 \
     | grep --line-buffered -iE 'oom|killed process' > "$LOGROOT/cap-dmesg.log" &
   capture_memory > "$LOGROOT/cap-mem.log" 2>&1 &
   mem=$!
+  capture_io > "$LOGROOT/cap-io.log" 2>&1 &
+  io=$!
   docker events --filter event=die --filter event=kill --filter event=oom \
     --format '{{.Time}} {{.Action}} name={{.Actor.Attributes.name}} exitCode={{.Actor.Attributes.exitCode}}' \
     > "$LOGROOT/cap-events.log" 2>&1 &
   events=$!
   read -r _ <&3
-  kill "$mem" "$events" 2>/dev/null
+  kill "$mem" "$events" "$io" 2>/dev/null
 }
 exec {CAPTURE_HOLD}> >(run_captures)
 stop_captures(){

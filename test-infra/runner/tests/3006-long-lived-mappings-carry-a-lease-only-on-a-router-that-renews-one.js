@@ -6,7 +6,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
-import { restartFluxos, setNodeApiPort } from '../framework/container.js';
+import { crashFluxos, releaseFluxos, setNodeApiPort } from '../framework/container.js';
 import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
 import { enableUpnpGateway, setUpnpLeases, upnpGatewayState } from '../framework/external-http-control.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
@@ -70,11 +70,14 @@ describe('long-lived mappings carry a lease only on a router that renews one', f
   };
 
   // A clean table behind the router as `leases` sets it, and FluxOS started again on it.
+  // FluxOS is down before the table is cleared, so every request the router records from
+  // then on is the started FluxOS's.
   const restartOnRouter = async (leases) => {
+    await crashFluxos(env.clients[idx].container, { hold: true });
     await enableUpnpGateway(nodeIp);
     if (leases) await setUpnpLeases(nodeIp, leases);
     startedAt = Date.now();
-    await restartFluxos(env.clients[idx].container);
+    await releaseFluxos(env.clients[idx].container);
   };
 
   // Resolves with the gateway's state once `done` holds of it.

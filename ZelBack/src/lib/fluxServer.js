@@ -5,7 +5,10 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const compression = require('compression');
+const fs = require('node:fs/promises');
 const routes = require('../routes');
+const serviceHelper = require('../services/serviceHelper');
+const apiSocket = require('../services/utils/apiSocket');
 const { analyticsMiddleware, startFlushTimer } = require('../services/analyticsService');
 const { MESSAGE_LOG_CONTENT_TYPE } = require('../services/appMessaging/permanentMessageLog');
 
@@ -20,12 +23,14 @@ const { FluxSocketIoServer } = require('./socketIoServer');
 class FluxServer {
   /**
    * compression's own filter, which also takes the permanent message log: its content type is
-   * not in the list of compressible types compression consults.
+   * not in the list of compressible types compression consults. Behind the front proxy nothing is
+   * compressed here: nginx compresses, and a stream compressed twice is not one a client reads.
    * @param {import('express').Request} req
    * @param {import('express').Response} res
    * @returns {boolean}
    */
   static shouldCompress(req, res) {
+    if (apiSocket.socketPath()) return false;
     const contentType = String(res.getHeader('Content-Type') ?? '').split(';')[0].trim();
     return contentType === MESSAGE_LOG_CONTENT_TYPE || compression.filter(req, res);
   }
@@ -71,6 +76,7 @@ class FluxServer {
     const cert = options.cert || null;
 
     this.expressApp = options.expressApp || express();
+    if (apiSocket.socketPath()) this.expressApp.set('trust proxy', apiSocket.TRUSTED_HOPS);
     this.errorHandler = options.errorHandler || FluxServer.defaultErrorHandler;
 
     if (!FluxServer.supportedModes.includes(mode)) {
@@ -152,7 +158,29 @@ class FluxServer {
     return this.server.address()?.port ?? null;
   }
 
-  async listen(port) {
+  /**
+   * Listens on a port, or on a Unix socket given as {path, backlog, group}: a stale socket is
+   * removed first, and the socket is open to its group once this resolves. The backlog matters
+   * because a connect to a full Unix socket fails at once where TCP would retry, and every peer
+   * reconnects together after a restart.
+   * @param {number|string|{path: string, backlog: number, group: (string|undefined)}} target
+   * @returns {Promise<null>}
+   */
+  async listen(target) {
+    if (target?.path) {
+      await fs.rm(target.path, { force: true });
+      await this.bind({ path: target.path, backlog: target.backlog });
+      if (target.group) {
+        const { error } = await serviceHelper.runCommand('chgrp', { params: [target.group, target.path] });
+        if (error) throw error;
+      }
+      await fs.chmod(target.path, apiSocket.SOCKET_MODE);
+      return null;
+    }
+    return this.bind(target);
+  }
+
+  async bind(target) {
     return new Promise((resolve, reject) => {
       this.server
         .once('error', (err) => {
@@ -164,7 +192,7 @@ class FluxServer {
           startFlushTimer();
           resolve(null);
         });
-      this.server.listen(port);
+      this.server.listen(target);
     });
   }
 

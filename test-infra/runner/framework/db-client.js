@@ -290,6 +290,14 @@ export function dbClient(nodeNum) {
       };
     },
 
+    // Whether an unfinished restore holds the component: true, false, or null
+    // where the node has no runtime record of it.
+    async restoreUnfinished(identifier) {
+      const localDb = await db('appsLocal');
+      const state = await localDb.collection('zelappsruntimestate').findOne({ identifier });
+      return state ? state.restoreUnfinished === true : null;
+    },
+
     // This node's app state event log, filtered.
     async appStateEvents(query = {}) {
       const globalDb = await db('appsGlobal');

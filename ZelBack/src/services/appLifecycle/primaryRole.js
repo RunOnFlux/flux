@@ -106,7 +106,7 @@ async function sendThenRun(identifier, appId, change) {
     // folder stops sending
     log.error(`primaryRole - not starting ${identifier}: ${error.message}`);
     await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
-    return { to: Role.STANDBY, reason: 'its operator lock could not be read' };
+    return { to: Role.STANDBY, reason: 'its operator lock or restore record could not be read' };
   }
   const { RunRequest } = appReconciler;
   if (outcome === RunRequest.WRITTEN) return Role.PRIMARY;
@@ -115,6 +115,10 @@ async function sendThenRun(identifier, appId, change) {
     // down: it stays held by the lock, its folder sending, until the election
     // decides an operator start.
     return { to: Role.STANDBY, reason: 'its operator stopped it' };
+  }
+  if (outcome === RunRequest.RESTORE_UNFINISHED) {
+    await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
+    return { to: Role.STANDBY, reason: 'a restore of its data did not finish' };
   }
   // Stood down, or another decision was made while it waited: nothing runs it
   // here, so its folder stops sending, and the next election pass decides again.
@@ -229,7 +233,8 @@ async function adopt(identifier, state, reason) {
  * restart the container runs with no opinion recorded, and the reconciler acts on
  * the component, a pending restart included, only once one is
  * (appReconciler.adoptControllerDesired). Writes nothing while a change of role
- * is in progress. The folder write may be refused - a volume not mounted - and
+ * is in progress, while an intent other than running is recorded, or while a
+ * backup or restore holds the app. The folder write may be refused - a volume not mounted - and
  * the adoption is asked for all the same: it records what the container shows.
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
@@ -237,6 +242,12 @@ async function adopt(identifier, state, reason) {
  */
 async function holdAsPrimary(identifier, appId) {
   if (changes.get(identifier)) return;
+  // This node is the primary only while its recorded intent is running; with
+  // another recorded (a failed restore's, an unsafe mount's), it is not, and its
+  // folder must not send. A backup or restore holds the folder, which alone may
+  // resume it.
+  if (appReconciler.hasControllerOpinion(identifier) && !isPrimary(identifier)) return;
+  if (heldByOperation(identifier)) return;
   await syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
   await adopt(identifier, 'running', 'masterSlave primary');
 }
@@ -304,6 +315,12 @@ async function holdAsStandby(identifier, appId, { othersHold } = {}) {
       log.warn(`primaryRole - ${identifier} returned as primary while another holder runs it; its unscanned changes are discarded`);
       const discarded = await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly', { unpause: true });
       if (discarded) fluxEventBus.publish('primaryRole:returned', { identifier, outcome: 'discarded' });
+      return;
+    }
+    // A restore left its data part replaced: it stays paused, sending nothing, until
+    // the record is cleared.
+    if (await syncthingFolderWrites.restoreHolds(appId)) {
+      fluxEventBus.count('primaryRole:returned', identifier, 'restoreUnfinished');
       return;
     }
     // It is the component's writer, and no other holder has taken over: it goes

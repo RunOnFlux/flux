@@ -41,6 +41,7 @@ const syncthingFolderWrites = require('./syncthingFolderWrites');
 const folderStates = require('./folderStates');
 const primaryRole = require('../appLifecycle/primaryRole');
 const {
+  healHeldSharedFolder,
   manageFolderSyncState,
   verifyFolderMountSafety,
   verifySendReceiveFolderSafety,
@@ -371,12 +372,24 @@ async function processContainerData(params) {
   // Create base folder configuration
   const syncthingFolder = createSyncthingFolderConfig(id, label, folder, devices);
 
+  // The restore record is read once per folder per pass, and everything below
+  // decides on that one answer. A record that cannot be read decides nothing: the
+  // folder is left as it is for the pass, and no write makes it send meanwhile.
+  const recordRead = await syncthingFolderWrites.restoreRecord(appId);
+  if (recordRead === null) {
+    fluxEventBus.count('syncthing:restoreUnfinished', appId, 'unknown');
+    return;
+  }
+  let restoreHeld = recordRead;
+
   // Handle receive-only or global sync flags
   if (primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g')) {
     // Read before the pass: the state machine updates the entry in place.
     const wasReady = !!state.receiveOnlySyncthingAppsCache.get(appId)?.restarted;
     // Use state machine to manage folder sync transitions
-    const { syncthingFolder: updatedFolder, cache, skipProcessing } = await manageFolderSyncState({
+    const {
+      syncthingFolder: updatedFolder, cache, skipProcessing, restoreHeld: heldAfterPass,
+    } = await manageFolderSyncState({
       appId,
       identifier,
       syncFolder,
@@ -391,15 +404,20 @@ async function processContainerData(params) {
       installedAppName,
       liveness,
       electedSiblings: electedFolderIds.includes(appId) ? electedFolderIds.filter((folderId) => folderId !== appId) : [],
+      restoreHeld,
     });
+    // false once the pass healed it
+    restoreHeld = heldAfterPass;
 
     // Update cache if provided
     if (cache !== null) {
       state.receiveOnlySyncthingAppsCache.set(appId, cache);
       // From here the election reads this holder as ready to take over. A
       // single-writer standby stays receiveonly, so this, not the folder type,
-      // is when it becomes eligible.
+      // is when it becomes eligible. A holder that stops being ready is no longer
+      // eligible, and its folder's health is no longer watched.
       if (cache.restarted && !wasReady) fluxEventBus.publish('syncthing:folderReady', { folder: appId });
+      if (!cache.restarted && wasReady) fluxEventBus.publish('syncthing:folderNotReady', { folder: appId });
     }
 
     // Skip processing if marked to skip
@@ -422,10 +440,15 @@ async function processContainerData(params) {
     syncthingFolder.type = 'sendreceive';
   }
 
-  // Nothing arrives in a folder whose local appdata is still to be cleared: what
-  // arrived before the clear would be cleared with it, and syncthing would hold
-  // an index of files the disk no longer has. The pass after the clear resumes it.
-  if (appReconciler.dataClearPending(appId)) syncthingFolder.paused = true;
+  // A folder an unfinished restore holds receives, in every mode, until healing
+  // from a peer that holds the data, a restore that finishes, or its owner's start
+  // releases it. Its type is written even for a g: folder, so one left sending is
+  // turned; one already receiving is left as it is. The state machine heals an r:
+  // or g: folder above; an s: folder, which it does not run for, is healed here.
+  if (restoreHeld) {
+    const shared = !(primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g'));
+    if (!(shared && await healHeldSharedFolder(appId))) syncthingFolder.type = 'receiveonly';
+  }
 
   // Add to tracking arrays
   folderIds.push(id);
@@ -509,8 +532,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
   getGlobalStateFn();
 
   // Early return if operations in progress
-  if (state.installationInProgress || state.removalInProgress || state.softRedeployInProgress || state.hardRedeployInProgress || state.updateSyncthingRunning
-    || state.shutdownInProgress) {
+  if (state.updateSyncthingRunning || state.shutdownInProgress) {
     return;
   }
 
@@ -824,7 +846,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     const liveness = createPeerFolderLiveness();
     const awaitingPromotion = appsAwaitingPromotion(
       appsInstalled.data,
-      new Set([...state.backupInProgress, ...state.restoreInProgress]),
+      new Set(state.heldApps),
       state.receiveOnlySyncthingAppsCache,
     );
     if (awaitingPromotion.size) {
@@ -858,12 +880,10 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // Process all installed apps
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
-      // Skip if backup/restore in progress
-      const backupSkip = state.backupInProgress.some((item) => installedApp.name === item);
-      const restoreSkip = state.restoreInProgress.some((item) => installedApp.name === item);
-
-      if (backupSkip || restoreSkip) {
-        log.info(`syncthingAppsCore - Backup/restore in progress for ${installedApp.name}, syncthing disabled`);
+      // An app an operation holds is passed over: the operation builds, stops or
+      // tears down the folders this would configure.
+      if (state.heldApps.includes(installedApp.name)) {
+        log.info(`syncthingAppsCore - an operation holds ${installedApp.name}; its folders are left this pass`);
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1001,20 +1021,18 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     if (devicesConfiguration.length > 0) {
       messageHelper.dataOrThrow(await syncthingService.adjustConfigDevices('put', devicesConfiguration));
     }
-    // The config this pass computed sets paused:false on every folder it writes,
-    // and only a live backup or restore ever sets paused:true - so writing a
-    // busy app's folder here would un-pause the hold it took to protect its data
-    // mid-operation. The per-app skip above catches apps already busy when their
-    // turn came; an app that became busy DURING the pass was processed as free
-    // and its folder is in the batch. So the busy set is read again at the write
-    // - the guard belongs at the action it guards - and those folders are held
-    // back. The op holds its claim from a synchronous test-and-set before it
-    // pauses anything, so a folder read as free here is one whose pause has not
-    // happened yet; the op's own pause is the later write and wins. The monitor
-    // only ever DROPS work for a busy app, never waits on it, so it cannot block
-    // an operation. A folder a crashed op left paused holds no claim and is
-    // un-paused normally - the self-heal is untouched.
-    const busyAppNames = new Set([...state.backupInProgress, ...state.restoreInProgress]);
+    // A held app's folders are the operation's: a backup or restore pauses them,
+    // a removal deletes them, an install creates them, and a folder this pass
+    // writes would undo that (paused:false on every folder it writes). The
+    // per-app skip above passes over apps held when their turn came; an app taken
+    // during the pass was processed as free and its folder is in the batch, so
+    // the held set is read again here, at the write, and those folders are held
+    // back. An operation takes its app synchronously before it touches a folder,
+    // so a folder read as free here has not been touched yet and the operation's
+    // write comes later and wins. The monitor only drops work for a held app,
+    // never waits on it. A folder a crashed operation left paused belongs to no
+    // held app and is un-paused normally.
+    const busyAppNames = new Set(state.heldApps);
     const busyFolderIds = new Set();
     if (busyAppNames.size) {
       for (const installedApp of appsInstalled.data) {
@@ -1037,8 +1055,8 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     }
 
     // Inert in production; the harness waits on it to know a pass reached the
-    // folder write and to read what it wrote versus what it held for a live
-    // backup or restore.
+    // folder write and to read what it wrote versus what it held back for a
+    // held app.
     fluxEventBus.publish('syncthing:passComplete', {
       wrote: foldersToWrite.map((folder) => folder.id),
       heldForBusy,
@@ -1202,10 +1220,6 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
     onResync: () => accelerator.onResync(),
   });
 
-  // A folder held paused for a clear is resumed by the pass after it.
-  const onDataCleared = () => accelerator.onResync();
-  appReconciler.dataEvents.on('cleared', onDataCleared);
-
   // Return control object for graceful shutdown
   return {
     stop: () => {
@@ -1213,7 +1227,6 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
         clearInterval(intervalId);
         intervalId = null;
         accelerator.stop();
-        appReconciler.dataEvents.off('cleared', onDataCleared);
         syncthingEventsConsumer.stop();
         log.info('syncthingApps - Monitoring service stopped');
       }

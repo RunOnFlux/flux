@@ -3,6 +3,7 @@ const { StringDecoder } = require('string_decoder');
 const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { callerAddress } = require('../utils/apiSocket');
 const log = require('../../lib/log');
 
 /**
@@ -86,7 +87,7 @@ function writableWaiter(res) {
   }
   function closeStalledReader() {
     stalled = null;
-    log.info(`permanentMessageLog - ${res.socket?.remoteAddress} took nothing for ${READER_IDLE_MS / 1000}s; closing its connection`);
+    log.info(`permanentMessageLog - ${callerAddress(res.req)} took nothing for ${READER_IDLE_MS / 1000}s; closing its connection`);
     res.destroy();
   }
   res.on('drain', onWritable);

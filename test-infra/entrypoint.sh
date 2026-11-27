@@ -86,6 +86,17 @@ if [ "$FLUX_FREEZABLE_DOCKER_ROOT" = "true" ]; then
   mount_stallable "$img" /mnt/appdata/docker
 fi
 
+# A node whose container directories a suite freezes (framework/host-stall.js
+# freezeContainers) keeps them on a filesystem of their own, inside docker's data
+# root, mounted before docker starts. Frozen, docker's own records of its
+# containers are held and its image and layer stores are not.
+if [ "$FLUX_FREEZABLE_CONTAINER_ROOT" = "true" ]; then
+  img=/mnt/appdata/docker-containers.img
+  [ -f "$img" ] || { truncate -s 2G "$img" && mkfs.ext4 -q -F "$img"; }
+  mkdir -p /mnt/appdata/docker/containers
+  mount_stallable "$img" /mnt/appdata/docker/containers
+fi
+
 # In stub mode FluxOS only needs somewhere to read an API key from; the calls
 # themselves go to the shared stub. In binary mode the config is syncthing's own
 # and this fixture must not be in the way of it.
@@ -360,6 +371,9 @@ if [ -f /etc/flux-harness/node-key ]; then
 fi
 if [ -n "$FLUX_SYNCTHING_HOST" ]; then
   ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service
+fi
+if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
+  ln -sf /etc/systemd/system/flux-syncthing-metrics.service /etc/systemd/system/multi-user.target.wants/flux-syncthing-metrics.service
 fi
 
 # Container hygiene: kernel modules cannot be loaded here, and a tmpfs

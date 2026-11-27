@@ -8,7 +8,7 @@ import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.
 import {
   setSynced, setSyncing, setStatusUnreadable, setSyncState, resetSyncState,
 } from '../framework/syncthing-control.js';
-import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -92,7 +92,7 @@ describe('a backup refuses to archive a copy that is not there', function () {
 
     const after = client.getLastEventId();
     await installOnNodes(env, app, [0]);
-    await waitForReconcileActuated(client, `${comp}_${appName}`, 'dataCleared', 120000, { afterId: after });
+    await waitForFolderTakenOn(client, `${comp}_${appName}`, 120000, { afterId: after });
     await execInContainer(client.container, `printf 'the-real-world\\n' > ${dir}/appdata/marker.txt`);
 
     auth = await authenticate(client.url, appOwnerKey());

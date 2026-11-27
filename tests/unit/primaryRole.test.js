@@ -2,10 +2,10 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
-const globalState = require('../../ZelBack/src/services/utils/globalState');
 const peerComponent = require('../../ZelBack/src/services/appMonitoring/peerComponent');
 const { RunRequest } = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 
@@ -20,7 +20,8 @@ const FOLDER = 'fluxn8n_n8napp';
  * to one shared log.
  */
 function loadRole({
-  primary = false, changeType, folder = null, operatorStopped = false, superseded = false, inSlot = async () => {}, afterRun = () => {},
+  primary = false, changeType, folder = null, operatorStopped = false, superseded = false, restoreUnfinished = false,
+  inSlot = async () => {}, afterRun = () => {},
 } = {}) {
   const calls = [];
   const note = (name) => (...args) => { calls.push([name, ...args]); };
@@ -36,6 +37,7 @@ function loadRole({
       await inSlot();
       if (unless()) return RunRequest.STOOD_DOWN;
       if (operatorStopped) return RunRequest.OPERATOR_STOPPED;
+      if (restoreUnfinished) return RunRequest.RESTORE_UNFINISHED;
       if (superseded) return RunRequest.SUPERSEDED;
       reconciler.committed = [id];
       afterRun();
@@ -62,6 +64,7 @@ function loadRole({
     }),
     patchFolder: sinon.spy(async (id, fields) => { note('patch')(id, fields); return { status: 'success' }; }),
     folderConfig: sinon.stub().resolves(folder),
+    restoreHolds: sinon.stub().resolves(restoreUnfinished),
     FOLDER_TYPE_SETTLE_MS: 60000,
   };
   const bus = {
@@ -168,7 +171,20 @@ describe('primaryRole', () => {
 
       expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive'], ['folder', FOLDER, 'receiveonly']]);
       expect(t.roleEvents().at(-1)).to.deep.equal({
-        identifier: APP, from: 'promoting', to: 'standby', reason: 'its operator lock could not be read',
+        identifier: APP, from: 'promoting', to: 'standby', reason: 'its operator lock or restore record could not be read',
+      });
+    });
+
+    it('makes the folder receive again when an unfinished restore holds the component', async () => {
+      const t = loadRole({ restoreUnfinished: true });
+
+      expect(t.role.promote(APP, FOLDER)).to.equal(true);
+      await t.role.whenSettled(APP);
+
+      expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive'], ['folder', FOLDER, 'receiveonly']]);
+      expect(t.reconciler.committed).to.deep.equal([]);
+      expect(t.roleEvents().at(-1)).to.deep.equal({
+        identifier: APP, from: 'promoting', to: 'standby', reason: 'a restore of its data did not finish',
       });
     });
 
@@ -441,6 +457,31 @@ describe('primaryRole', () => {
       sinon.assert.notCalled(t.reconciler.adoptControllerDesired);
     });
 
+    // A node is the primary only while its recorded intent is running. One with
+    // another recorded - a failed restore's stop, an unsafe mount's - must not
+    // have its folder made to send, whatever its container is doing.
+    it('writes nothing for a component whose recorded intent is stopped', async () => {
+      const t = loadRole({ primary: false });
+      t.reconciler.hasControllerOpinion.returns(true);
+
+      await t.role.holdAsPrimary(APP, FOLDER);
+
+      expect(t.calls).to.deep.equal([]);
+      sinon.assert.notCalled(t.reconciler.adoptControllerDesired);
+    });
+
+    it('writes nothing while a backup or restore holds the app', async () => {
+      const t = loadRole({ primary: true });
+      operationRegistry.acquire('n8napp', 'restore', 'test');
+      try {
+        await t.role.holdAsPrimary(APP, FOLDER);
+      } finally {
+        operationRegistry.clear();
+      }
+
+      expect(t.calls).to.deep.equal([]);
+    });
+
     // The adoption records what the container shows, so a folder that cannot be
     // made to send - its volume not mounted - does not withhold it.
     it('asks the adoption for the primary when its folder cannot be made to send', async () => {
@@ -475,8 +516,7 @@ describe('primaryRole', () => {
     const returned = (t) => t.bus.publish.getCalls().filter((c) => c.args[0] === 'primaryRole:returned').map((c) => c.args[1]);
 
     afterEach(() => {
-      globalState.finishBackup('n8napp');
-      globalState.finishRestore('n8napp');
+      operationRegistry.clear();
     });
 
     it('discards what it holds when another holder runs the component: receives, unpaused, unscanned, in one write', async () => {
@@ -502,6 +542,16 @@ describe('primaryRole', () => {
       expect(returned(t)).to.deep.equal([{ identifier: APP, outcome: 'kept' }]);
     });
 
+    it('stays paused, sending nothing, while an unfinished restore holds the component', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING, restoreUnfinished: true });
+
+      await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.NOT_RUNNING });
+
+      expect(t.calls.filter((c) => c[0] === 'patch' || c[0] === 'folder' || c[0] === 'setRunningUnlessOperatorStopped')).to.deep.equal([]);
+      expect(returned(t)).to.deep.equal([]);
+      sinon.assert.calledWith(t.bus.count, 'primaryRole:returned', APP, 'restoreUnfinished');
+    });
+
     it('stays paused while a holder cannot be ruled out', async () => {
       const t = loadRole({ folder: PAUSED_SENDING });
 
@@ -519,10 +569,10 @@ describe('primaryRole', () => {
       expect(t.calls).to.deep.equal([]);
     });
 
-    ['tryStartBackup', 'tryStartRestore'].forEach((claim) => {
-      it(`stays paused while ${claim === 'tryStartBackup' ? 'a backup' : 'a restore'} holds the app`, async () => {
+    ['backup', 'restore'].forEach((type) => {
+      it(`stays paused while a ${type} holds the app`, async () => {
         const t = loadRole({ folder: PAUSED_SENDING });
-        globalState[claim]('n8napp');
+        operationRegistry.acquire('n8napp', type, 'test');
 
         await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.RUNNING });
 

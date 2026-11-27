@@ -1,13 +1,15 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
-const { promisify } = require('node:util');
 const childProcess = require('node:child_process');
 
 const config = require('config');
 const configDefault = require('../../config/default');
 
 const log = require('../lib/log');
+const { logDir } = require('../../runtimePaths');
+const { callerAddress, socketPath } = require('./utils/apiSocket');
+const publicPorts = require('./utils/publicPorts');
 const configManager = require('./utils/configManager');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
@@ -19,6 +21,7 @@ const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
+const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const benchmarkService = require('./benchmarkService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 const generalService = require('./generalService');
@@ -31,15 +34,15 @@ const dockerService = require('./dockerService');
 const upnpService = require('./upnpService');
 const uplinkService = require('./uplinkService');
 const kernelService = require('./kernelService');
+const containerRuntimeService = require('./containerRuntimeService');
 const enterpriseConfig = require('./utils/enterpriseConfig');
 const { answerDaemonUnavailable } = require('./utils/routeGuards');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
 const tar = require('tar/create');
-// use non promises stream for node 14.x compatibility
-// const stream = require('node:stream/promises');
 const stream = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const { Privilege, authOf } = require('./utils/privileges');
 const fluxEventBus = require('./utils/fluxEventBus');
 
@@ -58,6 +61,31 @@ function selfUpdateRefusal(arcane) {
     : null;
 }
 
+/**
+ * The refusal of a daemon or benchmark control on ArcaneOS, where each runs under its own unit and
+ * the endpoints' scripts and apt updates are a legacy node's.
+ * @returns {object} Message.
+ */
+function daemonControlRefusal() {
+  return messageHelper.createErrorMessage('The daemon and the benchmark are managed by the system on ArcaneOS');
+}
+
+/**
+ * Runs a daemon or benchmark control, refused on ArcaneOS.
+ * @param {Function} control - takes the request and response
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+function controlOffArcane(control, req, res) {
+  return isArcane ? res.json(daemonControlRefusal()) : control(req, res);
+}
+
+const stopDaemon = (req, res) => controlOffArcane(daemonServiceControlRpcs.stop, req, res);
+const stopBenchmark = (req, res) => controlOffArcane(benchmarkService.stop, req, res);
+const startBenchmarkByDaemon = (req, res) => controlOffArcane(daemonServiceBenchmarkRpcs.startBenchmarkD, req, res);
+const stopBenchmarkByDaemon = (req, res) => controlOffArcane(daemonServiceBenchmarkRpcs.stopBenchmarkD, req, res);
+
 // Where this node's checkout is, named once. Every command below that reads or
 // writes the repository is told it, rather than inheriting whatever directory
 // the process happens to be running in: `git checkout` and `git fetch` write,
@@ -66,31 +94,6 @@ const REPO_ROOT = path.join(__dirname, '../../../');
 
 // Cache for OS distribution information
 let cachedOSDistInfo = null;
-
-// remove this when nodes are off 14.18.1
-function promiseAnyPolyfill(promisesArray) {
-  const promiseErrors = new Array(promisesArray.length);
-
-  return new Promise((resolve, reject) => {
-    promisesArray.forEach((promise, index) => {
-      Promise.resolve(promise)
-        .then(resolve)
-        .catch((error) => {
-          promiseErrors[index] = error;
-
-          if (index === promisesArray.length - 1) {
-            reject(promiseErrors);
-          }
-        });
-    });
-  });
-}
-
-if (typeof Promise.any === 'undefined') {
-  // polyfill for nodeJS 14.18.1
-  // eslint-disable-next-line global-require
-  globalThis.Promise.any = promiseAnyPolyfill;
-}
 
 /**
  * Stream chain lock, so only one request at a time
@@ -172,6 +175,12 @@ async function fluxBackendFolder(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function getCurrentCommitId() {
+  // An image holds no .git; its build records the commit.
+  if (socketPath()) {
+    const built = await fs.readFile(path.join(REPO_ROOT, 'BUILD'), 'utf8').catch(() => null);
+    if (built) return built.trim().slice(0, 7);
+  }
+
   // Fix - this breaks if head in detached state? (or something, can't remember)
   const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
     cwd: REPO_ROOT,
@@ -542,6 +551,8 @@ async function enterMasterApi(req, res) {
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   try {
     await enterMaster();
@@ -577,6 +588,8 @@ async function enterDevelopmentApi(req, res) {
   if (authorized !== true) {
     return res.json(messageHelper.errUnauthorizedMessage());
   }
+  const refusal = selfUpdateRefusal(isArcane);
+  if (refusal) return res.json(refusal);
 
   try {
     await enterDevelopment();
@@ -747,13 +760,21 @@ async function rebuildUi(req, res) {
   // repository, so rebuilding it means taking that release again through the one path
   // that knows which host to ask - the same path the periodic check uses.
   //
-  // Unconditionally, unlike the periodic check: that one stands down when the
+  // Whatever is on disk, unlike the periodic check: that one stands down when the
   // installed hash already matches the release, and a CloudUI which is damaged
   // rather than out of date matches all the same. Repairing one is what this is
-  // for, so it takes the release again whatever is on disk.
-  const rebuilt = await cloudUIUpdateService.runUpdateScript();
+  // for, so it takes the release again.
+  //
+  // Not while another update is in progress: the caller is answered at once rather
+  // than held behind it, and that update installs the release anyway.
+  const outcome = await cloudUIUpdateService.rebuildIfIdle();
 
-  if (!rebuilt) {
+  if (outcome === 'busy') {
+    const errMessage = messageHelper.createErrorMessage('A Flux UI update is already in progress on this node, try again once it has finished');
+    return res.json(errMessage);
+  }
+
+  if (outcome !== 'installed') {
     const errMessage = messageHelper.createErrorMessage('Error rebuilding Flux UI, see the node log for what the fetch reported');
     return res.json(errMessage);
   }
@@ -775,6 +796,8 @@ async function updateDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'updateDaemon.sh');
@@ -804,6 +827,8 @@ async function updateBenchmark(req, res) {
     return res.json(errMessage);
   }
 
+  if (isArcane) return res.json(daemonControlRefusal());
+
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'updateBenchmark.sh');
 
@@ -831,6 +856,8 @@ async function startBenchmark(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const bin = await fs
     .access('/usr/local/bin/fluxbenchd', fs.constants.F_OK)
@@ -862,6 +889,8 @@ async function restartBenchmark(req, res) {
     return res.json(errMessage);
   }
 
+  if (isArcane) return res.json(daemonControlRefusal());
+
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'restartBenchmark.sh');
 
@@ -889,6 +918,8 @@ async function startDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const bin = await fs
     .access('/usr/local/bin/fluxd', fs.constants.F_OK)
@@ -920,6 +951,8 @@ async function restartDaemon(req, res) {
     return res.json(errMessage);
   }
 
+  if (isArcane) return res.json(daemonControlRefusal());
+
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'restartDaemon.sh');
 
@@ -947,6 +980,8 @@ async function reindexDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
+
+  if (isArcane) return res.json(daemonControlRefusal());
 
   const cwd = path.join(__dirname, '../../../helpers');
   const scriptPath = path.join(cwd, 'reindexDaemon.sh');
@@ -1099,9 +1134,7 @@ function getRouterIP(req, res) {
  * @returns {object} Message.
  */
 function getAPIPort(req, res) {
-  const { userconfig } = globalThis;
-  const routerIP = userconfig.initial.apiport || '16127';
-  const message = messageHelper.createDataMessage(routerIP);
+  const message = messageHelper.createDataMessage(publicPorts.getApiPort());
   return res ? res.json(message) : message;
 }
 
@@ -1125,18 +1158,13 @@ function getEnterpriseAppOwners(req, res) {
 }
 
 /**
- * To marketplace URL to show based on current development flag setup in configuration file that is being used with FluxOS.
+ * The marketplace listing URL.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
 function getMarketplaceURL(req, res) {
-  const { userconfig } = globalThis;
-  const development = userconfig.initial.development || false;
-  let marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
-  if (development) {
-    marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listdevapps`;
-  }
+  const marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
   const message = messageHelper.createDataMessage(marketPlaceUrl);
   return res ? res.json(message) : message;
 }
@@ -1153,7 +1181,7 @@ async function daemonDebug(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), 'debug.log');
+  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
 
   return res.download(filepath, 'debug.log');
 }
@@ -1196,7 +1224,7 @@ async function tailDaemonDebug(req, res) {
     return;
   }
 
-  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), 'debug.log');
+  const filepath = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir, 'debug.log');
 
   const { stdout, error } = await serviceHelper.runCommand('tail', {
     params: ['-n', '100', filepath],
@@ -1256,8 +1284,7 @@ async function tailBenchmarkDebug(req, res) {
  * @returns {Promise<object>} FluxOS .log file.
  */
 async function fluxLog(res, filelog) {
-  const homeDirPath = path.join(__dirname, '../../../');
-  const filepath = `${homeDirPath}${filelog}.log`;
+  const filepath = path.join(logDir(), `${filelog}.log`);
 
   return res.download(filepath, `${filelog}.log`);
 }
@@ -1356,8 +1383,7 @@ async function tailFluxLog(req, res, logfile) {
     return;
   }
 
-  const homeDirPath = path.join(__dirname, '../../../');
-  const filepath = path.join(homeDirPath, `${logfile}.log`);
+  const filepath = path.join(logDir(), `${logfile}.log`);
 
   const { stdout, error } = await serviceHelper.runCommand('tail', {
     params: ['-n', '100', filepath],
@@ -1540,6 +1566,11 @@ async function getFluxInfo(req, res) {
       throw versionRes.data;
     }
     info.flux.version = versionRes.data;
+    // The installed UI release; each is null where the update script has not written it.
+    info.flux.cloudUI = {
+      tag: cloudUIUpdateService.getLocalVersionTag(),
+      sha256: cloudUIUpdateService.getLocalVersionHash(),
+    };
     const nodeJsVersionsRes = await getNodeJsVersions();
     if (nodeJsVersionsRes.status === 'error') {
       throw nodeJsVersionsRes.data;
@@ -1597,6 +1628,7 @@ async function getFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.flux.dos = dosResult.data;
+    info.flux.containerRuntime = containerRuntimeService.getStatus();
     // eslint-disable-next-line global-require
     const appInspector = require('./appManagement/appInspector');
     const dosAppsResult = await appInspector.getAppsDOSState();
@@ -1612,8 +1644,8 @@ async function getFluxInfo(req, res) {
       info.flux.arcaneHumanVersion = arcaneHumanVersion;
     }
     info.flux.appsDos = dosAppsResult.data;
-    const { userconfig } = globalThis;
-    info.flux.development = userconfig.initial.development || false;
+    // No node runs in a development mode; the field stays in the v1 response.
+    info.flux.development = false;
     const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
     if (daemonInfoRes.status === 'error') {
       throw daemonInfoRes.data;
@@ -1670,7 +1702,7 @@ async function getFluxInfo(req, res) {
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
-    const hashesOk = appHashes.data.filter((data) => data.height >= 694000);
+    const hashesOk = appHashes.data.filter((data) => data.height >= config.fluxapps.epochstart);
     info.appsHashesTotal = hashesOk.length;
     const mesOK = hashesOk.filter((mes) => mes.message === true);
     info.hashesPresent = mesOK.length;
@@ -1751,6 +1783,10 @@ async function adjustRouterIP(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
+      if (isArcane) {
+        res.json(messageHelper.createErrorMessage('The router address is set in the node\'s configuration'));
+        return;
+      }
       let { routerip } = req.params;
       routerip = routerip || req.query.routerip || '';
 
@@ -1778,6 +1814,10 @@ async function adjustAPIPort(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR, authOf(req));
     if (authorized === true) {
+      if (isArcane) {
+        res.json(messageHelper.createErrorMessage('The API port is set in the node\'s configuration'));
+        return;
+      }
       let { apiport } = req.params;
       apiport = apiport || req.query.apiport || '';
 
@@ -1835,6 +1875,11 @@ async function restartFluxOS(req, res) {
     return;
   }
 
+  if (isArcane) {
+    res.json(messageHelper.createErrorMessage('FluxOS is managed by the system on ArcaneOS'));
+    return;
+  }
+
   log.info('Restarting FluxOS..');
 
   const { error } = await serviceHelper.runCommand('pm2', { params: ['restart', 'flux'] });
@@ -1888,12 +1933,25 @@ function safeSetResponseStatus(res, status, message) {
   }
 }
 
+/**
+ * Refuses a chain stream request behind the front proxy, which hands both routes to
+ * flux-chainstreamd.
+ * @param {Response} res HTTP response
+ * @returns {boolean} true when the request was refused
+ */
+function refuseStreamChainBehindProxy(res) {
+  if (!socketPath()) return false;
+  safeSetResponseStatus(res, 404, 'Behind the front proxy the chain is streamed by flux-chainstreamd.');
+  return true;
+}
+
 /*
 * @param {Request} req HTTP request
 * @param {Response} res HTTP response
 * @returns {Promise<void>}
 */
 async function streamChainPreparation(req, res) {
+  if (refuseStreamChainBehindProxy(res)) return;
   if (streamChainDisabled) {
     safeSetResponseStatus(res, 422, 'Failed minimium throughput criteria. Disabled.');
     return;
@@ -1914,7 +1972,7 @@ async function streamChainPreparation(req, res) {
   try {
     prepLock = true;
 
-    let ip = req.socket.remoteAddress;
+    let ip = callerAddress(req);
     if (!ip) {
       safeSetResponseStatus(res, 400, 'Socket closed.');
       return;
@@ -2081,6 +2139,7 @@ async function streamChainPreparation(req, res) {
  */
 
 async function streamChain(req, res) {
+  if (refuseStreamChainBehindProxy(res)) return;
   if (streamChainDisabled) {
     safeSetResponseStatus(res, 422, 'Failed minimium throughput criteria. Disabled.');
     return;
@@ -2103,7 +2162,7 @@ async function streamChain(req, res) {
      * connections coming in via a private address. (Flux websockets need the remote address
      * or they think there is only one inbound connnection)
      */
-    let ip = req.socket.remoteAddress;
+    let ip = callerAddress(req);
     if (!ip) {
       safeSetResponseStatus(res, 400, 'Socket closed.');
       return;
@@ -2130,7 +2189,7 @@ async function streamChain(req, res) {
 
     log.info(`Stream chain request received from: ${ip}`);
 
-    const base = daemonServiceUtils.fluxdDataDir();
+    const base = path.join(daemonServiceUtils.fluxdDataDir(), config.daemon.chainSubdir);
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
@@ -2255,8 +2314,6 @@ async function streamChain(req, res) {
 
     workflow.push(res);
 
-    const pipeline = promisify(stream.pipeline);
-
     const error = await pipeline(...workflow).catch((err) => err);
 
     if (error) log.warn(`Stream error: ${error.code}`);
@@ -2306,6 +2363,10 @@ async function isArcaneOs(req, res) {
 
 module.exports = {
   runNewCode,
+  startBenchmarkByDaemon,
+  stopBenchmark,
+  stopBenchmarkByDaemon,
+  stopDaemon,
   ensurePm2KillTimeout,
   PM2_KILL_TIMEOUT_MS,
   PM2_LIST_TIMEOUT_MS,

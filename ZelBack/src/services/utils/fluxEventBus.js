@@ -39,6 +39,9 @@ const RING_BUFFER_SIZE = 1024;
 const Checkpoint = Object.freeze({
   // A node is becoming the primary of a g: component: committed, not yet running.
   MASTERSLAVE_BEFORE_START: 'masterSlave:beforeStart',
+  // A node has recorded its running announcement where the state sync serves it
+  // from, and has not yet sent it.
+  APPS_BEFORE_ANNOUNCEMENT_SENT: 'apps:beforeAnnouncementSent',
   // A node becoming the primary of a g: component has its folder sending and its
   // restart covered, and has not yet asked for the container to run. Keyed by
   // the component identifier.
@@ -51,9 +54,6 @@ const Checkpoint = Object.freeze({
   // checked that no controller opinion was written since it read the verdict.
   // Keyed by the component identifier.
   RECONCILER_BEFORE_START: 'reconciler:beforeStart',
-  // A reconcile pass has stopped a component whose local appdata is to be
-  // cleared and has not yet cleared it. Keyed by the component identifier.
-  RECONCILER_BEFORE_DATA_CLEAR: 'reconciler:beforeDataClear',
   // A reconcile pass has found a component's container missing and has not yet
   // recreated it. Keyed by the component identifier.
   RECONCILER_BEFORE_RECREATE: 'reconciler:beforeRecreate',
@@ -85,6 +85,9 @@ const Checkpoint = Object.freeze({
   // The spawn loop is between passes: the last pass, and any install it started,
   // has finished, and the next has read nothing.
   SPAWNER_BEFORE_PASS: 'spawner:beforePass',
+  // A spawner attempt has chosen its app and made its claim, and has not yet
+  // taken the spawner's lock for its install. Keyed by the app name.
+  SPAWNER_BEFORE_INSTALL: 'spawner:beforeInstall',
   // A give-up pass has decided to hand an app back and has not yet checked the
   // chain height or started the removal. Keyed by the app name.
   GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',
@@ -97,9 +100,18 @@ const Checkpoint = Object.freeze({
   // A removal is committed, has told the network if it tells it, and has not yet
   // torn anything down. Keyed by the app name.
   REMOVAL_BEFORE_TEARDOWN: 'removal:beforeTeardown',
-  // An install holds the node and has the app's record, and has not created any
+  // FluxOS has recorded that it is taking an app container down and has not yet
+  // asked docker to remove it. Keyed by the container's docker name.
+  CONTAINER_BEFORE_REMOVE: 'container:beforeRemove',
+  // An install holds its app and has the app's record, and has not created any
   // of its containers. Keyed by the app name.
   INSTALL_BEFORE_CONTAINERS: 'install:beforeContainers',
+  // A test run has judged its containers and not yet removed anything. Keyed by
+  // the app name.
+  TESTRUN_BEFORE_REMOVAL: 'testrun:beforeRemoval',
+  // An install has its room on the node reserved and has not yet written its
+  // app's record. Keyed by the app name.
+  INSTALL_AFTER_ADMISSION: 'install:afterAdmission',
   // An install has its app's image verified and has not started pulling it.
   // Keyed by the app name.
   INSTALL_BEFORE_PULL: 'install:beforePull',
@@ -109,6 +121,8 @@ const Checkpoint = Object.freeze({
   // The availability check is listening on the port it tests and has not yet
   // asked a peer to reach it. Keyed by the port.
   AVAILABILITY_LISTENING: 'availability:listening',
+  // A hash sync has started and has not yet chosen which hashes to fetch.
+  HASHSYNC_BEFORE_SELECT: 'hashSync:beforeSelect',
   // A bulk hash sync has staged what its peers sent and has not yet verified
   // any of it.
   HASHSYNC_BEFORE_VERIFY: 'hashSync:beforeVerify',
@@ -186,6 +200,12 @@ const Checkpoint = Object.freeze({
   // The local removal queue has taken an app as the one it removes next, and has
   // not started removing it. Keyed by app name.
   REMOVAL_QUEUE_BEFORE_REMOVAL: 'removalQueue:beforeRemoval',
+  // A restore has recorded that it is replacing a component's data and has not
+  // yet cleared any of it. Keyed by the component's folder id.
+  RESTORE_BEFORE_CLEAR: 'restore:beforeClear',
+  // A backup holds its app stopped and has not yet archived a component. Keyed by
+  // the app name.
+  BACKUP_BEFORE_ARCHIVE: 'backup:beforeArchive',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

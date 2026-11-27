@@ -13,7 +13,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import {
   volumeRoot, resetVolume, seedVolumeTree, treeOf, contentOf, exists,
-  stagingEntries,
+  stagingEntries, ownerOf, APP_UID, APP_GID,
 } from '../framework/volume-fixture.js';
 import { afterTeardown } from '../framework/teardown-hook.js';
 
@@ -251,6 +251,31 @@ describe('app volume file upload', function () {
 
       expect(failureIn(body), body).to.equal(null);
       expect(await contentOf(node.container, `${root}/brand/new/place/notes.txt`)).to.equal('made the folder');
+    });
+
+    // `photos` is the application user's, as an app's own folders are. Every
+    // folder the upload makes inside it, and the file, must be that user's too:
+    // one owned by root is a folder an app running as another user cannot write
+    // into, nor into anything later uploaded inside it.
+    it('makes the missing folders with the owner of the folder they are made in', async function () {
+      this.timeout(120000);
+      const appOwner = `${APP_UID}:${APP_GID}`;
+      expect(await ownerOf(node.container, `${root}/photos`), 'the fixture folder is not the app user\'s').to.equal(appOwner);
+
+      const { body } = await uploadTo('photos/new/deeper', { 'fml.toml': 'owned by the app' });
+
+      expect(failureIn(body), body).to.equal(null);
+      expect(await contentOf(node.container, `${root}/photos/new/deeper/fml.toml`)).to.equal('owned by the app');
+      const owners = {};
+      for (const relative of ['photos/new', 'photos/new/deeper', 'photos/new/deeper/fml.toml']) {
+        // eslint-disable-next-line no-await-in-loop
+        owners[relative] = await ownerOf(node.container, `${root}/${relative}`);
+      }
+      expect(owners).to.deep.equal({
+        'photos/new': appOwner,
+        'photos/new/deeper': appOwner,
+        'photos/new/deeper/fml.toml': appOwner,
+      });
     });
 
     // Large enough that the transfer is not one buffer, and checked by digest

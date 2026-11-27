@@ -17,19 +17,23 @@ const hostStallService = require('./hostStallService');
 const appKill = require('./appLifecycle/appKill');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
+const appTestRun = require('./appLifecycle/appTestRun');
+const imageReaper = require('./appLifecycle/imageReaper');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const unregisteredEnterpriseCleanup = require('./appLifecycle/unregisteredEnterpriseCleanup');
 const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
+const publicPorts = require('./utils/publicPorts');
+const { socketPath } = require('./utils/apiSocket');
 const appInspector = require('./appManagement/appInspector');
 const availabilityChecker = require('./appMonitoring/availabilityChecker');
 const nodeStatusMonitor = require('./appMonitoring/nodeStatusMonitor');
 const peerNotification = require('./appMessaging/peerNotification');
 const syncthingMonitor = require('./appMonitoring/syncthingMonitor');
 const daemonHealthMonitor = require('./appMonitoring/daemonHealthMonitor');
-const containerCrashRecovery = require('./appMonitoring/containerCrashRecovery');
+const containerEventsConsumer = require('./appMonitoring/containerEventsConsumer');
 const appReconciler = require('./appMonitoring/appReconciler');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
@@ -38,7 +42,6 @@ const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const tempMessageHold = require('./appMessaging/tempMessageHold');
 const messageStore = require('./appMessaging/messageStore');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
-const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
 const networkRecovery = require('./appSystem/networkRecovery');
 const volumeExecutor = require('./appSystem/volumeExecutor');
@@ -49,6 +52,7 @@ const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
 const ufwHelper = require('./utils/ufwHelper');
 const policyStore = require('./policyStore');
+const containerRuntimeService = require('./containerRuntimeService');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -90,8 +94,6 @@ const { version: fluxVersion } = require('../../../package.json');
 // Initialize globalState caches with cacheManager
 globalState.initializeCaches(cacheManager);
 
-const apiPort = userconfig.initial.apiport || config.server.apiport;
-const development = userconfig.initial.development || false;
 
 const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
@@ -253,8 +255,9 @@ async function prepareDatabaseSchema() {
     { key: { type: 1, ip: 1, expireAt: 1 }, name: 'events of a type at addresses, by expiry' },
     // the reports and removals of one app, by its name lowercased
     { key: { appNames: 1, expireAt: 1 }, name: 'reports by the apps they name, lowercased', partialFilterExpression: { type: 'apprunning' } },
-    { key: { appNameLower: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
+    { key: { removedNames: 1, expireAt: 1 }, name: 'removals by app, lowercased', partialFilterExpression: { type: 'appremoved' } },
   ]);
+  await messageStore.dropMalformedStoredEvents(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   await messageStore.lowercaseStoredAppNames(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents));
   log.info('App state events collection prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
@@ -323,6 +326,7 @@ function startRouterAddressUpkeep() {
 
 async function startFluxFunctions() {
   try {
+    const apiPort = publicPorts.getApiPort();
     if (!config.server.allowedPorts.includes(+apiPort)) {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit(systemdNotify.EXIT_CONFIG);
@@ -331,6 +335,10 @@ async function startFluxFunctions() {
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
     // version found and the version required.
     fluxNetworkHelper.checkNodeJsVersionAllowed();
+    // Before the policy bundle is restored, so the restored bundle is the first
+    // one it decides on: a container node stays up holding a sticky DOS while
+    // the policy says so, and /flux/info reports it either way.
+    await containerRuntimeService.start();
     // Before the dependencies are waited for: a stalled one is what this sees.
     // Awaited so a trip recorded in this boot holds the node before boot acts.
     await hostStallService.start();
@@ -374,7 +382,7 @@ async function startFluxFunctions() {
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
-    await cloudUIUpdateService.checkAndUpdateCloudUI();
+    cloudUIUpdateService.startCloudUIUpdateCheck();
     startRouterAddressUpkeep();
     await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
     await fluxNetworkHelper.allowOnlyDockerNetworksToFluxNodeService();
@@ -406,11 +414,15 @@ async function startFluxFunctions() {
     // redeploy it performs needs to pull an image again. This pass runs ONCE per
     // boot and has nothing that retries it, so firing it into a closed gate loses
     // the fix until the node next restarts.
-    setTimeout(() => {
-      globalState.waitForPolicyReady().then(() => volumeValidationService.checkAndFixIncorrectVolumeMounts()).catch((error) => {
-        log.error(`Volume validation service error: ${error.message}`);
-      });
-    }, bootDelay(45 * 1000)); // Run after 45 seconds to allow system to stabilize
+    // It repairs legacy mounts recorded in the crontab, which the image running FluxOS from its
+    // own extension never had.
+    if (!socketPath()) {
+      setTimeout(() => {
+        globalState.waitForPolicyReady().then(() => volumeValidationService.checkAndFixIncorrectVolumeMounts()).catch((error) => {
+          log.error(`Volume validation service error: ${error.message}`);
+        });
+      }, bootDelay(45 * 1000)); // Run after 45 seconds to allow system to stabilize
+    }
 
     // Validate hardware requirements and remove non-compliant apps FIRST
     log.info('Scheduling hardware validation check...');
@@ -419,6 +431,11 @@ async function startFluxFunctions() {
         log.error(`Hardware validation service error: ${error.message}`);
       });
     }, bootDelay(50 * 1000)); // Run at 50 seconds - BEFORE boot reconciliation
+
+    // What a test run that did not end left behind; no test run starts until this has run.
+    appTestRun.sweep().catch((error) => {
+      log.error(`Test run sweep did not complete, and runs again before the next test run: ${error.message}`);
+    });
 
     // Migrate existing containers from 'unless-stopped'/'always' to 'no' restart policy.
     // Non-destructive — doesn't stop containers, just prevents Docker from auto-starting
@@ -431,7 +448,7 @@ async function startFluxFunctions() {
     appReconciler.start().catch((error) => {
       log.error(`App reconciler error: ${error.message}`);
     });
-    containerCrashRecovery.start();
+    containerEventsConsumer.start();
 
     // Read boot context early — determines startup behavior for container management.
     const bootContext = await AppSyncOrchestrator.readBootContext();
@@ -667,11 +684,6 @@ async function startFluxFunctions() {
     await crontabAndMountsCleanup.cleanupCrontabAndMounts().catch((error) => {
       log.error(`Crontab and mounts cleanup service error: ${error.message}`);
     });
-    // Perform container mount recovery - restart containers that started before their mounts were created
-    log.info('Container mount recovery check...');
-    await containerMountRecovery.performContainerMountRecovery().catch((error) => {
-      log.error(`Container mount recovery service error: ${error.message}`);
-    });
     // A file operation's container is detached from the process that started
     // it, so a FluxOS restart leaves one running with nobody waiting for its
     // result, and its staging directory on the volume. The recovery below
@@ -818,6 +830,8 @@ async function startFluxFunctions() {
     // decider self-gates per cycle on its own prerequisites (mounts, syncthing health,
     // own-IP, FDM), so an early start is safe - it skips and retries until ready.
     globalState.waitForBootContainerStateSettled().then(() => {
+      // Detached: images nothing wants, once boot has settled what runs.
+      imageReaper.pruneUnusedImages().catch((error) => log.error(`imageReaper - ${error.message}`));
       // The syncthing decider is declare-only: it writes desired run-state and
       // data-state (via appReconciler) and enqueues; the reconciler is the sole
       // actuator that stops, starts, and wipes - inside its per-key single-flight,
@@ -838,11 +852,10 @@ async function startFluxFunctions() {
       advancedWorkflows.startMasterSlaveApps(
         globalState,
         appQueryService.installedApps,
-        appQueryService.listRunningApps,
         https,
       ); // stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {
-        appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
+        appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally); // Monitor SharedDB Apps.
       }, 60 * 1000);
     });
     // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)
@@ -876,16 +889,6 @@ async function startFluxFunctions() {
     setInterval(() => {
       backupRestoreService.cleanLocalBackup();
     }, bootDelay(25 * 60 * 1000));
-    if (development) { // just on development branch
-      setInterval(async () => {
-        await fluxService.enterDevelopment().catch((error) => log.error(error));
-        if (development === true || development === 'true' || development === 1 || development === '1') { // in other cases pause git pull
-          setTimeout(async () => {
-            await fluxService.softUpdateFlux().catch((error) => log.error(error));
-          }, 15 * 1000);
-        }
-      }, 20 * 60 * 1000); // every 20 minutes
-    }
   } catch (e) {
     log.error(e);
     setTimeout(() => {

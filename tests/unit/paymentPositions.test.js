@@ -35,23 +35,10 @@ describe('app payment positions', () => {
   });
 
   describe('appPaymentAddresses', () => {
-    let developmentBefore;
-
-    beforeEach(() => {
-      developmentBefore = config.development;
-    });
-
-    afterEach(() => {
-      config.development = developmentBefore;
-    });
-
-    it('asks for every payment address, and the development address only on a development node', () => {
-      config.development = false;
+    it('asks for every payment address', () => {
       expect(appPaymentAddresses()).to.deep.equal([
         config.fluxapps.address, config.fluxapps.addressMultisig, config.fluxapps.addressMultisigB,
       ]);
-      config.development = true;
-      expect(appPaymentAddresses()).to.include(config.fluxapps.addressDevelopment);
     });
   });
 

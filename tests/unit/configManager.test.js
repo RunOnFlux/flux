@@ -7,8 +7,7 @@ const mockUserConfig = {
     ipaddress: '127.0.0.1',
     zelid: '1TestZelID123',
     kadena: 'kadena:test?chainid=0',
-    testnet: false,
-    development: false,
+    network: 'mainnet',
     apiport: 16127,
     routerIP: '192.168.1.1',
     pgpPrivateKey: 'test-private-key',
@@ -93,8 +92,7 @@ describe('configManager tests', () => {
       expect(config.initial).to.have.property('ipaddress');
       expect(config.initial).to.have.property('zelid');
       expect(config.initial).to.have.property('kadena');
-      expect(config.initial).to.have.property('testnet');
-      expect(config.initial).to.have.property('development');
+      expect(config.initial).to.have.property('network');
       expect(config.initial).to.have.property('apiport');
       expect(config.initial).to.have.property('routerIP');
       expect(config.initial).to.have.property('pgpPrivateKey');
@@ -108,7 +106,7 @@ describe('configManager tests', () => {
 
       expect(configManager.getConfigValue('initial.zelid')).to.equal('1TestZelID123');
       expect(configManager.getConfigValue('initial.apiport')).to.equal(16127);
-      expect(configManager.getConfigValue('initial.testnet')).to.equal(false);
+      expect(configManager.getConfigValue('initial.network')).to.equal('mainnet');
     });
 
     it('should return undefined for non-existent paths', () => {
@@ -169,11 +167,11 @@ describe('configManager tests', () => {
       // Simulate config update with new values
       const updatedConfig = JSON.parse(JSON.stringify(mockUserConfig));
       updatedConfig.initial.apiport = 16137;
-      updatedConfig.initial.testnet = true;
+      updatedConfig.initial.network = 'labnet';
       globalThis.userconfig = updatedConfig;
 
       expect(configManager.getConfigValue('initial.apiport')).to.equal(16137);
-      expect(configManager.getConfigValue('initial.testnet')).to.equal(true);
+      expect(configManager.getConfigValue('initial.network')).to.equal('labnet');
     });
   });
 
@@ -265,8 +263,7 @@ describe('configManager tests', () => {
           ipaddress: '10.0.0.1',
           zelid: 'GlobalConfigTest',
           kadena: '',
-          testnet: true,
-          development: true,
+          network: 'labnet',
           apiport: 16147,
           routerIP: '',
           pgpPrivateKey: '',
@@ -294,12 +291,12 @@ describe('configManager tests', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       // Change a simple value
-      globalThis.userconfig.initial.development = true;
-      expect(configManager.getUserConfig().initial.development).to.equal(true);
+      globalThis.userconfig.initial.testnet = true;
+      expect(configManager.getUserConfig().initial.testnet).to.equal(true);
 
       // Change it back
-      globalThis.userconfig.initial.development = false;
-      expect(configManager.getUserConfig().initial.development).to.equal(false);
+      globalThis.userconfig.initial.testnet = false;
+      expect(configManager.getUserConfig().initial.testnet).to.equal(false);
     });
   });
 
@@ -392,7 +389,7 @@ describe('configManager tests', () => {
       const Module = require('module');
       const original = Module._load;
       Module._load = function stubbedLoad(request, parent, ...rest) {
-        if (request === '../../../../config/userconfig' && parent && parent.filename === configManagerPath) {
+        if (request === require.resolve('../../config/userconfig') && parent && parent.filename === configManagerPath) {
           if (result instanceof Error) throw result;
           return result;
         }

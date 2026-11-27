@@ -1,4 +1,5 @@
-/CloudUI/
+/CloudUI
+/.cloudui/
 /config/userconfig.js
 /lib/daemonrpc/
 /tests/e2e/

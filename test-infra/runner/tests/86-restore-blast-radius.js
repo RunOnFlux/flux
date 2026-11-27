@@ -7,7 +7,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn, waitForReconcilerDesiredChanged } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -103,10 +103,10 @@ describe('a restore does not reach the other instances data', function () {
     await electMaster(appName, env.clients[0].ip);
     const installAfters = [0, 1].map((i) => env.clients[i].getLastEventId());
     await installOnNodes(env, app, [0, 1]);
-    // real data on disk, and only after the sync layer's first-run reset has
-    // cleared appdata - otherwise the phantom-index guard holds the app down
+    // real data on disk once the sync layer has taken the folder on - otherwise
+    // the phantom-index guard holds the app down
     await Promise.all([0, 1].map(async (i, k) => {
-      await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfters[k] });
+      await waitForFolderTakenOn(env.clients[i], identifier, 60000, { afterId: installAfters[k] });
       await seedSyncScopedData(env, appName, i);
     }));
     await Promise.all([0, 1].map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
@@ -225,7 +225,7 @@ describe('a restore does not reach the other instances data', function () {
       const afters = [0, 1].map((i) => env.clients[i].getLastEventId());
       await installOnNodes(env, app, [0, 1]);
       await Promise.all([0, 1].map(async (i, k) => {
-        await waitForReconcileActuated(env.clients[i], ownIdentifier, 'dataCleared', 60000, { afterId: afters[k] });
+        await waitForFolderTakenOn(env.clients[i], ownIdentifier, 60000, { afterId: afters[k] });
         await seedSyncScopedData(env, ownName, i);
       }));
       await Promise.all([0, 1].map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: ownFolder })));

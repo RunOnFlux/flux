@@ -15,7 +15,7 @@ import { afterTeardown } from '../framework/teardown-hook.js';
 
 // Must-pass fleet gate. A dockerd restart underneath a running FluxOS leaves the
 // app containers exited with no die event reaching the watcher. When the docker
-// event stream reconnects, containerCrashRecovery sweeps every component
+// event stream reconnects, containerEventsConsumer sweeps every component
 // (enqueueAll('reconnect')) and the reconciler restarts the orphans. This is the
 // "container exited for 1h30m until the hourly monitor" regression.
 

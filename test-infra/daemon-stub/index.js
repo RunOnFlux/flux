@@ -55,6 +55,12 @@ function hashAt(height) {
   return forkedHashes.get(height) ?? `000000000000stub${height}`;
 }
 
+// An error a handler throws to answer with fluxd's RPC error code; any other
+// throw answers -1.
+function rpcError(code, message) {
+  return Object.assign(new Error(message), { rpcCode: code });
+}
+
 // height -> block time, epoch seconds. A block's time is fixed when it is mined,
 // or when it is first asked about if it predates this stub, and every later read
 // returns the same value - as the chain does, where every node reads one header
@@ -397,10 +403,13 @@ const rpcHandlers = {
     return pending?.hash ?? hashAt(height);
   },
 
-  getblock: (params) => {
+  // A height above the asking node's chain is refused as fluxd refuses it.
+  getblock: (params, sourceIp) => {
     const hashOrHeight = params[0];
     const verbosity = params[1] || 1;
     const asNum = Number(hashOrHeight);
+    const byHeight = typeof hashOrHeight === 'number' || /^\d{1,12}$/.test(String(hashOrHeight));
+    if (byHeight && asNum > localHeightFor(sourceIp)) throw rpcError(-8, 'Block height out of range');
 
     const pending = pendingBlocks.find((b) => b.height === asNum || b.height === hashOrHeight || b.hash === hashOrHeight);
     if (pending) {
@@ -715,7 +724,7 @@ async function answerRpc(handlers, request, sourceIp, port) {
     return { body: { result, error: null, id } };
   } catch (e) {
     console.error(`RPC error for ${method} from ${sourceIp}:`, e.message);
-    return { body: { result: null, error: { code: -1, message: e.message }, id } };
+    return { body: { result: null, error: { code: e.rpcCode ?? -1, message: e.message }, id } };
   }
 }
 

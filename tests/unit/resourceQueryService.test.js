@@ -8,6 +8,8 @@ const generalService = require('../../ZelBack/src/services/generalService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const admissionControl = require('../../ZelBack/src/services/utils/admissionControl');
+const operationRegistry = require('../../ZelBack/src/services/utils/operationRegistry');
 const { requireMongo, releaseMongo } = require('./dbTestHelper');
 
 describe('resourceQueryService tests', () => {
@@ -248,6 +250,62 @@ describe('resourceQueryService tests', () => {
       expect(response.data.appsCpusLocked).to.equal(3);
       expect(response.data.appsRamLocked).to.equal(6000);
       expect(response.data.appsHddLocked).to.be.greaterThan(75); // Base HDD + filesystem overhead
+    });
+
+    describe('an app holding a reservation', () => {
+      const collection = config.database.appslocal.collections.appsInformation;
+      const rows = [
+        {
+          name: 'App1', version: 3, tiered: false, cpu: 2, ram: 4000, hdd: 50,
+        },
+        {
+          name: 'App2', version: 3, tiered: false, cpu: 1, ram: 2000, hdd: 25,
+        },
+      ];
+      const reserve = async (name, cpu, ram) => {
+        operationRegistry.acquire(name, 'redeploy', 'test');
+        await admissionControl.admit(name, async () => {}, async () => ({ cpu, ram, hdd: 10 }));
+      };
+
+      beforeEach(async () => {
+        try {
+          await database.collection(collection).drop();
+        } catch (err) {
+          // Collection doesn't exist
+        }
+        await dbHelper.insertManyToDatabase(database, collection, rows.map((row) => ({ ...row })));
+      });
+
+      afterEach(() => {
+        admissionControl.clear();
+        operationRegistry.clear();
+      });
+
+      it('is counted by its reservation, not its row', async () => {
+        await reserve('App1', 5, 100);
+
+        const { data } = await resourceQueryService.appsResources();
+
+        expect(data.appsCpusLocked).to.equal(6);
+        expect(data.appsRamLocked).to.equal(2100);
+      });
+
+      it('is counted while it has no row', async () => {
+        await reserve('App3', 4, 1000);
+
+        const { data } = await resourceQueryService.appsResources();
+
+        expect(data.appsCpusLocked).to.equal(7);
+      });
+
+      it('is left out, reservation and row, when it is the app asked to be left out', async () => {
+        await reserve('App1', 5, 100);
+
+        const { data } = await resourceQueryService.appsResources({ excludeApp: 'App1' });
+
+        expect(data.appsCpusLocked).to.equal(1);
+        expect(data.appsRamLocked).to.equal(2000);
+      });
     });
 
     // A redeploy checks the new specification against the node without the old

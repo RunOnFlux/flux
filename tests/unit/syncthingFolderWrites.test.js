@@ -13,6 +13,7 @@ const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const syncthingFolderWrites = require('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 
 // syncthing's folder config, one stub per test: a test sets what syncthing holds on it.
 const configFolders = () => (syncthingService.getConfigFolders.restore
@@ -36,6 +37,7 @@ const recordCollection = {
 // no device has been taken out of a folder, unless a test says otherwise.
 const mountEveryVolume = () => {
   sinon.stub(volumeService, 'isPathMounted').resolves(true);
+  sinon.stub(appsRuntimeState, 'isRestoreUnfinished').resolves(false);
   configFolders().resolves([]);
   records = new Map();
   asked = [];
@@ -760,6 +762,99 @@ describe('a folder whose volume is not mounted', () => {
 
   it('is made to send once its volume is mounted', async () => {
     volumeService.isPathMounted.withArgs(path).resolves(true);
+
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'sendreceive')).to.equal(true);
+    sinon.assert.calledWithMatch(adjust, 'patch', { type: 'sendreceive' }, folder);
+  });
+});
+
+describe('a folder whose component an unfinished restore holds', () => {
+  beforeEach(mountEveryVolume);
+
+  const folder = 'fluxapp_app';
+  const path = `${appsFolder}${folder}`;
+  let adjust;
+
+  beforeEach(() => {
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).resolves(true);
+    configFolders().resolves([{ id: folder, path, type: 'receiveonly' }]);
+    adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('is not made to send', async () => {
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'sendreceive')).to.equal(false);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('is not kept sending when it already sends', async () => {
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'sendreceive' }]);
+
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'sendreceive')).to.equal(false);
+  });
+
+  it('is still made to receive', async () => {
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'sendreceive' }]);
+
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'receiveonly')).to.equal(true);
+    sinon.assert.calledWithMatch(adjust, 'patch', { type: 'receiveonly' }, folder);
+  });
+
+  it('refuses a patch that would make it send', async () => {
+    const response = await syncthingFolderWrites.patchFolder(folder, { type: 'sendreceive' });
+
+    expect(response.status).to.equal('error');
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('refuses a whole-folder write that would make it send, writing nothing', async () => {
+    let error = null;
+    await syncthingFolderWrites.putFolders([{ id: folder, path, type: 'sendreceive' }]).catch((err) => { error = err; });
+
+    expect(error?.message).to.include(folder);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('is held when the record cannot be read', async () => {
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).rejects(new Error('database unavailable'));
+
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'sendreceive')).to.equal(false);
+    expect(await syncthingFolderWrites.restoreHolds(folder)).to.equal(true);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('is not unpaused while it is set to send, and is while it is set to receive', async () => {
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'sendreceive', paused: true }]);
+    expect((await syncthingFolderWrites.patchFolder(folder, { paused: false })).status).to.equal('error');
+    sinon.assert.notCalled(adjust);
+
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'receiveonly', paused: true }]);
+    expect((await syncthingFolderWrites.patchFolder(folder, { paused: false })).status).to.equal('success');
+    sinon.assert.calledOnceWithExactly(adjust, 'patch', { paused: false }, folder);
+  });
+
+  it('is not unpaused when the record cannot be read, nor when its config cannot be', async () => {
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).rejects(new Error('database unavailable'));
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'sendreceive', paused: true }]);
+    expect((await syncthingFolderWrites.patchFolder(folder, { paused: false })).status).to.equal('error');
+
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).resolves(true);
+    syncthingService.getConfigFolders.rejects(new Error('syncthing unavailable'));
+    expect((await syncthingFolderWrites.patchFolder(folder, { paused: false })).status).to.equal('error');
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('reads as unknown, not as clear, when the record cannot be read', async () => {
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).rejects(new Error('database unavailable'));
+
+    expect(await syncthingFolderWrites.restoreRecord(folder)).to.equal(null);
+  });
+
+  it('is made to send once the record is cleared', async () => {
+    appsRuntimeState.isRestoreUnfinished.withArgs(folder).resolves(false);
 
     expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'sendreceive')).to.equal(true);
     sinon.assert.calledWithMatch(adjust, 'patch', { type: 'sendreceive' }, folder);

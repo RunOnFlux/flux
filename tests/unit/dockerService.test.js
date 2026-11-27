@@ -2,6 +2,9 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const chai = require('chai');
+const config = require('config');
+const net = require('node:net');
+const os = require('node:os');
 const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
 const sinon = require('sinon');
@@ -14,6 +17,7 @@ const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/flux
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const log = require('../../ZelBack/src/lib/log');
+const LogFrameDecoder = require('../../ZelBack/src/services/utils/logFrameDecoder');
 
 // Docker's own answers, recorded by tests/unit/fixtures/docker/record.js. The functions
 // below resolve a container by name, send one request and return the response unchanged,
@@ -205,6 +209,14 @@ describe('dockerService tests', () => {
   // A network as dockerode hands one back: its calls are on the prototype, so a
   // test stubs what it asks of it without a daemon.
   const networkProto = Object.getPrototypeOf(new Dockerode().getNetwork('proto'));
+  // dockerode's Network#inspect and Image#inspect pass no deadline on, so those
+  // reads go to docker-modem itself, and a test answers them there by request path.
+  const { modem } = dockerService.getDockerContainer('any');
+  function answerReads(answer) {
+    return sinon.stub(modem, 'dial').callsFake((request, callback) => {
+      Promise.resolve(request.path).then(answer).then((data) => callback(null, data), callback);
+    });
+  }
   // The container firewall reads docker's networks before it applies the rules.
   const noAppNetworks = () => sinon.stub(Dockerode.prototype, 'listNetworks').resolves([]);
 
@@ -227,7 +239,7 @@ describe('dockerService tests', () => {
       const network = await dockerService.dockerCreateNetwork({ name: 'Testnetwork' });
 
       expect(network).to.equal(created);
-      sinon.assert.calledOnceWithExactly(create, { name: 'Testnetwork' });
+      sinon.assert.calledOnceWithExactly(create, { name: 'Testnetwork', abortSignal: sinon.match.instanceOf(AbortSignal) });
       sinon.assert.calledOnce(egress);
       expect(egress.calledAfter(create), 'the firewall was applied before the network existed').to.equal(true);
     });
@@ -265,9 +277,10 @@ describe('dockerService tests', () => {
 
     it('returns what docker reports of the network', async () => {
       const reported = { Name: 'Testnetwork', Id: '3f2c', EnableIPv6: false };
-      sinon.stub(networkProto, 'inspect').resolves(reported);
+      const dial = answerReads(() => reported);
 
       expect(await dockerService.dockerNetworkInspect(new Dockerode().getNetwork('Testnetwork'))).to.equal(reported);
+      expect(dial.firstCall.args[0].path).to.equal('/networks/Testnetwork?');
     });
   });
 
@@ -477,7 +490,22 @@ describe('dockerService tests', () => {
         fluxBridges: ['br-111111111111', 'br-222222222222'],
         dockerBridges: ['br-111111111111', 'br-222222222222', 'br-333333333333', 'br-444444444444', 'docker0'],
       });
-      expect(listNetworks.firstCall.args, 'the whole list, not a name filter').to.deep.equal([]);
+      expect(listNetworks.firstCall.args[0], 'the whole list, not a name filter').to.have.all.keys('abortSignal');
+    });
+
+    // A network FluxOS creates for its own purposes, a test run's, carries the
+    // runonflux.role label and no fluxDockerNetwork name.
+    it('names the bridge of a network FluxOS labelled as its own among FluxOS\'s', async () => {
+      listNetworks.resolves([
+        ...NETWORKS,
+        {
+          Name: 'testrun-0a1b2c3d', Id: '555555555555abcdef', Driver: 'bridge', Labels: { 'runonflux.role': 'testrun' },
+        },
+      ]);
+
+      const { fluxBridges } = await dockerService.containerFirewallBridges();
+
+      expect(fluxBridges).to.include('br-555555555555');
     });
 
     it('lists the same bridges in the same order however Docker orders its networks', async () => {
@@ -578,12 +606,9 @@ describe('dockerService tests', () => {
       // The uninstaller is the only thing that removes one, so an uninstall
       // interrupted between the container going and the network going leaves it
       // for ever - holding an octet nothing can hand out again.
-      const remove = sinon.stub().resolves();
+      const remove = sinon.stub(networkProto, 'remove').resolves();
       sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_gone'));
-      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
-        inspect: sinon.stub().resolves({ Name: 'fluxDockerNetwork_gone', Containers: {} }),
-        remove,
-      });
+      answerReads(() => ({ Name: 'fluxDockerNetwork_gone', Containers: {} }));
 
       const reclaimed = await dockerService.reclaimAppNetworks(new Set());
 
@@ -592,12 +617,9 @@ describe('dockerService tests', () => {
     });
 
     it('leaves a network an installed app owns', async () => {
-      const remove = sinon.stub().resolves();
+      const remove = sinon.stub(networkProto, 'remove').resolves();
       sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_live'));
-      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
-        inspect: sinon.stub().resolves({ Containers: {} }),
-        remove,
-      });
+      answerReads(() => ({ Containers: {} }));
 
       const reclaimed = await dockerService.reclaimAppNetworks(new Set(['fluxDockerNetwork_live']));
 
@@ -607,12 +629,9 @@ describe('dockerService tests', () => {
 
     it('leaves a network something is attached to, whatever the caller said', async () => {
       // Something is using it, and this is not the thing that decides otherwise.
-      const remove = sinon.stub().resolves();
+      const remove = sinon.stub(networkProto, 'remove').resolves();
       sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_busy'));
-      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
-        inspect: sinon.stub().resolves({ Containers: { abc123: { Name: 'fluxsomething' } } }),
-        remove,
-      });
+      answerReads(() => ({ Containers: { abc123: { Name: 'fluxsomething' } } }));
 
       const reclaimed = await dockerService.reclaimAppNetworks(new Set());
 
@@ -621,12 +640,9 @@ describe('dockerService tests', () => {
     });
 
     it('leaves a network it cannot inspect', async () => {
-      const remove = sinon.stub().resolves();
+      const remove = sinon.stub(networkProto, 'remove').resolves();
       sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_unknown'));
-      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
-        inspect: sinon.stub().rejects(new Error('EAI_AGAIN')),
-        remove,
-      });
+      answerReads(() => { throw new Error('EAI_AGAIN'); });
 
       const reclaimed = await dockerService.reclaimAppNetworks(new Set());
 
@@ -641,20 +657,20 @@ describe('dockerService tests', () => {
     });
 
     it('reports exists when the network inspects cleanly', async () => {
-      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ inspect: sinon.stub().resolves({ Name: 'fluxDockerNetwork_appx' }) });
+      answerReads(() => ({ Name: 'fluxDockerNetwork_appx' }));
 
       await expect(dockerService.dockerNetworkState('fluxDockerNetwork_appx')).to.eventually.equal('exists');
     });
 
     it('reports absent only when docker itself confirms the network is not listed', async () => {
-      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ inspect: sinon.stub().rejects(new Error('no such network')) });
+      answerReads(() => { throw new Error('no such network'); });
       sinon.stub(Dockerode.prototype, 'listNetworks').resolves([{ Name: 'bridge' }, { Name: 'fluxDockerNetwork_other' }]);
 
       await expect(dockerService.dockerNetworkState('fluxDockerNetwork_appx')).to.eventually.equal('absent');
     });
 
     it('reports exists when the inspect failed transiently but the network IS listed', async () => {
-      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ inspect: sinon.stub().rejects(new Error('EAI_AGAIN')) });
+      answerReads(() => { throw new Error('EAI_AGAIN'); });
       sinon.stub(Dockerode.prototype, 'listNetworks').resolves([{ Name: 'fluxDockerNetwork_appx' }]);
 
       await expect(dockerService.dockerNetworkState('fluxDockerNetwork_appx')).to.eventually.equal('exists');
@@ -663,7 +679,7 @@ describe('dockerService tests', () => {
     it('reports unknown (never absent) when docker cannot answer at all', async () => {
       // the caller destroys a container on "absent", so an unreachable daemon must
       // never be read as a missing network
-      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ inspect: sinon.stub().rejects(new Error('connect ENOENT /var/run/docker.sock')) });
+      answerReads(() => { throw new Error('connect ENOENT /var/run/docker.sock'); });
       sinon.stub(Dockerode.prototype, 'listNetworks').rejects(new Error('connect ENOENT /var/run/docker.sock'));
 
       await expect(dockerService.dockerNetworkState('fluxDockerNetwork_appx')).to.eventually.equal('unknown');
@@ -748,7 +764,9 @@ describe('dockerService tests', () => {
 
       const result = await dockerService.dockerContainerStats('website');
 
-      expect(stats.firstCall.args[0]).to.deep.equal({ stream: false });
+      const { abortSignal, ...asked } = stats.firstCall.args[0];
+      expect(asked).to.deep.equal({ stream: false });
+      expect(abortSignal).to.be.an.instanceOf(AbortSignal);
       expect(stats.thisValues[0].id, 'sampled a container other than the one named').to.equal(websiteContainer.Id);
       expect(result).to.equal(statsResponse);
     });
@@ -883,39 +901,6 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe('fluxRemovedContainers authorship record tests', () => {
-    afterEach(() => {
-      sinon.restore();
-      globalState.fluxRemovedContainers.clear();
-    });
-
-    it('records a removal the reconciler can ask about', async () => {
-      sinon.stub(Dockerode.prototype, 'listContainers').resolves([{ Id: 'abc', Names: ['/fluxwebsite'] }]);
-      sinon.stub(Dockerode.Container.prototype, 'remove').resolves();
-
-      await dockerService.appDockerRemove('website');
-
-      expect([...globalState.fluxRemovedContainers]).to.deep.equal(['fluxwebsite']);
-    });
-
-    it('does not record one addressed by raw docker id', async () => {
-      // The startup orphan sweep removes by id. The reconciler only ever asks
-      // about app containers by identifier, so an entry keyed by a hex id can
-      // never be read - and clearFluxRemovedContainers matches on an app name a
-      // hex id does not carry, so it can never be dropped either. It would sit
-      // in memory for the life of the process, unreadable and undeletable.
-      const id = 'a'.repeat(64);
-      const list = sinon.stub(Dockerode.prototype, 'listContainers');
-      list.onFirstCall().resolves([]);
-      list.onSecondCall().resolves([{ Id: id, Names: ['/fluxwebsite'] }]);
-      sinon.stub(Dockerode.Container.prototype, 'remove').resolves();
-
-      await dockerService.appDockerForceRemove(id, false);
-
-      expect([...globalState.fluxRemovedContainers], 'an entry no reader wants and no cleanup can reach').to.be.empty;
-    });
-  });
-
   describe('getDockerContainerByIdOrName tests', () => {
     afterEach(() => {
       sinon.restore();
@@ -1036,32 +1021,35 @@ describe('dockerService tests', () => {
     it('releases the event loop while it decodes rather than holding it for the whole read', async () => {
       // The decode runs on the node's only thread, so a pass that runs to
       // completion without yielding answers no peer and no other request for as
-      // long as it takes - measured on a node against an 8.47MB log at 40ms on
-      // a clean heap and 564ms on a warm one, against a 0.3ms idle baseline.
+      // long as it takes. The rule is a turn of the event loop between every
+      // slice the decoder is handed, so the payload only has to span several
+      // slices, not be the size of a real log.
       //
-      // Counted from the moment docker hands the payload over, NOT from the
-      // call: the container lookup ahead of it yields plenty on its own, and a
-      // count that includes those turns passes just as happily with the whole
-      // decode synchronous - which is what the first version of this test did.
-      const many = Array.from({ length: 60000 }, (_, i) => at(1000 + i, `line-${i} ${'x'.repeat(80)}`));
+      // Turns are watched from the moment docker hands the payload over: the
+      // container lookup ahead of it yields on its own, and turns taken there
+      // say nothing about the decode.
+      const many = Array.from({ length: 8 }, (_, i) => at(1000 + i, 'x'.repeat(32 * 1024)));
       const payload = dockerFrame(many);
+      const push = sinon.spy(LogFrameDecoder.prototype, 'push');
 
-      let turns = 0;
-      let counting = false;
+      // Each turn records how many slices had been decoded when it ran.
+      const seen = new Set();
       let running = true;
-      const tick = () => { if (running) { if (counting) turns += 1; setImmediate(tick); } };
-      setImmediate(tick);
+      const tick = () => { if (running) { seen.add(push.callCount); setImmediate(tick); } };
 
       sinon.stub(Dockerode.Container.prototype, 'logs').callsFake(async () => {
-        counting = true;
+        setImmediate(tick);
         return payload;
       });
 
       const result = await dockerService.dockerContainerLogsPolling('website', { lineCount: 'all' });
       running = false;
 
-      expect(result.lines, 'the answer is the same one, whoever else got to run').to.have.lengthOf(many.length);
-      expect(turns, 'the decode held the loop from the docker read to the answer').to.be.greaterThan(20);
+      expect(result.lines, 'the answer is the same one, whoever else got to run').to.deep.equal(many);
+      expect(push.callCount, 'the payload was decoded in one pass, not a slice at a time').to.be.greaterThan(2);
+      for (let slice = 1; slice < push.callCount; slice += 1) {
+        expect(seen.has(slice), `the loop was held from slice ${slice} to slice ${slice + 1}`).to.equal(true);
+      }
     });
 
     it('rejects for a container that is not there', async () => {
@@ -1466,9 +1454,11 @@ describe('dockerService tests', () => {
 
       const res = await dockerService.dockerContainerLogs('website', 2);
 
-      expect(logs.firstCall.args[0]).to.deep.equal({
+      const { abortSignal, ...asked } = logs.firstCall.args[0];
+      expect(asked).to.deep.equal({
         follow: false, stdout: true, stderr: true, tail: 2,
       });
+      expect(abortSignal).to.be.an.instanceOf(AbortSignal);
       expect(logs.thisValues[0].id, 'read logs from a container other than the one named').to.equal(websiteContainer.Id);
       expect(res).to.equal(frames);
     });
@@ -1876,7 +1866,8 @@ describe('dockerService tests', () => {
       beforeEach(() => {
         sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
         noAppNetworks();
-        inspected = sinon.stub(networkProto, 'inspect');
+        inspected = sinon.stub();
+        answerReads(inspected);
         created = sinon.stub(Dockerode.prototype, 'createNetwork').callsFake(async () => new Dockerode().getNetwork(options.Name));
       });
 
@@ -1889,7 +1880,7 @@ describe('dockerService tests', () => {
 
         const response = await create();
 
-        sinon.assert.calledOnceWithExactly(created, options);
+        sinon.assert.calledOnceWithExactly(created, { ...options, abortSignal: sinon.match.instanceOf(AbortSignal) });
         expect(response.id).to.equal(options.Name);
       });
 
@@ -1927,7 +1918,7 @@ describe('dockerService tests', () => {
       await dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep');
 
       sinon.assert.calledOnceWithExactly(getNetworkStub, 'fluxDockerNetwork_dep');
-      sinon.assert.calledOnceWithExactly(connectStub, { Container: 'fluxweb_myapp' });
+      sinon.assert.calledOnceWithExactly(connectStub, { Container: 'fluxweb_myapp', abortSignal: sinon.match.instanceOf(AbortSignal) });
     });
 
     it('skips the connect call when the container is already attached', async () => {
@@ -1947,7 +1938,7 @@ describe('dockerService tests', () => {
 
       await dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep');
 
-      sinon.assert.calledOnceWithExactly(connectStub, { Container: 'fluxweb_myapp' });
+      sinon.assert.calledOnceWithExactly(connectStub, { Container: 'fluxweb_myapp', abortSignal: sinon.match.instanceOf(AbortSignal) });
     });
 
     it('swallows the race-window already-exists error from connect', async () => {
@@ -2027,7 +2018,7 @@ describe('dockerService tests', () => {
 
       await dockerService.appDockerUpdateCpu('website', 80000000);
 
-      sinon.assert.calledOnceWithExactly(update, { NanoCpus: 80000000 });
+      sinon.assert.calledOnceWithExactly(update, { NanoCpus: 80000000, abortSignal: sinon.match.instanceOf(AbortSignal) });
     });
 
     it('refuses a limit of nothing', async () => {
@@ -2558,10 +2549,11 @@ describe('dockerService tests', () => {
       await dockerService.tagImage(ID, 'fluxregistry:5000/runonflux/flux-volume-tools:v1.1.0');
 
       expect(getImageStub.calledOnceWith(ID)).to.equal(true);
-      expect(tag.calledOnceWith({
+      sinon.assert.calledOnceWithExactly(tag, {
         repo: 'fluxregistry:5000/runonflux/flux-volume-tools',
         tag: 'v1.1.0',
-      })).to.equal(true);
+        abortSignal: sinon.match.instanceOf(AbortSignal),
+      });
     });
 
     it('defaults the tag when the reference carries none', async () => {
@@ -2570,10 +2562,11 @@ describe('dockerService tests', () => {
 
       await dockerService.tagImage(ID, 'fluxregistry:5000/runonflux/flux-volume-tools');
 
-      expect(tag.calledOnceWith({
+      sinon.assert.calledOnceWithExactly(tag, {
         repo: 'fluxregistry:5000/runonflux/flux-volume-tools',
         tag: 'latest',
-      })).to.equal(true);
+        abortSignal: sinon.match.instanceOf(AbortSignal),
+      });
     });
   });
 
@@ -2613,6 +2606,31 @@ describe('dockerService tests', () => {
       // the error the abort surfaces afterwards does not answer a second time
       onFinished(new Error('aborted'));
       sinon.assert.calledOnce(cb);
+    });
+
+    it('ends a pull when its caller\'s signal aborts, with the signal\'s reason, and aborts its transfer', () => {
+      const cb = sinon.stub();
+      const controller = new AbortController();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', stallMs: 50, signal: controller.signal }, null, cb);
+      const reason = new Error('stopped for its removal');
+      controller.abort(reason);
+
+      sinon.assert.calledOnceWithExactly(cb, reason, undefined);
+      expect(pullStub.firstCall.args[1].abortSignal.aborted, 'the transfer is aborted').to.equal(true);
+      onFinished(new Error('aborted'));
+      sinon.assert.calledOnce(cb);
+    });
+
+    it('starts no pull whose caller\'s signal has already aborted', () => {
+      const cb = sinon.stub();
+      const controller = new AbortController();
+      const reason = new Error('stopped for its removal');
+      controller.abort(reason);
+
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', signal: controller.signal }, null, cb);
+
+      sinon.assert.calledOnceWithExactly(cb, reason, undefined);
+      sinon.assert.notCalled(pullStub);
     });
 
     it('lets a pull whose layers keep moving run for as long as it takes', () => {
@@ -2688,6 +2706,157 @@ describe('dockerService tests', () => {
         { Name: 'fluxDockerNetwork_d' },
       ]);
       expect(await dockerService.getFluxDockerNetworkSubnets()).to.deep.equal(['172.23.1.0/24']);
+    });
+  });
+
+  // A request docker never answers ends at its deadline, so the operation holding
+  // the app fails and releases it.
+  describe('docker requests carry their deadline', () => {
+    const PROBE = config.fluxapps.dockerProbeTimeoutMs;
+    const REQUEST = config.fluxapps.dockerRequestTimeoutMs;
+    const SLACK = config.fluxapps.dockerStopSlackMs;
+    const realSocketPath = modem.socketPath;
+    let server;
+    let socketPath;
+    let onArrival;
+    let arrived;
+    let connections;
+    let deadlines;
+
+    // A daemon that takes every request and never answers one. docker-modem
+    // resolves its socket path once and keeps it, so the path is set with the
+    // cache cleared, and cleared again on the way out.
+    before(async () => {
+      socketPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'silent-docker-')), 'docker.sock');
+      server = net.createServer((socket) => {
+        connections.push(socket);
+        socket.once('data', (data) => onArrival(data.toString().split('\r\n')[0]));
+      });
+      await new Promise((resolve) => { server.listen(socketPath, resolve); });
+      modem.socketPath = socketPath;
+      modem.socketPathCache = undefined;
+    });
+
+    after(async () => {
+      modem.socketPath = realSocketPath;
+      modem.socketPathCache = undefined;
+      await new Promise((resolve) => { server.close(resolve); });
+      fs.rmSync(path.dirname(socketPath), { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+      connections = [];
+      arrived = new Promise((resolve) => { onArrival = resolve; });
+      deadlines = [];
+      sinon.stub(AbortSignal, 'timeout').callsFake((ms) => {
+        const controller = new AbortController();
+        deadlines.push({ ms, controller });
+        return controller.signal;
+      });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      connections.forEach((socket) => socket.destroy());
+    });
+
+    // Waits for the request to reach the daemon, ends its deadline, and reports
+    // how the call settled, or that it is still waiting.
+    async function expireAndSettle(call) {
+      const outcome = call.then(() => 'answered', (error) => error);
+      const requestLine = await arrived;
+      deadlines.forEach(({ controller }) => controller.abort());
+      let timer;
+      const waited = new Promise((resolve) => { timer = setTimeout(resolve, 1000, 'still waiting'); });
+      const settled = await Promise.race([outcome, waited]);
+      clearTimeout(timer);
+      return { requestLine, settled, ms: deadlines.at(-1)?.ms };
+    }
+
+    it('ends a container listing at the read deadline', async () => {
+      const { requestLine, settled, ms } = await expireAndSettle(dockerService.dockerListContainers(true));
+
+      expect(requestLine).to.match(/^GET \/containers\/json/);
+      expect(settled).to.be.an('error');
+      expect(ms).to.equal(PROBE);
+    });
+
+    it('ends a stop at its own SIGKILL wait plus slack', async () => {
+      stubContainerListing();
+      sinon.stub(Dockerode.Container.prototype, 'inspect').resolves({ State: { Running: true } });
+
+      const { requestLine, settled, ms } = await expireAndSettle(dockerService.appDockerStop('website', 120));
+
+      expect(requestLine).to.match(/^POST \/containers\/.+\/stop\?t=120 /);
+      expect(settled).to.be.an('error');
+      expect(ms).to.equal(120000 + SLACK);
+    });
+
+    it('ends a stop that names no wait at docker\'s own ten seconds plus slack', async () => {
+      stubContainerListing();
+      sinon.stub(Dockerode.Container.prototype, 'inspect').resolves({ State: { Running: true } });
+
+      const { settled, ms } = await expireAndSettle(dockerService.appDockerStop('website'));
+
+      expect(settled).to.be.an('error');
+      expect(ms).to.equal(10000 + SLACK);
+    });
+
+    it('ends a force removal at the request deadline', async () => {
+      stubContainerListing();
+
+      const { requestLine, settled, ms } = await expireAndSettle(dockerService.appDockerForceRemove('website'));
+
+      expect(requestLine).to.match(/^DELETE \/containers\//);
+      expect(settled).to.be.an('error');
+      expect(ms).to.equal(REQUEST);
+    });
+
+    it('ends a container create at the request deadline', async () => {
+      const { requestLine, settled, ms } = await expireAndSettle(dockerService.createContainer({ Image: 'org/web:1' }));
+
+      expect(requestLine).to.match(/^POST \/containers\/create/);
+      expect(settled).to.be.an('error');
+      expect(ms).to.equal(REQUEST);
+    });
+
+    // dockerode's Network#inspect and Image#inspect do not pass a signal on.
+    it('ends a network inspect at the read deadline', async () => {
+      const { requestLine, settled, ms } = await expireAndSettle(dockerService.dockerNetworkInspect(dockerService.dockerGetNetwork('fluxDockerNetwork_appx')));
+
+      expect(requestLine).to.match(/^GET \/networks\/fluxDockerNetwork_appx/);
+      expect(settled).to.be.an('error');
+      expect(ms).to.equal(PROBE);
+    });
+
+    it('ends an image inspect at the read deadline', async () => {
+      const { requestLine, settled, ms } = await expireAndSettle(dockerService.imageExists('org/web:1'));
+
+      expect(requestLine).to.match(/^GET \/images\/org\/web:1\/json/);
+      expect(settled).to.be.an('error');
+      expect(ms).to.equal(PROBE);
+    });
+
+    it('gives a restart a stop at docker\'s own wait and a start', async () => {
+      stubContainerListing();
+      sinon.stub(Dockerode.Container.prototype, 'inspect').resolves({ State: { Running: true }, Mounts: [] });
+
+      const { requestLine, settled, ms } = await expireAndSettle(dockerService.appDockerRestart('website'));
+
+      expect(requestLine).to.match(/^POST \/containers\/.+\/restart/);
+      expect(settled).to.be.an('error');
+      expect(ms).to.equal(10000 + SLACK + REQUEST);
+    });
+
+    it('leaves a sized listing and a sized inspect unbounded: they walk the disks', async () => {
+      const list = sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
+      const inspect = sinon.stub(Dockerode.Container.prototype, 'inspect').resolves(inspectResponse);
+
+      await dockerService.dockerListContainers(true, undefined, true);
+      await dockerService.dockerContainerInspect('website', { size: true });
+
+      expect(list.firstCall.args[0].abortSignal).to.equal(undefined);
+      expect(inspect.firstCall.args[0]).to.deep.equal({ size: true });
     });
   });
 });

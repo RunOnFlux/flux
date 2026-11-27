@@ -6,7 +6,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
-import { waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged } from '../framework/wait.js';
+import { waitFor, waitForFolderTakenOn, waitForReconcilerDesiredChanged } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
@@ -98,15 +98,12 @@ describe('a restore with no peer to fall back on', function () {
       // eslint-disable-next-line no-await-in-loop
       await installOnNodes(env, spec, [0]);
       if (data.startsWith('r:')) {
-        // the sync layer clears appdata on a clean install, and seeding before
-        // that lands would have the seed wiped out from under the test
+        // seeded once the sync layer has taken the folder on
         // eslint-disable-next-line no-await-in-loop
-        await waitForReconcileActuated(client, idOf(app), 'dataCleared', 120000, { afterId: after });
+        await waitForFolderTakenOn(client, idOf(app), 120000, { afterId: after });
       } else {
-        // A component with no sync flag never enters the syncthing clean-install
-        // path, so it never emits dataCleared - waiting for it here waits for an
-        // event that cannot arrive. Its container running is the readiness that
-        // exists for this shape of app.
+        // A component with no sync flag has no folder to take on. Its container
+        // running is the readiness that exists for this shape of app.
         // eslint-disable-next-line no-await-in-loop
         await waitFor(async () => {
           const status = await getAppContainerStatus(client.container, app);
@@ -165,6 +162,9 @@ describe('a restore with no peer to fall back on', function () {
     expect(lock.exitCode, `could not make appdata immutable: ${lock.output}`).to.equal(0);
 
     const afterId = client.getLastEventId();
+    const startedSince = () => client.getEventBuffer().filter((e) => e.id > afterId
+      && e.event === 'reconciler:actuated' && e.data?.identifier === idOf(plainApp)
+      && ['started', 'recreated', 'restarted'].includes(e.data?.action));
     try {
       const body = await client.appendRestoreTask(
         plainApp, [{ component: `${plainApp}c`, restore: true }], 'local', auth.zelidauth,
@@ -174,8 +174,13 @@ describe('a restore with no peer to fall back on', function () {
       // Nothing here syncs, so there is no folder to demote and nothing that
       // could ever repair the directory. The container must still be held: what
       // is on disk is not a copy anyone chose, and starting on it writes new
-      // state over the wreckage.
-      await waitForReconcilerDesiredChanged(client, idOf(plainApp), 'stopped', 120000, { afterId });
+      // state over the wreckage. The reconciler decides about it: held for the
+      // unfinished restore, or started.
+      await waitFor(async () => (await client.getDecisionCount('reconciler:held', idOf(plainApp), 'restoreUnfinished')) >= 1
+        || startedSince().length > 0, {
+        timeout: 120000, interval: 2000, label: 'the reconciler decides about the component after the restore',
+      });
+      expect(startedSince(), 'started on a half-replaced directory').to.deep.equal([]);
     } finally {
       await execInContainer(client.container, `chattr -i ${dirOf(plainApp)}/appdata 2>/dev/null || true`);
     }
