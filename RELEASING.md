@@ -1,11 +1,8 @@
 # Releasing FluxOS
 
-A release is a reviewed pull request from `development` into `master`. That has not changed, and
-neither has the review or the merge button.
-
-What has changed is that a release now has to prove, before it merges, that its code is on the
-signed list of approved FluxOS trees — and that the tag and the GitHub Release are cut for you
-afterwards instead of by hand.
+A release is a reviewed pull request from `development` into `master`. Before it merges, a check
+proves that its code is on the signed list of approved FluxOS trees. After it merges, a workflow cuts
+the tag and the GitHub Release.
 
 ## Why there is a list at all
 
@@ -26,8 +23,8 @@ That is the whole reason releasing has a gate: the fleet follows `master`, so no
 writes it to `package.json` and `package-lock.json` together; the unit suite fails when the two
 differ.
 
-**2. Add the fingerprint to `helpers/hashes.json` on `development`.** This is the step that used to
-happen *after* the merge, as a commit straight to `master`. It now rides the release PR.
+**2. Add the fingerprint to `helpers/hashes.json` on `development`.** It rides the release PR, so
+`master` never holds a release without its fingerprint.
 
 Compute it from a clean checkout of `development`:
 
@@ -41,9 +38,9 @@ covers `ZelBack`. So there is no chicken-and-egg — compute it, commit it, and 
 (`helpers/hashes.json` is the fallback list the older benchmark reads when it cannot reach central.
 This step retires when that version of the benchmark does.)
 
-**3. Open the PR, `development` → `master`, and get it reviewed.** As before.
+**3. Open the PR, `development` → `master`, and get it reviewed.**
 
-**4. Merge it.** As before.
+**4. Merge it.** `release-tag` does the rest.
 
 ## What the checks do
 
@@ -93,11 +90,11 @@ to see which check failed before deciding whether to re-run it or cut the tag by
 cut by hand, or `master` was rolled back behind one. Resolve the tag, then re-run. The workflow
 refuses rather than skipping, because skipping would mean the merged tree was never verified.
 
-## Things that are no longer done by hand
+## Never done by hand
 
-- Adding the fingerprint to `helpers/hashes.json` after the merge. It rides the PR now.
-- Creating the `vX.Y.Z` tag.
-- Creating the GitHub Release.
+- Creating the `vX.Y.Z` tag or the GitHub Release. `release-tag` cuts both, and refuses to run over a
+  tag cut by hand at another commit.
+- Committing the fingerprint to `master`. It reaches `master` with the release PR (step 2).
 
 ## Please do not commit to `master`
 
