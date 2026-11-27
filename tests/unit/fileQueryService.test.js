@@ -7,6 +7,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const IOUtils = require('../../ZelBack/src/services/IOUtils');
+const log = require('../../ZelBack/src/lib/log');
 
 describe('fileQueryService tests', () => {
   afterEach(() => {
@@ -478,6 +479,35 @@ describe('fileQueryService tests', () => {
 
       sinon.assert.calledOnce(res.json);
       expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
+    // A folder an app has not made yet is an answer to the caller, not a fault of
+    // the node: a dashboard lists a game's Mods folder before any mod exists.
+    it('answers a folder that does not exist with ENOENT and logs no error of its own', async () => {
+      const res = { json: sinon.stub() };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount: '/mnt/appvolumes/TestApp_Component1' }] });
+      const missing = Object.assign(new Error("ENOENT: no such file or directory, scandir '/mnt/appvolumes/TestApp_Component1/appdata/Mods'"), { code: 'ENOENT' });
+      sinon.stub(fs, 'readdir').rejects(missing);
+      const logError = sinon.stub(log, 'error');
+
+      await fileQueryService.getAppsFolder({ params: { appname: 'TestApp', component: 'Component1' }, query: { folder: 'appdata/Mods' } }, res);
+
+      expect(res.json.firstCall.args[0]).to.deep.equal(messageHelper.createErrorMessage(missing.message, 'Error', 'ENOENT'));
+      expect(logError.called).to.equal(false);
+    });
+
+    it('logs a listing failure the request did not cause', async () => {
+      const res = { json: sinon.stub() };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves({ error: null, mounts: [{ mount: '/mnt/appvolumes/TestApp_Component1' }] });
+      sinon.stub(fs, 'readdir').rejects(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }));
+      const logError = sinon.stub(log, 'error');
+
+      await fileQueryService.getAppsFolder({ params: { appname: 'TestApp', component: 'Component1' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      sinon.assert.calledOnce(logError);
     });
 
     it('should handle lstat errors', async () => {

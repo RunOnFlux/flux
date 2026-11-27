@@ -20,6 +20,7 @@ describe('fileSystemManager tests', () => {
   let volumeSessionStub;
   let messageHelperStub;
   let sessionStub;
+  let logStub;
   let res;
   let req;
 
@@ -123,12 +124,13 @@ describe('fileSystemManager tests', () => {
     // still take their operands as path params.
     req = { params: { appname: 'myapp', component: 'comp' }, query: {}, body: {} };
 
+    logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
     fileSystemManager = proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
       '../messageHelper': messageHelperStub,
       '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
       '../serviceHelper': serviceHelperStub,
       '../IOUtils': { getVolumeInfo: sinon.stub() },
-      '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
+      '../../lib/log': logStub,
       '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPathOfExistingPath: sinon.stub() },
       './volumeSession': volumeSessionStub,
       './volumeExecutor': executorStub,
@@ -219,6 +221,28 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.createAppsFolder(req, res);
       expect(executorStub.run.called).to.equal(false);
       expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
+    it('answers a taken name with its code and logs no error of its own', async () => {
+      const taken = new Error('Destination already exists');
+      taken.code = 'EEXIST';
+      executorStub.run.rejects(taken);
+      req.params.folder = 'uploads';
+      await fileSystemManager.createAppsFolder(req, res);
+
+      expect(res.json.firstCall.args[0]).to.deep.equal({
+        status: 'error', data: { code: 'EEXIST', name: 'Error', message: 'Destination already exists' },
+      });
+      expect(logStub.error.called).to.equal(false);
+    });
+
+    it('logs a failure the request did not cause', async () => {
+      executorStub.run.rejects(new Error('File operation failed with exit code 1'));
+      req.params.folder = 'uploads';
+      await fileSystemManager.createAppsFolder(req, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      sinon.assert.calledOnceWithMatch(logStub.error, sinon.match.instanceOf(Error));
     });
   });
 

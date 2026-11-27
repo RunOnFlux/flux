@@ -6,6 +6,7 @@ const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPathOfExistingPath } = require('../utils/pathSecurity');
 const { isReservedName, reachesReservedName } = require('../appSystem/volumeReservedNames');
+const { isRequestRefusal } = require('../appSystem/requestRefusal');
 const { Privilege, authOf } = require('../utils/privileges');
 
 /**
@@ -95,7 +96,7 @@ async function getAppsFolder(req, res) {
       res.json(errMessage);
     }
   } catch (error) {
-    log.error(error);
+    if (!isRequestRefusal(error)) log.error(error);
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
