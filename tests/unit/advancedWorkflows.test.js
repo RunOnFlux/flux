@@ -150,6 +150,19 @@ describe('advancedWorkflows tests', () => {
       operationRegistry.release('otherapp', other);
     });
 
+    [[true, 'Flux App component web_testapp successfully installed and launched'],
+      [false, 'Flux App component web_testapp successfully installed"']].forEach(([started, closing]) => {
+      it(`closes with "${closing.replace('"', '')}" when its container ${started ? 'was' : 'was not'} started here`, async () => {
+        sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+        sinon.stub(appInstaller, 'installApplicationSoft').resolves(started);
+        const res = makeRes();
+
+        await advancedWorkflows.softInstallComponent(appSpec(), component(), res);
+
+        expect(res.write.args.map(([chunk]) => String(chunk)).join('\n')).to.include(closing);
+      });
+    });
+
     it('declines, touching nothing, an app the node has no room for', async () => {
       sinon.stub(generalService, 'nodeTier').resolves('cumulus');
       hwRequirements.admitApp.rejects(new Error('Insufficient RAM on Flux Node to spawn an application'));

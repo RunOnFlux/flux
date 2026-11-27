@@ -1057,12 +1057,13 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
  * @param {number} tier The node's tier, which picks each component's resources.
  * @param {object} [res] A response stream the caller holds.
  * @param {AbortSignal} [signal] The holding operation's signal.
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>} Whether it started every container it created.
  */
 async function createContainersSoft(specificationsToInstall, appName, isComponent, appSpecifications, tier, res, signal) {
   // eslint-disable-next-line global-require
   const appInstaller = require('./appInstaller');
   if (specificationsToInstall.version >= 4) { // version is undefined for component
+    const started = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponentSpecs of specificationsToInstall.compose) {
       const hddTier = `hdd${tier}`;
@@ -1072,11 +1073,11 @@ async function createContainersSoft(specificationsToInstall, appName, isComponen
       appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
       appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
       // eslint-disable-next-line no-await-in-loop
-      await appInstaller.installApplicationSoft(appComponentSpecs, appName, true, res, appSpecifications, { signal });
+      started.push(await appInstaller.installApplicationSoft(appComponentSpecs, appName, true, res, appSpecifications, { signal }));
     }
-    return;
+    return started.every(Boolean);
   }
-  await appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications, { signal });
+  return appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications, { signal });
 }
 
 /**
@@ -1151,9 +1152,12 @@ async function softInstallComponent(appSpecs, componentSpecs, res, { parent = nu
     component.cpu = component[`cpu${tier}`] || component.cpu;
     component.ram = component[`ram${tier}`] || component.ram;
     component.hdd = component[`hdd${tier}`] || component.hdd;
-    await createContainersSoft(component, appSpecs.name, true, appSpecs, tier, res, parent?.signal);
+    const started = await createContainersSoft(component, appSpecs.name, true, appSpecs, tier, res, parent?.signal);
 
-    const successStatus = messageHelper.createSuccessMessage(`Flux App component ${fullComponentName} successfully installed and launched`);
+    // "launched" only when its container was started here; the line above says what starts it otherwise
+    const successStatus = messageHelper.createSuccessMessage(started
+      ? `Flux App component ${fullComponentName} successfully installed and launched`
+      : `Flux App component ${fullComponentName} successfully installed`);
     log.info(successStatus);
     // Written, not closed: every caller is mid-stream on a response its own
     // endpoint opened.

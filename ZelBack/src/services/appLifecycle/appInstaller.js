@@ -514,6 +514,8 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemo
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
+    // whether each container was started here, in install order
+    const started = [];
 
     try {
       // Validate database entry exists before creating Docker containers (atomic transaction check)
@@ -540,11 +542,11 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemo
           appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
           appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
           // eslint-disable-next-line no-await-in-loop, no-use-before-define
-          await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, { signal: parent?.signal });
+          started.push(await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, { signal: parent?.signal }));
         }
       } else {
         // eslint-disable-next-line no-use-before-define
-        await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, { signal: parent?.signal });
+        started.push(await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, { signal: parent?.signal }));
       }
     } catch (error) {
       // An install a removal stopped is that removal's to take down and tell.
@@ -586,8 +588,11 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, sendRemo
       await appNetworkLinker.reconnectLinkedApps(appName);
     }
 
-    // all done message
-    const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
+    // "launched" only when every container was started here; the lines above say
+    // what starts the others
+    const successStatus = messageHelper.createSuccessMessage(started.every(Boolean)
+      ? `Flux App ${appName} successfully installed and launched`
+      : `Flux App ${appName} successfully installed`);
     log.info(successStatus);
     if (res) {
       // Written, not closed. Every caller here is mid-stream on a response its
@@ -715,6 +720,23 @@ async function registerAppLocally(appSpecs, componentSpecs, res, sendRemovalMess
 }
 
 /**
+ * Says that a container was created and not started, and what starts it. A `g:`
+ * component is started by the primary election, an `r:` component once its folder
+ * has synced, and a container created with `start: false` by the reconciler.
+ * @param {object} res - Response stream, or null
+ * @param {string} what - 'component <name> of Flux App <app>' or 'Flux App <app>'
+ * @param {string} startedBy
+ */
+function tellNotStarted(res, what, startedBy) {
+  const notStarted = { status: `${what} is created and not started here: ${startedBy}` };
+  log.info(notStarted);
+  if (res) {
+    res.write(serviceHelper.ensureString(notStarted));
+    if (res.flush) res.flush();
+  }
+}
+
+/**
  * Install application (hard installation with Docker)
  * @param {object} appSpecifications - App specifications or component specifications
  * @param {string} appName - Application name
@@ -724,7 +746,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, sendRemovalMess
  * @param {object} [options]
  * @param {AbortSignal} [options.signal] - The operation's: the install stops at its
  *   next step, and its pull at once, when it aborts
- * @returns {Promise<void>} Installation result
+ * @returns {Promise<boolean>} Whether it started the container.
  */
 async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, { signal = null } = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
@@ -791,28 +813,34 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   await appNetworkLinker.connectComponentToLinkedApps(componentContainerName, fullAppSpecs);
 
   operationRegistry.throwIfPreempted(signal);
-  const startStatus = {
-    status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
-  };
+  const what = isComponent ? `component ${appSpecifications.name} of Flux App ${appName}` : `Flux App ${appName}`;
+  if (appSpecifications.containerData.includes('g:')) {
+    tellNotStarted(res, what, 'the primary election starts it');
+    return false;
+  }
+  if (appSpecifications.containerData.includes('r:')) {
+    tellNotStarted(res, what, 'it starts once its folder has synced');
+    return false;
+  }
+  const startStatus = { status: `Starting ${what}...` };
   log.info(startStatus);
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
     if (res.flush) res.flush();
   }
-  if (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:')) {
-    const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-    const app = await dockerService.appDockerStart(identifier);
-    if (!app) {
-      throw new Error(`Failed to start ${identifier} container`);
-    }
-    startAppMonitoring(identifier);
-    const appResponse = messageHelper.createDataMessage(app);
-    log.info(appResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(appResponse));
-      if (res.flush) res.flush();
-    }
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  const app = await dockerService.appDockerStart(identifier);
+  if (!app) {
+    throw new Error(`Failed to start ${identifier} container`);
   }
+  startAppMonitoring(identifier);
+  const appResponse = messageHelper.createDataMessage(app);
+  log.info(appResponse);
+  if (res) {
+    res.write(serviceHelper.ensureString(appResponse));
+    if (res.flush) res.flush();
+  }
+  return true;
 }
 
 /**
@@ -827,7 +855,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  *   it, for a caller whose next reconcile pass starts it.
  * @param {AbortSignal} [options.signal] - The operation's: the install stops at its
  *   next step, and its pull at once, when it aborts
- * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<boolean>} Whether it started the container.
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, { start = true, signal = null } = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
@@ -881,43 +909,46 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   const componentContainerName = dockerService.getAppIdentifier(identifier);
   await appNetworkLinker.connectComponentToLinkedApps(componentContainerName, fullAppSpecs);
 
-  const startStatus = {
-    status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
-  };
-  log.info(startStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(startStatus));
-    if (res.flush) res.flush();
+  const what = isComponent ? `component ${appSpecifications.name} of Flux App ${appName}` : `Flux App ${appName}`;
+  if (appSpecifications.containerData.includes('g:')) {
+    tellNotStarted(res, what, 'the primary election starts it');
+    return false;
   }
-  const startedHere = start && !appSpecifications.containerData.includes('g:');
+  if (!start) {
+    tellNotStarted(res, what, 'the reconciler starts it');
+    return false;
+  }
   const componentId = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   // A soft install keeps the volume, and with it a restore that did not finish
   // on it: such a component is not started here, and the reconciler keeps it
   // stopped until the record is cleared. An unread record holds it too.
-  const restoreHolds = startedHere
-    && await appsRuntimeState.isRestoreUnfinished(componentId).catch(() => true);
-  if (restoreHolds) {
+  if (await appsRuntimeState.isRestoreUnfinished(componentId).catch(() => true)) {
     const held = { status: `${componentId} is not started: a restore of its data did not finish` };
     log.warn(held);
     if (res) {
       res.write(serviceHelper.ensureString(held));
       if (res.flush) res.flush();
     }
+    return false;
   }
-  if (startedHere && !restoreHolds) {
-    const identifier = componentId;
-    const app = await dockerService.appDockerStart(identifier);
-    if (!app) {
-      throw new Error(`Failed to start ${identifier} container`);
-    }
-    startAppMonitoring(identifier);
-    const appResponse = messageHelper.createDataMessage(app);
-    log.info(appResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(appResponse));
-      if (res.flush) res.flush();
-    }
+  const startStatus = { status: `Starting ${what}...` };
+  log.info(startStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(startStatus));
+    if (res.flush) res.flush();
   }
+  const app = await dockerService.appDockerStart(componentId);
+  if (!app) {
+    throw new Error(`Failed to start ${componentId} container`);
+  }
+  startAppMonitoring(componentId);
+  const appResponse = messageHelper.createDataMessage(app);
+  log.info(appResponse);
+  if (res) {
+    res.write(serviceHelper.ensureString(appResponse));
+    if (res.flush) res.flush();
+  }
+  return true;
 }
 
 /**
