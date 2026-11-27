@@ -16,6 +16,7 @@ const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const verificationHelperUtils = require('./verificationHelperUtils');
 const messageHelper = require('./messageHelper');
+const hashListStore = require('./hashListStore');
 const dbHelper = require('./dbHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
@@ -1007,6 +1008,21 @@ function getFluxVersion(req, res) {
   const { version } = packageJson;
   const message = messageHelper.createDataMessage(version);
   return res ? res.json(message) : message;
+}
+
+/**
+ * The signed FluxOS code hash list this node holds, as the bytes it verified: the envelope
+ * fluxbench and the release pipeline verify themselves. 404 when this node holds none.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function getHashList(req, res) {
+  const raw = hashListStore.getRawList();
+  if (!raw) {
+    res.status(404).json(messageHelper.createErrorMessage('This node holds no hash list'));
+    return;
+  }
+  res.type('application/json').send(raw);
 }
 
 /**
@@ -2362,6 +2378,7 @@ async function isArcaneOs(req, res) {
 }
 
 module.exports = {
+  getHashList,
   runNewCode,
   startBenchmarkByDaemon,
   stopBenchmark,

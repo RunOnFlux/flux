@@ -93,6 +93,12 @@ module.exports = {
     publicKeys: ['39835c5ea604ecbcfbd3ba46cf2f9101f1c1f54675a00cc8fae01dce1e4868e6'],
     minConfirmingPeers: 1,
   },
+  // The lab publishes no hash list: its fluxbench skips the code hash check.
+  hashList: {
+    sourceUrl: '',
+    publicKeys: [],
+    minConfirmingPeers: 1,
+  },
   geolocation: {
     ipApiBaseUrl: `${LAB_VM}:8082`,
   },

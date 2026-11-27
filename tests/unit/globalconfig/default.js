@@ -560,6 +560,18 @@ module.exports = {
     minConfirmingPeers: 4,
     backstopRetryIntervalMs: 60 * 1000,
   },
+  hashList: {
+    sourceUrl: 'https://hashes.runonflux.io/hashlist',
+    publicKeys: [
+      '14837066068b258bfbd0749702056f7065361af44aed48761834744391cbbaaa',
+      'fee7b0ccf2323954af68a249eaa61f957239eb222329e08a5b6a50ced649bae8',
+    ],
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    peerWindowMs: 3 * 1000,
+    fetchTimeoutMs: 10 * 1000,
+    minConfirmingPeers: 4,
+    backstopRetryIntervalMs: 60 * 1000,
+  },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
   },

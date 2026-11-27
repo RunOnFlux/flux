@@ -127,6 +127,14 @@ module.exports = {
     // its fleet can field.
     minConfirmingPeers: 1,
   },
+  // No hash list in a suite fleet unless the suite asks for one: a node would otherwise take
+  // mainnet's source and fetch the live list. The hash list suite sets its own source and keys
+  // through configOverrides.
+  hashList: {
+    sourceUrl: '',
+    publicKeys: [],
+    minConfirmingPeers: 1,
+  },
   fluxapps: {
     storageHost: 'storage.runonflux.io',
     minOutgoing: 4,

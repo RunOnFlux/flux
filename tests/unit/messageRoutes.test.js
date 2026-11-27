@@ -55,7 +55,7 @@ describe('messageRoutes tests', () => {
       // point and never filtered on content. Anything relayed onward must never be VARIES,
       // or one node's copy of a fact suppresses every other route it arrives by.
       const varying = registeredTypes().filter((type) => declaredIntent(type) === INTENT.VARIES);
-      expect(varying.sort()).to.deep.equal(['fluxlinkconfirm', 'fluxlinknonce', 'fluxpolicyseq']);
+      expect(varying.sort()).to.deep.equal(['fluxhashlistseq', 'fluxlinkconfirm', 'fluxlinknonce', 'fluxpolicyseq']);
     });
 
     it('declares every relayed type an announcement', () => {

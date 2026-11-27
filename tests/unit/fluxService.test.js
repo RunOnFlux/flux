@@ -28,6 +28,7 @@ const explorerService = require('../../ZelBack/src/services/explorerService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const hashListStore = require('../../ZelBack/src/services/hashListStore');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
@@ -1236,6 +1237,38 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/reindexDaemon.sh`, { cwd: nodedpath });
+    });
+  });
+
+  describe('getHashList', () => {
+    afterEach(() => sinon.restore());
+
+    const response = () => {
+      const res = { status: sinon.stub(), json: sinon.stub(), type: sinon.stub(), send: sinon.stub() };
+      res.status.returns(res);
+      res.type.returns(res);
+      return res;
+    };
+
+    it('serves the list this node holds, as the bytes it verified', () => {
+      sinon.stub(hashListStore, 'getRawList').returns('{"payload_b64":"cA==","sig_b64":"cw=="}');
+      const res = response();
+
+      fluxService.getHashList(undefined, res);
+
+      expect(res.type.calledOnceWithExactly('application/json')).to.equal(true);
+      expect(res.send.calledOnceWithExactly('{"payload_b64":"cA==","sig_b64":"cw=="}')).to.equal(true);
+    });
+
+    it('answers 404 when this node holds no list', () => {
+      sinon.stub(hashListStore, 'getRawList').returns(null);
+      const res = response();
+
+      fluxService.getHashList(undefined, res);
+
+      expect(res.status.calledOnceWithExactly(404)).to.equal(true);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.send.called).to.equal(false);
     });
   });
 

@@ -23,10 +23,10 @@ const crypto = require('crypto');
  * silently drops the rest, and for an offer that discards the only thing it says.
  *
  * VARIES IS A TYPE SENT IN BOTH DIRECTIONS, and it is never relayed - messageRoutes
- * permits the declaration on nothing else. `fluxpolicyseq` is the one: a node
- * telling its peers what it adopted, and a node settling a peer's ask. Both are
- * point to point, so neither can reach this node twice by different routes, and
- * neither is filtered.
+ * permits the declaration on nothing else. `fluxpolicyseq` and `fluxhashlistseq`
+ * are the ones: each is a node telling its peers what it adopted, and a node
+ * settling a peer's ask. Both directions are point to point, so neither can reach
+ * this node twice by different routes, and neither is filtered.
  *
  * WHY THE TYPE DECIDES AND NOT THE MESSAGE. A type that is relayed onward and also
  * took its intent from the message would let any node that can sign one put an

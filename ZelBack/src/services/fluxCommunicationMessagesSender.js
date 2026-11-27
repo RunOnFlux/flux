@@ -15,6 +15,7 @@ const { Privilege, authOf } = require('./utils/privileges');
 const { declaredIntent } = require('./utils/messageRoutes');
 const { INTENT } = require('./utils/messageIntent');
 const bodyLimit = require('./utils/bodyLimit');
+const signedDocumentMessages = require('./utils/signedDocumentMessages');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
@@ -141,90 +142,71 @@ async function respondWithAppMessage(msgObj, peer) {
 }
 
 /**
- * Answer a peer asking for network policy newer than the sequence it holds.
+ * Answer a peer asking for a signed document newer than the sequence it holds.
  *
  * EVERY ask is answered, in one of three ways, because a peer that says nothing is
  * indistinguishable from a peer that is not there:
  *
- *   the bundle    this node holds something strictly newer
- *   seq: <mine>   it holds policy and is not ahead of the asker
- *   seq: null     it holds no policy at all
+ *   the document  this node holds something strictly newer
+ *   seq: <mine>   it holds the document and is not ahead of the asker
+ *   seq: null     it holds none at all
  *
- * Only the first is checkable. The other two are claims the asker cannot verify, and it
- * acts on them anyway - see policyStore.notePeerSeq for exactly what that buys and what it
- * costs. Silence was the older answer here, on the grounds that an unverifiable claim is
- * worth nothing; the reason it was wrong is that it leaves the asker unable to tell "my
- * peers agree I am current" from "my peers are asleep", and a node that cannot tell those
- * apart has no way to know whether the policy it restored from disk is still the
- * network's. A malformed or wrong-version ask is still answered with silence.
+ * Only the first is checkable. The other two are claims the asker cannot verify, and it acts on
+ * them anyway - see SignedDocumentExchange.notePeerSeq for what that buys and what it costs.
+ * Without them an asker cannot tell "my peers agree I am current" from "my peers are asleep",
+ * and so has no way to know whether the document it restored from disk is still the network's.
+ * A malformed or wrong-version ask is answered with silence.
  *
- * The bundle is served as the bytes this node verified, not a re-serialisation: the signature
- * covers those bytes and nothing else.
+ * The document is served as the bytes this node verified, not a re-serialisation: the
+ * signature covers those bytes and nothing else.
  * @param {object} msgObj The request.
  * @param {object} peer Peer socket to answer on.
+ * @param {{getRaw: Function, getSeq: Function}} held The document this node holds.
+ * @param {object} messages The document's types, from signedDocumentMessages.
  */
-async function respondWithPolicy(msgObj, peer) {
+async function respondWithSignedDocument(msgObj, peer, held, messages) {
   try {
-    // eslint-disable-next-line global-require
-    const policyStore = require('./policyStore');
     const message = msgObj.data;
     if (!message || message.version !== 1) return;
     const askerSeq = Number.isInteger(message.seq) ? message.seq : 0;
-    // Echoed so the asker can tell which of its asks this settles. A peer that does not
-    // send one gets undefined back, and the asker falls back to identifying it by socket.
+    // Echoed so the asker can tell which of its asks this settles.
     const { correlationId } = message;
 
-    // A node with no bundle answers `seq: null` - it says so, rather than saying nothing.
+    // A node holding nothing answers `seq: null`. Not 0: to an asker at 5 that reads as "you
+    // are not behind me", which is true and useless, and the asker would take an empty peer for
+    // agreement. Three different states, three different answers:
     //
-    // It must not answer 0: to an asker at 5 that reads as "you are not behind me", which
-    // is true and useless, and the asker would take an empty peer for agreement. But
-    // silence is no better, and for the same reason the branch below exists - a peer that
-    // says nothing is indistinguishable from a peer that is not there. Three different
-    // states, three different answers:
-    //
-    //   seq >= mine   this peer has policy, and I am not ahead of it
-    //   seq null      this peer is alive and has no policy at all
+    //   seq >= mine   this peer has the document, and I am not ahead of it
+    //   seq null      this peer is alive and has none at all
     //   no reply      this peer is not answering
     //
-    // The third is the only one that means "ask someone else". The second is what tells a
-    // node the NETWORK is empty rather than unreachable, which is the cold-start case.
-    const raw = await policyStore.getRawBundle();
+    // The third is the only one that means "ask someone else". The second is what tells a node
+    // the NETWORK is empty rather than unreachable, which is the cold-start case.
+    const raw = held.getRaw();
     if (!raw) {
       await sendSignedMessage({
-        type: 'fluxpolicyseq', version: 1, seq: null, correlationId,
+        type: messages.seq, version: 1, seq: null, correlationId,
       }, peer);
       return;
     }
 
-    if (policyStore.getSeq() <= askerSeq) {
-      // Nothing newer to give - but say so, rather than saying nothing.
+    if (held.getSeq() <= askerSeq) {
+      // Nothing newer to give, said rather than left silent.
       //
-      // "I have nothing newer" is a claim the asker cannot check, and it grants nothing:
-      // what comes back is a sequence. What it gives the asker is the difference between
-      // "my peers agree I am current" and "my peers are asleep", which silence cannot
-      // express - and a node that cannot tell those apart has no way to know whether the
-      // policy it restored from disk is still the network's.
-      //
-      // A PEER THAT LIES LOW IS ACTED ON: policyStore.notePeerSeq takes a sequence at or
-      // below its own as confirmation, and that opens the acquisition gate. It is safe
-      // for a reason that has nothing to do with trusting the claim - a peer that is
-      // genuinely ahead does not send one. It sends the BUNDLE, on the line below, which
-      // is signed and checked. Being ahead is proven; only being level is asserted.
-      //
-      // So a liar can bring confirmation forward by however long the real bundle takes to
-      // arrive, and nothing else: the ask goes to every peer, and any peer that is ahead
-      // answers with the thing that overrules the lie. For the lie to stand, every peer
-      // would have to be at or below this node - which is the network being level, and
-      // confirmation being correct. A peer that lies high costs one request and a
-      // refused bundle.
+      // A PEER THAT LIES LOW IS ACTED ON: notePeerSeq takes a sequence at or below its own as
+      // confirmation. It is safe for a reason that has nothing to do with trusting the claim -
+      // a peer that is genuinely ahead does not send one. It sends the DOCUMENT, below, which
+      // is signed and checked. Being ahead is proven; only being level is asserted. So a liar
+      // can bring confirmation forward by however long the real document takes to arrive, and
+      // nothing else. A peer that lies high costs one request and a refused document.
       await sendSignedMessage({
-        type: 'fluxpolicyseq', version: 1, seq: policyStore.getSeq(), correlationId,
+        type: messages.seq, version: 1, seq: held.getSeq(), correlationId,
       }, peer);
       return;
     }
 
     await sendSignedMessage({
-      type: 'fluxpolicy', version: 1, bundle: raw, correlationId,
+      type: messages.document, version: 1, [messages.field]: raw, correlationId,
     }, peer);
   } catch (error) {
     log.error(error);
@@ -232,46 +214,70 @@ async function respondWithPolicy(msgObj, peer) {
 }
 
 /**
- * Ask ONE peer, which is the only way this node puts the question: policyStore asks each
- * capable peer as it arrives rather than broadcasting.
- *
- * respondWithPolicy answers a targeted request exactly as it answers a broadcast one, so
- * this needs nothing on the far side.
+ * Answer a peer asking for network policy newer than the sequence it holds.
+ * @param {object} msgObj The request.
+ * @param {object} peer Peer socket to answer on.
+ */
+async function respondWithPolicy(msgObj, peer) {
+  // eslint-disable-next-line global-require
+  const policyStore = require('./policyStore');
+  const held = { getRaw: () => policyStore.getRawBundle(), getSeq: () => policyStore.getSeq() };
+  await respondWithSignedDocument(msgObj, peer, held, signedDocumentMessages.POLICY);
+}
+
+/**
+ * Ask ONE peer for a signed document newer than `seq`: the only way this node puts the
+ * question. The responder answers a targeted request exactly as it answers a broadcast one.
  * @param {object} peer The peer socket to ask.
  * @param {number} seq What this node holds.
+ * @param {string} correlationId The ask the answer will name.
+ * @param {object} messages The document's types, from signedDocumentMessages.
  */
-async function requestPolicyFromPeer(peer, seq, correlationId) {
+async function requestSignedDocumentFromPeer(peer, seq, correlationId, messages) {
   await sendSignedMessage({
-    type: 'fluxpolicyrequest', version: 1, seq, correlationId,
+    type: messages.request, version: 1, seq, correlationId,
   }, peer);
 }
 
 /**
- * Tell direct peers this node has adopted a sequence.
+ * Ask ONE peer for network policy newer than `seq`.
+ * @param {object} peer The peer socket to ask.
+ * @param {number} seq What this node holds.
+ * @param {string} correlationId The ask the answer will name.
+ */
+async function requestPolicyFromPeer(peer, seq, correlationId) {
+  await requestSignedDocumentFromPeer(peer, seq, correlationId, signedDocumentMessages.POLICY);
+}
+
+/**
+ * Tell direct peers this node has adopted a sequence of a signed document.
  *
- * Sent ON ADOPTION, never on a timer. That is what keeps it affordable: the traffic is
- * bounded by how often policy changes -- weekly at most -- rather than by how often nodes
- * check, and a periodic announcement would be the same volume forever. Each node that adopts
- * announces to its own peers, so a change spreads outwards in seconds instead of waiting out
- * a refresh interval on every node independently.
+ * Sent ON ADOPTION, never on a timer, so the traffic is bounded by how often the document
+ * changes rather than by how often nodes check. Each node that adopts announces to its own
+ * peers, so a change spreads outwards in seconds instead of waiting out a refresh interval on
+ * every node independently.
  *
- * It carries the sequence only. A peer cannot check a claim about a number, so it is a prompt
- * to ask rather than something to believe -- and what comes back is a signed bundle, which it
- * can check. A peer claiming a sequence it cannot produce costs one request and nothing else.
+ * It carries the sequence only: a prompt to ask rather than something to believe, and what
+ * comes back is a signed document, which can be checked. It goes to the peers that advertise
+ * the document's capability; one without it has no handler for the type.
+ * @param {number} seq The sequence just adopted.
+ * @param {object} messages The document's types, from signedDocumentMessages.
+ */
+async function announceSignedDocumentSeq(seq, messages) {
+  const peers = peerManager.getCapablePeers(messages.capability);
+  if (!peers.length) return;
+  // Signed once and sent to each, which is what a broadcast does anyway.
+  const signed = await serialiseAndSignFluxBroadcast({ type: messages.seq, version: 1, seq });
+  if (!signed) return;
+  peers.forEach((peer) => peer.send(signed));
+}
+
+/**
+ * Tell direct peers this node has adopted a policy sequence.
  * @param {number} seq The sequence just adopted.
  */
 async function announcePolicySeq(seq) {
-  // To the peers that speak this, rather than to all of them. A peer without the
-  // capability has no handler for the type, so the announcement reaches it as an
-  // unrecognised-type warning in its log and nothing else - once per adoption, per
-  // node, across the fleet.
-  //
-  // Signed once and sent to each, which is what a broadcast does anyway.
-  const peers = peerManager.getPolicyCapablePeers();
-  if (!peers.length) return;
-  const signed = await serialiseAndSignFluxBroadcast({ type: 'fluxpolicyseq', version: 1, seq });
-  if (!signed) return;
-  peers.forEach((peer) => peer.send(signed));
+  await announceSignedDocumentSeq(seq, signedDocumentMessages.POLICY);
 }
 
 /**
@@ -645,8 +651,11 @@ async function respondWithAppInstallingErrorsMessages(peer, sinceTimestamp = 0) 
 module.exports = {
   relay,
   announcePolicySeq,
+  announceSignedDocumentSeq,
   requestPolicyFromPeer,
+  requestSignedDocumentFromPeer,
   respondWithPolicy,
+  respondWithSignedDocument,
   sendSignedMessage,
   respondWithAppMessage,
   respondWithTempMessages,

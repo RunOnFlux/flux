@@ -3,6 +3,7 @@
 // because the remote path - the download, the content-length comparison, the
 // file landing in backup/remote - cannot be reached with a local archive.
 import { getSubnetConfig, STORAGE_HOST } from './subnet-config.js';
+import { controlJson } from './control-fetch.js';
 
 const HOST = getSubnetConfig().externalStub;
 const CONTROL = process.env.EXTERNAL_HTTP_CONTROL || `http://${HOST}:3001`;
@@ -411,4 +412,37 @@ export async function setUpnpSlowAdds(ip, { ms, description = null }) {
 export async function upnpGatewayState(ip) {
   const res = await fetch(`${CONTROL}/upnp-gateway/${ip}`);
   return res.json();
+}
+
+/**
+ * Where this run's external stub serves the signed FluxOS code hash list: the sourceUrl a suite
+ * gives config.hashList to turn the hash list on.
+ * @returns {string}
+ */
+export function hashListSourceUrl() {
+  return `http://${HOST}:${SERVE_PORT}/hashlist`;
+}
+
+/**
+ * Change what the hash list source serves - `{ available, signer, hashes, publish }`, as the
+ * stub's POST /hashlist takes them - and answer the sequence it now serves.
+ * @param {object} change
+ * @returns {Promise<{seq: number, signer: string, available: boolean}>}
+ */
+export async function setHashList(change) {
+  return controlJson(`${CONTROL}/hashlist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(change),
+  });
+}
+
+/**
+ * What the hash list source serves and who asked: the sequence, the signed bytes, and the fetch
+ * counters since it was last signed (`{ total, ok, unavailable }`).
+ * @returns {Promise<{seq: number, document: string, fetches: object}>}
+ */
+export async function hashListSource() {
+  const state = await controlJson(`${CONTROL}/state`);
+  return { seq: state.hashListSeq, document: state.hashListDocument, fetches: state.hashListFetches };
 }

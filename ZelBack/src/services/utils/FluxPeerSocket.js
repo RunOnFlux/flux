@@ -765,6 +765,9 @@ const FLUX_CAPABILITIES = Object.freeze([
   // participant, it is not a participant: asking it spends a window waiting for a reply
   // that cannot come, and announcing to it logs an unrecognised type on its side.
   'policyBundle',
+  // This build speaks the FluxOS code hash list protocol, the same three messages under
+  // their own names (utils/signedDocumentMessages.js).
+  'hashList',
   // This build authenticates links between Arcane nodes (services/arcaneLink.js).
   // Only an Arcane node claims it: a legacy node's fluxbench cannot derive the
   // link secret.

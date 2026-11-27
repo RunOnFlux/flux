@@ -933,6 +933,18 @@ module.exports = {
     backstopRetryIntervalMs: 60 * 1000,
     minConfirmingPeers: net.policy.minConfirmingPeers,
   },
+  // The signed list of FluxOS code hashes, carried to fluxbench and to peers (hashListStore).
+  // The timings mean what they mean under policy, and compress as they do. A network with no
+  // sourceUrl or no keys keeps no list.
+  hashList: {
+    sourceUrl: net.hashList.sourceUrl,
+    publicKeys: net.hashList.publicKeys,
+    refreshIntervalMs: 24 * 60 * 60 * 1000,
+    peerWindowMs: 3 * 1000,
+    fetchTimeoutMs: 10 * 1000,
+    backstopRetryIntervalMs: 60 * 1000,
+    minConfirmingPeers: net.hashList.minConfirmingPeers,
+  },
   geolocation: {
     ipApiBaseUrl: net.geolocation.ipApiBaseUrl,
   },
