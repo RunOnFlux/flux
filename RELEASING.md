@@ -22,7 +22,9 @@ That is the whole reason releasing has a gate: the fleet follows `master`, so no
 
 ## Cutting a release
 
-**1. Bump the version on `development`.** `package.json`, as before.
+**1. Bump the version on `development`.** `npm version <version> --no-git-tag-version`, which
+writes it to `package.json` and `package-lock.json` together; the unit suite fails when the two
+differ.
 
 **2. Add the fingerprint to `helpers/hashes.json` on `development`.** This is the step that used to
 happen *after* the merge, as a commit straight to `master`. It now rides the release PR.
@@ -67,7 +69,7 @@ nothing.
 
 ## When something goes red
 
-**"the candidate version does not move past master"** — bump `package.json` in the release PR.
+**"the candidate version does not move past master"** — bump the version in the release PR (step 1).
 
 **"master carries ZelBack changes that are not on development"** — someone committed code straight
 to `master`. The merged tree then exists on no branch, so the robot has never fingerprinted it and
