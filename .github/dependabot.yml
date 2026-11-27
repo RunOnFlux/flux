@@ -1,0 +1,23 @@
+# Dependency updates land on development and reach master with a release.
+# Minor and patch updates arrive as one PR a week per directory; each major
+# version arrives as its own PR.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: development
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /test-infra/runner
+    target-branch: development
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
