@@ -46,7 +46,10 @@
   ],
   "license": "AGPL-3.0-or-later",
   "arcane": {
-    "fluxos_abi": [1, 2],
+    "fluxos_abi": [
+      1,
+      2
+    ],
     "requires": {
       "fluxd": "9.2.0",
       "fluxbenchd": "6.5.0"

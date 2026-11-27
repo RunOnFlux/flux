@@ -5,9 +5,16 @@ const lock = require('../../package-lock.json');
 
 // Every node installs from package-lock.json, and the image's build refuses one that does not
 // match package.json. A dependency changed in package.json needs the lock regenerated with it:
-// `npm install --package-lock-only`. The version fields are labels npm does not compare.
+// `npm install --package-lock-only`, and a version bump changes both files: `npm version <v>
+// --no-git-tag-version`.
 describe('package-lock.json', () => {
   const root = lock.packages[''];
+
+  // Every install rewrites a lock whose version is not package.json's. A modified tracked lock
+  // makes `git checkout` refuse the team's branch switch.
+  it("carries package.json's version", () => {
+    expect([lock.version, root.version]).to.deep.equal([pkg.version, pkg.version]);
+  });
 
   ['dependencies', 'devDependencies', 'optionalDependencies'].forEach((field) => {
     it(`locks the ${field} package.json names`, () => {

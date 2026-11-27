@@ -326,6 +326,49 @@ describe('appInstaller tests', () => {
       });
     });
 
+    // The stream says what started; a container left for something else to start says
+    // what that is, and the install returns whether it started one.
+    describe('what a soft install says it started', () => {
+      const written = (res) => res.write.args.map(([chunk]) => (typeof chunk === 'string' ? chunk : JSON.stringify(chunk))).join('\n');
+      const install = async (containerData, options, isRestoreUnfinished) => {
+        const installer = softInstaller({ ensureMountPathsExist: sinon.stub().resolves() }, { ensureStignoreCovers: sinon.stub().resolves() }, isRestoreUnfinished);
+        baseStubs['../dockerService'].appDockerStart.resetHistory();
+        const spec = {
+          name: 'web', repotag: 'a/b:1', containerData, ports: [], domains: [], environmentParameters: [], commands: [],
+        };
+        const res = { write: sinon.stub(), flush: sinon.stub() };
+        const started = await installer.installApplicationSoft(spec, 'myapp', true, res, { name: 'myapp', compose: [spec] }, options);
+        return { started, said: written(res) };
+      };
+
+      it('starts a component and says so', async () => {
+        const { started, said } = await install('s:/data', { start: true });
+        expect(started).to.equal(true);
+        expect(said).to.include('Starting component web of Flux App myapp...');
+      });
+
+      it('leaves a g: component to the primary election, and says so', async () => {
+        const { started, said } = await install('g:/data', { start: true });
+        expect(started).to.equal(false);
+        expect(said).to.include('component web of Flux App myapp is created and not started here: the primary election starts it');
+        expect(said).to.not.include('Starting component');
+      });
+
+      it('leaves a container created with start false to the reconciler, and says so', async () => {
+        const { started, said } = await install('s:/data', { start: false });
+        expect(started).to.equal(false);
+        expect(said).to.include('is created and not started here: the reconciler starts it');
+        expect(said).to.not.include('Starting component');
+      });
+
+      it('holds a component an unfinished restore holds, and says only that', async () => {
+        const { started, said } = await install('s:/data', { start: true }, sinon.stub().resolves(true));
+        expect(started).to.equal(false);
+        expect(said).to.include('web_myapp is not started: a restore of its data did not finish');
+        expect(said).to.not.include('Starting component');
+      });
+    });
+
     it('clears the record of a removal once the container is created', async () => {
       const clearRemovedByFluxOs = sinon.stub().resolves();
       const installer = softInstaller({ ensureMountPathsExist: sinon.stub().resolves() }, { ensureStignoreCovers: sinon.stub().resolves() }, undefined, clearRemovedByFluxOs);

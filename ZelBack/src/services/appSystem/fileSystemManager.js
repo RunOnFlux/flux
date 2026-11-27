@@ -62,6 +62,7 @@ const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPathOfExistingPath, validateFilename } = require('../utils/pathSecurity');
 const { isReservedName, reachesReservedName } = require('./volumeReservedNames');
+const { isRequestRefusal } = require('./requestRefusal');
 const { openVolume, SPACE_HEADROOM } = require('./volumeSession');
 const { sendFile } = require('../utils/fileTransfer');
 const executor = require('./volumeExecutor');
@@ -117,7 +118,7 @@ function startSlotFloor({
  * an operation and polling to discover it never began.
  */
 function respondError(res, error) {
-  log.error(error);
+  if (!isRequestRefusal(error)) log.error(error);
   const errorResponse = messageHelper.createErrorMessage(
     error.message || error,
     error.name,
