@@ -14,7 +14,7 @@ const path = require('node:path');
 
 const NODE_KEY_CREDENTIAL = 'node-key';
 const RPC_COOKIE_FILE = '/run/fluxd/rpc.cookie';
-// fluxd's published facts, {address, pid, rpcport}: written at its start,
+// fluxd's published facts, {address, pid, rpcport, dirs}: written at its start,
 // removed when it stops.
 const FLUXD_FILE = '/run/fluxd/fluxd.json';
 
@@ -80,27 +80,51 @@ async function readRpcCookie(file = RPC_COOKIE_FILE) {
 }
 
 /**
+ * What fluxd publishes about itself.
+ * @param {string} file
+ * @returns {Promise<object|null>} Null while fluxd has published nothing, which is
+ *   while it is not running.
+ */
+async function readPublished(file) {
+  const text = await fs.readFile(file, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw new Error(`${file} cannot be read: ${error.message}`);
+  });
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${file} is not JSON: ${error.message}`);
+  }
+}
+
+/**
  * The port fluxd's RPC server binds, as fluxd publishes it.
  * @param {string} file
  * @returns {Promise<number|null>} Null while fluxd publishes none: it is not
  *   running, or is older than the field.
  */
 async function readFluxdRpcPort(file = FLUXD_FILE) {
-  const text = await fs.readFile(file, 'utf8').catch((error) => {
-    if (error.code === 'ENOENT') return null;
-    throw new Error(`${file} cannot be read: ${error.message}`);
-  });
-  if (text === null) return null;
-  let published;
-  try {
-    published = JSON.parse(text);
-  } catch (error) {
-    throw new Error(`${file} is not JSON: ${error.message}`);
-  }
-  const port = published?.rpcport;
+  const port = (await readPublished(file))?.rpcport;
   if (port === undefined) return null;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${file} names no usable rpcport: ${JSON.stringify(port)}`);
   return port;
+}
+
+/**
+ * Where fluxd keeps its debug log and its chain (blocks, chainstate,
+ * determ_zelnodes) on its network, as fluxd publishes them.
+ * @param {string} file
+ * @returns {Promise<{debuglog: string, chain: string}|null>} Null while fluxd
+ *   publishes none: it is not running, or is older than the field.
+ */
+async function readFluxdDirs(file = FLUXD_FILE) {
+  const dirs = (await readPublished(file))?.dirs;
+  if (dirs === undefined) return null;
+  const { debuglog, chain } = dirs ?? {};
+  const usable = [debuglog, chain].every((value) => typeof value === 'string' && path.isAbsolute(value));
+  if (!usable) throw new Error(`${file} names no usable dirs: ${JSON.stringify(dirs)}`);
+  return { debuglog, chain };
 }
 
 module.exports = {
@@ -109,6 +133,7 @@ module.exports = {
   loadNodeKey,
   RPC_COOKIE_FILE,
   parseCookie,
+  readFluxdDirs,
   readFluxdRpcPort,
   readNodeKeyCredential,
   readRpcCookie,
