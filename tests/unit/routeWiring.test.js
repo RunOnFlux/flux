@@ -23,6 +23,7 @@ const request = require('supertest');
 const apicache = require('apicache');
 
 const registerRoutes = require('../../ZelBack/src/routes');
+const routeTable = require('../../ZelBack/src/routeTableV1');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const { FluxRpc } = require('../../ZelBack/src/services/utils/fluxRpc');
 const {
@@ -77,69 +78,37 @@ const walk = (node, visit, state) => {
   }
 };
 
-/** Local name -> module path, from routes.js's own requires. */
-const requiredModules = (ast) => {
-  const found = new Map();
-  walk(ast, (node) => {
-    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier'
-        && node.init && node.init.type === 'CallExpression'
-        && node.init.callee.name === 'require'
-        && typeof node.init.arguments[0]?.value === 'string') {
-      found.set(node.id.name, node.init.arguments[0].value);
-    }
-    return null;
-  });
-  return found;
-};
-
-const METHODS = new Set(['get', 'post', 'put', 'delete', 'ws', 'use']);
+// The table's module, and through it the modules it required: their
+// filenames hold for the objects the table was built with, even after another
+// test reloads one of them.
+const tableModule = module.children.find((child) => child.exports === routeTable);
 
 /**
- * Every registration routes.js makes, read from its own source.
- *
- * The recorded table above answers neither of the two questions this is read
- * for. By the time express holds a chain entry it is a closure, so the module
- * function behind it is gone; and the wrapper asyncRoute returns is a
- * three-argument middleware indistinguishable from any other.
- * @returns {Array<{method: string, path: string, cached: boolean, wrapped: boolean, handlers: Array<{module: string, fn: string}>}>}
+ * The file a module the table required was read from, as a path under
+ * ZelBack/src without its extension.
+ * @param {object} loaded a module's exports, as the table holds it
+ * @returns {string|null}
  */
-function recordRegistrations() {
-  const ast = parse(fs.readFileSync(path.join(SRC_DIR, 'routes.js'), 'utf8'));
-  const modules = requiredModules(ast);
-  const registrations = [];
-
-  walk(ast, (node) => {
-    if (node.type !== 'CallExpression' || node.callee.type !== 'MemberExpression') return null;
-    if (node.callee.object.name !== 'app' || !METHODS.has(node.callee.property.name)) return null;
-    if (typeof node.arguments[0]?.value !== 'string' || node.arguments.length < 2) return null;
-
-    const chain = node.arguments.slice(1);
-    // Whatever is registered last is the handler; everything ahead of it is
-    // middleware express runs first.
-    const handler = chain[chain.length - 1];
-    const handlers = [];
-    chain.forEach((arg) => walk(arg, (inner) => {
-      if (inner.type === 'MemberExpression' && inner.object.type === 'Identifier'
-          && modules.has(inner.object.name) && inner.property.type === 'Identifier') {
-        handlers.push({ module: modules.get(inner.object.name), fn: inner.property.name });
-      }
-      return null;
-    }));
-
-    registrations.push({
-      method: node.callee.property.name,
-      path: node.arguments[0].value,
-      cached: chain.some((arg) => arg.type === 'CallExpression' && arg.callee.name === 'cache'),
-      wrapped: handler.type === 'CallExpression' && handler.callee.type === 'Identifier'
-        && handler.callee.name === 'asyncRoute',
-      handlers,
-    });
-    return null;
-  });
-
-  return registrations;
+function modulePathOf(loaded) {
+  const child = tableModule.children.find((c) => c.exports === loaded);
+  return child ? `./${path.relative(SRC_DIR, child.filename).replace(/\.js$/, '')}` : null;
 }
 
+/**
+ * Every route of the table, with the service module and function its handler
+ * names. The recorded table answers neither question this is read for: by the
+ * time express holds a chain entry it is a closure, so the module function
+ * behind it is gone.
+ * @returns {Array<{method: string, path: string, cached: boolean, handlers: Array<{module: string, fn: string}>}>}
+ */
+function recordRegistrations() {
+  return routeTable.map((route) => ({
+    method: route.method,
+    path: route.path,
+    cached: Boolean(route.cache),
+    handlers: [{ module: modulePathOf(route.module), fn: route.fn }],
+  }));
+}
 
 describe('route wiring', () => {
   let table;
@@ -609,33 +578,21 @@ describe('route wiring', () => {
     });
   });
 
-  // A handler that rejects without express hearing about it is not a 500 - it
-  // is an unhandled rejection, apiServer's handler, and process.exit. asyncRoute
-  // is the wrapper that makes it a 500, and until this nothing said routes.js
-  // used it: two registrations reverted to the bare arrow left every other
-  // assertion in this file green, which is the blindness the header describes.
-  //
-  // Read from the source, because the wrapper asyncRoute returns cannot be told
-  // apart from any other middleware once express holds it.
-  describe('routes whose handler fails', () => {
-    let registrations;
-
-    before(() => {
-      registrations = recordRegistrations();
+  // routes.js registers the table and nothing else, through routeBuilder, which
+  // wraps every handler so a rejection answers 500 (routeBuilder.test.js).
+  describe('what routes.js registers', () => {
+    it('is the route table, every route in order, through routeBuilder', () => {
+      expect(table.map((entry) => `${entry.method} ${entry.path}`))
+        .to.deep.equal(routeTable.map((route) => `${route.method} ${route.path}`));
     });
 
-    it('are read from a route file that registered something, so an empty read cannot pass', () => {
-      expect(registrations.length).to.be.greaterThan(300);
-    });
-
-    it('answer the caller, rather than taking the node down with them', () => {
-      const dropped = registrations
-        .filter((route) => !route.wrapped)
+    it('names every handler by a module it can read', () => {
+      const unnamed = recordRegistrations().filter((route) => route.handlers[0].module === null)
         .map((route) => `${route.method} ${route.path}`);
-
-      expect(dropped, 'these discard the promise their handler returns').to.deep.equal([]);
+      expect(unnamed).to.deep.equal([]);
     });
   });
+
   // The daemon RPCs a node publishes, as a whole list rather than a set of
   // absences. FluxOS used to proxy every wallet RPC fluxd has - key export and
   // import, spending, signing, the shielded pool - and a fluxnode has no wallet
