@@ -21,7 +21,8 @@ const espree = require('espree');
 
 const ROOT = nodePath.join(__dirname, '../..');
 const SERVICE = 'ZelBack/src/services/syncthingService.js';
-const ROUTES = 'ZelBack/src/routes.js';
+// The router: the route table names each handler by its module and function.
+const ROUTES = 'ZelBack/src/routeTableV1.js';
 
 const parse = (src) => espree.parse(src, {
   ecmaVersion: 2022, sourceType: 'script', loc: true, range: true,
@@ -55,10 +56,28 @@ function serviceFunctions() {
 }
 
 // every syncthingService.<name>( call outside the service itself, with its file
-function externalCalls() {
+// every route of the table whose handler is a syncthingService function: a call
+// the router makes with the request and the response
+function routeCalls() {
+  const src = fs.readFileSync(nodePath.join(ROOT, ROUTES), 'utf8');
+  const aliases = new Set([...src.matchAll(/(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=\s*require\([^)]*syncthingService[^)]*\)/g)]
+    .map((m) => m[1]));
   const calls = [];
+  walk(parse(src), (node) => {
+    if (node.type !== 'ObjectExpression') return;
+    const prop = (key) => node.properties.find((p) => p.key && p.key.name === key);
+    const mod = prop('module');
+    const fn = prop('fn');
+    if (!mod || !fn || mod.value.type !== 'Identifier' || !aliases.has(mod.value.name)) return;
+    calls.push({ name: fn.value.value, where: `${ROUTES}:${node.loc.start.line}`, rel: ROUTES });
+  });
+  return calls;
+}
+
+function externalCalls() {
+  const calls = routeCalls();
   for (const rel of sourceFiles()) {
-    if (rel === SERVICE) continue;
+    if (rel === SERVICE || rel === ROUTES) continue;
     const src = fs.readFileSync(nodePath.join(ROOT, rel), 'utf8');
     if (!src.includes('syncthingService')) continue;
     // the local identifier(s) the module was required under - it is reached
@@ -118,14 +137,14 @@ describe('syncthing call shape', () => {
     expect(unknown, 'call sites this sweep could not resolve').to.deep.equal([]);
   });
 
-  it('only routes.js calls an Api handler', () => {
+  it('only the route table calls an Api handler', () => {
     const stray = external
       .filter((c) => c.name.endsWith('Api') && c.rel !== ROUTES)
       .map((c) => `${c.where} -> ${c.name}`);
     expect(stray, 'an Api handler is the wire, and only the router speaks it').to.deep.equal([]);
   });
 
-  it('nothing but routes.js hands syncthingService an express object', () => {
+  it('nothing but the route table hands syncthingService an express object', () => {
     const offenders = external
       .filter((c) => c.rel !== ROUTES)
       .filter((c) => (params.get(c.name) || []).some((p) => p === 'req' || p === 'res'))
